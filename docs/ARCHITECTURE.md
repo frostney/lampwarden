@@ -90,7 +90,7 @@ src/
     vignette.ts      the red vignette that pulses at the screen's edges when the warden is wounded: a dithered ring of hard pixels
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
-e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
+e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)

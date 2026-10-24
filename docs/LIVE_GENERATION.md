@@ -196,7 +196,7 @@ Rules for Shotcup that follow from its measurements (the Vercel Sandbox settings
 - **Set a render budget.** `timeoutMs` above the plan ceiling (Scale: 300 s) is clamped with a `timeout-clamped` warning. A timeout ends the run cleanly (`failureKind: "timeout"`). Pick a budget per sprite: with the current kit a temple needs about 12 s (107-111 s with the old kit), so a budget well under that would reject sprites the kit makes on purpose.
 - **Never send `allowedHosts`** on render runs. Without it, `fetch` throws `PermissionDenied`.
 - **Seed the drive at deploy time,** not per request. Writing the kit takes 0.43-0.65 s. An unchanged write makes no new version (`created: false`). Pinning the mount to that version id would stop a later kit write from changing a running job's renders. Not implemented or tested.
-- **Keys.** `MUBIT_API_KEY` and the chosen renderer's key would become server-side environment variables of the deployment (today the README says the deployment has none and needs none: that changes with this route). Model output never runs where they live.
+- **Keys.** `MUBIT_API_KEY` and the chosen renderer's key would become server-side environment variables of the deployment (this changed with the route; the README's "Deploying" section lists them). Model output never runs where they live.
 - **Artifact links are public capability URLs by default** (`artifactAccess: "public"`, kept for the plan's retention). The client reads `inlineBase64`, so the links aren't needed: send `retention: "none"` (tested, no speed effect) or `artifacts: "private"` (documented for MCP, not tried over REST).
 
 ## Shotcup

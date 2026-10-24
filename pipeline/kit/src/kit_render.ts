@@ -88,42 +88,63 @@ export class Kit {
     this.parts = kept;
   }
 
-  // render with auto-fit: if the sprite touches the canvas edge, slide it on the canvas (pure screen offset) and render again
+  // render with auto-fit: if the sprite touches the canvas edge, slide it on the canvas (pure screen offset) and render again.
+  // Every pass rasterises without the ground shadow; the shadow is cast once, onto the final pass. It only fills empty pixels,
+  // so it never changes the fit, and the auto-scale probe is reused as the first pass when it did not rescale the scene.
   render(): Rendered {
     if (!this.sanitized) { this.sanitized = true; this.sanitize(); }
-    if (!this.scaled && !this.noScale) this.autoscale();
-    let r = this.render1(this.shadow); let tries = 0;
+    let rendered: Rendered | null = null;
+    if (!this.scaled && !this.noScale) rendered = this.autoscale();
+    if (!rendered) rendered = this.render1(false);
+    let tries = 0;
     while (tries < 5) {
       let x0 = W, x1 = -1, y0 = H, y1 = -1;
-      for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      for (let i = 0; i < W * H; i++) if (rendered.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       let dx = 0, dy = 0;
       if (y0 <= 2 && y1 < H - 10) dy = 6; else if (y1 >= H - 3 && y0 > 10) dy = -6;
       if (x0 <= 2 && x1 < W - 10) dx = 6; else if (x1 >= W - 3 && x0 > 10) dx = -6;
       if (dx === 0 && dy === 0) break;
       this.ox += dx; this.oy += dy; this.fit += (this.fit ? ',' : '') + dx + ':' + dy; tries++;
-      r = this.render1(false);
+      rendered = this.render1(false);
     }
-    return tries > 0 && this.shadow ? this.render1(true) : r;
+    if (this.shadow) this.castShadow(rendered);
+    return rendered;
   }
 
-  // v5 auto-fill-the-frame: if the subject is small (largest sprite extent < 62 px) scale the whole scene about the ground origin to ~78 px (max 2.2x)
-  autoscale(): void {
-    this.scaled = 1; if (!this.parts.length) return;
+  // v5 auto-fill-the-frame: if the subject is small (largest sprite extent < 62 px) scale the whole scene about the ground origin to ~78 px (max 2.2x).
+  // Returns the probe pass when the scene was left as it is (the caller reuses it), null when there was no probe or the scene was rescaled.
+  autoscale(): Rendered | null {
+    this.scaled = 1; if (!this.parts.length) return null;
     const r = this.render1(false); let x0 = W, x1 = -1, y0 = H, y1 = -1;
     for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    if (x1 < 0) return; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
-    if (ex >= 62) return; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return;
+    if (x1 < 0) return r; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
+    if (ex >= 62) return r; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return r;
     this.scaleF = f;
     this.parts = this.parts.map((P) => {
       const s0 = P.s; const t0 = P.tex;
       const ns: Shape = { f: (x, y, z) => s0.f(x / f, y / f, z / f) * f, lo: mul(s0.lo, f), hi: mul(s0.hi, f), lip: s0.lip };
       return { ...P, s: ns, tex: t0 ? ((p: V) => t0([p[0] / f, p[1] / f, p[2] / f])) : null, c: mul(P.c, f), R: P.R * f };
     });
+    return null;
   }
   pj(q: V): [number, number] { return [this.ox + 2 * (q[0] - q[1]), this.oy + q[0] + q[1] - ZK * q[2]]; }
   render1(withShadow: boolean): Rendered {
     const N = W * H; const depth = new Float64Array(N).fill(-BIG); const part = new Int32Array(N).fill(-1);
     const nrm = new Float64Array(N * 3); const pos = new Float64Array(N * 3);
+    // A hit is refined by four bisection steps (from the march depth t over [t, t + 0.06]) only when that refined depth can matter:
+    // when a later part's march reaches that window at the same pixel, or at the end for the part left in front. Outside the window
+    // the march depth and the refined depth compare the same way, so every comparison, and every pixel, is as with refining at once.
+    const unrefined = new Uint8Array(N);
+    const refineDepth = (pixelIndex: number): void => {
+      const shape = this.parts[part[pixelIndex]].s; const pixelX = pixelIndex % W, pixelY = (pixelIndex - pixelX) / W;
+      const diagonal = (pixelX + 0.5 - this.ox) / 2; const pixelCentreY = pixelY + 0.5;
+      let below = depth[pixelIndex], above = depth[pixelIndex] + 0.06;
+      for (let bisection = 0; bisection < 4; bisection++) {
+        const middle = (below + above) / 2;
+        if (shape.f((middle + diagonal) / 2, (middle - diagonal) / 2, (this.oy + middle - pixelCentreY) / ZK) < 0) below = middle; else above = middle;
+      }
+      depth[pixelIndex] = (below + above) / 2; unrefined[pixelIndex] = 0;
+    };
     for (let pi = 0; pi < this.parts.length; pi++) {
       const P = this.parts[pi]; const s = P.s; const lo = s.lo, hi = s.hi;
       let x0 = BIG, x1 = -BIG, y0 = BIG, y1 = -BIG;
@@ -137,29 +158,38 @@ export class Kit {
       for (let py = py0; py <= py1; py++) for (let px = px0; px <= px1; px++) {
         const d = (px + 0.5 - this.ox) / 2; const cy = py + 0.5;
         // s range from u, v, z bounds: u=(s+d)/2, v=(s-d)/2, z=(this.oy+s-cy)/ZK
-        let a = Math.max(sLo, 2 * lo[0] - d, 2 * lo[1] + d, ZK * lo[2] - this.oy + cy);
-        let b = Math.min(sHi, 2 * hi[0] - d, 2 * hi[1] + d, ZK * hi[2] - this.oy + cy);
+        let a = larger(larger(larger(sLo, 2 * lo[0] - d), 2 * lo[1] + d), ZK * lo[2] - this.oy + cy);
+        let b = smaller(smaller(smaller(sHi, 2 * hi[0] - d), 2 * hi[1] + d), ZK * hi[2] - this.oy + cy);
         if (a > b) continue;
         const idx = py * W + px;
         let t = b + 0.05; let hit = false; let guard = 0;
         while (t >= a - 0.05 && guard < 220) {
           guard++;
           if (t <= depth[idx]) break;
+          if (unrefined[idx] && t <= depth[idx] + 0.06) { refineDepth(idx); if (t <= depth[idx]) break; }
           const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK;
           const dist = s.f(x, y, z);
           if (dist < 0.02) { hit = true; break; }
-          t -= Math.max(dist * lip, 0.01) / VL;
+          t -= larger(dist * lip, 0.01) / VL;
         }
-        if (!hit || t <= depth[idx]) continue;
-        // refine with a few bisection steps
-        let ta = t, tb = t + 0.06;
-        for (let r = 0; r < 4; r++) { const tm = (ta + tb) / 2; const x = (tm + d) / 2, y = (tm - d) / 2, z = (this.oy + tm - cy) / ZK; if (s.f(x, y, z) < 0) ta = tm; else tb = tm; }
-        t = (ta + tb) / 2;
-        const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK; const e = 0.04;
-        const n = norm([s.f(x + e, y, z) - s.f(x - e, y, z), s.f(x, y + e, z) - s.f(x, y - e, z), s.f(x, y, z + e) - s.f(x, y, z - e)]);
-        depth[idx] = t; part[idx] = pi; nrm[idx * 3] = n[0]; nrm[idx * 3 + 1] = n[1]; nrm[idx * 3 + 2] = n[2];
-        pos[idx * 3] = x; pos[idx * 3 + 1] = y; pos[idx * 3 + 2] = z;
+        if (!hit) continue;
+        if (unrefined[idx] && t > depth[idx] && t <= depth[idx] + 0.06) refineDepth(idx);
+        if (t <= depth[idx]) continue;
+        depth[idx] = t; part[idx] = pi; unrefined[idx] = 1;
       }
+    }
+    for (let idx = 0; idx < N; idx++) if (unrefined[idx]) refineDepth(idx);
+    // surface point and normal, once per pixel for the part that ended up in front (a part drawn over later needs neither)
+    for (let idx = 0; idx < N; idx++) {
+      const frontPart = part[idx]; if (frontPart < 0) continue;
+      const frontShape = this.parts[frontPart].s; const pixelX = idx % W, pixelY = (idx - pixelX) / W;
+      const diagonal = (pixelX + 0.5 - this.ox) / 2; const pixelCentreY = pixelY + 0.5; const surfaceDepth = depth[idx];
+      const surfaceX = (surfaceDepth + diagonal) / 2, surfaceY = (surfaceDepth - diagonal) / 2, surfaceZ = (this.oy + surfaceDepth - pixelCentreY) / ZK; const normalStep = 0.04;
+      const normal = norm([frontShape.f(surfaceX + normalStep, surfaceY, surfaceZ) - frontShape.f(surfaceX - normalStep, surfaceY, surfaceZ),
+        frontShape.f(surfaceX, surfaceY + normalStep, surfaceZ) - frontShape.f(surfaceX, surfaceY - normalStep, surfaceZ),
+        frontShape.f(surfaceX, surfaceY, surfaceZ + normalStep) - frontShape.f(surfaceX, surfaceY, surfaceZ - normalStep)]);
+      nrm[idx * 3] = normal[0]; nrm[idx * 3 + 1] = normal[1]; nrm[idx * 3 + 2] = normal[2];
+      pos[idx * 3] = surfaceX; pos[idx * 3 + 1] = surfaceY; pos[idx * 3 + 2] = surfaceZ;
     }
     // shade
     const rgba = new Uint8Array(N * 4); const shade = new Int8Array(N).fill(-1); const obj = new Int32Array(N).fill(-1);
@@ -190,8 +220,14 @@ export class Kit {
       const c = R[k]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 255;
       shade[i] = k; obj[i] = P.obj; matOf[i] = m;
     }
-    // cast shadow on the ground plane z=0 (translucent), only on empty pixels
-    if (withShadow && this.shadow && this.parts.length) {
+    const rendered: Rendered = { w: W, h: H, rgba, part, obj, depth, shade, matOf, parts: this.parts.length, stats: {} };
+    if (withShadow) this.castShadow(rendered);
+    return rendered;
+  }
+  // cast shadow on the ground plane z=0 (translucent), only on empty pixels
+  castShadow(rendered: Rendered): void {
+    const { rgba, part, shade } = rendered;
+    if (this.shadow && this.parts.length) {
       const sc = RGB.shadow; let gx0 = BIG, gx1 = -BIG, gy0 = BIG, gy1 = -BIG;
       for (const P of this.parts) for (let c = 0; c < 8; c++) {
         const q: V = [(c & 1) ? P.s.hi[0] : P.s.lo[0], (c & 2) ? P.s.hi[1] : P.s.lo[1], (c & 4) ? P.s.hi[2] : P.s.lo[2]];
@@ -199,23 +235,73 @@ export class Kit {
         for (const pt of [g, [q[0], q[1], 0] as V]) { const sp = this.pj(pt); gx0 = Math.min(gx0, sp[0]); gx1 = Math.max(gx1, sp[0]); gy0 = Math.min(gy0, sp[1]); gy1 = Math.max(gy1, sp[1]); }
       }
       const X0 = Math.max(0, Math.floor(gx0)), X1 = Math.min(W - 1, Math.ceil(gx1)), Y0 = Math.max(0, Math.floor(gy0)), Y1 = Math.min(H - 1, Math.ceil(gy1));
+      // Exact speed-ups of the march toward the light (same steps, same shadow pixels as visiting every part at every step):
+      // - per pixel, each part's bounding-sphere distance from the whole ray (t from 0.15 to 60) is a lower bound of the per-step sphere
+      //   distance, so a part whose bound exceeds the nearest distance found so far is skipped, as the per-step test would have skipped it;
+      // - the parts are split into a near list (bound within shadowNearSlack of the smallest bound) and a far list, which can only matter at
+      //   steps whose nearest distance is beyond every near bound; the nearest part of the previous step goes first. The nearest distance
+      //   is a minimum, so the order changes nothing, but starting low lets the bounds skip most parts;
+      // - a pixel whose ray never comes within the 0.03 hit distance of any sphere is not marched, and the march stops once the ray has
+      //   left every sphere grown by the hit distance, because no later step can come closer than 0.03.
+      const parts = this.parts; const partCount = parts.length;
+      const centreX = new Float64Array(partCount), centreY = new Float64Array(partCount), centreZ = new Float64Array(partCount);
+      const radius = new Float64Array(partCount); const rayBound = new Float64Array(partCount);
+      const nearParts = new Int32Array(partCount), farParts = new Int32Array(partCount); const lineSquared = new Float64Array(partCount);
+      for (let partIndex = 0; partIndex < partCount; partIndex++) {
+        const centre = parts[partIndex].c; centreX[partIndex] = centre[0]; centreY[partIndex] = centre[1]; centreZ[partIndex] = centre[2]; radius[partIndex] = parts[partIndex].R;
+      }
+      const lightX = LIGHT[0], lightY = LIGHT[1], lightZ = LIGHT[2];
+      const boundMargin = 1e-6;   // covers rounding: a bound may only ever be below the distance the march computes, an exit only beyond it
+      const hitDistance = 0.03; const shadowNearSlack = 2;
+      const farBound = 4;   // a part whose sphere stays this far from the whole line gets this as its bound, without the segment distance
       for (let py = Y0; py <= Y1; py++) for (let px = X0; px <= X1; px++) {
         const i = py * W + px; if (part[i] >= 0) continue;
-        const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const g: V = [(sg + d) / 2, (sg - d) / 2, 0];
-        let t = 0.15; let inShadow = false;
-        for (let it = 0; it < 90 && t < 60; it++) {
-          const q = add(g, mul(LIGHT, t)); let md = BIG;
-          for (const P of this.parts) {
-            const dc = len(sub(q, P.c)) - P.R; if (dc > md) continue;
-            md = Math.min(md, Math.max(dc, P.s.f(q[0], q[1], q[2])));
+        const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const groundX = (sg + d) / 2, groundY = (sg - d) / 2;
+        let nearestBound = BIG; let rayExit = -BIG;
+        for (let partIndex = 0; partIndex < partCount; partIndex++) {
+          const offsetX = centreX[partIndex] - groundX, offsetY = centreY[partIndex] - groundY, offsetZ = centreZ[partIndex];
+          const alongLine = offsetX * lightX + offsetY * lightY + offsetZ * lightZ;
+          const lineX = offsetX - lightX * alongLine, lineY = offsetY - lightY * alongLine, lineZ = offsetZ - lightZ * alongLine;
+          const lineDistanceSquared = lineX * lineX + lineY * lineY + lineZ * lineZ; lineSquared[partIndex] = lineDistanceSquared;
+          const farRadius = radius[partIndex] + farBound; if (lineDistanceSquared >= farRadius * farRadius) { rayBound[partIndex] = farBound - boundMargin; continue; }
+          const grownRadius = radius[partIndex] + hitDistance + boundMargin;
+          if (lineDistanceSquared < grownRadius * grownRadius) { const leaves = alongLine + Math.sqrt(grownRadius * grownRadius - lineDistanceSquared); if (leaves > rayExit) rayExit = leaves; }
+          const along = alongLine < 0.15 ? 0.15 : alongLine > 60 ? 60 : alongLine;
+          const awayX = offsetX - lightX * along, awayY = offsetY - lightY * along, awayZ = offsetZ - lightZ * along;
+          const bound = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - radius[partIndex] - boundMargin;
+          rayBound[partIndex] = bound; if (bound < nearestBound) nearestBound = bound;
+        }
+        if (nearestBound >= hitDistance) continue;
+        const nearLimit = nearestBound + shadowNearSlack; let nearCount = 0, farCount = 0;
+        for (let partIndex = 0; partIndex < partCount; partIndex++) { if (rayBound[partIndex] <= nearLimit) nearParts[nearCount++] = partIndex; else farParts[farCount++] = partIndex; }
+        let t = 0.15; let inShadow = false; let previousNearestPart = -1;
+        for (let step = 0; step < 90 && t < 60; step++) {
+          if (t > rayExit) break;
+          const pointX = groundX + lightX * t, pointY = groundY + lightY * t, pointZ = 0 + lightZ * t;
+          let nearest = BIG; let nearestPart = -1;
+          for (let order = -1; order < nearCount + farCount; order++) {
+            let partIndex: number;
+            if (order < 0) { partIndex = previousNearestPart; if (partIndex < 0) continue; }
+            else if (order < nearCount) { partIndex = nearParts[order]; if (partIndex === previousNearestPart) continue; }
+            else {
+              if (nearest <= nearLimit) break; partIndex = farParts[order - nearCount]; if (partIndex === previousNearestPart) continue;
+              const reach = nearest + radius[partIndex] + boundMargin;   // the line distance is a lower bound too: skip when it's beyond reach
+              if (reach < 0 || lineSquared[partIndex] > reach * reach) continue;
+            }
+            if (rayBound[partIndex] > nearest) continue;
+            const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
+            const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
+            const partDistance = larger(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
+            if (partDistance < nearest) nearestPart = partIndex;
+            nearest = smaller(nearest, partDistance);
           }
-          if (md < 0.03) { inShadow = true; break; }
-          t += Math.max(md * 0.8, 0.05);
+          previousNearestPart = nearestPart;
+          if (nearest < hitDistance) { inShadow = true; break; }
+          t += larger(nearest * 0.8, 0.05);
         }
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }
       }
     }
-    return { w: W, h: H, rgba, part, obj, depth, shade, matOf, parts: this.parts.length, stats: {} };
   }
 }
 
@@ -245,10 +331,18 @@ export function post(r: Rendered): Rendered {
   // palette clamp
   if (!PALFLAT) { PALFLAT = []; for (const k of MATS) for (const c of RGB[k]) PALFLAT.push(c); }
   let clamped = 0;
+  // the nearest palette colour depends only on the pixel's colour, and a sprite has few distinct colours: search once per colour
+  const nearestByColour = new Map<number, number[] | null>();   // packed rgb -> nearest palette colour, or null when it is in the palette
   for (let i = 0; i < N; i++) {
-    if (out[i * 4 + 3] !== 255) continue; let bd = BIG, bc = PALFLAT[0];
-    for (const c of PALFLAT) { const dd = (c[0] - out[i * 4]) * (c[0] - out[i * 4]) + (c[1] - out[i * 4 + 1]) * (c[1] - out[i * 4 + 1]) + (c[2] - out[i * 4 + 2]) * (c[2] - out[i * 4 + 2]); if (dd < bd) { bd = dd; bc = c; } }
-    if (bd > 0) { clamped++; out[i * 4] = bc[0]; out[i * 4 + 1] = bc[1]; out[i * 4 + 2] = bc[2]; }
+    if (out[i * 4 + 3] !== 255) continue;
+    const packedColour = (out[i * 4] * 256 + out[i * 4 + 1]) * 256 + out[i * 4 + 2];
+    let nearestColour = nearestByColour.get(packedColour);
+    if (nearestColour === undefined) {
+      let bd = BIG, bc = PALFLAT[0];
+      for (const c of PALFLAT) { const dd = (c[0] - out[i * 4]) * (c[0] - out[i * 4]) + (c[1] - out[i * 4 + 1]) * (c[1] - out[i * 4 + 1]) + (c[2] - out[i * 4 + 2]) * (c[2] - out[i * 4 + 2]); if (dd < bd) { bd = dd; bc = c; } }
+      nearestColour = bd > 0 ? bc : null; nearestByColour.set(packedColour, nearestColour);
+    }
+    if (nearestColour !== null) { clamped++; out[i * 4] = nearestColour[0]; out[i * 4 + 1] = nearestColour[1]; out[i * 4 + 2] = nearestColour[2]; }
   }
   // bounds / coverage
   let cnt = 0, minx = r.w, maxx = -1, miny = r.h, maxy = -1, edge = 0;

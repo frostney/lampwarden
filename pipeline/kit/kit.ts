@@ -392,37 +392,44 @@ export class Kit {
     this.parts = kept;
   }
 
-  // render with auto-fit: if the sprite touches the canvas edge, slide it on the canvas (pure screen offset) and render again
+  // render with auto-fit: if the sprite touches the canvas edge, slide it on the canvas (pure screen offset) and render again.
+  // Every pass rasterises without the ground shadow; the shadow is cast once, onto the final pass. It only fills empty pixels,
+  // so it never changes the fit, and the auto-scale probe is reused as the first pass when it did not rescale the scene.
   render(): Rendered {
     if (!this.sanitized) { this.sanitized = true; this.sanitize(); }
-    if (!this.scaled && !this.noScale) this.autoscale();
-    let r = this.render1(this.shadow); let tries = 0;
+    let rendered: Rendered | null = null;
+    if (!this.scaled && !this.noScale) rendered = this.autoscale();
+    if (!rendered) rendered = this.render1(false);
+    let tries = 0;
     while (tries < 5) {
       let x0 = W, x1 = -1, y0 = H, y1 = -1;
-      for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      for (let i = 0; i < W * H; i++) if (rendered.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       let dx = 0, dy = 0;
       if (y0 <= 2 && y1 < H - 10) dy = 6; else if (y1 >= H - 3 && y0 > 10) dy = -6;
       if (x0 <= 2 && x1 < W - 10) dx = 6; else if (x1 >= W - 3 && x0 > 10) dx = -6;
       if (dx === 0 && dy === 0) break;
       this.ox += dx; this.oy += dy; this.fit += (this.fit ? ',' : '') + dx + ':' + dy; tries++;
-      r = this.render1(false);
+      rendered = this.render1(false);
     }
-    return tries > 0 && this.shadow ? this.render1(true) : r;
+    if (this.shadow) this.castShadow(rendered);
+    return rendered;
   }
 
-  // v5 auto-fill-the-frame: if the subject is small (largest sprite extent < 62 px) scale the whole scene about the ground origin to ~78 px (max 2.2x)
-  autoscale(): void {
-    this.scaled = 1; if (!this.parts.length) return;
+  // v5 auto-fill-the-frame: if the subject is small (largest sprite extent < 62 px) scale the whole scene about the ground origin to ~78 px (max 2.2x).
+  // Returns the probe pass when the scene was left as it is (the caller reuses it), null when there was no probe or the scene was rescaled.
+  autoscale(): Rendered | null {
+    this.scaled = 1; if (!this.parts.length) return null;
     const r = this.render1(false); let x0 = W, x1 = -1, y0 = H, y1 = -1;
     for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    if (x1 < 0) return; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
-    if (ex >= 62) return; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return;
+    if (x1 < 0) return r; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
+    if (ex >= 62) return r; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return r;
     this.scaleF = f;
     this.parts = this.parts.map((P) => {
       const s0 = P.s; const t0 = P.tex;
       const ns: Shape = { f: (x, y, z) => s0.f(x / f, y / f, z / f) * f, lo: mul(s0.lo, f), hi: mul(s0.hi, f), lip: s0.lip };
       return { ...P, s: ns, tex: t0 ? ((p: V) => t0([p[0] / f, p[1] / f, p[2] / f])) : null, c: mul(P.c, f), R: P.R * f };
     });
+    return null;
   }
   pj(q: V): [number, number] { return [this.ox + 2 * (q[0] - q[1]), this.oy + q[0] + q[1] - ZK * q[2]]; }
   render1(withShadow: boolean): Rendered {
@@ -494,8 +501,14 @@ export class Kit {
       const c = R[k]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 255;
       shade[i] = k; obj[i] = P.obj; matOf[i] = m;
     }
-    // cast shadow on the ground plane z=0 (translucent), only on empty pixels
-    if (withShadow && this.shadow && this.parts.length) {
+    const rendered: Rendered = { w: W, h: H, rgba, part, obj, depth, shade, matOf, parts: this.parts.length, stats: {} };
+    if (withShadow) this.castShadow(rendered);
+    return rendered;
+  }
+  // cast shadow on the ground plane z=0 (translucent), only on empty pixels
+  castShadow(rendered: Rendered): void {
+    const { rgba, part, shade } = rendered;
+    if (this.shadow && this.parts.length) {
       const sc = RGB.shadow; let gx0 = BIG, gx1 = -BIG, gy0 = BIG, gy1 = -BIG;
       for (const P of this.parts) for (let c = 0; c < 8; c++) {
         const q: V = [(c & 1) ? P.s.hi[0] : P.s.lo[0], (c & 2) ? P.s.hi[1] : P.s.lo[1], (c & 4) ? P.s.hi[2] : P.s.lo[2]];
@@ -519,7 +532,6 @@ export class Kit {
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }
       }
     }
-    return { w: W, h: H, rgba, part, obj, depth, shade, matOf, parts: this.parts.length, stats: {} };
   }
 }
 

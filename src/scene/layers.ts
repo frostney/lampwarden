@@ -202,7 +202,10 @@ export function drawSweep(graphics: Graphics, state: State) {
     const angle = facing - SWING_HALF_ARC + (2 * SWING_HALF_ARC * segment) / segments;
     graphics.lineTo(centreX + Math.cos(angle) * reach, centreY + (Math.sin(angle) * reach) / 2);
   }
-  graphics.lineTo(centreX, centreY).stroke({ width: 2, color: 0xffffff, alpha: 0.35 });
+  graphics
+    .lineTo(centreX, centreY)
+    .fill({ color: 0xffffff, alpha: 0.1 })
+    .stroke({ width: 2, color: 0xffffff, alpha: 0.5 });
 }
 
 const TRAIL: [number, number][] = [

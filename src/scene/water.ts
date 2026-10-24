@@ -310,13 +310,20 @@ const paintPatches = () =>
   );
 
 // The ripples round a night's boats and posts, over the rest of the water: the plaza is laid out afresh each night
-// (decor.ts), so these are painted for each layout, and clear tiles show what is under them.
-export function createRipples(ripples: readonly Ripple[]): readonly WaterPatch[] {
-  return packPatches(
+// (decor.ts), so these are painted for each layout, and clear tiles show what is under them. `release` gives the
+// textures back once the night is over.
+export function createRipples(ripples: readonly Ripple[]): { patches: readonly WaterPatch[]; release: () => void } {
+  const patches = packPatches(
     patchOrigins((x, y) => nearRipple(ripples, x, y)),
     (frame) => marksOf(frame, (plot) => paintRipples(ripples, plot, frame)),
     () => null,
   );
+  const release = () => {
+    const sources = new Set(patches.flatMap((patch) => patch.frames.map((texture) => texture.source)));
+    for (const patch of patches) for (const texture of patch.frames) texture.destroy(false);
+    for (const source of sources) source.destroy();
+  };
+  return { patches, release };
 }
 
 // --- all of it, painted once -----------------------------------------------------------------------------------

@@ -15,6 +15,7 @@
 | `bun run balance`                      | Plays nights headlessly with an idle and a bot warden (`-- --director`: under stub director decisions).                                                                      |
 | `bun run plays`                        | Balance report from recorded plays in Blob storage.                                                                                                                          |
 | `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                               |
+| `bun run decor`                        | Measures every committed sprite's pixels into `src/scene/decor-extents.ts` for the decor placer (`tools/decor-extents`); run it after adding or redrawing a sprite.          |
 | `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`); renders in Vercel Sandbox.                                                                          |
 | `bun run kit`                          | Reassembles `pipeline/kit/kit.ts` from `pipeline/kit/src`.                                                                                                                   |
 | `bun run sandbox:snapshot`             | Builds the Vercel Sandbox snapshot every render boots from (Bun 1.4.4 + kit + runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID`.                                               |
@@ -152,3 +153,8 @@ approved one. Run it against `bun run build && bun run start`, then look at `ver
 every change that can show on screen. `--update` approves the pass as the new baseline; `--headless` exists, but the
 report then says the pass was not visual. The creature, recording and director APIs are stubbed, so it never reaches Mubit. The game opened with
 `?verify=1` does not upload its nights.
+
+The props stand differently every night (`src/scene/decor.ts`), so no check assumes where one is. It reads the prop sprites
+off the stage and checks, from the committed pictures, that every painted pixel of each land prop's base is on the plaza with
+its margin and each boat's is on the sea, for the night it plays and for six seeds it replays (`08c-plaza-1` to `-6` on the
+contact sheet are the six plazas side by side); a replay must show the plaza the night was played on.

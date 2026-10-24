@@ -336,12 +336,14 @@ function MoonGlitter() {
 function Water({ ripples }: { ripples: Layout["ripples"] }) {
   const { clock } = useScene();
   const water = useMemo(createWater, []);
+  const rippled = useMemo(() => createRipples(ripples), [ripples]);
+  useEffect(() => rippled.release, [rippled]);
   const patches = useMemo(
     () => [
       ...water.patches.map((patch) => ({ key: `surf@${patch.x},${patch.y}`, patch })),
-      ...createRipples(ripples).map((patch) => ({ key: `ripple@${patch.x},${patch.y}`, patch })),
+      ...rippled.patches.map((patch) => ({ key: `ripple@${patch.x},${patch.y}`, patch })),
     ],
-    [water, ripples],
+    [water, rippled],
   );
   const swell = useRef<TilingSprite>(null);
   const patchSprites = useRef<(Sprite | null)[]>([]);

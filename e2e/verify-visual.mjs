@@ -9,6 +9,11 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
+import { anchorYFor } from "../src/scene/assets.ts";
+import { decorFor } from "../src/scene/decor.ts";
+import { baseBandOf } from "../src/scene/extent.ts";
+import { onPlaza, plazaInset } from "../src/scene/plaza.ts";
+import { decodePng } from "../tools/logo/png.ts";
 
 const argument = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -223,10 +228,10 @@ const imageStats = (encoded) =>
       height: canvas.height,
     };
   }, encoded);
-// share of pixels that differ by more than 24 levels in any channel
-const diff = (first, second) =>
+// share of pixels that differ by more than 24 levels in any channel; `masks` (boxes [x, y, width, height]) are left out
+const diff = (first, second, masks = []) =>
   lab.evaluate(
-    async ({ first, second }) => {
+    async ({ first, second, masks }) => {
       const load = async (encoded) => {
         const image = new Image();
         image.src = `data:image/png;base64,${encoded}`;
@@ -242,21 +247,30 @@ const diff = (first, second) =>
       const secondImage = await load(second);
       if (firstImage.width !== secondImage.width || firstImage.height !== secondImage.height) return 1;
       let changed = 0;
-      for (let index = 0; index < firstImage.data.length; index += 4)
+      let masked = 0;
+      for (let index = 0; index < firstImage.data.length; index += 4) {
+        const pixel = index / 4;
+        const column = pixel % firstImage.width;
+        const row = Math.floor(pixel / firstImage.width);
+        if (masks.some(([x, y, width, height]) => column >= x && column < x + width && row >= y && row < y + height)) {
+          masked++;
+          continue;
+        }
         if (
           Math.abs(firstImage.data[index] - secondImage.data[index]) > 24 ||
           Math.abs(firstImage.data[index + 1] - secondImage.data[index + 1]) > 24 ||
           Math.abs(firstImage.data[index + 2] - secondImage.data[index + 2]) > 24
         )
           changed++;
-      return changed / (firstImage.data.length / 4);
+      }
+      return changed / (firstImage.data.length / 4 - masked);
     },
-    { first, second },
+    { first, second, masks },
   );
-// share of pixels in a box that differ between two shots
-const boxDiff = (first, second, [x, y, width, height]) =>
+// share of pixels in a box that differ between two shots; `masks` (boxes in canvas pixels) are left out of the count
+const boxDiff = (first, second, [x, y, width, height], masks = []) =>
   lab.evaluate(
-    async ({ first, second, x, y, width, height }) => {
+    async ({ first, second, x, y, width, height, masks }) => {
       const load = async (encoded) => {
         const image = new Image();
         image.src = `data:image/png;base64,${encoded}`;
@@ -271,7 +285,20 @@ const boxDiff = (first, second, [x, y, width, height]) =>
       const firstData = await load(first);
       const secondData = await load(second);
       let changed = 0;
-      for (let index = 0; index < firstData.length; index += 4)
+      let masked = 0;
+      for (let index = 0; index < firstData.length; index += 4) {
+        const pixel = index / 4;
+        const column = x + (pixel % width);
+        const row = y + Math.floor(pixel / width);
+        if (
+          masks.some(
+            ([maskX, maskY, maskWidth, maskHeight]) =>
+              column >= maskX && column < maskX + maskWidth && row >= maskY && row < maskY + maskHeight,
+          )
+        ) {
+          masked++;
+          continue;
+        }
         if (
           Math.abs(firstData[index] - secondData[index]) +
             Math.abs(firstData[index + 1] - secondData[index + 1]) +
@@ -279,9 +306,10 @@ const boxDiff = (first, second, [x, y, width, height]) =>
           30
         )
           changed++;
-      return changed / (firstData.length / 4);
+      }
+      return changed / Math.max(1, firstData.length / 4 - masked);
     },
-    { first, second, x, y, width, height },
+    { first, second, x, y, width, height, masks },
   );
 // mean colour of the box's pixels that changed between two shots by more than 40 levels (a sprite drawn over the same
 // ground), as [red, green, blue] and how many pixels changed
@@ -612,6 +640,102 @@ async function checkTraitIcons(tag, name, selector, expectedCount) {
     problems.join("; ") || `${found.length} shown`,
   );
 }
+
+// --- the night's props: laid out from its seed (src/scene/decor.ts), so every night stands on a different plaza -------
+const PROP_KEYS = ["zeus-statue", "temple", "house", "stall", "olive", "wall", "galley-dock", "trireme"];
+const BOAT_KEYS = ["galley-dock", "trireme"];
+const byKeyThenPlace = (first, second) =>
+  first[0].localeCompare(second[0]) || first[1] - second[1] || first[2] - second[2];
+// the prop sprites on the stage as they are drawn: [key, x, y], in a fixed order
+const drawnProps = () =>
+  page
+    .evaluate((keys) => {
+      const found = [];
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`));
+        if (key && node.visible !== false) found.push([key, Math.round(node.x), Math.round(node.y)]);
+        for (const child of node.children ?? []) visit(child);
+      };
+      const app = window.lampwarden.app();
+      if (app) visit(app.stage);
+      return found;
+    }, PROP_KEYS)
+    .then((found) => found.sort(byKeyThenPlace));
+// the props a seed lays out, in the same form
+const laidOutProps = (seed) => {
+  const layout = decorFor(seed | 0);
+  return [...layout.props, ...layout.boats].map((placed) => [placed.key, placed.x, placed.y]).sort(byKeyThenPlace);
+};
+// whether the stage shows exactly these props (the trireme rocks on the water, so its y is only close)
+const sameProps = (drawn, expected) =>
+  drawn.length === expected.length &&
+  drawn.every(([key, x, y], index) => {
+    const [expectedKey, expectedX, expectedY] = expected[index];
+    return key === expectedKey && x === expectedX && Math.abs(y - expectedY) <= (BOAT_KEYS.includes(key) ? 5 : 0);
+  });
+const propSprites = new Map();
+// A sprite's painted pixels in the rows of its base (src/scene/extent.ts), by their offset from the anchor, read from the
+// committed picture: the check below looks at pixels, not at the numbers the placer was given.
+function basePixelsOf(key) {
+  let pixels = propSprites.get(key);
+  if (!pixels) {
+    const image = decodePng(readFileSync(`public/sprites/${key}.png`));
+    const anchorRow = anchorYFor(key) * 128;
+    pixels = [];
+    for (let row = 0; row < 128; row++)
+      if (row - anchorRow >= -baseBandOf(key))
+        for (let column = 0; column < 128; column++)
+          if (image.data[(row * 128 + column) * 4 + 3] > 0) pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
+    propSprites.set(key, pixels);
+  }
+  return pixels;
+}
+// the land props with a painted pixel of their base off the plaza, or less than their margin in from its rim
+function propsOffPlaza(props) {
+  const problems = [];
+  for (const [key, x, y] of props) {
+    if (BOAT_KEYS.includes(key) || key === "zeus-statue") continue;
+    const margin = key === "wall" ? 4 : 8;
+    let off = 0;
+    let near = 0;
+    for (const [offsetX, offsetY] of basePixelsOf(key)) {
+      if (!onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY))) off++;
+      else if (plazaInset(x + offsetX, y + offsetY) < margin - 1) near++;
+    }
+    if (off || near) problems.push(`${key}@${x},${y}: ${off} pixels off the plaza, ${near} within the margin`);
+  }
+  return problems;
+}
+// the boats whose base has a painted pixel on the plaza
+function boatsOnStone(props) {
+  const problems = [];
+  for (const [key, x, y] of props) {
+    if (!BOAT_KEYS.includes(key)) continue;
+    const onStone = basePixelsOf(key).filter(([offsetX, offsetY]) =>
+      onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY)),
+    ).length;
+    if (onStone) problems.push(`${key}@${x},${y}: ${onStone} pixels on the plaza`);
+  }
+  return problems;
+}
+function checkPropsOnPlaza(scene, label, props) {
+  const stone = propsOffPlaza(props);
+  check(
+    scene,
+    `${label}: every land prop's painted base is on the plaza, a margin in from its rim`,
+    props.length >= 9 && stone.length === 0,
+    stone.join("; ") || `${props.length} props drawn`,
+  );
+  const sea = boatsOnStone(props);
+  check(scene, `${label}: the boats lie on the sea`, sea.length === 0, sea.join("; ") || "on the sea");
+}
+
+// The frames of the props two nights draw, as boxes to leave out when one night's picture is compared with another's: the
+// plaza's props are the one thing two nights do not share.
+const propFrames = (...lists) =>
+  lists.flatMap((props) => props.map(([key, x, y]) => [x - 64, y - Math.round(anchorYFor(key) * 128), 128, 128]));
+
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -710,6 +834,9 @@ check(
   litHeads.map((level) => level.toFixed(0)).join(" "),
 );
 check("night-start", "HUD shows 5 lit lamps", (await page.locator(".lamps span.lit").count()) === 5);
+// this night's props, laid out from its seed
+const liveProps = await drawnProps();
+checkPropsOnPlaza("night-start", "the night's plaza", liveProps);
 check("night-start", "night is dark overall", nightStats.mean < 110, `mean ${nightStats.mean.toFixed(1)}`);
 
 // 3 combat: one of each monster near lamps, a shot in flight, a lamp being clawed
@@ -1315,6 +1442,15 @@ check(
 await page.getByRole("button", { name: /Into night/ }).click();
 await page.waitForSelector('[data-phase="night"]');
 await checkTouchIcons("night", "male");
+// the next night, the one the replay below shows, is laid out afresh from a seed of its own
+const lastNightProps = await drawnProps();
+checkPropsOnPlaza("night-two", "the second night's plaza", lastNightProps);
+check(
+  "night-two",
+  "the second night stands on a plaza of its own",
+  !sameProps(lastNightProps, liveProps),
+  JSON.stringify(lastNightProps),
+);
 await seedWeaponShop();
 await page.evaluate(() => {
   for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
@@ -1358,6 +1494,17 @@ await page.waitForTimeout(1200);
 await freeze();
 shot = await shoot("08-replay");
 check("replay", "replay bar shown", (await text(".replaybar")).join("").includes("REPLAY"));
+{
+  // the replay lays the plaza out again from the recorded seed: the one the night was played on
+  const replayedProps = await drawnProps();
+  const playedSeed = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:lastPlay") ?? "null")?.seed);
+  check(
+    "replay",
+    "a replay shows the plaza the night was played on",
+    sameProps(replayedProps, lastNightProps) && sameProps(replayedProps, laidOutProps(playedSeed)),
+    `played ${JSON.stringify(lastNightProps)}, replayed ${JSON.stringify(replayedProps)}`,
+  );
+}
 
 // 8b a recording is replayed only on the sim it was played on (the sim fingerprint every play carries). The recording
 // just made on this build matches; one from another version, and one from before fingerprints, are described, not played.
@@ -1378,6 +1525,26 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "a recording from the same sim, served by the API, replays",
     (await text(".replaybar")).join("").includes(sameSim.id),
   );
+
+  // 8c six plazas: the same recording under six seeds lays out six plazas, each inside its rim (the contact sheet shows them
+  // side by side). The recorded seed is all a replay has, and it lays out what the seed says.
+  for (const [index, seed] of [11, 22, 33, 44, 55, 3000000000].entries()) {
+    const seeded = { ...lastPlay, id: `2026-10-24-21-00-0${index}-layout${index}`, seed };
+    await page.route(`**/api/plays/${seeded.id}`, serveFixturePlay(seeded));
+    await page.goto(`${BASE_URL}/?replay=${seeded.id}`);
+    await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+    await page.evaluate(() => window.lampwarden.scene().setPaused(true));
+    await freeze();
+    await shoot(`08c-plaza-${index + 1}`);
+    const props = await drawnProps();
+    check(
+      "plazas",
+      `seed ${seed}: the replay shows the plaza the seed lays out`,
+      sameProps(props, laidOutProps(seed)),
+      JSON.stringify(props),
+    );
+    checkPropsOnPlaza("plazas", `seed ${seed}`, props);
+  }
 
   for (const [label, play, shotName] of REFUSED_PLAYS) {
     await page.route(`**/api/plays/${play.id}`, serveFixturePlay(play));
@@ -1876,7 +2043,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   check("sea-none", "the night has no creature", noneNight.creature === null && noneNight.creatureMonsters === 0);
   check("sea-none", "nothing was met", noneNight.bestiary.length === 0);
   shot = await shoot("14-sea-none-night");
-  const unchanged = await diff(shot, nightStart);
+  const unchanged = await diff(shot, nightStart, propFrames(liveProps, await drawnProps()));
   check("sea-none", "the night start looks as it did", unchanged < 0.005, `${(unchanged * 100).toFixed(2)}% changed`);
 
   // 15 still being made: its step shows, and the night can start without it
@@ -2036,7 +2203,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.waitForTimeout(80);
   check("sea-night", "its sprite is on the stage, loaded from the gallery's file", (await seaSprites()) >= 1);
   const plain = await shoot("18-sea-night");
-  const drawnShare = await boxDiff(plain, nightStart, creatureBox);
+  const drawnShare = await boxDiff(plain, nightStart, creatureBox, propFrames(liveProps, await drawnProps()));
   check("sea-night", "the creature is drawn where it stands", drawnShare > 0.08, `${(drawnShare * 100).toFixed(0)}%`);
   // the white flash after a blow, then the red tint of the hurt monster
   await page.evaluate(() => {

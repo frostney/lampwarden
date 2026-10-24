@@ -1,6 +1,7 @@
 // One night in Lychnos: monsters come out of the sea to snuff the town's lamps; the warden fights and relights them until dawn.
 // Pure game state and step(); no Pixi, so scripts/balance.ts can run it headless.
 import { FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "../scene/assets";
+import { type Creature, type CreatureStats, statsOf } from "./creature";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 
@@ -11,13 +12,12 @@ export const CENTRE_Y = 320;
 export const PLAZA_HALF_WIDTH = 384; // plaza diamond half width (12 tiles of 64x32)
 export const PLAZA_HALF_HEIGHT = 192;
 
-export type MonsterKind = "satyr" | "cyclops" | "harpy";
+// "creature" is the night's creature from the sea (see NightCreature), when one joined this night.
+export type HandMadeKind = "satyr" | "cyclops" | "harpy";
+export type MonsterKind = HandMadeKind | "creature";
 // snuff: seconds of clawing to put a lamp out. oil: what a kill leaves when it drops oil at all (see OIL_CHANCE).
 // recoil: how far a blow throws it (the cyclops is heavy, the harpy light).
-export const MONSTER: Record<
-  MonsterKind,
-  { speed: number; health: number; damage: number; snuff: number; oil: number; fly: boolean; recoil: number }
-> = {
+export const MONSTER: Record<HandMadeKind, CreatureStats> = {
   satyr: { speed: 50, health: 1, damage: 8, snuff: 2.6, oil: 1, fly: false, recoil: 1 },
   cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 2, fly: false, recoil: 0.6 },
   harpy: { speed: 76, health: 1, damage: 6, snuff: 3.2, oil: 1, fly: true, recoil: 1.3 },
@@ -42,6 +42,23 @@ const KNOCK_LIMIT = 0.95; // how near the plaza's rim a push may leave a monster
 export const HURT_TIME = 0.25;
 export const FLASH_TIME = 0.06;
 export const GHOST_TIME = 0.16; // a killed monster's white silhouette is flung back for this long
+
+// The creature the sea sends this night, when there is one (src/game/creature.ts). It is part of the night's setup, so a
+// recording carries it and a replay builds the same night. Its stats follow from its archetype and modifiers, never
+// from the model; anchorY is for the scene.
+export interface NightCreature {
+  id: string;
+  anchorY: number;
+  stats: CreatureStats;
+}
+export const nightCreature = (
+  creature: Pick<Creature, "id" | "archetype" | "modifiers" | "anchorY">,
+): NightCreature => ({ id: creature.id, anchorY: creature.anchorY, stats: statsOf(creature) });
+// From CREATURE_FROM seconds in, about CREATURE_SHARE of the spawns are the creature, with at most CREATURE_CAP alive.
+// The draw for it is made only when it can come, so a night without a creature draws exactly what it always did.
+const CREATURE_FROM = 8;
+const CREATURE_SHARE = 0.25;
+const CREATURE_CAP = 2;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
 export const LAMP_SPOTS: [number, number][] = [
@@ -148,6 +165,7 @@ export interface State {
   spawnTimer: number;
   nextId: number;
   tide: number;
+  creature: NightCreature | null;
   randomState: number; // mulberry32 state: a night replays exactly from its seed and inputs
   rules: Rules;
   stats: Stats;
@@ -182,7 +200,7 @@ function rand(state: State): number {
 }
 export const newSeed = () => (Math.random() * 4294967296) >>> 0;
 
-export function newNight(legacy: Legacy, seed = newSeed()): State {
+export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreature | null = null): State {
   const rules = rulesFor(legacy, legacy.heir.trait);
   const { heart, hide } = legacy.levels;
   const maxHealth = 100 + 20 * heart + 30 * hide + (legacy.heir.trait === "stout" ? 30 : 0);
@@ -213,6 +231,7 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
     spawnTimer: 2.5,
     nextId: 1,
     tide: legacy.tide,
+    creature,
     randomState: seed | 0,
     rules,
     stats: { kills: 0, lampsLost: 0, hpLost: 0, time: 0 },
@@ -249,8 +268,23 @@ function pickKind(state: State, roll: number): MonsterKind {
   return "satyr";
 }
 
+// The stats a kind of monster plays by tonight: the creature's, or the hand-made monster's.
+export function monsterStats(state: Pick<State, "creature">, kind: MonsterKind): CreatureStats {
+  if (kind !== "creature") return MONSTER[kind];
+  return state.creature?.stats ?? MONSTER.satyr;
+}
+
+const creaturesAlive = (state: State) => state.monsters.filter((monster) => monster.kind === "creature").length;
+
 function spawn(state: State) {
-  const kind = pickKind(state, rand(state));
+  let kind = pickKind(state, rand(state));
+  if (
+    state.creature &&
+    state.elapsed >= CREATURE_FROM &&
+    creaturesAlive(state) < CREATURE_CAP &&
+    rand(state) < CREATURE_SHARE
+  )
+    kind = "creature";
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
   const angle = rand(state) < 0.6 ? Math.PI * (0.15 + rand(state) * 0.7) : rand(state) * Math.PI * 2;
   state.monsters.push({
@@ -258,7 +292,7 @@ function spawn(state: State) {
     kind,
     x: CENTRE_X + Math.cos(angle) * PLAZA_HALF_WIDTH * 0.9,
     y: CENTRE_Y + Math.sin(angle) * PLAZA_HALF_HEIGHT * 0.9,
-    health: MONSTER[kind].health,
+    health: monsterStats(state, kind).health,
     age: rand(state) * 10,
     wobble: 10 + rand(state) * 18,
     snuff: 0,
@@ -303,7 +337,9 @@ function turn(hero: Hero, moveX: number, moveY: number): boolean {
   return true;
 }
 
-const bodyHeight = (kind: MonsterKind) => (MONSTER[kind].fly ? 56 : 32);
+// where on screen a monster's body is, above its feet: what a shot aims at and a blow lands on
+export const bodyHeight = (state: Pick<State, "creature">, kind: MonsterKind) =>
+  monsterStats(state, kind).fly ? 56 : 32;
 
 function addPuff(
   state: State,
@@ -395,7 +431,7 @@ export function step(state: State, deltaTime: number, input: Input) {
         directionX: away > 0 ? awayX / away : hero.directionX,
         directionY: away > 0 ? awayY / away : hero.directionY,
         x: monster.x,
-        y: monster.y - bodyHeight(monster.kind),
+        y: monster.y - bodyHeight(state, monster.kind),
       });
       connected = true;
     }
@@ -432,7 +468,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     shot.life -= deltaTime;
     for (const monster of state.monsters.slice()) {
       if (shot.hit.includes(monster.id)) continue;
-      const bodyY = monster.y - bodyHeight(monster.kind);
+      const bodyY = monster.y - bodyHeight(state, monster.kind);
       if (Math.hypot(monster.x - shot.x, bodyY - shot.y) < 30) {
         shot.hit.push(monster.id);
         const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
@@ -471,7 +507,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   for (const monster of state.monsters.slice()) {
-    const kind = MONSTER[monster.kind];
+    const stats = monsterStats(state, monster.kind);
     monster.age += deltaTime;
     monster.attackCooldown = Math.max(0, monster.attackCooldown - deltaTime);
     monster.hurt = Math.max(0, monster.hurt - deltaTime);
@@ -507,9 +543,9 @@ export function step(state: State, deltaTime: number, input: Input) {
       // claw the warden
       if (monster.attackCooldown <= 0) {
         monster.attackCooldown = 1.1;
-        hero.health = Math.max(0, hero.health - kind.damage);
+        hero.health = Math.max(0, hero.health - stats.damage);
         hero.hurt = 0.35;
-        state.stats.hpLost += kind.damage;
+        state.stats.hpLost += stats.damage;
         addPuff(state, hero.x, hero.y - 30, "hurt");
       }
       continue;
@@ -517,7 +553,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     if (lamp && distance < 24) {
       // claw the lamp
       monster.snuff += deltaTime;
-      if (monster.snuff >= kind.snuff * rules.snuffMultiplier) {
+      if (monster.snuff >= stats.snuff * rules.snuffMultiplier) {
         lamp.lit = false;
         lamp.relight = 0;
         monster.snuff = 0;
@@ -529,7 +565,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     monster.snuff = 0;
     // move in ground space with a sideways wobble; the light slows them
     const speed =
-      kind.speed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
+      stats.speed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
     const groundX = towardX / distance;
     const groundY = towardY / distance;
     const lateral = Math.cos(monster.age * 2.2) * monster.wobble * Math.min(1, distance / 80);
@@ -575,7 +611,7 @@ function strike(state: State, monster: Monster, blow: Blow) {
   monster.health -= blow.amount;
   monster.hurt = HURT_TIME;
   if (monster.health > 0) {
-    const recoil = MONSTER[monster.kind].recoil;
+    const recoil = monsterStats(state, monster.kind).recoil;
     monster.stun = blow.stun;
     monster.knockX = blow.directionX * blow.push * recoil;
     monster.knockY = blow.directionY * blow.push * recoil;
@@ -589,7 +625,7 @@ function strike(state: State, monster: Monster, blow: Blow) {
     monsterAge: monster.age,
   };
   state.stats.kills++;
-  if (rand(state) < state.rules.oilChance) state.oilEarned += MONSTER[monster.kind].oil;
+  if (rand(state) < state.rules.oilChance) state.oilEarned += monsterStats(state, monster.kind).oil;
 }
 
 // Slides a thrown monster along its push and lets the push die away. It never ends up farther out than the rim it was

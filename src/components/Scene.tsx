@@ -39,9 +39,9 @@ import {
   HURT_TIME,
   type Input,
   type Lamp,
-  MONSTER,
   type Monster,
   type MonsterKind,
+  monsterStats,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
@@ -50,6 +50,7 @@ import {
 import { heroKey, type Sex } from "@/scene/assets";
 import {
   anchor,
+  anchorAt,
   drawGround,
   drawMarks,
   drawSweep,
@@ -57,6 +58,7 @@ import {
   heroFrame,
   lightsAlpha,
   monsterBob,
+  monsterLook,
   nightTint,
   PROPS,
   type TextureMap,
@@ -86,6 +88,7 @@ export interface Night {
   state: State;
   sex: Sex;
   driver: Driver | null;
+  creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
 }
 
 interface SceneProps {
@@ -131,7 +134,8 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
-  const shared = useMemo(() => ({ textures, clock }), [textures]);
+  const sceneTextures = useMemo(() => ({ ...textures, ...night.creatureTextures }), [textures, night.creatureTextures]);
+  const shared = useMemo(() => ({ textures: sceneTextures, clock }), [sceneTextures]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
@@ -427,23 +431,24 @@ function Monsters({ state }: { state: State }) {
       setShown({ state, list: lastHandedToReact.current });
     }, [state]),
   );
-  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} />);
+  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} state={state} />);
 }
 
-const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monster }) {
+const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster: Monster; state: State }) {
   const { textures } = useScene();
+  const look = monsterLook(state, monster.kind);
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
       if (!sprite) return;
-      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(monster.kind, monster.age)));
+      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(state, monster.kind, monster.age)));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? 0xff7070 : 0xffffff;
-    }, [monster]),
+    }, [monster, state]),
   );
-  return <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />;
+  return <pixiSprite ref={ref} texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />;
 });
 
 // a Graphics layer cleared and redrawn every frame (shots, puffs, rings)
@@ -602,8 +607,9 @@ function Flashes({ state }: { state: State }) {
         shown.add(key);
         let sprite = sprites.current.get(key);
         if (!sprite) {
-          sprite = new Sprite(textureFor(textures, flashKey(kind)));
-          sprite.anchor.copyFrom(anchor(kind));
+          const look = monsterLook(state, kind);
+          sprite = new Sprite(textureFor(textures, flashKey(look.key)));
+          sprite.anchor.copyFrom(anchorAt(look.anchorY));
           sprite.scale.x = x > CENTRE_X ? -1 : 1;
           container.addChild(sprite);
           sprites.current.set(key, sprite);
@@ -613,19 +619,25 @@ function Flashes({ state }: { state: State }) {
       };
       for (const monster of state.monsters)
         if (monster.hurt > HURT_TIME - FLASH_TIME)
-          show(`monster${monster.id}`, monster.kind, monster.x, monster.y + monsterBob(monster.kind, monster.age), 1);
+          show(
+            `monster${monster.id}`,
+            monster.kind,
+            monster.x,
+            monster.y + monsterBob(state, monster.kind, monster.age),
+            1,
+          );
       for (const puff of state.puffs) {
         const ghost = puff.ghost;
         if (!ghost || puff.age >= GHOST_TIME) continue;
         const progress = puff.age / GHOST_TIME;
         // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
         const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-        const travel = 30 * MONSTER[ghost.monster].recoil * (1 - (1 - flight) ** 2);
+        const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
         show(
           `puff${puff.id}`,
           ghost.monster,
           ghost.x + puff.directionX * travel,
-          ghost.y + puff.directionY * travel * 0.5 + monsterBob(ghost.monster, ghost.monsterAge + puff.age),
+          ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
           progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
         );
       }

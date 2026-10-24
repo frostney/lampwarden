@@ -2,7 +2,7 @@
 // step. One mutable object, written by keyboard, pointer and touch handlers and read by the scene's fixed-step loop, so
 // input never causes a React render.
 import { quantise } from "./replay";
-import { type Input, MONSTER, type State } from "./sim";
+import { bodyHeight, type Input, type State } from "./sim";
 
 export interface Controls {
   keys: Set<string>;
@@ -85,7 +85,7 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
     const distance = Math.hypot(monster.x - state.hero.x, (monster.y - state.hero.y) * 2);
     if (distance < best) {
       best = distance;
-      controls.aim = { x: monster.x, y: monster.y - (MONSTER[monster.kind].fly ? 56 : 32) };
+      controls.aim = { x: monster.x, y: monster.y - bodyHeight(state, monster.kind) };
     }
   }
 }

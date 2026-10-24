@@ -115,8 +115,11 @@ export type BatchItemOutcome = z.infer<typeof batchResultsSchema>["items"][numbe
 export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds: number): RenderResult {
   if (outcome.timedOut) return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
   if (outcome.exitCode !== 0) {
+    // Bun reports a process killed by a signal (the kernel's out-of-memory kill) as a null exit code
     const reason =
-      outcome.exitCode === 137 ? "render killed (memory)" : lastErrorLine(outcome.standardError).slice(0, 300);
+      outcome.exitCode === 137 || outcome.exitCode === null
+        ? "render killed (memory)"
+        : lastErrorLine(outcome.standardError).slice(0, 300);
     return { ok: false, error: `exit ${outcome.exitCode}: ${reason}` };
   }
   if (outcome.png === null) return { ok: false, error: "render wrote no PNG" };

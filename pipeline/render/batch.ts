@@ -40,7 +40,16 @@ export interface BatchResults {
 const OUTPUT_TAIL_CHARACTERS = 4000;
 const RUNNER_DIRECTORY = import.meta.dir;
 
-const tail = (text: string) => text.slice(-OUTPUT_TAIL_CHARACTERS);
+/** Reads a stream to its end but keeps only the last part, so a build that prints without end cannot exhaust memory. */
+async function readTail(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let kept = "";
+  for await (const chunk of stream) {
+    kept += decoder.decode(chunk, { stream: true });
+    if (kept.length > OUTPUT_TAIL_CHARACTERS * 2) kept = kept.slice(-OUTPUT_TAIL_CHARACTERS);
+  }
+  return kept.slice(-OUTPUT_TAIL_CHARACTERS);
+}
 
 async function renderItem(jobDirectory: string, manifest: BatchManifest, index: number): Promise<BatchItemOutcome> {
   const item = manifest.items[index];
@@ -65,8 +74,8 @@ async function renderItem(jobDirectory: string, manifest: BatchManifest, index: 
     subprocess.kill("SIGKILL");
   }, manifest.itemDeadlineMilliseconds);
   const [standardOutput, standardError, exitCode] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
+    readTail(subprocess.stdout),
+    readTail(subprocess.stderr),
     subprocess.exited,
   ]);
   clearTimeout(timer);
@@ -82,8 +91,8 @@ async function renderItem(jobDirectory: string, manifest: BatchManifest, index: 
   return {
     exitCode,
     timedOut,
-    standardOutput: tail(standardOutput),
-    standardError: tail(standardError),
+    standardOutput,
+    standardError,
     png,
     milliseconds,
   };

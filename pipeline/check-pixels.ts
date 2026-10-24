@@ -71,8 +71,8 @@ function differingPixels(first: Uint8Array, second: Uint8Array): number {
 }
 
 // the jobs in interleaved slices, so every VM gets a mix of cheap and expensive sprites
-const batchCount = Math.max(1, Math.min(Number(values.batches), jobs.length));
-const vcpus = Number(values.vcpus);
+const batchCount = Math.max(1, Math.min(Math.trunc(Number(values.batches)) || DEFAULT_BATCHES, jobs.length));
+const vcpus = Math.trunc(Number(values.vcpus)) || DEFAULT_VCPUS;
 const slices = Array.from({ length: batchCount }, (_unused, slice) =>
   jobs.filter((_job, position) => position % batchCount === slice),
 );

@@ -68,7 +68,13 @@ async function verifySnapshot(sandbox: Sandbox, snapshotId: string, expectedBund
   if (verifiedSnapshots.has(key)) return;
   const manifestBytes = await sandbox.readFileToBuffer({ path: SNAPSHOT_MANIFEST_PATH });
   if (manifestBytes === null) throw new SnapshotMismatchError("the sandbox snapshot has no manifest");
-  const manifest = snapshotManifestSchema.safeParse(JSON.parse(manifestBytes.toString("utf8")));
+  let manifestJson: unknown = null;
+  try {
+    manifestJson = JSON.parse(manifestBytes.toString("utf8"));
+  } catch {
+    // falls through to the unreadable-manifest error below
+  }
+  const manifest = snapshotManifestSchema.safeParse(manifestJson);
   if (!manifest.success) throw new SnapshotMismatchError("the sandbox snapshot has an unreadable manifest");
   const mismatch = snapshotMismatch(manifest.data, expectedBundleSha);
   if (mismatch) throw new SnapshotMismatchError(mismatch);

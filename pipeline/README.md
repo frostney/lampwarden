@@ -70,7 +70,7 @@ Run body: `{"code": <main.ts>, "engine": {"canvas": true}, "mounts": [{"drive": 
 - The same run body was executed 11 times through the Shotcup **MCP** server (not through `shotcup_render.py`): hero frames and key sprites. All 11 outputs were pixel-identical to the local bun renderer.
 - **`shotcup_render.py` itself has not been executed against the API** (no API key on the box at the time). It compiles, and the no-key path returns a clean error to the loop (checked). Treat the first real run as a test.
 - **Shotcup was slower than local, not faster, for this workload.** Local bun renders a sprite in about 0.4 s including process start. On Shotcup, per-run engine time was about 18 s per hero frame (unscaled 128 px frames) and about 41–61 s per auto-scaled sprite (roughly 0.1–0.9 G engine instructions each). Batching several sprites into one run did not amortise anything meaningful, because the cost is render compute, not setup.
-- **Shrinking the kit would not help.** Loading `/kit/kit.ts` (164 KB, 53 exports) took about 0.23 s in the engine; the time is in the rasteriser.
+- **Shrinking the kit would not help.** Loading `/kit/kit.ts` (164 KB, 53 exports at the time; it is now 212 KB and 58 exports with the building builders, not re-measured on Shotcup) took about 0.23 s in the engine; the time is in the rasteriser.
 - So the value of `--render shotcup` here is sandboxed, deterministic remote execution of model-written code (no local bun, nothing runs on your machine), not speed. Plan on the local renderer for iteration.
 - A Mubit-driven run through `run.py --render shotcup` end to end has not been done.
 

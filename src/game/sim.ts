@@ -2,6 +2,7 @@
 // Pure game state and step(); no Pixi, so scripts/balance.ts can run it headless.
 import { FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "../scene/assets";
 import type { Legacy, TraitId } from "./legacy";
+import { nextRandom } from "./random";
 
 export const STAGE_WIDTH = 960;
 export const STAGE_HEIGHT = 600;
@@ -11,16 +12,21 @@ export const PLAZA_HALF_WIDTH = 384; // plaza diamond half width (12 tiles of 64
 export const PLAZA_HALF_HEIGHT = 192;
 
 export type MonsterKind = "satyr" | "cyclops" | "harpy";
-// snuff: seconds of clawing to put a lamp out. oil: reward per kill. recoil: how far a blow throws it (the cyclops is
-// heavy, the harpy light).
+// snuff: seconds of clawing to put a lamp out. oil: what a kill leaves when it drops oil at all (see OIL_CHANCE).
+// recoil: how far a blow throws it (the cyclops is heavy, the harpy light).
 export const MONSTER: Record<
   MonsterKind,
   { speed: number; health: number; damage: number; snuff: number; oil: number; fly: boolean; recoil: number }
 > = {
   satyr: { speed: 50, health: 1, damage: 8, snuff: 2.6, oil: 1, fly: false, recoil: 1 },
-  cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 3, fly: false, recoil: 0.6 },
+  cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 2, fly: false, recoil: 0.6 },
   harpy: { speed: 76, health: 1, damage: 6, snuff: 3.2, oil: 1, fly: true, recoil: 1.3 },
 };
+
+// The oil economy: a kill leaves its oil only OIL_CHANCE of the time (the seeded rand, so a night still replays), and
+// the dawn bonus is small, so a night earns about one level-1 upgrade. The Oil seeker upgrade raises the chance.
+const OIL_CHANCE = 0.3;
+const OIL_CHANCE_PER_LEVEL = 0.1;
 
 // A swing reaches only the 120 degrees in front of the warden (measured on the ground, where the plaza is foreshortened
 // 2:1), so it has to be aimed: hold a direction while striking to turn that way.
@@ -124,9 +130,11 @@ interface Rules {
   shotCooldown: number;
   spread: boolean;
   pierce: boolean;
-  relight: number;
+  relight: number; // seconds standing at a dark lamp to relight it
   snuffMultiplier: number;
   lightRadius: number;
+  pushScale: number; // how far the warden's blows throw a monster, against the base push
+  oilChance: number; // the chance a kill leaves its oil
 }
 export interface State {
   hero: Hero;
@@ -150,33 +158,34 @@ export interface State {
 const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
 
 function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
-  const { wick, blade, quiver } = legacy.levels;
+  const { wick, blade, quiver, knockback, seeker, tinder, stride } = legacy.levels;
   return {
-    speed: 150 * (trait === "swift" ? 1.25 : 1),
+    speed: 150 * (trait === "swift" ? 1.25 : 1) * (1 + 0.08 * stride),
     meleeReach: 64 + blade * 10 + (trait === "longarm" ? 16 : 0),
     meleeDamage: 2 + (blade >= 2 ? 1 : 0),
     shotCooldown: 0.55 * (1 - 0.15 * quiver),
     spread: quiver >= 2,
     pierce: trait === "keen",
-    relight: trait === "lamplighter" ? 0.5 : 1.0,
+    relight: (trait === "lamplighter" ? 0.5 : 1.0) * 0.8 ** tinder, // each level a fifth quicker, on top of the trait
     snuffMultiplier: 1 + 0.35 * wick,
     lightRadius: 92 + 12 * wick,
+    pushScale: 1 + 0.4 * knockback,
+    oilChance: OIL_CHANCE + OIL_CHANCE_PER_LEVEL * seeker,
   };
 }
 
 // seeded RNG kept in the state (mulberry32)
 function rand(state: State): number {
-  state.randomState = (state.randomState + 0x6d2b79f5) | 0;
-  let value = state.randomState;
-  value = Math.imul(value ^ (value >>> 15), value | 1);
-  value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-  return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  const draw = nextRandom(state.randomState);
+  state.randomState = draw.seed;
+  return draw.value;
 }
 export const newSeed = () => (Math.random() * 4294967296) >>> 0;
 
 export function newNight(legacy: Legacy, seed = newSeed()): State {
   const rules = rulesFor(legacy, legacy.heir.trait);
-  const maxHealth = 100 + 20 * legacy.levels.heart + (legacy.heir.trait === "stout" ? 30 : 0);
+  const { heart, hide } = legacy.levels;
+  const maxHealth = 100 + 20 * heart + 30 * hide + (legacy.heir.trait === "stout" ? 30 : 0);
   const state: State = {
     hero: {
       x: CENTRE_X,
@@ -381,6 +390,7 @@ export function step(state: State, deltaTime: number, input: Input) {
       const away = Math.hypot(awayX, awayY);
       strike(state, monster, {
         ...MELEE_BLOW,
+        push: MELEE_BLOW.push * rules.pushScale,
         amount: rules.meleeDamage,
         directionX: away > 0 ? awayX / away : hero.directionX,
         directionY: away > 0 ? awayY / away : hero.directionY,
@@ -428,6 +438,7 @@ export function step(state: State, deltaTime: number, input: Input) {
         const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
         strike(state, monster, {
           ...SHOT_BLOW,
+          push: SHOT_BLOW.push * rules.pushScale,
           amount: 1,
           directionX: shot.velocityX / speed,
           directionY: (shot.velocityY * 2) / speed,
@@ -578,7 +589,7 @@ function strike(state: State, monster: Monster, blow: Blow) {
     monsterAge: monster.age,
   };
   state.stats.kills++;
-  state.oilEarned += MONSTER[monster.kind].oil;
+  if (rand(state) < state.rules.oilChance) state.oilEarned += MONSTER[monster.kind].oil;
 }
 
 // Slides a thrown monster along its push and lets the push die away. It never ends up farther out than the rim it was
@@ -601,8 +612,8 @@ function knock(monster: Monster, deltaTime: number) {
   }
 }
 
-// Dawn reward: oil for every lamp still burning.
-export const dawnBonus = (state: State) => 4 + 2 * litCount(state);
+// Dawn reward: a little oil, and a little more for every lamp still burning.
+export const dawnBonus = (state: State) => 2 + litCount(state);
 
 // The director: read the night as implicit feedback and set the next tide.
 // Clean dawn with most lamps and health kept → the sea pushes harder; a lost night → it eases off.

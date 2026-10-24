@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { newLegacy } from "./legacy";
+import { emptyLevels, type Legacy, type Levels, MAX_LEVEL, newLegacy } from "./legacy";
 import { STEP } from "./replay";
 import {
   CENTRE_X,
@@ -15,8 +15,8 @@ import {
 } from "./sim";
 
 // A quiet night with the warden at (heroX, heroY) and nothing spawning, so a test places exactly the monsters it wants.
-function stage(heroX = CENTRE_X, heroY = CENTRE_Y): State {
-  const state = newNight(newLegacy(), 1);
+function stage(heroX = CENTRE_X, heroY = CENTRE_Y, legacy = newLegacy()): State {
+  const state = newNight(legacy, 1);
   state.spawnTimer = 1e9;
   state.hero.x = heroX;
   state.hero.y = heroY;
@@ -130,5 +130,127 @@ describe("shots", () => {
     expect(cyclops.stun).toBeGreaterThan(0);
     expect(cyclops.knockX).toBeGreaterThan(0);
     expect(state.puffs.some((puff) => puff.kind === "hit")).toBe(true);
+  });
+});
+
+// A legacy with the named upgrades at their top level.
+function withLevels(levels: Partial<Levels>, trait: Legacy["heir"]["trait"] = "stout"): Legacy {
+  const legacy = newLegacy();
+  legacy.heir = { ...legacy.heir, trait };
+  legacy.levels = { ...emptyLevels(), ...levels };
+  return legacy;
+}
+
+describe("the upgrades", () => {
+  test("heavy blows throw a monster back further", () => {
+    const farthestPush = (legacy: Legacy) => {
+      const state = stage(CENTRE_X, CENTRE_Y, legacy);
+      const cyclops = place(state, "cyclops", 40);
+      step(state, STEP, { ...NO_INPUT, melee: true, moveX: 1 });
+      while (cyclops.health === 3) step(state, STEP, NO_INPUT);
+      const atHit = cyclops.x;
+      let farthest = atHit;
+      for (let count = 0; count < 60; count++) {
+        step(state, STEP, NO_INPUT);
+        farthest = Math.max(farthest, cyclops.x);
+      }
+      return farthest - atHit;
+    };
+    const base = farthestPush(withLevels({}));
+    expect(farthestPush(withLevels({ knockback: MAX_LEVEL }))).toBeGreaterThan(base * 1.6);
+  });
+
+  test("heavy blows also throw back what a shot hits", () => {
+    const shotPush = (legacy: Legacy) => {
+      const state = stage(CENTRE_X, CENTRE_Y, legacy);
+      const cyclops = place(state, "cyclops", 150);
+      step(state, STEP, { ...NO_INPUT, ranged: true, aim: { x: cyclops.x, y: cyclops.y - 32 } });
+      for (let count = 0; count < 120 && cyclops.health === 3; count++) step(state, STEP, NO_INPUT);
+      return cyclops.knockX;
+    };
+    expect(shotPush(withLevels({ knockback: MAX_LEVEL }))).toBeGreaterThan(shotPush(withLevels({})) * 1.6);
+  });
+
+  test("the oil seeker raises the chance that the slain leave oil", () => {
+    const oilFromSlain = (legacy: Legacy) => {
+      const state = stage(CENTRE_X, CENTRE_Y, legacy);
+      for (let count = 0; count < 400; count++) place(state, "satyr", 40);
+      run(state, 20, { ...NO_INPUT, melee: true, moveX: 1 });
+      expect(state.stats.kills).toBe(400);
+      return state.oilEarned / state.stats.kills;
+    };
+    const base = oilFromSlain(withLevels({}));
+    expect(base).toBeGreaterThan(0.2);
+    expect(base).toBeLessThan(0.4);
+    const seeker = oilFromSlain(withLevels({ seeker: MAX_LEVEL }));
+    expect(seeker).toBeGreaterThan(0.5);
+    expect(seeker).toBeLessThan(0.7);
+  });
+
+  test("a night's oil comes from its seed alone", () => {
+    const oilOfNight = () => {
+      const state = stage();
+      for (let count = 0; count < 50; count++) place(state, "satyr", 40);
+      run(state, 20, { ...NO_INPUT, melee: true, moveX: 1 });
+      return state.oilEarned;
+    };
+    expect(oilOfNight()).toBe(oilOfNight());
+  });
+
+  test("quick tinder relights a lamp sooner, and stacks with the Lamplighter trait", () => {
+    const stepsToRelight = (legacy: Legacy) => {
+      const state = stage(CENTRE_X, CENTRE_Y, legacy);
+      const lamp = state.lamps[0];
+      if (!lamp) throw new Error("no lamp");
+      lamp.lit = false;
+      state.hero.x = lamp.x;
+      state.hero.y = lamp.y;
+      let steps = 0;
+      while (!lamp.lit && steps < 600) {
+        step(state, STEP, NO_INPUT);
+        steps++;
+      }
+      return steps;
+    };
+    const base = stepsToRelight(withLevels({}));
+    const tinder = stepsToRelight(withLevels({ tinder: MAX_LEVEL }));
+    const lamplighter = stepsToRelight(withLevels({}, "lamplighter"));
+    const both = stepsToRelight(withLevels({ tinder: MAX_LEVEL }, "lamplighter"));
+    expect(tinder).toBeLessThan(base * 0.6);
+    expect(lamplighter).toBeLessThan(base * 0.6);
+    expect(both).toBeLessThan(Math.min(tinder, lamplighter) * 0.6);
+  });
+
+  test("light sandals make the warden walk further, on top of the Swift trait", () => {
+    const distanceWalked = (legacy: Legacy) => {
+      const state = stage(CENTRE_X - 200, CENTRE_Y, legacy);
+      const startX = state.hero.x;
+      for (let count = 0; count < 60; count++) step(state, STEP, { ...NO_INPUT, moveX: 1 });
+      return state.hero.x - startX;
+    };
+    const base = distanceWalked(withLevels({}));
+    expect(distanceWalked(withLevels({ stride: MAX_LEVEL }))).toBeGreaterThan(base * 1.2);
+    expect(distanceWalked(withLevels({}, "swift"))).toBeGreaterThan(base * 1.2);
+    expect(distanceWalked(withLevels({ stride: MAX_LEVEL }, "swift"))).toBeGreaterThan(
+      distanceWalked(withLevels({}, "swift")) * 1.2,
+    );
+  });
+
+  test("the heart and the thick hide each add to the warden's health", () => {
+    const health = (levels: Partial<Levels>) => newNight(withLevels(levels), 1).hero.maxHealth;
+    expect(health({ heart: 2 })).toBe(health({}) + 40);
+    expect(health({ hide: 2 })).toBe(health({}) + 60);
+    expect(health({ heart: 2, hide: 2 })).toBe(health({}) + 100);
+  });
+
+  test("the blade, the quiver and the wick still work", () => {
+    const base = newNight(withLevels({}), 1).rules;
+    const upgraded = newNight(withLevels({ blade: 2, quiver: 2, wick: 2 }), 1).rules;
+    expect(upgraded.meleeReach).toBe(base.meleeReach + 20);
+    expect(upgraded.meleeDamage).toBe(base.meleeDamage + 1);
+    expect(upgraded.shotCooldown).toBeLessThan(base.shotCooldown);
+    expect(upgraded.spread).toBe(true);
+    expect(upgraded.lightRadius).toBe(base.lightRadius + 24);
+    expect(upgraded.snuffMultiplier).toBeGreaterThan(base.snuffMultiplier);
   });
 });

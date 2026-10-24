@@ -1,64 +1,55 @@
-// The live director's contract: what it may change about the next night, how far, and how an answer is made safe. The
+// The live director's contract, the part only the server and the model's reply need: how an answer is made safe. The
 // server (src/server/director) and the game (legacy.ts, Game.tsx) both import it, so a decision is clamped the same way
 // wherever it is read. The model never sets a rule directly: it proposes, and `clampProposal` disposes.
 //
 // A decision applies to one night. The rules (the tide `nextTide` picks, an even mix, the old creature share) are the
 // default the game falls back to whenever there is no answer, so nothing here is needed for a night to be played.
+//
+// The decision's shape, bounds, schema and the rules' own decision are in director-decision.ts, which a recorded night
+// replays from and the sim fingerprint covers. This file is not covered: how a reply is read or cleaned does not change
+// how a recorded night plays. Anything `directorFrom` or `rulesDirector` reads therefore belongs in that file, never
+// here: an edit here would change what a replay does without changing the fingerprint. It re-exports that module so the game and the server have one place to import from.
 import { z } from "zod";
+import {
+  CREATURE_SHARE_MAX,
+  CREATURE_SHARE_MIN,
+  DEFAULT_CREATURE_SHARE,
+  type Director,
+  directorSchema,
+  type EngagementKind,
+  LINE_MAX,
+  MIX_MAX,
+  MIX_MIN,
+  mayEase,
+  TIDE_MAX,
+  TIDE_MIN,
+  TIDE_SPAN,
+} from "./director-decision";
 
-/** The director may move the tide this far from the one the rules would pick. */
-export const TIDE_SPAN = 0.15;
-const TIDE_MIN = 0.6;
-const TIDE_MAX = 2;
-export const MIX_MIN = 0.5;
-export const MIX_MAX = 2;
-export const CREATURE_SHARE_MIN = 0.1;
-export const CREATURE_SHARE_MAX = 0.4;
-/** What the creature's share of the spawns was before the director could change it. */
-export const DEFAULT_CREATURE_SHARE = 0.25;
-export const LINE_MAX = 90;
-
-/** How much more or less often each hand-made monster comes, against the sim's own weights (1 is unchanged). */
-export interface Mix {
-  satyr: number;
-  cyclops: number;
-  harpy: number;
-}
-export const EVEN_MIX: Mix = { satyr: 1, cyclops: 1, harpy: 1 };
+export {
+  CREATURE_SHARE_MAX,
+  CREATURE_SHARE_MIN,
+  DEFAULT_CREATURE_SHARE,
+  type Director,
+  directorFrom,
+  directorSchema,
+  type EngagementKind,
+  EVEN_MIX,
+  LINE_MAX,
+  MIX_MAX,
+  MIX_MIN,
+  type Mix,
+  mayEase,
+  rulesDirector,
+  TIDE_SPAN,
+} from "./director-decision";
 
 /** Why the rules answered instead of the model (the route says so; the game only needs to know it was them). */
 export const FALLBACK_REASONS = ["timeout", "error", "invalid", "rate-limited", "unavailable"] as const;
 export type FallbackReason = (typeof FALLBACK_REASONS)[number];
 
-/**
- * Whether the player was there (src/game/engagement.ts): "engaged", "idle" (hardly moved or acted), "paused" (most of the
- * real time away), or "left" (the night did not finish). Only an engaged night is evidence that a night was too hard.
- */
-const ENGAGEMENTS = ["engaged", "idle", "paused", "left"] as const;
-export type EngagementKind = (typeof ENGAGEMENTS)[number];
-/** After a night that was not engaged nothing gets easier: the tide at least the rules', each weight at least 1, the share at least the default. */
-export const mayEase = (engagement: EngagementKind | undefined) => engagement === undefined || engagement === "engaged";
-
-export interface Director {
-  source: "mubit" | "rules";
-  /** The tide the night is played at: the same number as `Legacy.tide`, which is the one the sim reads. */
-  tide: number;
-  /** The tide the rules picked after the same night; `tide` stays within TIDE_SPAN of it. */
-  rulesTide: number;
-  mix: Mix;
-  creatureShare: number;
-  /** The sea's answer shown to the player: plain text, at most LINE_MAX characters. Empty for the rules. */
-  line: string;
-  /** The night this was decided after (0 before the first). */
-  decidedAfterNight: number;
-  /** The recorded play whose data it answers, so the next call can find what the model said about it. */
-  playId?: string | undefined;
-  /** How engaged the player was in the night this answers; a decision after a night that was not engaged never eases. Old saves have none. */
-  engagement?: EngagementKind | undefined;
-}
-
-// Letters of any script (the sea may speak a word of Greek), digits, spaces and plain punctuation: no markup, no links.
-const LINE_CHARACTERS = /^[\p{L}\p{N} .,;:!?'’\-–—…()]*$/u;
+// What a line may not carry (the complement of the stored schema's LINE_CHARACTERS, in director-decision.ts): anything but
+// letters of any script, digits, spaces and plain punctuation.
 const LINE_STRIPPED = /[^\p{L}\p{N} .,;:!?'’\-–—…()]/gu;
 
 /** A line the player may be shown: only plain characters, one space between words, at most LINE_MAX long. */
@@ -83,74 +74,6 @@ export function tideRange(rulesTide: number, engagement?: EngagementKind): [numb
   // after a night that was not engaged the tide may not go below the rules' (which itself does not ease)
   const lowest = mayEase(engagement) ? rulesTide - TIDE_SPAN : rulesTide;
   return [hundredths(Math.max(TIDE_MIN, lowest)), hundredths(Math.min(TIDE_MAX, rulesTide + TIDE_SPAN))];
-}
-
-/** The stored form of a decision, as the legacy and a recorded play carry it. Validates everything the bounds name. */
-export const directorSchema = z
-  .object({
-    source: z.enum(["mubit", "rules"]),
-    tide: z.number().min(TIDE_MIN).max(TIDE_MAX),
-    rulesTide: z.number().min(TIDE_MIN).max(TIDE_MAX),
-    mix: z.object({
-      satyr: z.number().min(MIX_MIN).max(MIX_MAX),
-      cyclops: z.number().min(MIX_MIN).max(MIX_MAX),
-      harpy: z.number().min(MIX_MIN).max(MIX_MAX),
-    }),
-    creatureShare: z.number().min(CREATURE_SHARE_MIN).max(CREATURE_SHARE_MAX),
-    line: z.string().max(LINE_MAX).regex(LINE_CHARACTERS),
-    decidedAfterNight: z.number().int().min(0),
-    playId: z
-      .string()
-      .regex(/^[0-9a-z-]{1,40}$/)
-      .optional(),
-    engagement: z.enum(ENGAGEMENTS).optional(),
-  })
-  .refine((director) => Math.abs(director.tide - director.rulesTide) <= TIDE_SPAN + 1e-9, {
-    message: "the tide strays too far from the rules' tide",
-  })
-  .refine(
-    (director) =>
-      mayEase(director.engagement) ||
-      (director.tide >= director.rulesTide - 1e-9 &&
-        director.mix.satyr >= 1 &&
-        director.mix.cyclops >= 1 &&
-        director.mix.harpy >= 1 &&
-        director.creatureShare >= DEFAULT_CREATURE_SHARE - 1e-9),
-    { message: "a night that was not engaged is not eased" },
-  );
-
-/** What the rules decide: the tide they picked, an even mix, the old creature share, and nothing to say. */
-export function rulesDirector(
-  rulesTide: number,
-  decidedAfterNight: number,
-  playId?: string,
-  engagement?: EngagementKind,
-): Director {
-  return {
-    source: "rules",
-    tide: rulesTide,
-    rulesTide,
-    mix: { ...EVEN_MIX },
-    creatureShare: DEFAULT_CREATURE_SHARE,
-    line: "",
-    decidedAfterNight,
-    ...(playId ? { playId } : {}),
-    ...(engagement ? { engagement } : {}),
-  };
-}
-
-/**
- * The director a save or a recording carries, as far as it can be trusted: one that does not validate, claims to be the
- * rules' with other numbers, or whose tide is not the legacy's (the tide the sim will read) is the rules' instead.
- * Anything from before the director existed is the rules' too.
- */
-export function directorFrom(stored: unknown, tide: number, night: number): Director {
-  const fallback = rulesDirector(tide, Math.max(0, night - 1));
-  const parsed = directorSchema.safeParse(stored);
-  if (!parsed.success) return fallback;
-  const { data } = parsed;
-  if (data.tide !== tide) return fallback;
-  return data.source === "rules" ? rulesDirector(tide, data.decidedAfterNight, data.playId, data.engagement) : data;
 }
 
 /**

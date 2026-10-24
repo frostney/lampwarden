@@ -420,11 +420,17 @@ const changedWithin = (first, second, maskOn = null, maskOff = null) =>
 const showLayers = (labels, shown) =>
   page.evaluate(
     ({ labels, shown }) => {
+      let matched = 0;
       const visit = (node) => {
-        if (labels.includes(node.label)) node.renderable = shown;
+        if (labels.includes(node.label)) {
+          node.renderable = shown;
+          matched++;
+        }
         for (const child of node.children ?? []) visit(child);
       };
       visit(window.lampwarden.app().stage);
+      // a label the scene no longer gives would leave the layer showing and the checks passing for the wrong reason
+      if (matched === 0) throw new Error(`no layer is labelled ${labels.join(" or ")}`);
     },
     { labels, shown },
   );
@@ -1109,9 +1115,8 @@ check(
     state.hero.x = 80;
     state.hero.y = 560;
   });
-  await showLayers(["lamp-post"], true);
   const ringShot = await stageShot();
-  await showLayers(["ground-marks", "marks"], false); // before the ring had its own layer it was in the marks
+  await showLayers(["ground-marks", "marks"], false);
   const noRing = await stageShot();
   await showLayers(["ground-marks", "marks"], true);
   await showLayers(["marks"], false);
@@ -1321,6 +1326,9 @@ await page.evaluate(() => {
     await showLayers(["lamp-glow"], false);
     const withoutGlow = await stageShot();
     await showLayers(["lamp-glow"], true);
+    await showLayers(["lamp-shadows"], false);
+    const withoutShadow = await stageShot();
+    await showLayers(["lamp-shadows"], true);
     await showLayers(LAMP_LAYERS, false);
     const wardenAlone = await stageShot();
     await showLayers(WARDEN_LAYERS, false);
@@ -1330,6 +1338,8 @@ await page.evaluate(() => {
     return {
       post: await changedWithin(full, withoutPost, wardenAlone, nobody),
       glow: await changedWithin(full, withoutGlow, wardenAlone, nobody),
+      shadow: await changedWithin(full, withoutShadow, wardenAlone, nobody),
+      shadowDrawn: await changedWithin(full, withoutShadow),
     };
   };
   const covered = (cover) =>
@@ -1359,8 +1369,8 @@ await page.evaluate(() => {
   check(
     "lamp-depth",
     "the warden behind a lamp but clear of its post is not covered by its painted shadow",
-    beside.post.changed === 0,
-    covered(beside),
+    beside.post.changed === 0 && beside.shadow.changed === 0 && beside.shadowDrawn.changed > 100,
+    `${covered(beside)}, the shadow on the ground (${beside.shadowDrawn.changed} pixels) over ${beside.shadow.changed} of his`,
   );
   await page.evaluate(() => {
     window.lampwarden.state().hero.x = 560;

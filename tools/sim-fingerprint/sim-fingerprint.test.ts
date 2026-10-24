@@ -88,4 +88,41 @@ describe("the sim fingerprint", () => {
     visit("src/game/replay.ts");
     expect([...closure].sort()).toEqual([...SIM_SOURCES].sort());
   });
+
+  // Wording and the server's reading of a model reply are not in the closure, so editing them keeps recorded nights.
+  test("keeps its value when the shop's wording or the director's server code changes", () => {
+    // What the sources really import, not the list: so this fails if the sim comes to read either file as a value.
+    const closure = new Set<string>();
+    const visit = (file: string) => {
+      if (closure.has(file)) return;
+      closure.add(file);
+      for (const imported of importedAtRuntime(file)) visit(imported);
+    };
+    visit("src/game/sim.ts");
+    visit("src/game/replay.ts");
+    expect(closure).not.toContain("src/game/legacy.ts");
+    expect(closure).not.toContain("src/game/director.ts");
+    withCopy((root) => {
+      for (const file of ["src/game/legacy.ts", "src/game/director.ts"])
+        cpSync(join(repository, file), join(root, file));
+      const fingerprint = () => simFingerprint(root, [...closure]);
+      const before = fingerprint();
+      expect(before).toBe(simFingerprint(root));
+      const legacy = join(root, "src/game/legacy.ts");
+      const legacySource = readFileSync(legacy, "utf8");
+      expect(legacySource).toContain('label: "Brighter wicks"');
+      writeFileSync(legacy, legacySource.replace('label: "Brighter wicks"', 'label: "Brighter, longer wicks"'));
+      const director = join(root, "src/game/director.ts");
+      const directorSource = readFileSync(director, "utf8");
+      expect(directorSource).toContain("export function clampProposal(");
+      writeFileSync(
+        director,
+        directorSource.replace("export function clampProposal(", "// reworded\nexport function clampProposal("),
+      );
+      expect(readFileSync(legacy, "utf8")).not.toBe(legacySource);
+      expect(readFileSync(director, "utf8")).not.toBe(directorSource);
+      expect(fingerprint()).toBe(before);
+      expect(simFingerprint(root)).toBe(before);
+    });
+  });
 });

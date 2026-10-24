@@ -512,27 +512,21 @@ function StandingLamp({ state, lamp, radius }: { state: State; lamp: Lamp; radiu
 // characters' cast shadows, dark over the lamps' pools
 function LampShadows({ state }: { state: State }) {
   const { textures } = useScene();
-  const sprites = useRef<(Sprite | null)[]>([]);
-  useFrame(
-    useCallback(() => {
-      state.lamps.forEach((lamp, index) => {
-        const sprite = sprites.current[index];
-        if (sprite) sprite.texture = textureFor(textures, paintedShadowKey(lamp.lit ? "lamp-lit" : "lamp-unlit"));
-      });
-    }, [state, textures]),
+  // the lit and the unlit lamp sprites were painted with the same shadow, so one texture serves a lamp in either state
+  const shadow = textureFor(textures, paintedShadowKey("lamp-lit"));
+  return (
+    <pixiContainer label="lamp-shadows">
+      {state.lamps.map((lamp) => (
+        <pixiSprite
+          key={`shadow@${lamp.x},${lamp.y}`}
+          texture={shadow}
+          anchor={anchor("lamp-lit")}
+          x={lamp.x}
+          y={lamp.y}
+        />
+      ))}
+    </pixiContainer>
   );
-  return state.lamps.map((lamp, index) => (
-    <pixiSprite
-      key={`shadow@${lamp.x},${lamp.y}`}
-      ref={(sprite: Sprite | null) => {
-        sprites.current[index] = sprite;
-      }}
-      texture={textureFor(textures, paintedShadowKey("lamp-lit"))}
-      anchor={anchor("lamp-lit")}
-      x={lamp.x}
-      y={lamp.y}
-    />
-  ));
 }
 
 const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: Lamp }) {

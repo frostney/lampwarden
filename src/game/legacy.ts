@@ -3,21 +3,13 @@
 import { z } from "zod";
 import { SEXES, type Sex } from "../scene/assets";
 import { checkedDecision, type Director, directorFrom, type EngagementKind, rulesDirector } from "./director";
+import { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
 import { nextRandom } from "./random";
 
-export const UPGRADE_IDS = [
-  "wick",
-  "blade",
-  "quiver",
-  "heart",
-  "hide",
-  "knockback",
-  "seeker",
-  "tinder",
-  "stride",
-] as const;
-export type UpgradeId = (typeof UPGRADE_IDS)[number];
-export type Levels = Record<UpgradeId, number>;
+// The levels live in levels.ts, which the sim fingerprint covers; this file holds the shop's wording and the line's
+// storage, which it does not, so a copy edit here does not retire recorded nights.
+export { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
+
 // text: what a level does, with the numbers (the rules themselves are in rulesFor in sim.ts). wardenOnly: lost when the
 // warden falls, because it was only ever theirs. The blade and quiver read here as the son's sword and bow; the shop
 // shows the daughter's spear and sling instead (weapons.ts).
@@ -32,7 +24,6 @@ export const UPGRADES: Record<UpgradeId, { label: string; text: string; wardenOn
   tinder: { label: "Quick tinder", text: "Lamps relight 20% faster, on top of Lamplighter." },
   stride: { label: "Light sandals", text: "Walk 8% faster, on top of Swift." },
 };
-export const MAX_LEVEL = 3;
 // What the next level costs, whichever upgrade: a night of oil buys about the first.
 export const LEVEL_COSTS = [12, 26, 45] as const;
 // How many upgrades the shop offers before a night.
@@ -102,31 +93,6 @@ export function heirAs(heir: Heir, sex: Sex): Heir {
   if (heir.sex === sex) return heir;
   const place = NAMES[heir.sex].indexOf(heir.name);
   return { ...heir, sex, name: NAMES[sex][Math.max(0, place)] ?? NAMES[sex][0] };
-}
-
-export const emptyLevels = (): Levels => ({
-  wick: 0,
-  blade: 0,
-  quiver: 0,
-  heart: 0,
-  hide: 0,
-  knockback: 0,
-  seeker: 0,
-  tinder: 0,
-  stride: 0,
-});
-
-// Levels from anything stored, a saved legacy or a recorded play: an upgrade it does not have (one added since) is
-// level 0, and so is a value that is not a level.
-const levelSchema = z.number().int().min(0).max(MAX_LEVEL);
-export function levelsOf(stored: unknown): Levels {
-  const levels = emptyLevels();
-  if (typeof stored !== "object" || stored === null) return levels;
-  for (const id of UPGRADE_IDS) {
-    const parsed = levelSchema.safeParse(Reflect.get(stored, id));
-    if (parsed.success) levels[id] = parsed.data;
-  }
-  return levels;
 }
 
 // The offers a seed draws: OFFER_COUNT distinct upgrades that are below their top level, or what is left of them.

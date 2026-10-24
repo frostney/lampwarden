@@ -48,11 +48,17 @@ src/
     engagement.ts    was the player there? from a recorded play: the share of the night spent moving, strikes, shots, and
                      time away, classed engaged, idle, paused or left; a night that is not engaged is never eased after
                      (the rules' director and the live one both; see docs/DIRECTOR.md)
-    director.ts      the live director's contract, shared by the game and the server: what it may change (tide within 0.15 of
-                     the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character plain line), and
-                     the code that enforces it (clampProposal, checkedDecision, directorFrom); a decision applies to one night
+    director-decision.ts  the part of the live director a night is played under: the Director and Mix types, the bounds (tide
+                     within 0.15 of the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character
+                     plain line), directorSchema, rulesDirector and directorFrom; covered by the sim fingerprint
+    director.ts      the live director's contract, shared by the game and the server: re-exports director-decision.ts and adds
+                     the code that makes a model's answer safe (cleanLine, parseProposal, clampProposal, checkedDecision, tideRange);
+                     a decision applies to one night; not covered by the sim fingerprint
+    levels.ts        the upgrade ids, a warden's levels in them and levelsOf (a save or recorded play from before an upgrade
+                     existed has it at level 0); covered by the sim fingerprint
     director-api.ts  the game's side of POST /api/director: the request and answer shapes, and asking (any failure is null)
-    legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
+    legacy.ts        what outlives a warden (not covered by the sim fingerprint; it re-exports levels.ts): oil, the nine upgrades
+                     (their labels and text, three levels each, one cost table), the shop's offers
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
                      sex), tide and the live director's decision for the coming night, the bestiary (ids of the creatures the line has met); localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
@@ -159,10 +165,16 @@ A recorded night replays exactly only on the sim it was played on: each recordin
 of the build that recorded it (checked on all nine plays in the store), but a later change to the rules shows a different
 night. So the build carries a **sim fingerprint** and every play records the one it was played on.
 - **What it is:** the first 12 hex digits of a SHA-256 over the contents (line endings normalised) of the sim's sources,
-  `SIM_SOURCES` in `tools/sim-fingerprint/sim-fingerprint.ts`: `src/game/sim.ts`, `random.ts`, `legacy.ts`,
-  `director.ts` (the decision a night is played under), `creature.ts`, `replay.ts` and `src/scene/assets.ts`. That is the value-import closure of `step()`, `newNight()` and
+  `SIM_SOURCES` in `tools/sim-fingerprint/sim-fingerprint.ts`: `src/game/sim.ts`, `random.ts`, `levels.ts`
+  (the upgrade ids and levels), `director-decision.ts` (the decision a night is played under), `creature.ts`, `replay.ts`
+  and `src/scene/assets.ts`. That is the value-import closure of `step()`, `newNight()` and
   the replay driver (`STEP`, `quantise`, `Replayer`, `legacyOf`, `creatureOf`); a test derives the closure from the
-  imports and fails when the list drifts from it. The Recorder and `upload` live in `recording.ts`, outside it.
+  imports and fails when the list drifts from it. The Recorder and `upload` live in `recording.ts`, outside it. So do
+  `legacy.ts` (the shop's labels and text, trait labels, heir names, `ordinal`, `tideLabel`, the localStorage save) and
+  `director.ts` (`cleanLine`, `parseProposal`, `clampProposal`, `checkedDecision`), which is why a wording tweak or a
+  change to how a model reply is read keeps the fingerprint. A file joins the list only when the replay path imports it
+  as a value, so keep what a replay reads in the small modules and the wording and server code out of them; a test
+  checks that editing the shop's text or `clampProposal` leaves the fingerprint unchanged.
 - **Why a content hash at build time, not the git sha:** it changes only when one of those files changes, so a
   README-only or UI-only commit keeps it and old plays stay replayable. Any edit to those files changes it, a comment
   included: that errs towards refusing an exact replay, never towards showing a wrong night.

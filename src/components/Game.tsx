@@ -57,13 +57,13 @@ import {
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
-import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
+import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
   width: STAGE_WIDTH,
   height: STAGE_HEIGHT,
-  background: 0x1e5f8a,
+  background: NIGHT_SEA,
   antialias: false,
   roundPixels: true,
   resolution: 1,
@@ -181,6 +181,7 @@ export default function Game() {
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
   const [frozenClock, freezeClock] = useState<number | null>(null);
+  const [drawn, setDrawn] = useState(false); // the canvas has shown a frame; before that it is hidden, not black
   const [controls] = useState(newControls);
   const lastHudRef = useRef<Hud | null>(null);
   const legacyRef = useRef<Legacy>(newLegacy());
@@ -327,6 +328,8 @@ export default function Game() {
   const onReady = useCallback(() => setReady(true), []);
   const onInit = useCallback((app: PixiApp) => {
     appRef.current = app;
+    // the ticker renders after this callback, and the frame is on screen by the next animation frame
+    app.ticker.addOnce(() => requestAnimationFrame(() => setDrawn(true)));
   }, []);
 
   // puts a night on stage
@@ -580,7 +583,7 @@ export default function Game() {
       data-lit={hud?.lit}
       data-kills={hud?.kills}
     >
-      <div className="canvas">
+      <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
           {textures && night && (
             <Scene

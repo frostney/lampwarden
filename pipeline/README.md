@@ -38,8 +38,7 @@ The Good/Bad button in the Mubit console rates a model output. It is feedback on
 ## Running it
 
 ```bash
-cp .env.example .env            # optional; or just export the variable
-export MUBIT_API_KEY=...         # read from the environment only; never printed or written to disk
+export MUBIT_API_KEY=...         # or resolve it in .env.local (docs/tooling.md, "Environment"); never printed or written to disk
 bun run assets -- "Ionic marble column"            # writes public/sprites/ionic-marble-column.*
 bun run assets -- --file briefs.json               # {"id": ["category", "brief"], ...}
 bun run assets -- --render vercel "brief"          # render in a Vercel Sandbox microVM instead of local bun
@@ -47,7 +46,7 @@ bun run assets -- --render boat "brief"            # render in a boat.dev sandbo
 bun run assets -- --render shotcup "brief"         # render on Shotcup
 ```
 
-`bun run assets` is `bun --no-env-file pipeline/run.ts`: bun does not load `.env` files into the process, so a token that happens to sit in one never reaches the pipeline; export what a renderer needs.
+`bun run assets` is `varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/run.ts`: bun does not load `.env` files into the process, and Varlock gives it only the variables tagged `pipeline` in `.env.schema` (the Mubit key, the renderer settings, the Vercel sandbox settings), so nothing else that sits in your shell or in `.env.local` reaches the pipeline. The model-written build code runs in a renderer that never inherits any of them.
 
 Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|shotcup|vercel|boat` (or `LAMPWARDEN_RENDERER`), `--no-prompt-caching`, `--concurrency N` (briefs in flight; default 4 local, 1 Shotcup, 4 Vercel Sandbox, 2 boat.dev). The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 
@@ -89,7 +88,7 @@ Timings, parallelism limits, cost and isolation probes for the three sandboxes, 
 
 `render-vercel-sandbox.ts` runs each build in its own [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) Firecracker microVM: it creates the VM (default image, which ships bun; 1 vCPU; `networkPolicy: "deny-all"`; `persistent: false`), uploads `kit/kit.ts`, `render/run_local.ts` and the shims plus the build, runs the same `bun run_local.ts` as the local renderer with a 30 s limit, reads the PNG back and stops the VM. Nothing is passed into the VM except `KIT_OUT`. The whole render has a 180 s deadline; set `VERCEL_SANDBOX_SNAPSHOT_ID` to boot from a snapshot that already holds the pinned Bun 1.4.4, the kit and the runner (`bun run sandbox:snapshot` builds it; the render refuses a snapshot whose recorded kit digest differs from this checkout's, and runs `/usr/local/bin/bun` from it). The live creature route uses this path from a deployed function: `docs/LIVE_GENERATION.md`, "The route".
 
-Authentication: run `vercel link` once (the SDK then refreshes an OIDC token from your Vercel CLI login), or export `VERCEL_OIDC_TOKEN` from `vercel env pull`, or `VERCEL_TOKEN` + `VERCEL_TEAM_ID` + `VERCEL_PROJECT_ID`.
+Authentication: run `vercel link` once (the SDK then refreshes an OIDC token from your Vercel CLI login), or put `VERCEL_OIDC_TOKEN` from `vercel env pull` in `.env.local` (the SDK does not read `VERCEL_TOKEN`, `VERCEL_TEAM_ID` or `VERCEL_PROJECT_ID` from the environment).
 
 ## `--render boat`
 

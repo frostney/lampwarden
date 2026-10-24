@@ -2,7 +2,7 @@ node_modules/
 .next/
 out/
 .env*
-!.env.example
+!.env.schema
 pipeline/runs/
 *.tsbuildinfo
 next-env.d.ts
@@ -12,3 +12,4 @@ verify-out/
 .agent/
 walkthrough-out/
 measure-out/
+env.d.ts

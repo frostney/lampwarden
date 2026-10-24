@@ -192,6 +192,12 @@ describe("the hero loop", () => {
     expect(outcome?.winner.score).toBe(9);
   });
 
+  test("draws one candidate for each nudge and no more, however many are asked for", async () => {
+    const model = scripted({ plain: PLAIN, simple: SIMPLE, contrast: CONTRAST, fixed: FIXED }, () => 8);
+    const outcome = await runHeroLoop(core(model.client, fakeRenderer().render), "male", 5, alwaysAccepted);
+    expect(outcome?.generatorRequestIds).toHaveLength(3);
+  });
+
   test("returns null when no generator call answers", async () => {
     const model = fakeModel(() => null);
     const requests: RenderRequest[] = [];

@@ -26,12 +26,15 @@ import { RENDERED_WITH } from "./render-types";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 const ATLAS_ATTEMPTS = 2;
+/** A new warden replaces one the model already wrote only by this much: the verifier's score on one render is noisy. */
+const REPLACEMENT_MARGIN = 0.25;
 
 const { values } = parseArgs({
   options: {
     sex: { type: "string" },
     candidates: { type: "string", default: "3" },
     out: { type: "string", default: HERO_DIRECTORY },
+    manifest: { type: "string", default: join(HERO_DIRECTORY, "..", "manifest.json") },
   },
 });
 const sexes = SEXES.filter((sex) => !values.sex || values.sex === sex);
@@ -84,16 +87,19 @@ const attemptSummary = (attempt: HeroAttempt) => ({
 
 const manifestSchema = z.record(z.string(), z.unknown());
 
+// read before anything is written, so a wrong --manifest stops the run and not half of it
+const manifestPath = resolve(values.manifest);
+const manifest = manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")));
+
 function recordInManifest(sex: Sex, outcome: HeroLoopOutcome, winner: HeroAttempt, current: HeroAttempt) {
-  const manifestPath = join(outputDirectory, "..", "manifest.json");
-  const manifest = manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")));
   const heroFrames = manifestSchema.parse(manifest.hero_frames ?? {});
   const models = manifestSchema.parse(heroFrames.model ?? {});
   models[sex] = {
     brief: outcome.brief,
     code: `hero/${sex}.ts`,
     session: outcome.session,
-    final: outcome.which,
+    kept: winner.name,
+    final: winner.name.endsWith("-fixed") ? "fixed" : "first",
     score: Math.round(winner.score * 100) / 100,
     passed: winner.frames.every((frame) => frame.pass),
     current_score: Math.round(current.score * 100) / 100,
@@ -166,11 +172,13 @@ for (const sex of sexes) {
       )
       .join(" "),
   );
+  // the score a new warden must beat: the one in use, plus a margin when that one is model code already
+  const bar = current.score + (modelCode === null ? 0 : REPLACEMENT_MARGIN);
   const outcome = await runHeroLoop(
     core,
     sex,
-    Math.min(5, Math.max(1, Number(values.candidates) || 3)),
-    (attempt) => attempt.accepted && attempt.score > current.score,
+    Math.max(1, Number(values.candidates) || 3),
+    (attempt) => attempt.accepted && attempt.score > bar,
   );
   if (!outcome) {
     console.log(`${sex}: nothing was drawn; the deterministic warden stays`);
@@ -203,11 +211,11 @@ for (const sex of sexes) {
     );
   // the attempts that could replace the current warden, best first (the winner leads); each gets its atlas rendered
   const eligible = [outcome.winner, ...outcome.attempts.filter((attempt) => attempt !== outcome.winner)]
-    .filter((attempt) => attempt.accepted && attempt.score > current.score)
+    .filter((attempt) => attempt.accepted && attempt.score > bar)
     .sort((first, second) => second.score - first.score)
     .slice(0, ATLAS_ATTEMPTS);
   if (eligible.length === 0) {
-    console.log(`${sex}: no attempt beat the deterministic warden (${current.score.toFixed(2)}); it stays`);
+    console.log(`${sex}: no attempt beat the warden in use (${bar.toFixed(2)}); it stays`);
     continue;
   }
   for (const attempt of eligible) {
@@ -225,7 +233,7 @@ for (const sex of sexes) {
     writeFileSync(join(outputDirectory, `${sex}.png`), assembled.atlas);
     recordInManifest(sex, outcome, attempt, current);
     console.log(
-      `${sex}: kept ${attempt.name} (mean ${attempt.score.toFixed(2)} against ${current.score.toFixed(2)}); wrote ${sex}.ts and ${sex}.png`,
+      `${sex}: kept ${attempt.name} (mean ${attempt.score.toFixed(2)} against ${bar.toFixed(2)} to beat); wrote ${sex}.ts and ${sex}.png`,
     );
     kept++;
     break;

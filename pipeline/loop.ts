@@ -15,6 +15,19 @@ const GENERATOR_RETRY_MAX_TOKENS = 4000;
 export const FIX_MAX_TOKENS = 3000;
 const VERIFIER_MAX_TOKENS = 1800;
 
+/** The lowest verifier score that is accepted without a verifier pass, and only with a clean engine report. */
+const MINIMUM_UNPASSED_SCORE = 6;
+
+/** Accept a verifier pass, or a score of at least 6 with no engine flags. Anything else is not good enough. */
+export function isAccepted(winner: {
+  verdict: { pass: boolean; score: number | null };
+  stats: { flags: string };
+}): boolean {
+  if (winner.verdict.pass) return true;
+  const score = winner.verdict.score;
+  return winner.stats.flags === "ok" && score !== null && score >= MINIMUM_UNPASSED_SCORE;
+}
+
 export interface Brief {
   /** Also the sprite's file name, after slugifying. */
   id: string;

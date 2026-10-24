@@ -58,6 +58,29 @@ describe("the checks on model code", () => {
     expect(heroCodeIssues("male", `${maleCode}\n${maleCode}`)).toContain("call hero(k, {...}) exactly once");
   });
 
+  test("read the code, not its comments, and refuse a redeclared FACING, POSE or modelBuild", () => {
+    // a comment that mentions hero( or ready: does not refuse a good code, and one that says facing: FACING does not pass a bad one
+    expect(heroCodeIssues("male", `// hero(k, {}) with ready: 'melee'\n${maleCode}`)).toEqual([]);
+    const fixedFacing = maleCode.replace("facing: FACING", "facing: 20 /* facing: FACING */");
+    expect(heroCodeIssues("male", fixedFacing)).toContain("pass facing: FACING exactly");
+    expect(heroCodeIssues("male", `const FACING = 45;\n${maleCode}`)).toContain(
+      "do not declare FACING, POSE or modelBuild: the renderer provides them",
+    );
+    expect(heroCodeIssues("male", `function modelBuild() {}\n${maleCode}`)).toContain(
+      "do not declare FACING, POSE or modelBuild: the renderer provides them",
+    );
+    expect(heroCodeIssues("male", `${maleCode}\nfunction build(k) {}`)).toContain(
+      "define function build(k) exactly once",
+    );
+  });
+
+  test("the brief speaks of each warden in the right pronoun", () => {
+    expect(heroBrief("male")).toContain("his armour");
+    expect(heroBrief("female")).toContain("her armour");
+    expect(heroBrief("female")).not.toMatch(/\b(his|him|himself)\b/);
+    expect(heroBrief("male")).not.toMatch(/\b(her|herself)\b/);
+  });
+
   test("the brief names the weapons, FACING and POSE for the sex", () => {
     expect(heroBrief("male")).toContain("melee: 'xiphos', ranged: 'bow'");
     expect(heroBrief("female")).toContain("melee: 'spear', ranged: 'sling'");

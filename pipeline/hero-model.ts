@@ -21,6 +21,11 @@ import { packHeroAtlas } from "./hero-atlas";
 import type { RenderResult } from "./render-types";
 
 /** Who each warden is, as the generator's user message. The system prompt stays the fixed generator.md. */
+const PRONOUNS: Record<Sex, { possessive: string; object: string; reflexive: string }> = {
+  male: { possessive: "his", object: "him", reflexive: "himself" },
+  female: { possessive: "her", object: "her", reflexive: "herself" },
+};
+
 const WARDEN_BRIEFS: Record<Sex, string> = {
   male: "the son, a young Greek warden of a harbour town who keeps its lamps lit through the night, fighting with a xiphos in melee and a bow at range",
   female:
@@ -34,19 +39,20 @@ const WARDEN_BRIEFS: Record<Sex, string> = {
  */
 export function heroBrief(sex: Sex): string {
   const weapons = HERO_WEAPONS[sex];
+  const pronouns = PRONOUNS[sex];
   return (
     `The player's warden, ${WARDEN_BRIEFS[sex]}. Greek and heroic, with a readable silhouette that stands out against a dark night: ` +
-    `distinct bronze, linen and accent colours, so his armour, cloth and cape do not melt into one colour. ` +
+    `distinct bronze, linen and accent colours, so ${pronouns.possessive} armour, cloth and cape do not melt into one colour. ` +
     `Write one call: hero(k, { sex: '${sex}', melee: '${weapons.melee}', ranged: '${weapons.ranged}', pose: POSE || 'idle', facing: FACING, ...}). ` +
     `The game draws the warden in 20 poses (idle, walk, melee, ranged) from five directions with this same code, so ` +
     `FACING is a global number, in degrees, that the renderer gives your code for each direction: write facing: FACING exactly and ` +
     `never a fixed number. Never pass at, height, build or ready (the game sets them), and call no raw shapes (k.sphere, k.capsule and the ` +
-    `others): they would not turn with him. Choose only what makes him look like himself: helmet ('none'|'corinthian'|'attic'), cape, ` +
+    `others): they would not turn with ${pronouns.object}. Choose only what makes ${pronouns.object} look like ${pronouns.reflexive}: helmet ('none'|'corinthian'|'attic'), cape, ` +
     `and palette {cloth, accent, hair, skin, metal} with material names from the list.`
   );
 }
 
-/** A frame the verifier is shown for each candidate: the warden at ease, mid-stride, in his melee strike and drawing his ranged weapon. */
+/** A frame the verifier is shown for each candidate: the warden at ease, mid-stride, in the melee strike and drawing the ranged weapon. */
 export interface RepresentativeFrame {
   animation: (typeof HERO_ANIMATIONS)[number];
   /** 1-based, as in the pose name. */
@@ -70,13 +76,13 @@ export const REPRESENTATIVE_FRAMES = (sex: Sex): readonly RepresentativeFrame[] 
       animation: "melee",
       frame: 3,
       direction: "se",
-      note: `This frame: the middle of the melee strike with the ${weapons.melee}, seen from the south-east; the ${weapons.melee} must be in his hand.`,
+      note: `This frame: the middle of the melee strike with the ${weapons.melee}, seen from the south-east; the ${weapons.melee} must be in ${PRONOUNS[sex].possessive} hand.`,
     },
     {
       animation: "ranged",
       frame: 3,
       direction: "se",
-      note: `This frame: the middle of the ranged attack with the ${weapons.ranged}, seen from the south-east; the ${weapons.ranged} must be in his hand.`,
+      note: `This frame: the middle of the ranged attack with the ${weapons.ranged}, seen from the south-east; the ${weapons.ranged} must be in ${PRONOUNS[sex].possessive} hand.`,
     },
   ];
 };
@@ -113,9 +119,14 @@ const quoted = (word: string) => `['"\`]${word}['"\`]`;
  * drawn by POSE and FACING, with nothing that would move the figure off the ground anchor or fix a pose. An empty list is a
  * pass.
  */
-export function heroCodeIssues(sex: Sex, code: string): string[] {
+export function heroCodeIssues(sex: Sex, source: string): string[] {
   const weapons = HERO_WEAPONS[sex];
   const issues: string[] = [];
+  // what the code does, not what its comments say
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  if ((code.match(/\bfunction\s+build\s*\(/g) ?? []).length !== 1) issues.push("define function build(k) exactly once");
+  if (/\b(FACING|POSE|modelBuild)\s*=[^=]|\b(const|let|var|function)\s+(FACING|POSE|modelBuild)\b/.test(code))
+    issues.push("do not declare FACING, POSE or modelBuild: the renderer provides them");
   if ((code.match(/\bhero\s*\(/g) ?? []).length !== 1) issues.push("call hero(k, {...}) exactly once");
   if (!new RegExp(`\\bsex\\s*:\\s*${quoted(sex)}`).test(code)) issues.push(`pass sex: '${sex}'`);
   if (!new RegExp(`\\bmelee\\s*:\\s*${quoted(weapons.melee)}`).test(code))

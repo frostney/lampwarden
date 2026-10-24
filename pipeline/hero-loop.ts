@@ -4,7 +4,6 @@
 // loop.ts's own steps (`generate`, `renderAndVerify`, `correctionMessage`) with the system prompts untouched, so the
 // calls land in the same Mubit tasks as every other sprite. Model, renderer and store are injected; this module touches
 // no file and imports nothing from node:fs.
-import { isAccepted } from "@/server/creatures/job";
 import type { Sex } from "../src/scene/assets";
 import {
   heroBrief,
@@ -22,6 +21,7 @@ import {
   FIX_MAX_TOKENS,
   GENERATOR_MAX_TOKENS,
   generate,
+  isAccepted,
   type LoopCore,
   renderAndVerify,
   type Verdict,
@@ -30,7 +30,7 @@ import type { ModelMessage } from "./mubit";
 import { RENDERED_WITH, type RenderResult } from "./render-types";
 
 /** The candidates' nudges: the loop's own "simple" and "contrast" hints; the facing hints do not apply (FACING is not the model's). */
-const HERO_HINTS = ["", CANDIDATE_HINTS[3] ?? "", CANDIDATE_HINTS[4] ?? ""] as const;
+const HERO_HINTS = ["", CANDIDATE_HINTS[3] ?? "", CANDIDATE_HINTS[4] ?? ""] as const; // a candidate each, never repeated
 
 /** One representative frame, rendered and judged. */
 export interface JudgedFrame {
@@ -200,13 +200,14 @@ export async function runHeroLoop(
 ): Promise<HeroLoopOutcome | null> {
   const print = core.print ?? console.log;
   const brief = heroBrief(sex);
+  const count = Math.min(candidateCount, HERO_HINTS.length);
   const session = `lampwarden-hero-${sex}`;
   const logFields = { bid: `hero-${sex}`, cat: "hero", brief, render: RENDERED_WITH };
   const messagesFor = (index: number): ModelMessage[] => [
     { role: "user", content: `Brief: ${brief}${HERO_HINTS[index % HERO_HINTS.length] ?? ""}` },
   ];
   const generations = await Promise.all(
-    Array.from({ length: candidateCount }, (_unused, index) =>
+    Array.from({ length: count }, (_unused, index) =>
       generate(core, "gen", messagesFor(index), session, { ...logFields, candidate: index }, GENERATOR_MAX_TOKENS),
     ),
   );

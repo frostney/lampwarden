@@ -70,6 +70,7 @@ import {
   nightTint,
   PROPS,
   paintedShadowKey,
+  sceneryTextureKey,
   type TextureMap,
   textureFor,
 } from "@/scene/layers";
@@ -403,19 +404,23 @@ function Props({ state }: { state: State }) {
       });
     }, [state, clock]),
   );
-  return PROPS.map(([key, x, y], index) => (
-    <pixiSprite
-      key={`${key}@${x},${y}`}
-      ref={(sprite: Sprite | null) => {
-        sprites.current[index] = sprite;
-      }}
-      texture={textureFor(textures, key)}
-      anchor={anchor(key)}
-      x={x}
-      y={y}
-      zIndex={y}
-    />
-  ));
+  return PROPS.map(([key, x, y], index) => {
+    // a building whose Mubit sprite did not load is drawn from its hand-written one, with that sprite's own anchor
+    const drawn = sceneryTextureKey(textures, key);
+    return (
+      <pixiSprite
+        key={`${key}@${x},${y}`}
+        ref={(sprite: Sprite | null) => {
+          sprites.current[index] = sprite;
+        }}
+        texture={textureFor(textures, drawn)}
+        anchor={anchor(drawn)}
+        x={x}
+        y={y}
+        zIndex={y}
+      />
+    );
+  });
 }
 
 function Trireme({ state }: { state: State }) {

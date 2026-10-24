@@ -20,8 +20,9 @@ src/
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
                      of the job still making one; on the title and the dawn and heir panels
-    useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
-                     blocks play (none, a network error and "still generating" all mean the night starts without it)
+    useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
+                     begins, for the next night's creature, and keeps a job that is still running through the night);
+                     never blocks play (none, a network error and "still generating" all mean the night starts without it)
     Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
                      choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
@@ -154,7 +155,7 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
 ## Sprite flow
 
 1. `bun run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it in the sandbox:
-   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
+   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the sprites `lamp-lit`, `lamp-unlit` and the fallbacks `temple-handwritten`, `house-handwritten`, `wall-handwritten` and `stall-handwritten` were made from `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_temple.ts`, `ex_house.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house-handwritten.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand. Scenery (buildings and decorations) goes through Mubit instead: `bun run assets -- --candidates 3 --file briefs.json` (pipeline/README.md), then the key goes in `SCENERY` in `src/scene/assets.ts`, which loads it sprite by sprite, with its `ANCHOR_Y` from the manifest's `anchor_y`; a building keeps a `<name>-handwritten` sprite that is drawn when the Mubit one does not load.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.

@@ -127,27 +127,27 @@ describe("next: starting a job", () => {
 });
 
 describe("rate limits", () => {
-  test("a visitor gets 3 starts an hour by default, then waits", async () => {
+  test("a visitor gets 12 starts an hour by default, then waits", async () => {
     const { ask, finishJob, clock } = service();
-    for (let start = 1; start <= 3; start++) {
+    for (let start = 1; start <= 12; start++) {
       expect(await ask("1.1.1.1")).toEqual({ kind: "generating", jobId: `job-${start}-abcdef` });
       await finishJob(`job-${start}-abcdef`);
       clock.advance(60_000);
     }
-    expect(await ask("1.1.1.1")).toEqual({ kind: "none", reason: "rate-limited", retryAfterSeconds: 3600 - 180 });
+    expect(await ask("1.1.1.1")).toEqual({ kind: "none", reason: "rate-limited", retryAfterSeconds: 3600 - 12 * 60 });
     // another visitor is unaffected
-    expect(await ask("2.2.2.2")).toEqual({ kind: "generating", jobId: "job-4-abcdef" });
+    expect(await ask("2.2.2.2")).toEqual({ kind: "generating", jobId: "job-13-abcdef" });
   });
 
   test("a visitor's place frees an hour after their oldest start", async () => {
     const { ask, finishJob, clock } = service();
-    for (let start = 1; start <= 3; start++) {
+    for (let start = 1; start <= 12; start++) {
       await ask("1.1.1.1");
       await finishJob(`job-${start}-abcdef`);
       clock.advance(60_000);
     }
-    clock.advance(3600_000 - 180_000 + 1000);
-    expect(await ask("1.1.1.1")).toEqual({ kind: "generating", jobId: "job-4-abcdef" });
+    clock.advance(3600_000 - 12 * 60_000 + 1000);
+    expect(await ask("1.1.1.1")).toEqual({ kind: "generating", jobId: "job-13-abcdef" });
   });
 
   test("a rate-limited visitor can still follow a job that is already running", async () => {
@@ -174,7 +174,7 @@ describe("rate limits", () => {
   test("limits can be set from the environment, and a malformed value falls back to the default", () => {
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_MAX_STARTS_PER_DAY: "7" }).limits.perDay).toBe(7);
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_MAX_STARTS_PER_DAY: "lots" }).limits.perDay).toBe(40);
-    expect(readCreatureConfig(GENERATING_ENV).limits).toEqual({ perVisitorPerHour: 3, perDay: 40 });
+    expect(readCreatureConfig(GENERATING_ENV).limits).toEqual({ perVisitorPerHour: 12, perDay: 40 });
     expect(readCreatureConfig(GENERATING_ENV).candidates).toBe(3);
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_CANDIDATES: "1" }).candidates).toBe(1);
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_CANDIDATES: "50" }).candidates).toBe(5);

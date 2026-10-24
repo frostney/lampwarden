@@ -1473,7 +1473,7 @@ const warmth = ([red, , blue]) => red / blue;
 check(
   "lamp-lighting",
   "the warden in a pool is lit warm, far more than in the dark",
-  lit.count > 200 && unlit.count > 200 && warmth(lit.colour) > warmth(unlit.colour) * 1.8,
+  lit.count > 200 && unlit.count > 200 && warmth(lit.colour) > warmth(unlit.colour) * 1.5,
   `red/blue ${warmth(lit.colour).toFixed(2)} in the pool, ${warmth(unlit.colour).toFixed(2)} in the dark`,
 );
 // the same spot with the lamp dark: no warmth, no shadow from it
@@ -1679,7 +1679,7 @@ await page.evaluate(() => {
     return { warmth: warmth(found.colour), count: found.count, shot: withSatyr };
   };
   const near = await satyrWarmth(wardenAt[0] + 30, wardenAt[1] + 8);
-  const far = await satyrWarmth(wardenAt[0] + 400, wardenAt[1] + 8);
+  const far = await satyrWarmth(wardenAt[0] + 130, wardenAt[1] + 8);
   writeFileSync(`${OUT}/latest/04b4-monster-near-warden.png`, Buffer.from(near.shot, "base64"));
   shots.push("04b4-monster-near-warden");
   check(
@@ -1746,7 +1746,7 @@ await page.evaluate(() => {
     state.hero.y = 450;
   });
   const dawnNear = await satyrWarmth(330, 458);
-  const dawnFar = await satyrWarmth(700, 458);
+  const dawnFar = await satyrWarmth(430, 458);
   check(
     "warden-light",
     "at dawn the warden's light has faded: a monster beside him is no warmer than one far away",

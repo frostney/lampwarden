@@ -1,0 +1,333 @@
+{
+ "setting": "greek",
+ "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes.",
+ "sprites": {
+  "hero-male-still": {
+   "brief": "male hero warrior with a xiphos in hand and a bow slung on his back",
+   "file": "hero-male-still.png",
+   "code": "hero-male-still.ts",
+   "final": "first",
+   "first_score": 8,
+   "fixed_score": null,
+   "score": 8,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d634c1378638ff2f00c6568b5f1",
+    "verify": [
+     "mreq_01a16d63572e7c8384fa7df83049c03b"
+    ],
+    "fix": null,
+    "fixed_verify": null
+   },
+   "bbox": "40,33,91,107"
+  },
+  "hero-female-still": {
+   "brief": "female hero with a spear in hand and a sling at her hip",
+   "file": "hero-female-still.png",
+   "code": "hero-female-still.ts",
+   "final": "first",
+   "first_score": 7.0,
+   "fixed_score": null,
+   "score": 7.0,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d634c1976039f572c88c77dae51",
+    "verify": [
+     "mreq_01a16d6356647711b285b17577ec562a",
+     "mreq_01a16d63788f7fc39f8445013e9e60a5"
+    ],
+    "fix": null,
+    "fixed_verify": null
+   },
+   "bbox": "50,22,89,106"
+  },
+  "trireme": {
+   "brief": "Greek trireme warship with oars and a bronze ram",
+   "file": "trireme.png",
+   "code": "trireme.ts",
+   "final": "fixed",
+   "first_score": 5,
+   "fixed_score": 7.0,
+   "score": 7.0,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d6372ec711195c8ec7675096598",
+    "verify": [
+     "mreq_01a16d637d317612b736a540522012d7"
+    ],
+    "fix": "mreq_01a16d639f007861854aec0f749d015f",
+    "fixed_verify": [
+     "mreq_01a16d63aa9f7312bea78501332a6019",
+     "mreq_01a16d63d03279e38c76255aa3d11809"
+    ]
+   },
+   "bbox": "14,38,105,118"
+  },
+  "galley-dock": {
+   "brief": "war galley moored at a wooden dock",
+   "file": "galley-dock.png",
+   "code": "galley-dock.ts",
+   "final": "first",
+   "first_score": 7.0,
+   "fixed_score": null,
+   "score": 7.0,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d638f3d7330a7c0eef03786d97e",
+    "verify": [
+     "mreq_01a16d639a2f7501bad9ec4890db8bf7",
+     "mreq_01a16d63c1ab7731b5288f5c96db3878"
+    ],
+    "fix": null,
+    "fixed_verify": null
+   },
+   "bbox": "12,45,91,124"
+  },
+  "lion": {
+   "brief": "Nemean lion, heavy and muscular, with a dark mane",
+   "file": "lion.png",
+   "code": "lion.ts",
+   "final": "first",
+   "first_score": 5,
+   "fixed_score": 4,
+   "score": 5,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d639ee77ba0ae905d96cca577c5",
+    "verify": [
+     "mreq_01a16d63a8977b808e0b736103b7fb17"
+    ],
+    "fix": "mreq_01a16d63d33b7832a765770ea905a463",
+    "fixed_verify": [
+     "mreq_01a16d63dcec7e41ab60e5df56fe21c6"
+    ]
+   },
+   "bbox": "33,52,112,104"
+  },
+  "olive": {
+   "brief": "ancient olive tree with a twisted, knotted trunk",
+   "file": "olive.png",
+   "code": "olive.ts",
+   "final": "fixed",
+   "first_score": 6.5,
+   "fixed_score": 7.0,
+   "score": 7.0,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d63e14f7432a008350af9014a3f",
+    "verify": [
+     "mreq_01a16d63eee672e290488fff27e18e7e",
+     "mreq_01a16d640fc37b3298ad18b45e0a2258"
+    ],
+    "fix": "mreq_01a16d643a6c79829a470b0fcc51965c",
+    "fixed_verify": [
+     "mreq_01a16d6447597f13a12c77ac1e73d593",
+     "mreq_01a16d6472317291a7499f0560724c1d"
+    ]
+   },
+   "bbox": "18,12,110,111"
+  },
+  "zeus-statue": {
+   "brief": "marble statue of Zeus raising a thunderbolt",
+   "file": "zeus-statue.png",
+   "code": "zeus-statue.ts",
+   "final": "first",
+   "first_score": 6.0,
+   "fixed_score": 6.0,
+   "score": 6.0,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d63e56476f2a4333fa43b3fac5d",
+    "verify": [
+     "mreq_01a16d63f2d37ec0adb81e7e0a777649",
+     "mreq_01a16d6413e979519911ea425cb16421"
+    ],
+    "fix": "mreq_01a16d643bdc71038fefe68e20c79531",
+    "fixed_verify": [
+     "mreq_01a16d644e727750a3cc9faaf7196dd6",
+     "mreq_01a16d64796f7a82af5cdab1aa1fcd84"
+    ]
+   },
+   "bbox": "42,1,90,122"
+  },
+  "cyclops": {
+   "brief": "Polyphemus the one-eyed Cyclops with a huge club",
+   "file": "cyclops.png",
+   "code": "cyclops.ts",
+   "final": "first",
+   "first_score": 5.5,
+   "fixed_score": 5,
+   "score": 5.5,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d63fd4f7413812fdd38629dc1c8",
+    "verify": [
+     "mreq_01a16d640b4375438cec6c3929d5ae63",
+     "mreq_01a16d642df87a51a1bfdf8c5e662e96"
+    ],
+    "fix": "mreq_01a16d645a8576719e77834da5f26f07",
+    "fixed_verify": [
+     "mreq_01a16d6466e47020b418e4f671a2bf45"
+    ]
+   },
+   "bbox": "36,16,107,110"
+  },
+  "satyr": {
+   "brief": "mischievous satyr with horns and goat legs",
+   "file": "satyr.png",
+   "code": "satyr.ts",
+   "final": "fixed",
+   "first_score": 6.0,
+   "fixed_score": 6.5,
+   "score": 6.5,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d64001d7eb29d0ec4c651f25b9a",
+    "verify": [
+     "mreq_01a16d640b6c783089eeee4a2c409c7e",
+     "mreq_01a16d643d507450b9141101aa6b350d"
+    ],
+    "fix": "mreq_01a16d6469c279e09ffd415ff7b3a9b9",
+    "fixed_verify": [
+     "mreq_01a16d6473ee7191bb45b0e6ab0c7ec1",
+     "mreq_01a16d649e827150a5ec4af7c25aaca8"
+    ]
+   },
+   "bbox": "42,27,88,105"
+  },
+  "harpy": {
+   "brief": "screeching harpy with feathered wings and talons",
+   "file": "harpy.png",
+   "code": "harpy.ts",
+   "final": "first",
+   "first_score": 6.0,
+   "fixed_score": 6.0,
+   "score": 6.0,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d648b767aa0b47a6d2df77f43c9",
+    "verify": [
+     "mreq_01a16d6496137e91af124f8e08cc4cb5",
+     "mreq_01a16d64bd747701af5d07de0e41cb5b"
+    ],
+    "fix": "mreq_01a16d64eadb7b33bafb24a013130d32",
+    "fixed_verify": [
+     "mreq_01a16d64f3e57ae2a9b91ec75ed6ead7",
+     "mreq_01a16d651b257203884afc385c594c92"
+    ]
+   },
+   "bbox": "20,41,107,108"
+  },
+  "hydra": {
+   "brief": "many-headed Lernaean hydra with five heads",
+   "file": "hydra.png",
+   "code": "hydra.ts",
+   "final": "first",
+   "first_score": 5,
+   "fixed_score": 5,
+   "score": 5,
+   "passed": false,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d6496cf7120981d7b2134e0a11c",
+    "verify": [
+     "mreq_01a16d649fab7940a05a9e256743e13d"
+    ],
+    "fix": "mreq_01a16d64b99c7720955f74a83f6b6224",
+    "fixed_verify": [
+     "mreq_01a16d64c34773e3b049167f9e44824f"
+    ]
+   },
+   "bbox": "12,25,104,108"
+  },
+  "hephaestus": {
+   "brief": "bearded smith-god Hephaestus with a heavy hammer",
+   "file": "hephaestus.png",
+   "code": "hephaestus.ts",
+   "final": "first",
+   "first_score": 7.0,
+   "fixed_score": null,
+   "score": 7.0,
+   "passed": true,
+   "mubit_request_ids": {
+    "gen": "mreq_01a16d64a6707c9382a2c0be1fc65707",
+    "verify": [
+     "mreq_01a16d64b2647812b00e2c3114afec08",
+     "mreq_01a16d64d1747981b66b8065743a959b"
+    ],
+    "fix": null,
+    "fixed_verify": null
+   },
+   "bbox": "48,43,105,107"
+  }
+ },
+ "hero_frames": {
+  "dir": "hero",
+  "loadout": {
+   "male": "xiphos in hand + bow on back (ranged: bow)",
+   "female": "spear in hand + sling at hip (ranged: sling)"
+  },
+  "frames": {
+   "female": {
+    "idle": [
+     "female_idle1.png",
+     "female_idle2.png",
+     "female_idle3.png",
+     "female_idle4.png"
+    ],
+    "melee": [
+     "female_melee1.png",
+     "female_melee2.png",
+     "female_melee3.png",
+     "female_melee4.png",
+     "female_melee5.png"
+    ],
+    "ranged": [
+     "female_ranged1.png",
+     "female_ranged2.png",
+     "female_ranged3.png",
+     "female_ranged4.png",
+     "female_ranged5.png"
+    ],
+    "walk": [
+     "female_walk1.png",
+     "female_walk2.png",
+     "female_walk3.png",
+     "female_walk4.png",
+     "female_walk5.png",
+     "female_walk6.png"
+    ]
+   },
+   "male": {
+    "idle": [
+     "male_idle1.png",
+     "male_idle2.png",
+     "male_idle3.png",
+     "male_idle4.png"
+    ],
+    "melee": [
+     "male_melee1.png",
+     "male_melee2.png",
+     "male_melee3.png",
+     "male_melee4.png",
+     "male_melee5.png"
+    ],
+    "ranged": [
+     "male_ranged1.png",
+     "male_ranged2.png",
+     "male_ranged3.png",
+     "male_ranged4.png",
+     "male_ranged5.png"
+    ],
+    "walk": [
+     "male_walk1.png",
+     "male_walk2.png",
+     "male_walk3.png",
+     "male_walk4.png",
+     "male_walk5.png",
+     "male_walk6.png"
+    ]
+   }
+  },
+  "rendered_with": "local bun, noScale, facing 20, 128x128"
+ }
+}

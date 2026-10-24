@@ -8,6 +8,8 @@ import { Container, Graphics, Sprite, UPDATE_PRIORITY, type FederatedPointerEven
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { heroKey, type Sex } from "@/lib/assets";
 import { bindKeyboard, consumePresses, liveInput, shootAt, type Controls } from "@/lib/controls";
+import { newGamepadMemory, pollGamepadForPlay } from "@/lib/gamepad";
+import { arrowTextureFor, createProjectileTextures, projectileFor, type ProjectileTextures } from "@/lib/projectiles";
 import { STEP } from "@/lib/replay";
 import {
   PROPS, anchor, drawGround, drawMarks, drawSheet, drawSweep, flicker, glowTexture, heroFrame, lightsAlpha, nightTint, type Tex,
@@ -56,6 +58,7 @@ export const Scene = memo(function Scene({ night, tex, controls, paused, speed, 
 
   // a new night starts from step 0 with no keys held
   const run = useRef({ n: 0, acc: 0 });
+  const gamepadMemory = useRef(newGamepadMemory());
   useLayoutEffect(() => { run.current = { n: 0, acc: 0 }; controls.keys.clear(); }, [night, controls]);
 
   useEffect(() => bindKeyboard(controls), [controls]);
@@ -71,6 +74,7 @@ export const Scene = memo(function Scene({ night, tex, controls, paused, speed, 
       if (!paused) {
         // fixed 60 Hz sim step, so a recorded night replays exactly
         r.acc += dt * speed;
+        pollGamepadForPlay(controls, s, gamepadMemory.current);
         let inp = liveInput(controls);
         while (r.acc >= STEP && !s.outcome) {
           step(s, STEP, night.driver ? night.driver(r.n, inp, s) : inp);
@@ -104,6 +108,7 @@ export const Scene = memo(function Scene({ night, tex, controls, paused, speed, 
         <HeroGlow hero={s.hero} />
         {s.lamps.map((l, i) => <LampGlow key={i} lamp={l} rules={s.rules} />)}
       </Lights>
+      <Projectiles state={s} sex={night.sex} />
       <Strokes draw={marks} />
     </SceneContext.Provider>
   );
@@ -213,3 +218,35 @@ const LampGlow = memo(function LampGlow({ lamp: l, rules }: { lamp: Lamp; rules:
     </>
   );
 });
+
+// Shots in flight, above the night tint so they stay readable: arrows for the bow, stones for the sling. Sprites are
+// pooled by shot id and moved from the tick, so a volley never causes a React render.
+function Projectiles({ state, sex }: { state: State; sex: Sex }) {
+  const textures = useMemo<ProjectileTextures>(createProjectileTextures, []);
+  const layer = useRef<Container>(null);
+  const spritesByShot = useRef(new Map<number, Sprite>());
+  useFrame(useCallback(() => {
+    const container = layer.current;
+    if (!container) return;
+    const kind = projectileFor(sex);
+    const inFlight = new Set<number>();
+    for (const shot of state.shots) {
+      inFlight.add(shot.id);
+      let sprite = spritesByShot.current.get(shot.id);
+      if (!sprite) {
+        sprite = new Sprite(textures.stone);
+        sprite.anchor.set(0.5);
+        container.addChild(sprite);
+        spritesByShot.current.set(shot.id, sprite);
+      }
+      sprite.texture = kind === "arrow" ? arrowTextureFor(textures, shot.vx, shot.vy) : textures.stone;
+      sprite.position.set(Math.round(shot.x), Math.round(shot.y));
+    }
+    for (const [shotId, sprite] of spritesByShot.current) {
+      if (inFlight.has(shotId)) continue;
+      sprite.destroy();
+      spritesByShot.current.delete(shotId);
+    }
+  }, [state, sex, textures]));
+  return <pixiContainer ref={layer} />;
+}

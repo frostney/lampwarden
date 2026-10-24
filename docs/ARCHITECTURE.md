@@ -25,9 +25,13 @@ src/
     plays.ts         the recorded-play id format shared by the API routes
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
-    layers.ts        textures, ground, props, night tint, per-frame strokes
+    layers.ts        textures, ground (the plaza over the sea), props, night tint, per-frame strokes
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
+    water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths, a swell tile of
+                     2:1 crests and sparkles (a TilingSprite drifting down the grid), surf lapping at the plaza's edges
+    paint.ts         shared by the painted pixel art: RGBA buffers to nearest-sampled textures, Bayer dither, seeded random
+    plaza.ts         the plaza's outline in pixels: its top face, its walls, and how far a point of sea lies from it
     projectiles.ts   arrow and sling-stone pixel art
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
 scripts/balance.ts   headless balance check (idle and bot wardens), run with bun

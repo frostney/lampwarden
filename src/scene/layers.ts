@@ -13,6 +13,7 @@ import {
   type State,
 } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { PLAZA_WALL } from "./plaza";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -37,10 +38,8 @@ export function loadTextures(): Promise<TextureMap> {
 
 const PLAZA_TILES = 12;
 
+// the ground over the sea (water.ts): the plaza, its walls, the fountain and the planks to the galley
 export function drawGround(graphics: Graphics) {
-  graphics.rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0x1e5f8a); // sea
-  for (let band = 0; band < 12; band++)
-    graphics.rect(0, 40 + band * 52, STAGE_WIDTH, 3).fill({ color: 0x2b78a6, alpha: 0.6 });
   // plaza: 12x12 iso diamond tiles of 64x32
   for (let row = 0; row < PLAZA_TILES; row++) {
     for (let column = 0; column < PLAZA_TILES; column++) {
@@ -61,9 +60,9 @@ export function drawGround(graphics: Graphics) {
       CENTRE_X,
       CENTRE_Y + PLAZA_HALF_HEIGHT,
       CENTRE_X,
-      CENTRE_Y + PLAZA_HALF_HEIGHT + 14,
+      CENTRE_Y + PLAZA_HALF_HEIGHT + PLAZA_WALL,
       CENTRE_X - PLAZA_HALF_WIDTH,
-      CENTRE_Y + 14,
+      CENTRE_Y + PLAZA_WALL,
     ])
     .fill(0x8a7048);
   graphics
@@ -73,9 +72,9 @@ export function drawGround(graphics: Graphics) {
       CENTRE_X,
       CENTRE_Y + PLAZA_HALF_HEIGHT,
       CENTRE_X,
-      CENTRE_Y + PLAZA_HALF_HEIGHT + 14,
+      CENTRE_Y + PLAZA_HALF_HEIGHT + PLAZA_WALL,
       CENTRE_X + PLAZA_HALF_WIDTH,
-      CENTRE_Y + 14,
+      CENTRE_Y + PLAZA_WALL,
     ])
     .fill(0x6f5a3a);
   graphics.ellipse(CENTRE_X, CENTRE_Y + 8, 70, 35).stroke({ width: 3, color: 0x3d6f8c });

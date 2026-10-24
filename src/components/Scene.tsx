@@ -4,7 +4,17 @@
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { extend, useTick } from "@pixi/react";
-import { Container, type FederatedPointerEvent, Graphics, Sprite, type Ticker, UPDATE_PRIORITY } from "pixi.js";
+import {
+  Container,
+  type FederatedPointerEvent,
+  Graphics,
+  Rectangle,
+  Sprite,
+  Texture,
+  type Ticker,
+  TilingSprite,
+  UPDATE_PRIORITY,
+} from "pixi.js";
 import {
   createContext,
   memo,
@@ -28,6 +38,8 @@ import {
   type Lamp,
   MONSTER,
   type Monster,
+  STAGE_HEIGHT,
+  STAGE_WIDTH,
   type State,
   step,
 } from "@/game/sim";
@@ -47,8 +59,11 @@ import {
 } from "@/scene/layers";
 import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/scene/light";
 import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/scene/projectiles";
+import { createWater, swellDrift, waterFrame } from "@/scene/water";
 
-extend({ Container, Graphics, Sprite });
+extend({ Container, Graphics, Sprite, TilingSprite });
+
+const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the ground takes clicks anywhere on the canvas
 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
@@ -164,7 +179,8 @@ export const Scene = memo(function Scene({
 
   return (
     <SceneContext.Provider value={shared}>
-      <pixiGraphics draw={drawGround} eventMode="static" onPointerDown={shoot} />
+      <Water />
+      <pixiGraphics draw={drawGround} eventMode="static" hitArea={STAGE_AREA} onPointerDown={shoot} />
       <pixiContainer sortableChildren>
         {PROPS.map(([key, x, y]) => (
           <pixiSprite
@@ -196,6 +212,53 @@ export const Scene = memo(function Scene({
     </SceneContext.Provider>
   );
 });
+
+// The sea, all of it painted once in src/scene/water.ts: the still depths, the swell tiled over the canvas and drifting
+// down the grid, and the surf in patches along the plaza; each frame only picks the loop's textures from the clock.
+function Water() {
+  const { clock } = useScene();
+  const water = useMemo(createWater, []);
+  const swell = useRef<TilingSprite>(null);
+  const patchSprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const frame = waterFrame(clock.current);
+      const swellSprite = swell.current;
+      const swellTexture = water.swell[frame];
+      if (swellSprite && swellTexture) {
+        swellSprite.texture = swellTexture;
+        const drift = swellDrift(clock.current);
+        swellSprite.tilePosition.set(drift.x, drift.y);
+      }
+      water.patches.forEach((patch, index) => {
+        const sprite = patchSprites.current[index];
+        const texture = patch.frames[frame];
+        if (sprite && texture) sprite.texture = texture;
+      });
+    }, [clock, water]),
+  );
+  return (
+    <pixiContainer>
+      <pixiSprite texture={water.base} />
+      <pixiTilingSprite
+        ref={swell}
+        texture={water.swell[0] ?? Texture.EMPTY}
+        width={STAGE_WIDTH}
+        height={STAGE_HEIGHT}
+      />
+      {water.patches.map((patch, index) => (
+        <pixiSprite
+          key={`${patch.x},${patch.y}`}
+          ref={(sprite: Sprite | null) => {
+            patchSprites.current[index] = sprite;
+          }}
+          x={patch.x}
+          y={patch.y}
+        />
+      ))}
+    </pixiContainer>
+  );
+}
 
 function Trireme() {
   const { textures, clock } = useScene();

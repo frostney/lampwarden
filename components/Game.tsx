@@ -6,6 +6,7 @@ import {
   type Heir, type Legacy, type UpgradeId,
 } from "@/lib/legacy";
 import { Icon } from "./Icons";
+import { TouchControls } from "./TouchControls";
 import { Recorder, Replayer, legacyOf, upload, verifyPlay, type Play } from "@/lib/replay";
 import { createScene, type SceneHandle } from "@/lib/scene";
 import { dawnBonus, litCount, newNight, newSeed, nextTide, type Outcome, type State } from "@/lib/sim";
@@ -182,19 +183,19 @@ export default function Game() {
         {(phase === "night" || phase === "replay") && hud && (
           <>
             <div className="stats">
-              <div>{heirLine}</div>
+              <div>{l.heir.name}<span className="long">, {ordinal(l.generation)} Lampwarden · {TRAITS[l.heir.trait].label}</span></div>
               <div className="bar"><i style={{ width: `${(hud.hp / hud.maxHp) * 100}%` }} /></div>
               <div className="oilline">Slain {hud.kills} · <Icon name="oil" size={16} /> {hud.oil}</div>
             </div>
             <div className="nightbar">
-              <div>Night {l.night} · the sea is {tideLabel(l.tide)}</div>
+              <div>Night {l.night}<span className="long"> · the sea is {tideLabel(l.tide)}</span></div>
               <div className="bar dawnbar"><i style={{ width: `${hud.dawn * 100}%` }} /></div>
             </div>
             <div className="lamps">
-              Lamps {Array.from({ length: hud.lamps }, (_, i) => <span key={i} className={i < hud.lit ? "lit" : ""}>◆</span>)}
+              <span className="long">Lamps </span>{Array.from({ length: hud.lamps }, (_, i) => <span key={i} className={i < hud.lit ? "lit" : ""}>◆</span>)}
             </div>
             {phase === "night"
-              ? <div className="help">WASD / arrows move · J or Space strike · K or click shoot · stand by a dark lamp to relight it</div>
+              ? <div className="help">WASD move · J strike · K or click shoot · stand by a dark lamp to relight it</div>
               : <div className="help replaybar">
                   REPLAY {replay?.play.id}
                   {[1, 2, 4].map((x) => (
@@ -203,6 +204,9 @@ export default function Game() {
                 </div>}
           </>
         )}
+
+        {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
+        {phase === "night" && <TouchControls onStick={(x, y) => scene.current?.stick(x, y)} onPress={(k) => scene.current?.press(k)} />}
 
         {phase === "replayEnd" && replay && (
           <div className="panel">
@@ -216,7 +220,7 @@ export default function Game() {
 
         {phase === "title" && (
           <div className="panel">
-            <div className="logo">LAMPWARDEN</div>
+            <h1 className="logo">LAMPWARDEN</h1>
             <p>Every night the sea sends its creatures to put out the lamps of Lychnos. Keep one burning until dawn.</p>
             <div className="settings">
               {SETTINGS.map((s) => (

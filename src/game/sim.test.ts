@@ -5,6 +5,7 @@ import {
   CENTRE_X,
   CENTRE_Y,
   type Input,
+  MERCY_TIME,
   type MonsterKind,
   NO_INPUT,
   newNight,
@@ -120,6 +121,77 @@ describe("the melee swing", () => {
   });
 });
 
+// a satyr in claw range that strikes the first step it can
+function clawer(state: State, offsetX: number, offsetY = 0) {
+  const monster = place(state, "satyr", offsetX, offsetY);
+  monster.attackCooldown = 0;
+  return monster;
+}
+
+describe("a monster's blow on the warden", () => {
+  test("throws the warden straight away from the attacker, and stuns him a beat", () => {
+    const state = stage();
+    clawer(state, 20);
+    const startX = state.hero.x;
+    step(state, STEP, NO_INPUT);
+    expect(state.hero.hits).toBe(1);
+    expect(state.hero.health).toBe(state.hero.maxHealth - 8);
+    // walking is held for the hit-stop, so for a few steps the warden only goes where the blow throws him
+    for (let count = 0; count < 3; count++) step(state, STEP, { ...NO_INPUT, moveY: 1 });
+    expect(state.hero.y).toBe(CENTRE_Y);
+    expect(state.hero.x).toBeLessThan(startX);
+    for (let count = 0; count < 40; count++) step(state, STEP, NO_INPUT);
+    expect(startX - state.hero.x).toBeGreaterThan(20); // away from the attacker on the east
+    expect(state.hero.y).toBeCloseTo(CENTRE_Y, 5);
+    step(state, STEP, { ...NO_INPUT, moveY: 1 });
+    expect(state.hero.y).toBeGreaterThan(CENTRE_Y); // and he walks again afterwards
+  });
+
+  test("throws him along the diagonal when the attacker stands off it", () => {
+    const state = stage();
+    clawer(state, 12, 6); // south-east on the ground
+    run(state, 40);
+    expect(state.hero.x).toBeLessThan(CENTRE_X - 10);
+    expect(state.hero.y).toBeLessThan(CENTRE_Y - 3);
+  });
+
+  test("never throws him off the plaza", () => {
+    const state = stage(CENTRE_X + PLAZA_HALF_WIDTH * 0.9, CENTRE_Y);
+    clawer(state, -20); // the warden stands at the edge, the attacker on the plaza side
+    expect(plazaRim(state.hero.x, state.hero.y)).toBeLessThan(0.92);
+    let outermost = 0;
+    for (let count = 0; count < 60; count++) {
+      step(state, STEP, NO_INPUT);
+      outermost = Math.max(outermost, plazaRim(state.hero.x, state.hero.y));
+    }
+    expect(state.hero.hits).toBe(1);
+    expect(outermost).toBeLessThanOrEqual(0.92 + 1e-9);
+  });
+
+  test("mercy frames stop a second blow inside the window, and not after it", () => {
+    const state = stage();
+    clawer(state, 20);
+    clawer(state, 18);
+    step(state, STEP, NO_INPUT);
+    expect(state.hero.hits).toBe(1);
+    const health = state.hero.health;
+    // the second one is still in reach (put the warden back where the blow found him), and waits
+    const startX = state.hero.x;
+    for (let count = 0; count < Math.floor((MERCY_TIME - 0.1) / STEP); count++) {
+      state.hero.x = startX;
+      step(state, STEP, NO_INPUT);
+    }
+    expect(state.hero.hits).toBe(1);
+    expect(state.hero.health).toBe(health);
+    for (let count = 0; count < Math.ceil(0.2 / STEP); count++) {
+      state.hero.x = startX;
+      step(state, STEP, NO_INPUT);
+    }
+    expect(state.hero.hits).toBe(2);
+    expect(state.hero.health).toBe(health - 8);
+  });
+});
+
 describe("the warden's facing", () => {
   const HEADINGS: [string, number, number, number][] = [
     ["east", 1, 0, 0],
@@ -193,6 +265,44 @@ describe("shots", () => {
     expect(cyclops.stun).toBeGreaterThan(0);
     expect(cyclops.knockX).toBeGreaterThan(0);
     expect(state.puffs.some((puff) => puff.kind === "hit")).toBe(true);
+  });
+
+  // the ground's y is twice the screen's, so the way a facing runs on the ground has half its slope on the screen
+  const FACINGS: [string, number, number, number, number][] = [
+    ["east", 1, 0, 1, 0],
+    ["south-east", 1, 1, 1, 0.5],
+    ["south", 0, 1, 0, 1],
+    ["south-west", -1, 1, -1, 0.5],
+    ["west", -1, 0, -1, 0],
+    ["north-west", -1, -1, -1, -0.5],
+    ["north", 0, -1, 0, -1],
+    ["north-east", 1, -1, 1, -0.5],
+  ];
+  test.each(FACINGS)(
+    "with no mouse aim a shot flies the way he faces on the ground (%s)",
+    (_name, moveX, moveY, screenX, screenY) => {
+      const state = stage();
+      step(state, STEP, { ...NO_INPUT, moveX, moveY }); // turn that way...
+      step(state, STEP, NO_INPUT); // ...and stand there
+      for (let count = 0; count < 5 && state.hero.animation === "walk"; count++) step(state, STEP, NO_INPUT);
+      step(state, STEP, { ...NO_INPUT, ranged: true });
+      for (let count = 0; count < 120 && state.shots.length === 0; count++) step(state, STEP, NO_INPUT);
+      const [shot] = state.shots;
+      if (!shot) throw new Error("no shot fired");
+      const speed = Math.hypot(shot.velocityX, shot.velocityY);
+      const wanted = Math.hypot(screenX, screenY);
+      expect(shot.velocityX / speed).toBeCloseTo(screenX / wanted, 5);
+      expect(shot.velocityY / speed).toBeCloseTo(screenY / wanted, 5);
+    },
+  );
+
+  test("a mouse aim still sends the shot at the aim, whatever he faces", () => {
+    const state = stage();
+    step(state, STEP, { ...NO_INPUT, ranged: true, aim: { x: state.hero.x + 100, y: state.hero.y - 40 + 30 } });
+    for (let count = 0; count < 120 && state.shots.length === 0; count++) step(state, STEP, NO_INPUT);
+    const [shot] = state.shots;
+    if (!shot) throw new Error("no shot fired");
+    expect(shot.velocityY / shot.velocityX).toBeCloseTo(0.3, 5);
   });
 });
 

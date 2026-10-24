@@ -35,13 +35,15 @@ import {
   CENTRE_X,
   FLASH_TIME,
   GHOST_TIME,
+  HERO_FLASH_TIME,
+  HERO_HURT_TIME,
   type Hero as HeroState,
   HURT_TIME,
   type Input,
   type Lamp,
-  MONSTER,
   type Monster,
   type MonsterKind,
+  monsterStats,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
@@ -50,13 +52,16 @@ import {
 import { heroKey, heroView, type Sex } from "@/scene/assets";
 import {
   anchor,
+  anchorAt,
   drawGround,
   drawMarks,
   drawSweep,
   flashKey,
+  heroFlashTexture,
   heroFrame,
   lightsAlpha,
   monsterBob,
+  monsterLook,
   nightProgress,
   nightTint,
   PROPS,
@@ -84,6 +89,7 @@ import {
   TWINKLES,
   twinkleFrame,
 } from "@/scene/sky";
+import { vignetteStrength, vignetteTexture } from "@/scene/vignette";
 import { createWater, HORIZON_Y, swellDrift, waterFrame } from "@/scene/water";
 
 extend({ Container, Graphics, Sprite, TilingSprite });
@@ -97,6 +103,7 @@ export interface Night {
   state: State;
   sex: Sex;
   driver: Driver | null;
+  creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
 }
 
 interface SceneProps {
@@ -145,8 +152,9 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
+  const sceneTextures = useMemo(() => ({ ...textures, ...night.creatureTextures }), [textures, night.creatureTextures]);
   const lighting = useMemo<Lighting>(() => new Map(), []);
-  const shared = useMemo(() => ({ textures, clock, lighting }), [textures, lighting]);
+  const shared = useMemo(() => ({ textures: sceneTextures, clock, lighting }), [sceneTextures, lighting]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
@@ -240,9 +248,10 @@ export const Scene = memo(function Scene({
         </World>
       </pixiContainer>
       <Projectiles state={state} sex={night.sex} />
-      <Flashes state={state} />
+      <Flashes state={state} sex={night.sex} />
       <Strokes draw={marks} />
       <ScreenShake state={state} />
+      <WoundVignette state={state} />
     </SceneContext.Provider>
   );
 });
@@ -505,11 +514,12 @@ function Monsters({ state }: { state: State }) {
       setShown({ state, list: lastHandedToReact.current });
     }, [state]),
   );
-  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} />);
+  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} state={state} />);
 }
 
-const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monster }) {
+const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster: Monster; state: State }) {
   const { textures, lighting } = useScene();
+  const look = monsterLook(state, monster.kind);
   const ref = useRef<Sprite>(null);
   const rim = useRef<Sprite>(null);
   useFrame(
@@ -517,17 +527,17 @@ const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monste
       const sprite = ref.current;
       if (!sprite) return;
       const light = lighting.get(monster) ?? DARK_CHARACTER;
-      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(monster.kind, monster.age)));
+      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(state, monster.kind, monster.age)));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
-      showRim(rim.current, sprite, textureFor(textures, monster.kind), light.rim);
-    }, [monster, textures, lighting]),
+      showRim(rim.current, sprite, textureFor(textures, look.key), light.rim);
+    }, [monster, state, look.key, textures, lighting]),
   );
   return (
     <>
-      <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />
-      <pixiSprite ref={rim} anchor={anchor(monster.kind)} visible={false} />
+      <pixiSprite ref={ref} texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />
+      <pixiSprite ref={rim} anchor={anchorAt(look.anchorY)} visible={false} />
     </>
   );
 });
@@ -538,7 +548,7 @@ function lightCharacters(state: State, lighting: Lighting, clock: number) {
   lighting.clear();
   lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock));
   for (const monster of state.monsters)
-    lighting.set(monster, lightCharacter(state, monster.x, monster.y, MONSTER[monster.kind].fly, clock));
+    lighting.set(monster, lightCharacter(state, monster.x, monster.y, monsterStats(state, monster.kind).fly, clock));
 }
 
 // The characters' shadows on the ground: under every sprite and over the lamps' pools, so a figure stands in front of its
@@ -759,10 +769,10 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
 }
 
 // The white silhouettes of a blow, above the night tint so they read as a flash and not as another shade of blue: a
-// monster that was just hit, for its first FLASH_TIME, and a monster that was just killed, flung back along the blow
-// while it fades (the sim keeps it on the kill's puff, since the monster is gone from the list the moment it dies).
-// Sprites are pooled by key like the shots'.
-function Flashes({ state }: { state: State }) {
+// monster that was just hit, for its first FLASH_TIME, a monster that was just killed, flung back along the blow while
+// it fades (the sim keeps it on the kill's puff, since the monster is gone from the list the moment it dies), and the
+// warden for the first HERO_FLASH_TIME after a monster's blow lands on him. Sprites are pooled by key like the shots'.
+function Flashes({ state, sex }: { state: State; sex: Sex }) {
   const { textures } = useScene();
   const layer = useRef<Container>(null);
   const sprites = useRef(new Map<string, Sprite>());
@@ -771,34 +781,64 @@ function Flashes({ state }: { state: State }) {
       const container = layer.current;
       if (!container) return;
       const shown = new Set<string>();
-      const show = (key: string, kind: MonsterKind, x: number, y: number, alpha: number) => {
+      const show = (
+        key: string,
+        texture: Texture,
+        anchorPoint: { x: number; y: number },
+        x: number,
+        y: number,
+        alpha: number,
+      ) => {
         shown.add(key);
         let sprite = sprites.current.get(key);
         if (!sprite) {
-          sprite = new Sprite(textureFor(textures, flashKey(kind)));
-          sprite.anchor.copyFrom(anchor(kind));
+          sprite = new Sprite(texture);
+          sprite.anchor.copyFrom(anchorPoint);
           sprite.scale.x = x > CENTRE_X ? -1 : 1;
           container.addChild(sprite);
           sprites.current.set(key, sprite);
         }
+        sprite.texture = texture;
         sprite.position.set(Math.round(x), Math.round(y));
         sprite.alpha = alpha;
+        return sprite;
+      };
+      // a monster's white silhouette: its own look, which is the creature's on a night that has one
+      const showMonster = (key: string, kind: MonsterKind, x: number, y: number, alpha: number) => {
+        const look = monsterLook(state, kind);
+        show(key, textureFor(textures, flashKey(look.key)), anchorAt(look.anchorY), x, y, alpha);
       };
       for (const monster of state.monsters)
         if (monster.hurt > HURT_TIME - FLASH_TIME)
-          show(`monster${monster.id}`, monster.kind, monster.x, monster.y + monsterBob(monster.kind, monster.age), 1);
+          showMonster(
+            `monster${monster.id}`,
+            monster.kind,
+            monster.x,
+            monster.y + monsterBob(state, monster.kind, monster.age),
+            1,
+          );
+      const hero = state.hero;
+      if (hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
+        // the same frame, place and mirroring as the warden's own sprite (Hero)
+        const view = heroView(hero.octant);
+        const white = heroFlashTexture(
+          textures,
+          heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
+        );
+        if (white) show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
+      }
       for (const puff of state.puffs) {
         const ghost = puff.ghost;
         if (!ghost || puff.age >= GHOST_TIME) continue;
         const progress = puff.age / GHOST_TIME;
         // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
         const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-        const travel = 30 * MONSTER[ghost.monster].recoil * (1 - (1 - flight) ** 2);
-        show(
+        const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
+        showMonster(
           `puff${puff.id}`,
           ghost.monster,
           ghost.x + puff.directionX * travel,
-          ghost.y + puff.directionY * travel * 0.5 + monsterBob(ghost.monster, ghost.monsterAge + puff.age),
+          ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
           progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
         );
       }
@@ -807,23 +847,14 @@ function Flashes({ state }: { state: State }) {
         sprite.destroy();
         sprites.current.delete(key);
       }
-    }, [state, textures]),
+    }, [state, textures, sex]),
   );
   return <pixiContainer ref={layer} />;
 }
 
-// A kill rattles the whole picture by a pixel or two for a moment. It runs on the sim's clock, so it holds still while
-// paused, and it never runs for a player who asks for reduced motion.
-const SHAKE_TIME = 0.12;
-function ScreenShake({ state }: { state: State }) {
-  const { app } = useApplication();
+// Whether the player asks for reduced motion, kept current in a ref.
+function useReducedMotion(): RefObject<boolean> {
   const reducedMotion = useRef(false);
-  const memory = useRef({
-    state,
-    kills: state.stats.kills,
-    startedAt: Number.NEGATIVE_INFINITY,
-    elapsed: state.elapsed,
-  });
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => {
@@ -831,11 +862,33 @@ function ScreenShake({ state }: { state: State }) {
     };
     update();
     query.addEventListener("change", update);
-    return () => {
-      query.removeEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return reducedMotion;
+}
+
+// A kill rattles the whole picture by a pixel or two for a moment, and a monster's blow on the warden harder and
+// longer: it throws the picture four pixels. Each runs on the sim's clock, so it holds still while paused, and neither
+// runs for a player who asks for reduced motion.
+const KILL_SHAKE = { time: 0.12, amplitude: 2 };
+const WOUND_SHAKE = { time: 0.22, amplitude: 4 };
+const NO_SHAKE = { startedAt: Number.NEGATIVE_INFINITY, time: 0, amplitude: 0 };
+function ScreenShake({ state }: { state: State }) {
+  const { app } = useApplication();
+  const reducedMotion = useReducedMotion();
+  const memory = useRef({
+    state,
+    kills: state.stats.kills,
+    hits: state.hero.hits,
+    shake: NO_SHAKE,
+    elapsed: state.elapsed,
+  });
+  useEffect(
+    () => () => {
       app.stage.position.set(0, 0);
-    };
-  }, [app]);
+    },
+    [app],
+  );
   useFrame(
     useCallback(() => {
       // a new night starts the count again
@@ -843,23 +896,61 @@ function ScreenShake({ state }: { state: State }) {
         memory.current = {
           state,
           kills: state.stats.kills,
-          startedAt: Number.NEGATIVE_INFINITY,
+          hits: state.hero.hits,
+          shake: NO_SHAKE,
           elapsed: state.elapsed,
         };
       const remembered = memory.current;
-      if (state.stats.kills > remembered.kills) remembered.startedAt = state.elapsed;
+      // a blow replaces a shake that is weaker than it is at that moment
+      const start = (shake: { time: number; amplitude: number }) => {
+        const age = state.elapsed - remembered.shake.startedAt;
+        const current =
+          age > remembered.shake.time
+            ? 0
+            : age < remembered.shake.time / 2
+              ? remembered.shake.amplitude
+              : remembered.shake.amplitude / 2;
+        if (shake.amplitude >= current) remembered.shake = { ...shake, startedAt: state.elapsed };
+      };
+      if (state.stats.kills > remembered.kills) start(KILL_SHAKE);
+      if (state.hero.hits > remembered.hits) start(WOUND_SHAKE);
       remembered.kills = state.stats.kills;
-      const age = state.elapsed - remembered.startedAt;
+      remembered.hits = state.hero.hits;
+      const { startedAt, time, amplitude } = remembered.shake;
+      const age = state.elapsed - startedAt;
       const running = state.elapsed !== remembered.elapsed;
       remembered.elapsed = state.elapsed;
-      if (reducedMotion.current || !running || age > SHAKE_TIME) {
+      if (reducedMotion.current || !running || age > time) {
         app.stage.position.set(0, 0);
         return;
       }
-      const amplitude = age < SHAKE_TIME / 2 ? 2 : 1;
+      const strength = age < time / 2 ? amplitude : amplitude / 2;
       const tick = Math.floor(age * 60);
-      app.stage.position.set(tick % 2 === 0 ? amplitude : -amplitude, tick % 3 === 0 ? -1 : 1);
-    }, [state, app]),
+      app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % 3 === 0 ? -1 : 1);
+    }, [state, app, reducedMotion]),
   );
   return null;
+}
+
+// The red vignette of the dithered ring at the screen's edges (src/scene/vignette.ts) while the warden's hurt runs
+// down: it strikes at full and steps down. It is held still against the stage, so the shake does not show its edge. For
+// a player who asks for reduced motion it stays one steady strength until the hurt is over, with no stepping.
+function WoundVignette({ state }: { state: State }) {
+  const { app } = useApplication();
+  const reducedMotion = useReducedMotion();
+  const ref = useRef<Sprite>(null);
+  useFrame(
+    useCallback(() => {
+      const sprite = ref.current;
+      if (!sprite) return;
+      const hurt = state.hero.hurt;
+      const texture = vignetteTexture(
+        reducedMotion.current ? (hurt > 0 ? 2 : 0) : vignetteStrength(hurt, HERO_HURT_TIME),
+      );
+      sprite.visible = texture !== null;
+      if (texture) sprite.texture = texture;
+      sprite.position.set(-app.stage.position.x, -app.stage.position.y);
+    }, [state, app, reducedMotion]),
+  );
+  return <pixiSprite ref={ref} visible={false} eventMode="none" />;
 }

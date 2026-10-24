@@ -3,11 +3,13 @@
 import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
+import { SeaSends } from "@/components/SeaSends";
 import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
+import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
@@ -20,6 +22,7 @@ import {
   type Legacy,
   loadLegacy,
   MAX_LEVEL,
+  meet,
   newLegacy,
   openShop,
   ordinal,
@@ -29,7 +32,8 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
-import { legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/game/replay";
+import { recordedCreatureSchema } from "@/game/plays";
+import { creatureOf, legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
   LAMP_SPOTS,
@@ -37,14 +41,15 @@ import {
   newNight,
   newSeed,
   nextTide,
+  nightCreature,
   type Outcome,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
-import { HERO_ATLAS_SIZE, heroAtlasCell, heroAtlasPath, SEXES, type Sex } from "@/scene/assets";
-import { loadTextures, type TextureMap } from "@/scene/layers";
+import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
+import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
@@ -56,6 +61,8 @@ const APP = {
   resolution: 1,
   autoDensity: false,
 };
+
+const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
 
 const SETTINGS = [
   { id: "greek", label: "Lychnos (Greek)", live: true },
@@ -70,15 +77,29 @@ const INTRODUCTION = [
   "When a warden falls, an heir takes up the lamp.",
 ];
 
-// the hero choice card's warden: his idle frame facing the player, cut out of his atlas by CSS (everything in 128 px
-// cells, scaled with the card by --portrait)
-function portraitFrame(sex: Sex): CSSProperties {
-  const cell = heroAtlasCell("idle", 0, "s");
-  return {
-    backgroundImage: `url(${heroAtlasPath(sex)})`,
-    backgroundSize: `calc(${HERO_ATLAS_SIZE.width}px * var(--portrait)) calc(${HERO_ATLAS_SIZE.height}px * var(--portrait))`,
-    backgroundPosition: `calc(${-cell.x}px * var(--portrait)) calc(${-cell.y}px * var(--portrait))`,
-  };
+// The hero choice card's warden: his idle frame facing the player, drawn from the atlas the scene has already loaded
+// (the same picture, so it is downloaded once), a pixel for a pixel, scaled with the card by CSS.
+function HeroPortrait({ sex, textures }: { sex: Sex; textures: TextureMap | null }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
+    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
+    const cell = heroAtlasCell("idle", 0, "s");
+    context.clearRect(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
+    context.drawImage(
+      picture,
+      cell.x,
+      cell.y,
+      HERO_FRAME_SIZE,
+      HERO_FRAME_SIZE,
+      0,
+      0,
+      HERO_FRAME_SIZE,
+      HERO_FRAME_SIZE,
+    );
+  }, [sex, textures]);
+  return <canvas ref={canvas} width={HERO_FRAME_SIZE} height={HERO_FRAME_SIZE} className="hero-sprite" />;
 }
 
 // one HUD diamond per lamp, keyed by where the lamp stands
@@ -88,6 +109,7 @@ type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd";
 interface Hud {
   health: number;
   maxHealth: number;
+  hits: number; // blows the warden has taken: the health bar flashes and shakes on each
   lit: number;
   lamps: number;
   kills: number;
@@ -128,6 +150,7 @@ declare global {
 const hudOf = (state: State, legacy: Legacy): Hud => ({
   health: Math.ceil(state.hero.health),
   maxHealth: state.hero.maxHealth,
+  hits: state.hero.hits,
   lit: litCount(state),
   lamps: state.lamps.length,
   kills: state.stats.kills,
@@ -136,6 +159,7 @@ const hudOf = (state: State, legacy: Legacy): Hud => ({
 });
 const sameHud = (first: Hud, second: Hud) =>
   first.health === second.health &&
+  first.hits === second.hits &&
   first.lit === second.lit &&
   first.kills === second.kills &&
   first.oil === second.oil &&
@@ -165,6 +189,8 @@ export default function Game() {
   const [replay, setReplay] = useState<{ play: Play; endsMatch: boolean | null } | null>(null);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
+  const { tonight, ask, stop, withdraw } = useTonight();
+  const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
 
   // every night is recorded (inputs + timeline) and sent to /api/plays; the last one is also kept locally (?replay=last)
   const sendPlay = useCallback((state: State | null) => {
@@ -231,8 +257,9 @@ export default function Game() {
       saveLegacy(legacy);
       pause(true);
       setReport(nightReport);
+      ask(legacy.bestiary); // what the sea sends next
     },
-    [sendPlay, pause],
+    [sendPlay, pause, ask],
   );
 
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
@@ -270,10 +297,13 @@ export default function Game() {
   }, []);
 
   // puts a night on stage
-  const show = useCallback((state: State, sex: Sex, driver: Driver | null = null) => {
-    stateRef.current = state;
-    setNight({ state, sex, driver });
-  }, []);
+  const show = useCallback(
+    (state: State, sex: Sex, driver: Driver | null = null, creatureTextures: TextureMap | null = null) => {
+      stateRef.current = state;
+      setNight({ state, sex, driver, creatureTextures });
+    },
+    [],
+  );
 
   const startReplay = useCallback(
     async (id: string) => {
@@ -286,15 +316,24 @@ export default function Game() {
           play = await response.json();
         }
         if (play?.v !== 1) throw new Error("no recording");
+        if (play.creature !== undefined && !recordedCreatureSchema.safeParse(play.creature).success)
+          throw new Error("bad creature in the recording");
       } catch (error) {
         setReplayError(String(error));
         return;
       }
       const replayLegacy = legacyOf(play);
       legacyRef.current = { ...legacyRef.current, ...replayLegacy }; // shown in the HUD only; never saved
-      const state = newNight(replayLegacy, play.seed);
+      const creature = creatureOf(play);
+      // the night's creature is in the recording; if its sprite is gone the replay draws the monster that plays like it
+      let creatureTextures: TextureMap | null = null;
+      if (creature && play.creature)
+        creatureTextures =
+          (await loadCreatureTextures(creature.id)) ??
+          standInTextures(await loadTextures(), creature.id, play.creature.archetype);
+      const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
-      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex));
+      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures);
       pause(false);
       setReplay({ play, endsMatch: play.outcome ? verifyPlay(play).endsMatch : null });
       setReplayError(null);
@@ -337,6 +376,7 @@ export default function Game() {
       show(newNight(legacyRef.current), legacyRef.current.heir.sex);
       const id = new URLSearchParams(location.search).get("replay");
       if (id) void startReplay(id);
+      else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
     });
     // debug hook for the visual verifier and recordings
     const scene: DebugScene = {
@@ -361,17 +401,49 @@ export default function Game() {
       dead = true;
       window.removeEventListener("pagehide", leave);
     };
-  }, [sendPlay, pause, controls, refresh, show, startReplay]);
+  }, [sendPlay, pause, controls, refresh, show, startReplay, ask]);
 
-  const startNight = () => {
-    const seed = newSeed();
-    const state = newNight(legacyRef.current, seed);
-    const recorder = new Recorder(legacyRef.current, seed, "");
-    recorderRef.current = recorder;
-    show(state, legacyRef.current.heir.sex, (stepIndex, live, current) => {
-      recorder.input(stepIndex, live, current);
-      return live;
+  // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
+  const announced = tonight.kind === "ready" ? tonight.creature.id : null;
+  useEffect(() => {
+    if (!announced) return;
+    void loadCreatureTextures(announced).then((loaded) => {
+      if (!loaded) withdraw(announced);
     });
+  }, [announced, withdraw]);
+
+  const startNight = async () => {
+    if (starting.current) return;
+    starting.current = true;
+    // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
+    // not load, the night has none (a finished one is met on a later night).
+    const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
+    stop();
+    const loaded = announcedCreature
+      ? await Promise.race([
+          loadCreatureTextures(announcedCreature.id),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
+        ])
+      : null;
+    const creature = announcedCreature && loaded ? announcedCreature : null;
+    if (creature) {
+      meet(legacyRef.current, creature.id);
+      saveLegacy(legacyRef.current);
+    }
+    const seed = newSeed();
+    const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
+    const recorder = new Recorder(legacyRef.current, seed, "", creature && recordedCreatureSchema.parse(creature));
+    recorderRef.current = recorder;
+    show(
+      state,
+      legacyRef.current.heir.sex,
+      (stepIndex, live, current) => {
+        recorder.input(stepIndex, live, current);
+        return live;
+      },
+      creature && loaded,
+    );
+    starting.current = false;
     pause(false);
     setHud(hudOf(state, legacyRef.current));
     setReport(null);
@@ -394,6 +466,7 @@ export default function Game() {
     legacyRef.current = newLegacy();
     showPreview();
     refresh();
+    ask(legacyRef.current.bestiary);
   };
   // the warden behind the title screen is the one chosen
   const showPreview = () => {
@@ -481,7 +554,7 @@ export default function Game() {
                   , {ordinal(legacy.generation)} Lampwarden · {TRAITS[legacy.heir.trait].label}
                 </span>
               </div>
-              <div className="bar">
+              <div className={hud.hits > 0 ? "bar struck" : "bar"} key={hud.hits}>
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
               <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
@@ -602,6 +675,7 @@ export default function Game() {
                   </button>
                 ))}
               </div>
+              <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
                   Who takes up the lamp?
@@ -619,7 +693,7 @@ export default function Game() {
                         onClick={() => chooseSex(sex)}
                       >
                         <span className="hero-portrait">
-                          <span className="hero-sprite" style={portraitFrame(sex)} />
+                          <HeroPortrait sex={sex} textures={textures} />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
                         <span>{ARMS[sex].loadout}</span>
@@ -671,6 +745,7 @@ export default function Game() {
             </p>
             <p className="dim">{tideNote(report)}</p>
             {shop}
+            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
             <button type="button" className="btn big" onClick={startNight}>
               Into night {legacy.night}
             </button>
@@ -704,6 +779,7 @@ export default function Game() {
               ))}
             </div>
             {shop}
+            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
             <button
               type="button"
               className="btn big"

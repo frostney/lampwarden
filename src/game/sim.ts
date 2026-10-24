@@ -8,6 +8,7 @@ import {
   octantVector,
   offsetFromOctant,
 } from "../scene/assets";
+import { type Creature, type CreatureStats, statsOf } from "./creature";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 
@@ -18,13 +19,12 @@ export const CENTRE_Y = 320;
 export const PLAZA_HALF_WIDTH = 384; // plaza diamond half width (12 tiles of 64x32)
 export const PLAZA_HALF_HEIGHT = 192;
 
-export type MonsterKind = "satyr" | "cyclops" | "harpy";
+// "creature" is the night's creature from the sea (see NightCreature), when one joined this night.
+export type HandMadeKind = "satyr" | "cyclops" | "harpy";
+export type MonsterKind = HandMadeKind | "creature";
 // snuff: seconds of clawing to put a lamp out. oil: what a kill leaves when it drops oil at all (see OIL_CHANCE).
 // recoil: how far a blow throws it (the cyclops is heavy, the harpy light).
-export const MONSTER: Record<
-  MonsterKind,
-  { speed: number; health: number; damage: number; snuff: number; oil: number; fly: boolean; recoil: number }
-> = {
+export const MONSTER: Record<HandMadeKind, CreatureStats> = {
   satyr: { speed: 50, health: 1, damage: 8, snuff: 2.6, oil: 1, fly: false, recoil: 1 },
   cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 2, fly: false, recoil: 0.6 },
   harpy: { speed: 76, health: 1, damage: 6, snuff: 3.2, oil: 1, fly: true, recoil: 1.3 },
@@ -53,6 +53,33 @@ const KNOCK_LIMIT = 0.95; // how near the plaza's rim a push may leave a monster
 export const HURT_TIME = 0.25;
 export const FLASH_TIME = 0.06;
 export const GHOST_TIME = 0.16; // a killed monster's white silhouette is flung back for this long
+
+// How a monster's blow lands on the warden, with the same weight as the warden's on a monster: a hit-stop of `stun`
+// seconds, then a push of `push` ground px/s away from the attacker (about 33 px). The mercy frames after a blow keep a
+// crowd from chain-hitting: nothing wounds the warden again until they are over.
+const HERO_BLOW = { push: 300, stun: 0.07 };
+export const MERCY_TIME = 0.5;
+// The warden flashes white for the first HERO_FLASH_TIME of HERO_HURT_TIME after a blow, then red until it fades.
+export const HERO_HURT_TIME = 0.4;
+export const HERO_FLASH_TIME = 0.08;
+const HERO_KNOCK_LIMIT = 0.92; // the plaza's walking margin (inPlaza)
+
+// The creature the sea sends this night, when there is one (src/game/creature.ts). It is part of the night's setup, so a
+// recording carries it and a replay builds the same night. Its stats follow from its archetype and modifiers, never
+// from the model; anchorY is for the scene.
+export interface NightCreature {
+  id: string;
+  anchorY: number;
+  stats: CreatureStats;
+}
+export const nightCreature = (
+  creature: Pick<Creature, "id" | "archetype" | "modifiers" | "anchorY">,
+): NightCreature => ({ id: creature.id, anchorY: creature.anchorY, stats: statsOf(creature) });
+// From CREATURE_FROM seconds in, about CREATURE_SHARE of the spawns are the creature, with at most CREATURE_CAP alive.
+// The draw for it is made only when it can come, so a night without a creature draws exactly what it always did.
+const CREATURE_FROM = 8;
+const CREATURE_SHARE = 0.25;
+const CREATURE_CAP = 2;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
 export const LAMP_SPOTS: [number, number][] = [
@@ -123,9 +150,14 @@ export interface Hero {
   aim: { x: number; y: number } | null;
   health: number;
   maxHealth: number;
-  hurt: number;
+  hurt: number; // counts down from HERO_HURT_TIME after a blow: the flash, then the red tint
   shotCooldown: number;
   hold: number; // the animation waits a beat after a swing connects
+  hits: number; // blows taken this night (the scene reads it to start the shake and the HUD flash)
+  stun: number; // hit-stop: frozen by a blow
+  mercy: number; // mercy frames: no further blow lands while this runs
+  knockX: number; // thrown by a blow: ground velocity, px/s
+  knockY: number;
 }
 export type Outcome = "dawn" | "dark" | "fallen";
 interface Stats {
@@ -159,6 +191,7 @@ export interface State {
   spawnTimer: number;
   nextId: number;
   tide: number;
+  creature: NightCreature | null;
   randomState: number; // mulberry32 state: a night replays exactly from its seed and inputs
   rules: Rules;
   stats: Stats;
@@ -193,7 +226,7 @@ function rand(state: State): number {
 }
 export const newSeed = () => (Math.random() * 4294967296) >>> 0;
 
-export function newNight(legacy: Legacy, seed = newSeed()): State {
+export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreature | null = null): State {
   const rules = rulesFor(legacy, legacy.heir.trait);
   const { heart, hide } = legacy.levels;
   const maxHealth = 100 + 20 * heart + 30 * hide + (legacy.heir.trait === "stout" ? 30 : 0);
@@ -213,6 +246,11 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
       hurt: 0,
       shotCooldown: 0,
       hold: 0,
+      hits: 0,
+      stun: 0,
+      mercy: 0,
+      knockX: 0,
+      knockY: 0,
     },
     monsters: [],
     shots: [],
@@ -224,6 +262,7 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
     spawnTimer: 2.5,
     nextId: 1,
     tide: legacy.tide,
+    creature,
     randomState: seed | 0,
     rules,
     stats: { kills: 0, lampsLost: 0, hpLost: 0, time: 0 },
@@ -260,8 +299,23 @@ function pickKind(state: State, roll: number): MonsterKind {
   return "satyr";
 }
 
+// The stats a kind of monster plays by tonight: the creature's, or the hand-made monster's.
+export function monsterStats(state: Pick<State, "creature">, kind: MonsterKind): CreatureStats {
+  if (kind !== "creature") return MONSTER[kind];
+  return state.creature?.stats ?? MONSTER.satyr;
+}
+
+const creaturesAlive = (state: State) => state.monsters.filter((monster) => monster.kind === "creature").length;
+
 function spawn(state: State) {
-  const kind = pickKind(state, rand(state));
+  let kind = pickKind(state, rand(state));
+  if (
+    state.creature &&
+    state.elapsed >= CREATURE_FROM &&
+    creaturesAlive(state) < CREATURE_CAP &&
+    rand(state) < CREATURE_SHARE
+  )
+    kind = "creature";
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
   const angle = rand(state) < 0.6 ? Math.PI * (0.15 + rand(state) * 0.7) : rand(state) * Math.PI * 2;
   state.monsters.push({
@@ -269,7 +323,7 @@ function spawn(state: State) {
     kind,
     x: CENTRE_X + Math.cos(angle) * PLAZA_HALF_WIDTH * 0.9,
     y: CENTRE_Y + Math.sin(angle) * PLAZA_HALF_HEIGHT * 0.9,
-    health: MONSTER[kind].health,
+    health: monsterStats(state, kind).health,
     age: rand(state) * 10,
     wobble: 10 + rand(state) * 18,
     snuff: 0,
@@ -317,7 +371,9 @@ function turn(hero: Hero, moveX: number, moveY: number): boolean {
   return true;
 }
 
-const bodyHeight = (kind: MonsterKind) => (MONSTER[kind].fly ? 56 : 32);
+// where on screen a monster's body is, above its feet: what a shot aims at and a blow lands on
+export const bodyHeight = (state: Pick<State, "creature">, kind: MonsterKind) =>
+  monsterStats(state, kind).fly ? 56 : 32;
 
 function addPuff(
   state: State,
@@ -347,8 +403,12 @@ export function step(state: State, deltaTime: number, input: Input) {
   const hero = state.hero;
   const rules = state.rules;
   hero.hurt = Math.max(0, hero.hurt - deltaTime);
+  hero.mercy = Math.max(0, hero.mercy - deltaTime);
   hero.shotCooldown = Math.max(0, hero.shotCooldown - deltaTime);
-  const busy = hero.animation === "melee" || hero.animation === "ranged";
+  const stunned = hero.stun > 0;
+  hero.stun = Math.max(0, hero.stun - deltaTime);
+  if (hero.knockX !== 0 || hero.knockY !== 0) knock(hero, deltaTime, HERO_KNOCK_LIMIT);
+  const busy = stunned || hero.animation === "melee" || hero.animation === "ranged";
 
   if (!busy && input.melee) {
     hero.animation = "melee";
@@ -369,7 +429,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   const attacking = hero.animation === "melee" || hero.animation === "ranged";
-  if (!attacking) {
+  if (!attacking && !stunned) {
     if (turn(hero, input.moveX, input.moveY)) {
       const unitX = hero.directionX;
       const unitY = hero.directionY;
@@ -391,7 +451,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   hero.hold = Math.max(0, hero.hold - deltaTime);
-  if (hero.hold <= 0) hero.frameTime += deltaTime;
+  if (hero.hold <= 0 && !stunned) hero.frameTime += deltaTime;
   const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
   if (attacking && frame >= FRAMES[hero.animation]) {
     hero.animation = "idle";
@@ -416,7 +476,7 @@ export function step(state: State, deltaTime: number, input: Input) {
         directionX: away > 0 ? awayX / away : facingX,
         directionY: away > 0 ? awayY / away : facingY,
         x: monster.x,
-        y: monster.y - bodyHeight(monster.kind),
+        y: monster.y - bodyHeight(state, monster.kind),
       });
       connected = true;
     }
@@ -425,8 +485,11 @@ export function step(state: State, deltaTime: number, input: Input) {
   if (hero.animation === "ranged" && !hero.fired && frame >= 3) {
     hero.fired = true;
     hero.shotCooldown = rules.shotCooldown;
-    let aimX = hero.directionX;
-    let aimY = hero.directionY;
+    // with no mouse aim the shot flies the way he faces on the ground (the ground's y is twice the screen's, so on the
+    // screen its slope is halved), as the drawn sprite and the swing's wedge show
+    const [facingX, facingY] = octantVector(hero.octant);
+    let aimX = facingX;
+    let aimY = facingY / 2;
     if (hero.aim) {
       aimX = hero.aim.x - hero.x;
       aimY = hero.aim.y - (hero.y - 40);
@@ -452,7 +515,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     shot.life -= deltaTime;
     for (const monster of state.monsters.slice()) {
       if (shot.hit.includes(monster.id)) continue;
-      const bodyY = monster.y - bodyHeight(monster.kind);
+      const bodyY = monster.y - bodyHeight(state, monster.kind);
       if (Math.hypot(monster.x - shot.x, bodyY - shot.y) < 30) {
         shot.hit.push(monster.id);
         const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
@@ -491,7 +554,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   for (const monster of state.monsters.slice()) {
-    const kind = MONSTER[monster.kind];
+    const stats = monsterStats(state, monster.kind);
     monster.age += deltaTime;
     monster.attackCooldown = Math.max(0, monster.attackCooldown - deltaTime);
     monster.hurt = Math.max(0, monster.hurt - deltaTime);
@@ -525,19 +588,17 @@ export function step(state: State, deltaTime: number, input: Input) {
     const distance = Math.hypot(towardX, towardY) || 1;
     if (!lamp && distance < 26) {
       // claw the warden
-      if (monster.attackCooldown <= 0) {
+      // mercy frames: while they run the monster waits, and claws the moment they end
+      if (monster.attackCooldown <= 0 && hero.mercy <= 0) {
         monster.attackCooldown = 1.1;
-        hero.health = Math.max(0, hero.health - kind.damage);
-        hero.hurt = 0.35;
-        state.stats.hpLost += kind.damage;
-        addPuff(state, hero.x, hero.y - 30, "hurt");
+        wound(state, stats.damage, towardX / distance, towardY / distance);
       }
       continue;
     }
     if (lamp && distance < 24) {
       // claw the lamp
       monster.snuff += deltaTime;
-      if (monster.snuff >= kind.snuff * rules.snuffMultiplier) {
+      if (monster.snuff >= stats.snuff * rules.snuffMultiplier) {
         lamp.lit = false;
         lamp.relight = 0;
         monster.snuff = 0;
@@ -549,7 +610,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     monster.snuff = 0;
     // move in ground space with a sideways wobble; the light slows them
     const speed =
-      kind.speed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
+      stats.speed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
     const groundX = towardX / distance;
     const groundY = towardY / distance;
     const lateral = Math.cos(monster.age * 2.2) * monster.wobble * Math.min(1, distance / 80);
@@ -595,7 +656,7 @@ function strike(state: State, monster: Monster, blow: Blow) {
   monster.health -= blow.amount;
   monster.hurt = HURT_TIME;
   if (monster.health > 0) {
-    const recoil = MONSTER[monster.kind].recoil;
+    const recoil = monsterStats(state, monster.kind).recoil;
     monster.stun = blow.stun;
     monster.knockX = blow.directionX * blow.push * recoil;
     monster.knockY = blow.directionY * blow.push * recoil;
@@ -609,15 +670,38 @@ function strike(state: State, monster: Monster, blow: Blow) {
     monsterAge: monster.age,
   };
   state.stats.kills++;
-  if (rand(state) < state.rules.oilChance) state.oilEarned += MONSTER[monster.kind].oil;
+  if (rand(state) < state.rules.oilChance) state.oilEarned += monsterStats(state, monster.kind).oil;
 }
 
-// Slides a thrown monster along its push and lets the push die away. It never ends up farther out than the rim it was
-// on (or the plaza's edge), so the sea stays where it is; against the edge it slides along it.
-function knock(monster: Monster, deltaTime: number) {
+// A monster's blow on the warden: damage, a hit-stop, a push, mercy frames and the impact burst. (blowX, blowY) is the
+// unit direction of the blow on the ground, from the attacker through the warden.
+function wound(state: State, damage: number, blowX: number, blowY: number) {
+  const hero = state.hero;
+  hero.health = Math.max(0, hero.health - damage);
+  hero.hurt = HERO_HURT_TIME;
+  hero.hits++;
+  hero.stun = HERO_BLOW.stun;
+  hero.mercy = MERCY_TIME;
+  hero.knockX = blowX * HERO_BLOW.push;
+  hero.knockY = blowY * HERO_BLOW.push;
+  state.stats.hpLost += damage;
+  // the burst is where the claw lands, on the near side of the warden's chest, thrown along the blow
+  addPuff(state, hero.x - blowX * 8, hero.y - 30 - blowY * 4, "hurt", { directionX: blowX, directionY: blowY });
+}
+
+// Slides a thrown body (a monster, or the warden) along its push and lets the push die away. It never ends up farther
+// out than the rim it was on (or `edge`, how near the plaza's rim it may be left), so the sea stays where it is;
+// against the edge it slides along it.
+interface Thrown {
+  x: number;
+  y: number;
+  knockX: number;
+  knockY: number;
+}
+function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
   const nextX = monster.x + monster.knockX * deltaTime;
   const nextY = monster.y + monster.knockY * deltaTime * 0.5;
-  const limit = Math.max(KNOCK_LIMIT, plazaRim(monster.x, monster.y));
+  const limit = Math.max(edge, plazaRim(monster.x, monster.y));
   if (plazaRim(nextX, nextY) <= limit) {
     monster.x = nextX;
     monster.y = nextY;

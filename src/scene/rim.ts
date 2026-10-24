@@ -5,7 +5,7 @@ import type { Texture } from "pixi.js";
 import { bufferTexture, type Rgb } from "./paint";
 
 export const isCharacterKey = (key: string) =>
-  key === "satyr" || key === "cyclops" || key === "harpy" || key.startsWith("hero/");
+  key === "satyr" || key === "cyclops" || key === "harpy" || key.startsWith("hero/") || key.startsWith("creature/");
 
 // the pixels the sprite's painter drew as a soft shadow are translucent; the figure itself is opaque
 const OPAQUE = 250;

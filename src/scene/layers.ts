@@ -2,11 +2,14 @@
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Texture } from "pixi.js";
+import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
   CENTRE_X,
   CENTRE_Y,
+  type HandMadeKind,
   MONSTER,
   type MonsterKind,
+  monsterStats,
   PLAZA_HALF_HEIGHT,
   PLAZA_HALF_WIDTH,
   type Puff,
@@ -42,9 +45,7 @@ export function loadTextures(): Promise<TextureMap> {
     for (const asset of assets) {
       const texture = loaded[asset.alias];
       if (!texture) continue;
-      texture.source.scaleMode = "nearest";
-      // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
-      textures[asset.alias] = isCharacterKey(asset.alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
+      textures[asset.alias] = prepared(asset.alias, texture);
     }
     // the wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been
     for (const sex of SEXES) {
@@ -63,11 +64,92 @@ export function loadTextures(): Promise<TextureMap> {
   return textureCache;
 }
 
-// the white copy of a monster's sprite that shows for the first frames after a blow
-export const flashKey = (kind: MonsterKind | string) => `flash/${kind}`;
+// A loaded sprite as the scene draws it: nearest-sampled. Every sprite goes through here, hand-made or from the sea.
+function prepared(alias: string, texture: Texture): Texture {
+  texture.source.scaleMode = "nearest";
+  // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
+  return isCharacterKey(alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
+}
 
-// A texture with the same alpha as `texture` and every pixel white. Made at load by drawing the sprite to a canvas, so
-// the flash stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
+// the white copy of a monster's sprite that shows for the first frames after a blow (`key` is a sprite key, see monsterLook)
+export const flashKey = (key: string) => `flash/${key}`;
+
+// --- the creature from the sea ------------------------------------------------------------------------------------
+// Its sprite is a PNG on the gallery's server, loaded when the night is about to start. Its keys start with "creature/".
+
+const creatureKey = (id: string) => `creature/${id}`;
+const CREATURE_SPRITE_SIZE = 128; // every sprite is a 128 px frame; the anchor is a fraction of it
+const creatureLoads = new Map<string, Promise<TextureMap | null>>();
+
+// The creature's sprite and its white flash, by key; null when the sprite does not load or is not a 128 px frame, which
+// is how a night learns to go without it.
+export function loadCreatureTextures(id: string): Promise<TextureMap | null> {
+  let load = creatureLoads.get(id);
+  if (!load) {
+    load = (async () => {
+      try {
+        const key = creatureKey(id);
+        const loaded: Texture = await Assets.load({
+          alias: key,
+          src: creatureSpritePath(id),
+          data: { scaleMode: "nearest" },
+        });
+        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
+          return null;
+        const texture = prepared(key, loaded);
+        const textures: TextureMap = { [key]: texture };
+        const white = silhouette(texture);
+        if (white) textures[flashKey(key)] = white;
+        return textures;
+      } catch {
+        creatureLoads.delete(id); // a later night may try again
+        return null;
+      }
+    })();
+    creatureLoads.set(id, load);
+  }
+  return load;
+}
+
+// What a replay draws when a creature's sprite is gone: the hand-made monster that plays like its archetype.
+const STAND_IN: Record<Archetype, HandMadeKind> = { skulker: "satyr", brute: "cyclops", flyer: "harpy" };
+export function standInTextures(textures: TextureMap, creatureId: string, archetype: Archetype): TextureMap {
+  const key = creatureKey(creatureId);
+  const handMade = STAND_IN[archetype];
+  const standIn: TextureMap = {};
+  const sprite = textures[handMade];
+  const flash = textures[flashKey(handMade)];
+  if (sprite) standIn[key] = sprite;
+  if (flash) standIn[flashKey(key)] = flash;
+  return standIn;
+}
+
+// Where a monster kind's sprite lives tonight and where its feet touch the ground: the one lookup the scene makes for
+// any monster, so a creature is a monster like the others. `key` names its texture; the flash is flashKey(key).
+export function monsterLook(state: Pick<State, "creature">, kind: MonsterKind): { key: string; anchorY: number } {
+  if (kind === "creature" && state.creature)
+    return { key: creatureKey(state.creature.id), anchorY: state.creature.anchorY };
+  const handMade = kind === "creature" ? "satyr" : kind;
+  return { key: handMade, anchorY: anchorYFor(handMade) };
+}
+
+// the white copy of a warden frame, made the first time a blow shows it and kept (there are many frames, and a blow
+// shows few of them)
+const heroSilhouettes = new WeakMap<Texture, Texture | null>();
+export function heroFlashTexture(textures: TextureMap, key: string): Texture | null {
+  const base = textures[key];
+  if (!base) return null;
+  let white = heroSilhouettes.get(base);
+  if (white === undefined) {
+    white = silhouette(base);
+    if (white) white.source.label = `flash:${base.source.label}`;
+    heroSilhouettes.set(base, white);
+  }
+  return white;
+}
+
+// A texture with the same alpha as `texture` and every pixel white. Made by drawing the sprite to a canvas, so the flash
+// stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
 function silhouette(texture: Texture): Texture | null {
   const resource = texture.source.resource;
   // the character sprites are pixel buffers once their painted shadow is taken out (rim.ts): premultiplied, so white
@@ -178,20 +260,23 @@ export const PROPS: [string, number, number][] = [
   ["wall", 250, 228],
 ];
 
-// where a sprite's base touches the ground, as a Pixi anchor (one object per key, so React props stay equal)
-const anchors = new Map<string, { x: number; y: number }>();
-export function anchor(key: string) {
-  let spriteAnchor = anchors.get(key);
+// where a sprite's base touches the ground, as a Pixi anchor (one object per height, so React props stay equal)
+const anchors = new Map<number, { x: number; y: number }>();
+export function anchorAt(anchorY: number) {
+  let spriteAnchor = anchors.get(anchorY);
   if (!spriteAnchor) {
-    spriteAnchor = { x: 0.5, y: anchorYFor(key) };
-    anchors.set(key, spriteAnchor);
+    spriteAnchor = { x: 0.5, y: anchorY };
+    anchors.set(anchorY, spriteAnchor);
   }
   return spriteAnchor;
 }
+export const anchor = (key: string) => anchorAt(anchorYFor(key));
 
-// how far a monster's sprite bobs off its ground position (the harpy hovers higher and flaps more)
-export const monsterBob = (kind: MonsterKind, age: number) =>
-  Math.sin(age * (MONSTER[kind].fly ? 7 : 5)) * (MONSTER[kind].fly ? 6 : 2) - (MONSTER[kind].fly ? 22 : 0);
+// how far a monster's sprite bobs off its ground position (flyers, like the harpy, hover higher and flap more)
+export const monsterBob = (state: Pick<State, "creature">, kind: MonsterKind, age: number) => {
+  const flies = monsterStats(state, kind).fly;
+  return Math.sin(age * (flies ? 7 : 5)) * (flies ? 6 : 2) - (flies ? 22 : 0);
+};
 
 export const heroFrame = (animation: HeroAnimation, frameTime: number) =>
   Math.min(
@@ -236,7 +321,7 @@ const TRAIL: [number, number][] = [
   [0.04, 0.3],
   [0.052, 0.15],
 ];
-const PUFF_COLOURS = { snuff: 0x9aa0b0, hurt: 0xff5050, light: 0xffe6a0, kill: 0xf2c14e };
+const PUFF_COLOURS = { snuff: 0x9aa0b0, light: 0xffe6a0, kill: 0xf2c14e };
 
 // sparks thrown from the point of contact: angle off the blow (radians) and speed (px/s)
 const SPARKS: [number, number][] = [
@@ -252,8 +337,11 @@ const SPARKS: [number, number][] = [
 const SPARK_COLOURS = [0xffffff, 0xfff2c0, 0xf2c14e];
 const IMPACT_TIME = 0.24;
 
+// the sparks of a monster's blow on the warden cool from pink through red to dark red, and are a pixel larger
+const WOUND_SPARK_COLOURS = [0xffb0a0, 0xe84040, 0x9a1c28];
+
 // The impact burst of a blow, pixel squares only: a white four-armed flash for the first three frames, then sparks
-// that fly along the blow, shrink and cool from white to gold.
+// that fly along the blow, shrink and cool from white to gold (a blow on the warden: from pink to dark red).
 function drawImpact(graphics: Graphics, puff: Puff) {
   if (puff.age > IMPACT_TIME) return;
   const centreX = Math.round(puff.x);
@@ -264,9 +352,10 @@ function drawImpact(graphics: Graphics, puff: Puff) {
     graphics.rect(centreX - 1, centreY - arm, 3, arm * 2 + 1).fill(0xffffff);
   }
   const progress = puff.age / IMPACT_TIME;
-  const size = progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2;
-  const colour =
-    SPARK_COLOURS[Math.min(SPARK_COLOURS.length - 1, Math.floor(progress * SPARK_COLOURS.length))] ?? 0xffffff;
+  const wound = puff.kind === "hurt";
+  const size = (progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2) + (wound ? 1 : 0);
+  const colours = wound ? WOUND_SPARK_COLOURS : SPARK_COLOURS;
+  const colour = colours[Math.min(colours.length - 1, Math.floor(progress * colours.length))] ?? 0xffffff;
   const base = Math.atan2(puff.directionY / 2, puff.directionX);
   for (const [offset, speed] of SPARKS) {
     const angle = base + offset;
@@ -289,7 +378,7 @@ export function drawMarks(graphics: Graphics, state: State, clock: number) {
         .fill({ color: 0xfff2c0, alpha });
   }
   for (const puff of state.puffs) {
-    if (puff.kind === "hit") {
+    if (puff.kind === "hit" || puff.kind === "hurt") {
       drawImpact(graphics, puff);
       continue;
     }
@@ -308,11 +397,11 @@ export function drawMarks(graphics: Graphics, state: State, clock: number) {
   for (const monster of state.monsters) {
     // clawing a lamp: red progress over it
     if (monster.snuff <= 0) continue;
-    const done = monster.snuff / (MONSTER[monster.kind].snuff * rules.snuffMultiplier);
+    const done = monster.snuff / (monsterStats(state, monster.kind).snuff * rules.snuffMultiplier);
     progressRing(graphics, monster.x, monster.y - 74, 8, done, 0xff5a4a);
   }
   for (const monster of state.monsters) {
-    if (MONSTER[monster.kind].health <= 1) continue;
+    if (monsterStats(state, monster.kind).health <= 1) continue;
     for (let pip = 0; pip < monster.health; pip++)
       graphics.rect(monster.x - 8 + pip * 6, monster.y - 84, 4, 3).fill(0xff5a4a);
   }

@@ -20,8 +20,49 @@ const HEADLESS = process.argv.includes("--headless");
 const OUT = "verify-out";
 for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(directory, { recursive: true });
 
+// The creature API is stubbed on every page and context: the verifier never touches Mubit or the network. The fixture
+// creature's sprite is a committed one (the satyr), served from public/sprites. sea.mode picks the answer to
+// POST /api/creatures/next: "none" (the default, so every older scenario plays as before), "ready", "generating" (the
+// job then walks through sea.steps) or "broken" (ready, but its sprite never arrives). sea.asked logs the `seen` lists.
+const SEA_CREATURE = {
+  id: "brine-hound-satyr",
+  name: "Drowned sponge diver", // a real generated name
+  // lore as long as the contract allows (160), so a panel that only fits short lore fails here
+  lore: "He dove too deep for the sponge beds and never rose. Now he climbs the quay dripping and blows our flames out with his last held breath, one by one, till dawn.",
+  brief: "a hound of grey sea foam with a lantern jaw, the verifier's fixture",
+  archetype: "skulker",
+  modifiers: { speed: 1, toughness: 0, bite: 0, snuffing: 0 },
+  anchorY: 0.8,
+  score: 8,
+  createdAt: "2026-10-24T01:00:00.000Z",
+};
+const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [] };
+async function serveSea(route) {
+  const request = route.request();
+  const { pathname } = new URL(request.url());
+  if (pathname.endsWith("/sprite.png"))
+    return sea.mode === "broken"
+      ? route.abort()
+      : route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
+  if (pathname.endsWith("/next")) {
+    sea.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    if (sea.mode === "ready" || sea.mode === "broken")
+      return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
+    if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
+    return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+  }
+  if (pathname.includes("/jobs/")) {
+    const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
+    return route.fulfill({ json: { jobId: "job-verify", step, updatedAt: SEA_CREATURE.createdAt } });
+  }
+  return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
+}
+const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
+
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
 let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+await stubSea(page);
 const lab = await browser.newPage(); // blank page used to decode and compare PNGs
 const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));
@@ -619,7 +660,177 @@ await page.evaluate(() => {
   window.lampwarden.state().hero.y = 360;
 });
 
-// 4c the warden faces the eight ways he strikes: pointing the stick (or the keys) a way turns him to it, every frame
+// 4c a monster's blow on the warden: a white flash frame, the red vignette, the burst at the claw, a jolt of the screen
+// and the health bar, then the warden thrown away from the attacker. The sim is slowed to a tenth and stopped at each
+// step of the hurt, so every stage can be looked at.
+const woundedSprites = () =>
+  page.evaluate(() => {
+    const found = { flash: [], vignette: [] };
+    const visit = (node) => {
+      const label = node.texture?.source?.label ?? "";
+      if (node.visible && node.alpha > 0 && label.startsWith("flash:") && label.includes("/hero/"))
+        found.flash.push({ label, x: node.x, y: node.y, scaleX: node.scale.x });
+      if (node.visible && node.alpha > 0 && label.startsWith("vignette/")) found.vignette.push(label);
+      for (const child of node.children ?? []) visit(child);
+    };
+    const app = window.lampwarden.app();
+    if (app) visit(app.stage);
+    return found;
+  });
+// runs the sim at a tenth speed until the warden has been hit and his hurt has run down to `limit`, then stops it;
+// reports the largest the screen's jolt got meanwhile
+const runHurtTo = (limit) =>
+  page.evaluate(async (limit) => {
+    const scene = window.lampwarden.scene();
+    const state = window.lampwarden.state();
+    const app = window.lampwarden.app();
+    let jolt = 0;
+    scene.setSpeed(0.1);
+    scene.setPaused(false);
+    await new Promise((resolve) => {
+      const watch = () => {
+        jolt = Math.max(jolt, Math.abs(app.stage.position.x), Math.abs(app.stage.position.y));
+        if (state.hero.hits > 0 && state.hero.hurt <= limit) {
+          scene.setPaused(true);
+          resolve();
+        } else requestAnimationFrame(watch);
+      };
+      watch();
+    });
+    scene.setSpeed(1);
+    return jolt;
+  }, limit);
+const placeClawer = (heroX, heroY) =>
+  page.evaluate(
+    ([heroX, heroY]) => {
+      const state = window.lampwarden.state();
+      state.shots = [];
+      state.monsters = [];
+      state.hero.x = heroX;
+      state.hero.y = heroY;
+      state.hero.animation = "idle";
+      state.hero.frameTime = 0;
+      state.hero.octant = 2;
+      state.monsters.push({
+        id: state.nextId++,
+        kind: "satyr",
+        x: heroX + 20,
+        y: heroY,
+        health: 1,
+        age: 0,
+        wobble: 0,
+        snuff: 0,
+        attackCooldown: 99, // it waits until the scene is set
+        hurt: 0,
+        stun: 0,
+        knockX: 0,
+        knockY: 0,
+      });
+    },
+    [heroX, heroY],
+  );
+{
+  const woundX = 560;
+  const woundY = 360;
+  await placeClawer(woundX, woundY);
+  await settle();
+  await page.waitForTimeout(80);
+  const unhurt = (await page.locator(".stage").screenshot()).toString("base64");
+  const unhurtSprites = await woundedSprites();
+  check(
+    "hero-hit",
+    "an unhurt warden shows no flash and no vignette",
+    unhurtSprites.flash.length === 0 && unhurtSprites.vignette.length === 0,
+  );
+  await page.evaluate(() => {
+    window.lampwarden.state().monsters[0].attackCooldown = 0;
+  });
+  const jolt = await runHurtTo(0.39);
+  await settle();
+  const struck = await page.evaluate(() => {
+    const { hero } = window.lampwarden.state();
+    return { hits: hero.hits, hurt: hero.hurt, mercy: hero.mercy, health: hero.health, maxHealth: hero.maxHealth };
+  });
+  const flashing = await woundedSprites();
+  const flashShot = await shoot("04c-hero-hit-1-flash");
+  check("hero-hit", "a monster's claw wounds the warden once", struck.hits === 1 && struck.health < struck.maxHealth);
+  check(
+    "hero-hit",
+    "the warden is a white flash frame, on his own frame, where he stands",
+    flashing.flash.length === 1 &&
+      Math.abs(flashing.flash[0].x - woundX) < 40 &&
+      /\/hero\/male_idle\d/.test(flashing.flash[0].label),
+    JSON.stringify(flashing.flash),
+  );
+  const white = await changedColour(flashShot, unhurt, [woundX - 22, woundY - 90, 44, 90]);
+  check(
+    "hero-hit",
+    "the flash is white pixels on the warden",
+    white.count > 150 && Math.min(...white.colour) > 205,
+    `${white.count} pixels, mean rgb ${white.colour.map((level) => level.toFixed(0)).join(",")}`,
+  );
+  check(
+    "hero-hit",
+    "the vignette is on at full strength",
+    flashing.vignette.length === 1 && flashing.vignette[0] === "vignette/3",
+    flashing.vignette.join(" "),
+  );
+  const edge = await changedColour(flashShot, unhurt, [0, 150, 40, 300]);
+  check(
+    "hero-hit",
+    "the vignette reddens the screen's edge",
+    edge.count > 300 && edge.colour[0] > edge.colour[2] * 1.4,
+    `${edge.count} pixels, mean rgb ${edge.colour.map((level) => level.toFixed(0)).join(",")}`,
+  );
+  const burst = await changedColour(flashShot, unhurt, [woundX - 24, woundY - 70, 60, 30]);
+  check("hero-hit", "an impact burst at the claw", burst.count > 60, `${burst.count} pixels changed at the chest`);
+  check("hero-hit", "the health bar flashes and jolts", (await page.locator(".bar.struck").count()) === 1);
+  check("hero-hit", "the screen jolts harder than a kill does", jolt >= 3, `${jolt}px`);
+  await runHurtTo(0.3);
+  await settle();
+  await shoot("04c-hero-hit-2-red");
+  await runHurtTo(0.2);
+  await settle();
+  const fading = await woundedSprites();
+  await shoot("04c-hero-hit-3-fading");
+  check(
+    "hero-hit",
+    "the flash is over after its first frames, the vignette thinner",
+    fading.flash.length === 0 && fading.vignette.length === 1 && fading.vignette[0] === "vignette/2",
+    `${fading.flash.length} flash, ${fading.vignette.join(" ")}`,
+  );
+  await runHurtTo(0.1);
+  await settle();
+  await shoot("04c-hero-hit-4-fading");
+  await runHurtTo(0);
+  await settle();
+  await page.waitForTimeout(80);
+  const over = await woundedSprites();
+  const after = await page.evaluate(() => {
+    const { hero } = window.lampwarden.state();
+    return { x: hero.x, y: hero.y, stun: hero.stun, hits: hero.hits };
+  });
+  await shoot("04c-hero-hit-5-over");
+  check(
+    "hero-hit",
+    "when the hurt is over the flash and the vignette are gone",
+    over.flash.length === 0 && over.vignette.length === 0,
+  );
+  check(
+    "hero-hit",
+    "the warden was thrown away from the attacker",
+    woundX - after.x > 15,
+    `${(woundX - after.x).toFixed(0)}px`,
+  );
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.monsters = [];
+    Object.assign(state.hero, { hurt: 0, mercy: 0, stun: 0, knockX: 0, knockY: 0, x: 560, y: 360 });
+  });
+  await settle();
+}
+
+// 4d the warden faces the eight ways he strikes: pointing the stick (or the keys) a way turns him to it, every frame
 // he is drawn with is the frame of that direction (the sw, w and nw ones mirrored from the se, e and ne), and the wedge
 // a swing draws on the ground is centred on the direction he is shown facing
 {
@@ -699,6 +910,23 @@ await page.evaluate(() => {
     await page.waitForFunction(() => window.lampwarden.state().hero.animation === "idle");
     await page.waitForTimeout(60);
     const standing = await heroSprite();
+    // a shot with no mouse aim (the K key, a touch button with nothing to aim at) flies the way he faces on the ground:
+    // on the screen that is the stick's direction with its y halved
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.shots = [];
+      state.hero.shotCooldown = 0;
+      window.lampwarden.scene().press("ranged");
+    });
+    await page.waitForFunction(() => window.lampwarden.state().shots.length > 0, null, { timeout: 4000 });
+    const [shotX, shotY] = await page.evaluate(() => {
+      const [shot] = window.lampwarden.state().shots;
+      return [shot.velocityX, shot.velocityY];
+    });
+    const shotAngle = (Math.atan2(shotY, shotX) * 180) / Math.PI;
+    const wantedAngle = (Math.atan2(stickY / 2, stickX) * 180) / Math.PI;
+    const shotOff = Math.abs(((shotAngle - wantedAngle + 540) % 360) - 180);
+    await page.waitForFunction(() => window.lampwarden.state().hero.animation === "idle");
     const shown = (sprite, animation) =>
       sprite?.name.startsWith(`male_${animation}`) &&
       sprite.name.endsWith(`_${drawn}.png`) &&
@@ -708,6 +936,7 @@ await page.evaluate(() => {
       ok: shown(walking, "walk") && shown(striking, "melee") && shown(standing, "idle") && octant === index,
       detail: `${walking?.name}${walking?.mirrored ? " mirrored" : ""}, ${striking?.name}, ${standing?.name}`,
       wedge: wedge === null ? null : ((wedge % 360) + 360) % 360,
+      shotOff,
     });
     const stage = await page.locator(".stage").boundingBox();
     await page.screenshot({
@@ -729,6 +958,12 @@ await page.evaluate(() => {
       (facing, index) => facing.wedge !== null && Math.abs(((facing.wedge - index * 45 + 540) % 360) - 180) < 4,
     ),
     facings.map((facing) => `${facing.name} ${facing.wedge?.toFixed(0)}`).join(" "),
+  );
+  check(
+    "hero-facing",
+    "a shot with no mouse aim flies the way he faces, in all eight (within a degree)",
+    facings.every((facing) => facing.shotOff < 1),
+    facings.map((facing) => `${facing.name} ${facing.shotOff.toFixed(1)}`).join(" "),
   );
   await page.evaluate(() => {
     const hero = window.lampwarden.state().hero;
@@ -861,6 +1096,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 // 9 gamepad: a mocked standard-mapping pad drives the menus and the warden
 {
   const padPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(padPage);
   padPage.on("pageerror", (error) => errors.push(`gamepad: ${error}`));
   await padPage.addInitScript(() => {
     const pad = {
@@ -999,6 +1235,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 // 11 hero choice: the daughter, the son again, then the daughter takes up the lamp and the night shows her
 {
   const heroPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(heroPage);
   heroPage.on("pageerror", (error) => errors.push(`hero choice: ${error}`));
   const mainPage = page;
   page = heroPage;
@@ -1084,6 +1321,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     navigator.getGamepads = () => [pad, null, null, null];
     localStorage.clear();
   });
+  await stubSea(unrollContext);
   const unrollPage = await unrollContext.newPage();
   unrollPage.on("pageerror", (error) => errors.push(`unroll: ${error}`));
   const stageOf = () => unrollPage.evaluate(() => document.querySelector(".scroll")?.dataset.stage);
@@ -1140,6 +1378,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     deviceScaleFactor: 1,
     reducedMotion: "reduce",
   });
+  await stubSea(reducedContext);
   const reducedPage = await reducedContext.newPage();
   await reducedPage.goto(BASE_URL);
   await reducedPage.waitForSelector(".scroll:not([hidden])");
@@ -1148,8 +1387,334 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const mainPage = page;
   page = reducedPage;
   await checkTitleScroll("reduced-motion", 1000, 640);
+  // a blow on the warden with reduced motion: the screen does not shake and the bar does not jolt; the vignette stays,
+  // steady
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.getByRole("button", { name: "Light the lamps" }).click();
+  await page.waitForSelector('[data-phase="night"]');
+  await freeze();
+  await placeClawer(560, 360);
+  await page.evaluate(() => {
+    window.lampwarden.state().monsters[0].attackCooldown = 0;
+  });
+  const calmJolt = await runHurtTo(0.39);
+  await settle();
+  const calmSprites = await woundedSprites();
+  check("reduced-motion", "a blow does not shake the screen", calmJolt === 0, `${calmJolt}px`);
+  check(
+    "reduced-motion",
+    "the vignette and the flash still mark the blow",
+    calmSprites.vignette.length === 1 && calmSprites.flash.length === 1,
+    `${calmSprites.vignette.join(" ")}, ${calmSprites.flash.length} flash`,
+  );
   page = mainPage;
   await reducedContext.close();
+}
+
+// 14 to 21 the creature from the sea (API stubbed, see above)
+{
+  const seaContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(seaContext);
+  const seaPage = await seaContext.newPage();
+  seaPage.on("pageerror", (error) => errors.push(`sea: ${error}`));
+  seaPage.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+      errors.push(`sea: ${message.text()}`);
+  });
+  seaPage.on("response", (response) => {
+    if (response.status() >= 400) errors.push(`sea: HTTP ${response.status()} ${response.url()}`);
+  });
+  const mainPage = page;
+  page = seaPage;
+  const openTitle = async () => {
+    await page.goto(`${BASE_URL}/?verify=1`);
+    await page.evaluate(() => localStorage.clear());
+    sea.polls = 0;
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+  };
+  const startFromTitle = async () => {
+    await page.getByRole("button", { name: "Light the lamps" }).click();
+    await page.waitForSelector('[data-phase="night"]');
+    await freeze();
+  };
+  const night = () =>
+    page.evaluate(() => {
+      const state = window.lampwarden.state();
+      return {
+        creature: state.creature && { id: state.creature.id, health: state.creature.stats.health },
+        creatureMonsters: state.monsters.filter((monster) => monster.kind === "creature").length,
+        bestiary: window.lampwarden.legacy().bestiary,
+        saved: JSON.parse(localStorage.getItem("lampwarden:legacy:v1") ?? "{}").bestiary,
+      };
+    });
+  // sprites on the stage whose texture came from the creature API
+  const seaSprites = () =>
+    page.evaluate(() => {
+      let found = 0;
+      const visit = (node) => {
+        if ((node.texture?.source?.label ?? "").includes("/api/creatures/") && node.visible && !node.destroyed) found++;
+        for (const child of node.children ?? []) visit(child);
+      };
+      const app = window.lampwarden.app();
+      if (app) visit(app.stage);
+      return found;
+    });
+  // the dawn screen, reached the way the earlier scenarios do
+  const toDawn = async () => {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.elapsed = state.length - 0.01;
+      state.oilEarned = 12;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+    await freeze();
+  };
+  const lastAsked = () => JSON.stringify(sea.asked.at(-1));
+  const creatureBox = spriteBox(600, 400, false);
+
+  // 14 nothing is coming: the title has no panel, the night is the night it was
+  sea.mode = "none";
+  await openTitle();
+  await page.waitForTimeout(300);
+  check("sea-none", "the sea was asked, with nothing met yet", lastAsked() === "[]", lastAsked());
+  check("sea-none", "no creature panel on the title", (await page.locator(".sea").count()) === 0);
+  await startFromTitle();
+  const noneNight = await night();
+  check("sea-none", "the night has no creature", noneNight.creature === null && noneNight.creatureMonsters === 0);
+  check("sea-none", "nothing was met", noneNight.bestiary.length === 0);
+  shot = await shoot("14-sea-none-night");
+  const unchanged = await diff(shot, nightStart);
+  check("sea-none", "the night start looks as it did", unchanged < 0.005, `${(unchanged * 100).toFixed(2)}% changed`);
+
+  // 15 still being made: its step shows, and the night can start without it
+  sea.mode = "generating";
+  sea.steps = ["queued", "drawing", "rendering"];
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="generating"]', { timeout: 5000 });
+  check(
+    "sea-generating",
+    "the sea is shaping something",
+    (await text(".sea")).join(" ").includes("The sea is shaping something"),
+  );
+  await page.waitForSelector('.sea[data-step="drawing"]', { timeout: 8000 });
+  const stepLine = (await text(".sea")).join(" ");
+  check(
+    "sea-generating",
+    "the job's step shows and follows the job",
+    stepLine.includes("its shape is being drawn"),
+    stepLine,
+  );
+  await checkTitleScroll("sea-generating", 1000, 640);
+  await shoot("15-sea-generating");
+  const startButton = page.getByRole("button", { name: "Light the lamps" });
+  check(
+    "sea-generating",
+    "starting the night is not blocked",
+    (await startButton.isEnabled()) && (await startButton.isVisible()),
+  );
+  await startButton.click();
+  await page.waitForSelector('[data-phase="night"]');
+  await freeze();
+  const generatingNight = await night();
+  check(
+    "sea-generating",
+    "the night runs without a creature",
+    generatingNight.creature === null && generatingNight.bestiary.length === 0,
+  );
+  const pollsAtStart = sea.polls;
+  await page.waitForTimeout(2600);
+  check(
+    "sea-generating",
+    "the job is no longer followed once the night has begun",
+    sea.polls === pollsAtStart,
+    `${pollsAtStart} → ${sea.polls}`,
+  );
+  // by the dawn the creature is finished: it is announced for the next night, and met in it
+  sea.mode = "ready";
+  await toDawn();
+  await page.waitForSelector('.panel .sea[data-state="ready"]', { timeout: 5000 });
+  check(
+    "sea-generating",
+    "the finished creature is announced at dawn",
+    (await text(".panel .sea")).join(" ").includes(SEA_CREATURE.name),
+  );
+  await shoot("16-sea-dawn");
+  await page.getByRole("button", { name: /Into night/ }).click();
+  await page.waitForSelector('[data-phase="night"]');
+  await freeze();
+  const metNight = await night();
+  check("sea-generating", "it is met on the later night", metNight.creature?.id === SEA_CREATURE.id);
+  check(
+    "sea-generating",
+    "meeting it is saved in the bestiary",
+    metNight.bestiary.join() === SEA_CREATURE.id && metNight.saved?.join() === SEA_CREATURE.id,
+    JSON.stringify(metNight),
+  );
+  await toDawn();
+  await page.waitForSelector(".panel .sea", { timeout: 5000 });
+  check(
+    "sea-generating",
+    "the next asking names what has been met",
+    lastAsked() === JSON.stringify([SEA_CREATURE.id]),
+    lastAsked(),
+  );
+
+  // 17 ready on the title: the panel, then the creature in the night
+  sea.mode = "ready";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  const panel = await page.evaluate(() => {
+    const section = document.querySelector(".sea");
+    const portrait = section?.querySelector("canvas.sea-sprite");
+    const box = portrait?.getBoundingClientRect();
+    return {
+      label: section?.querySelector(".sea-label")?.textContent ?? "",
+      name: section?.querySelector(".sea-name")?.textContent ?? "",
+      lore: section?.querySelector(".sea-lore")?.textContent ?? "",
+      source: portrait?.getAttribute("data-src") ?? "",
+      loaded: portrait?.getAttribute("data-loaded") === "1",
+      scale: Number(portrait?.getAttribute("data-scale") ?? 0),
+      // drawn at a whole multiple of the cropped figure, and big enough to read
+      whole: !!portrait && !!box && box.width === portrait.width * Number(portrait.dataset.scale) && box.height >= 48,
+      height: box?.height ?? 0,
+    };
+  });
+  check("sea-title", "the panel says what the sea sends", panel.label.startsWith("Tonight the sea sends"), panel.label);
+  check(
+    "sea-title",
+    "the panel names the creature and gives its lore",
+    panel.name === SEA_CREATURE.name && panel.lore === SEA_CREATURE.lore,
+    `${panel.name}: ${panel.lore}`,
+  );
+  check(
+    "sea-title",
+    "the panel shows its sprite, from its sprite path",
+    panel.loaded && panel.source.includes(`/api/creatures/${SEA_CREATURE.id}/sprite.png`) && panel.whole,
+    `${panel.source} ${panel.scale}x, ${panel.height}px tall`,
+  );
+  check("sea-title", "the sea was asked with nothing met", lastAsked() === "[]", lastAsked());
+  await checkTitleScroll("sea-title", 1000, 640);
+  await shoot("17-sea-title");
+  await startFromTitle();
+  const readyNight = await night();
+  check(
+    "sea-night",
+    "the creature joins the night, with its stats",
+    readyNight.creature?.id === SEA_CREATURE.id && readyNight.creature.health === 1,
+    JSON.stringify(readyNight.creature),
+  );
+  check("sea-night", "no panel in the night", (await page.locator(".sea").count()) === 0);
+  check("sea-night", "meeting it is saved", readyNight.saved?.join() === SEA_CREATURE.id);
+  // let the spawner send it: from 8 s in, a share of the spawns (the verifier hurries the clock and keeps the warden alive)
+  let sent = false;
+  for (let attempt = 0; attempt < 80 && !sent; attempt++) {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature");
+      state.spawnTimer = 0;
+      state.elapsed = Math.max(state.elapsed, 9);
+      state.hero.health = state.hero.maxHealth;
+      for (const lamp of state.lamps) lamp.lit = true;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForTimeout(100);
+    sent = await page.evaluate(() => window.lampwarden.state().monsters.some((monster) => monster.kind === "creature"));
+  }
+  check("sea-night", "the spawner sends the creature", sent);
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    window.lampwarden.scene().setPaused(true);
+    state.monsters = state.monsters.filter((monster) => monster.kind === "creature").slice(0, 1);
+    for (const monster of state.monsters) {
+      monster.x = 600;
+      monster.y = 400;
+      monster.hurt = 0;
+      monster.stun = 0;
+    }
+    state.hero.x = 300;
+    state.hero.y = 330;
+    state.puffs = [];
+  });
+  await freeze();
+  await page.waitForTimeout(80);
+  check("sea-night", "its sprite is on the stage, loaded from the gallery's file", (await seaSprites()) >= 1);
+  const plain = await shoot("18-sea-night");
+  const drawnShare = await boxDiff(plain, nightStart, creatureBox);
+  check("sea-night", "the creature is drawn where it stands", drawnShare > 0.08, `${(drawnShare * 100).toFixed(0)}%`);
+  // the white flash after a blow, then the red tint of the hurt monster
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+  });
+  await settle();
+  const flashShot = await shoot("19-sea-flash");
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.1;
+  });
+  await settle();
+  const tintShot = await shoot("20-sea-hurt");
+  const [plainLight, flashLight] = await Promise.all([
+    luminance(plain, [creatureBox]),
+    luminance(flashShot, [creatureBox]),
+  ]);
+  check(
+    "sea-night",
+    "a blow flashes the creature white",
+    flashLight[0] > plainLight[0] + 25,
+    `${plainLight[0].toFixed(0)} → ${flashLight[0].toFixed(0)}`,
+  );
+  const redOverBlue = (encoded) =>
+    lab.evaluate(
+      async ({ encoded, box }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        const data = context.getImageData(box[0], box[1], box[2], box[3]).data;
+        let red = 0;
+        let blue = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          red += data[index];
+          blue += data[index + 2];
+        }
+        return red / Math.max(1, blue);
+      },
+      { encoded, box: creatureBox },
+    );
+  const [plainRed, tintRed] = [await redOverBlue(plain), await redOverBlue(tintShot)];
+  check(
+    "sea-night",
+    "the hurt creature is tinted red",
+    tintRed > plainRed * 1.03,
+    `red/blue ${plainRed.toFixed(2)} → ${tintRed.toFixed(2)}`,
+  );
+
+  // 21 a sprite that will not load: nothing is announced and the night has no creature
+  sea.mode = "broken";
+  await openTitle();
+  await page.waitForTimeout(1500);
+  check("sea-broken", "a creature whose sprite fails is not announced", (await page.locator(".sea").count()) === 0);
+  await startFromTitle();
+  const brokenNight = await night();
+  check(
+    "sea-broken",
+    "the night goes without it, and does not count it as met",
+    brokenNight.creature === null && brokenNight.bestiary.length === 0,
+  );
+
+  page = mainPage;
+  await seaContext.close();
+  sea.mode = "none";
 }
 
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
@@ -1172,12 +1737,14 @@ const overlap = (first, second) =>
   second.y < first.y + first.height;
 const inView = (box, viewportWidth, viewportHeight) =>
   box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
+sea.mode = "ready"; // the phone passes show the creature panel on the title and at dawn
 for (const [tag, device, sex] of [
   ["phone-land", devices["iPhone 14 landscape"], "male"],
   ["phone-port", devices["iPhone 14"], "male"],
   ["phone-land-daughter", devices["iPhone 14 landscape"], "female"], // she is chosen on the title screen first
 ]) {
   const context = await webkitBrowser.newContext({ ...device });
+  await stubSea(context);
   page = await context.newPage();
   page.on("pageerror", (error) => errors.push(`${tag}: ${error}`));
   const { width: viewportWidth, height: viewportHeight } = device.viewport;
@@ -1195,7 +1762,17 @@ for (const [tag, device, sex] of [
     `${Math.round(stage.width)}x${Math.round(stage.height)} in ${viewportWidth}x${viewportHeight}`,
   );
   await shoot(`${tag}-1-title`, true);
+  await page.waitForSelector('.scroll .sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(300);
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
+  await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
+  const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
+  check(
+    tag,
+    "creature panel on the scroll, on screen",
+    seaTitleBox && inView(seaTitleBox, viewportWidth, viewportHeight),
+    seaTitleBox && `${Math.round(seaTitleBox.width)}x${Math.round(seaTitleBox.height)}`,
+  );
   if (sex === "female") {
     await page.locator('.hero-card[data-sex="female"]').tap();
     check(
@@ -1328,10 +1905,21 @@ for (const [tag, device, sex] of [
     state.oilEarned = 40;
   });
   await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+  await page.waitForSelector(".panel .sea", { timeout: 5000 });
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
   await settle();
   await checkWeaponShop(tag, sex);
   await shoot(`${tag}-3-dawn`, true);
+  const seaDawn = page.locator(".panel .sea").first();
+  await seaDawn.scrollIntoViewIfNeeded();
+  const seaDawnBox = await seaDawn.boundingBox();
+  check(
+    tag,
+    "creature panel at dawn reachable",
+    seaDawnBox && inView(seaDawnBox, viewportWidth, viewportHeight),
+    seaDawnBox && `${Math.round(seaDawnBox.width)}x${Math.round(seaDawnBox.height)}`,
+  );
+  await shoot(`${tag}-4-dawn-sea`, true);
   const phoneFonts = await fontsLoaded();
   check(
     tag,

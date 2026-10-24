@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { nextCreatureRequestSchema } from "./creature";
 import {
   buy,
   drawOffers,
@@ -7,6 +8,7 @@ import {
   heirAs,
   LEVEL_COSTS,
   MAX_LEVEL,
+  meet,
   newLegacy,
   OFFER_COUNT,
   openShop,
@@ -172,5 +174,41 @@ describe("loading a saved legacy", () => {
     expect(legacy.levels).toEqual({ ...emptyLevels(), blade: 2 });
     expect(legacy.heir).toEqual(newLegacy().heir);
     expect(legacy.night).toBe(4);
+  });
+});
+
+describe("the bestiary", () => {
+  test("an old save has met no creatures", () => {
+    expect(parseLegacy(OLD_SAVE).bestiary).toEqual([]);
+    expect(newLegacy().bestiary).toEqual([]);
+  });
+
+  test("a saved bestiary comes back, without repeats; anything else is empty", () => {
+    expect(
+      parseLegacy({ ...OLD_SAVE, bestiary: ["brine-hound-1", "tide-giant-22", "brine-hound-1"] }).bestiary,
+    ).toEqual(["brine-hound-1", "tide-giant-22"]);
+    expect(parseLegacy({ ...OLD_SAVE, bestiary: "brine-hound-1" }).bestiary).toEqual([]);
+    expect(parseLegacy({ ...OLD_SAVE, bestiary: [1, 2] }).bestiary).toEqual([]);
+  });
+
+  test("a legacy round-trips through storage with its bestiary", () => {
+    const legacy = newLegacy(7);
+    meet(legacy, "brine-hound-1");
+    expect(parseLegacy(JSON.parse(JSON.stringify(legacy))).bestiary).toEqual(["brine-hound-1"]);
+  });
+
+  test("meeting a creature adds it once", () => {
+    const legacy = newLegacy();
+    meet(legacy, "brine-hound-1");
+    meet(legacy, "tide-giant-22");
+    meet(legacy, "brine-hound-1");
+    expect(legacy.bestiary).toEqual(["brine-hound-1", "tide-giant-22"]);
+  });
+
+  test("the bestiary never outgrows what the gallery accepts as seen", () => {
+    const legacy = newLegacy();
+    for (let count = 0; count < 520; count++) meet(legacy, `creature-${count}`);
+    expect(nextCreatureRequestSchema.safeParse({ seen: legacy.bestiary }).success).toBe(true);
+    expect(legacy.bestiary.at(-1)).toBe("creature-519"); // the oldest dropped, not the newest
   });
 });

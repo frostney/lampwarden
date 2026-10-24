@@ -1,18 +1,8 @@
 // Stores one recorded night (inputs + timeline, no personal data) as a private blob, for testing and balancing.
 import { put } from "@vercel/blob";
-import { z } from "zod";
+import { incomingPlay } from "@/game/plays";
 
 const MAX_BODY_LENGTH = 400_000;
-
-import { PLAY_ID } from "@/game/plays";
-
-// The shape a client must send; everything else in the recording is stored as sent.
-const incomingPlay = z.looseObject({
-  v: z.literal(1),
-  id: z.string().regex(PLAY_ID),
-  seed: z.number().int(),
-  inputs: z.array(z.array(z.number()).length(7)),
-});
 
 export async function POST(request: Request) {
   const body = await request.text();

@@ -14,9 +14,14 @@ src/
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
+    SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
+                     of the job still making one; on the title and the dawn and heir panels
+    useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
+                     blocks play (none, a network error and "still generating" all mean the night starts without it)
     Game.tsx         React shell: title (introduction, setting selector, hero choice), night HUD, dawn upgrades, heir
                      choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
-                     replay speed; renders the @pixi/react <Application> and the window.lampwarden debug hook
+                     replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
+                     window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies. Layers, bottom to top: sky, the tinted sea and ground, the
@@ -25,11 +30,13 @@ src/
                      sorted with its lamp), the melee sweep, shots and marks
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
-                     blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
+                     blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
+                     the night's creature from the sea (kind "creature": its stats via monsterStats, sent with a share of
+                     the spawns from 8 s in, drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
     legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
-                     sex), tide; localStorage save, validated with Zod on load (a save or recorded play from before an
+                     sex), tide, the bestiary (ids of the creatures the line has met); localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
     weapons.ts       what the warden carries as the UI shows it (son: sword and bow; daughter: spear and sling): the
                      touch buttons' icons, the shop's label, text and icon per upgrade, and which warden the shop is
@@ -37,15 +44,22 @@ src/
     random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
-    plays.ts         the recorded-play id format shared by the API routes
+    creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
+                     bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
+    creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
+                     with Zod; any failure is null
+    plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
+                     recorder (the creature a night met is an optional field)
   server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
                      stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
                      starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
                      (the only module that reads env and files and wires Mubit, the sandbox and Blob)
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
-    layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
-                     tinted; the sky is not), per-frame strokes
+    layers.ts        textures (and the creature's, loaded at runtime from its sprite path; a sprite that fails means a
+                     night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
+                     is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
+                     and anchor
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
                      warming to dawn with the night tint, stars, a crescent moon, a headland with a lighthouse and far
                      islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
@@ -67,8 +81,8 @@ src/
     projectiles.ts   arrow and sling-stone pixel art
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, and a campaign that spends it in the shop), run with bun
-scripts/plays.ts     balance report from recorded plays in Blob storage
+scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
+scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)

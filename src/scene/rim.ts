@@ -8,7 +8,7 @@ export const isCharacterKey = (key: string) =>
   key === "satyr" || key === "cyclops" || key === "harpy" || key.startsWith("hero/") || key.startsWith("creature/");
 
 // the pixels the sprite's painter drew as a soft shadow are translucent; the figure itself is opaque
-const OPAQUE = 250;
+export const OPAQUE = 250;
 // where light from each octant lands: the neighbour that has to be empty for a pixel to be on that edge (0 east,
 // 1 south-east, 2 south, 3 south-west, 4 west, 5 north-west, 6 north, 7 north-east; y runs down the screen)
 const OCTANTS = [

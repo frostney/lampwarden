@@ -12,7 +12,7 @@ Nothing here is needed to play. With no key, no network, a rate limit or a slow 
 
 ## What the model may change
 
-`legacy.director` (`src/game/director.ts`), one night at a time:
+`legacy.director` (`src/game/director-decision.ts`; the code that clamps a proposal is in `director.ts`), one night at a time:
 
 | field                     | bound                                        | what it does                                                                     |
 | ------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -20,6 +20,13 @@ Nothing here is needed to play. With no key, no network, a rate limit or a slow 
 | `mix.satyr/cyclops/harpy` | each 0.5 to 2                                | multiplies the spawner's weight for that kind in `pickKind`                      |
 | `creatureShare`           | 0.1 to 0.4 (the old fixed share was 0.25)    | the share of spawns that are the night's creature from the sea                   |
 | `line`                    | at most 90 characters, plain text            | the sea's answer on the dawn and heir panels                                     |
+
+The rules' tide, and the pace it multiplies, are the baseline the director moves around, and they are tuned on the
+human-paced bot (`scripts/human-bot.ts`, run by `bun run balance`), not on the perfect one: the sea quickens 12% a night
+over nights 1-3 and 30% after (`spawnInterval`), and after nights 1 and 2 a clean dawn raises the tide about half as much
+(`rulesTide` reads which night it was; the server passes the play's night, so both sides pick the same tide). The
+director's +-0.15 is a bounded move off that baseline, so it never undoes the retune. `bun run balance -- --director`
+plays the human-paced bot under the stub decisions too.
 
 Also stored: `source` (`"mubit"` or `"rules"`), `rulesTide` (what the rules picked; the bound is checked against it),
 `decidedAfterNight`, and `playId` (the recording the decision answers). The model's `reasoning` (one short sentence) is
@@ -60,8 +67,7 @@ start, as time away. So the recorder keeps `hiddenSeconds`: the time the tab was
 visibility events and a monotonic clock (`performance.now()`), as an optional field (`incomingPlay` validates it, 0 to
 86400). The real time of the night is the sim's plus that. It is recorder-only: the sim and `replay.ts` do not read it,
 replays are exact with or without it (a test replays both), and `recording.ts` and `plays.ts` are outside the sim
-fingerprint. (`director.ts` is inside it and was edited for this, so the fingerprint changes with this branch, as it
-does with any edit to that file; `sim.ts` is not edited: the hold is applied by the callers, `heldTide`.) A play without
+fingerprint. (`sim.ts` is not edited by it: the hold is applied by the callers, `heldTide`.) A play without
 `hiddenSeconds` has no pause time and is judged on its inputs alone. The recording is the client's, so all of this is for an
 honest client: one that fabricates its inputs, or leaves the field out, is judged on what it sent.
 
@@ -95,7 +101,7 @@ The two 7 s quits are not idle: both moved and acted (45% moving and two strikes
 which holds the same way. No recorded night is idle or paused, and none can be shown paused (they have no `hiddenSeconds`;
 the timestamps, for what they are worth, put the real time within 1.5 s of the simulated on every one).
 
-**Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director.ts`):
+**Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director-decision.ts`):
 - the tide is at least the rules' tide (`tideRange(rulesTide, kind)`), and the rules' tide itself does not ease: `heldTide`
   (`engagement.ts`) keeps the tide the night was played at when the rules would have lowered it, in `endNight` and in the
   server's `rulesTideAfter`, so an idle loss no longer multiplies the tide by 0.85 (before this the rules eased after every

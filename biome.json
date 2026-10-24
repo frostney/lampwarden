@@ -6,7 +6,6 @@
       "**",
       "!pipeline/kit",
       "!pipeline/prompts",
-      "!pipeline/render",
       "!public/sprites",
       "!public/logo",
       "!.agents",

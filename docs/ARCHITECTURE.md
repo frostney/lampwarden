@@ -45,11 +45,17 @@ src/
     engagement.ts    was the player there? from a recorded play: the share of the night spent moving, strikes, shots, and
                      time away, classed engaged, idle, paused or left; a night that is not engaged is never eased after
                      (the rules' director and the live one both; see docs/DIRECTOR.md)
-    director.ts      the live director's contract, shared by the game and the server: what it may change (tide within 0.15 of
-                     the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character plain line), and
-                     the code that enforces it (clampProposal, checkedDecision, directorFrom); a decision applies to one night
+    director-decision.ts  the part of the live director a night is played under: the Director and Mix types, the bounds (tide
+                     within 0.15 of the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character
+                     plain line), directorSchema, rulesDirector and directorFrom; covered by the sim fingerprint
+    director.ts      the live director's contract, shared by the game and the server: re-exports director-decision.ts and adds
+                     the code that makes a model's answer safe (cleanLine, parseProposal, clampProposal, checkedDecision, tideRange);
+                     a decision applies to one night; not covered by the sim fingerprint
+    levels.ts        the upgrade ids, a warden's levels in them and levelsOf (a save or recorded play from before an upgrade
+                     existed has it at level 0); covered by the sim fingerprint
     director-api.ts  the game's side of POST /api/director: the request and answer shapes, and asking (any failure is null)
-    legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
+    legacy.ts        what outlives a warden (not covered by the sim fingerprint; it re-exports levels.ts): oil, the nine upgrades
+                     (their labels and text, three levels each, one cost table), the shop's offers
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
                      sex), tide and the live director's decision for the coming night, the bestiary (ids of the creatures the line has met); localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
@@ -110,7 +116,8 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
@@ -151,10 +158,16 @@ A recorded night replays exactly only on the sim it was played on: each recordin
 of the build that recorded it (checked on all nine plays in the store), but a later change to the rules shows a different
 night. So the build carries a **sim fingerprint** and every play records the one it was played on.
 - **What it is:** the first 12 hex digits of a SHA-256 over the contents (line endings normalised) of the sim's sources,
-  `SIM_SOURCES` in `tools/sim-fingerprint/sim-fingerprint.ts`: `src/game/sim.ts`, `random.ts`, `legacy.ts`,
-  `director.ts` (the decision a night is played under), `creature.ts`, `replay.ts` and `src/scene/assets.ts`. That is the value-import closure of `step()`, `newNight()` and
+  `SIM_SOURCES` in `tools/sim-fingerprint/sim-fingerprint.ts`: `src/game/sim.ts`, `random.ts`, `levels.ts`
+  (the upgrade ids and levels), `director-decision.ts` (the decision a night is played under), `creature.ts`, `replay.ts`
+  and `src/scene/assets.ts`. That is the value-import closure of `step()`, `newNight()` and
   the replay driver (`STEP`, `quantise`, `Replayer`, `legacyOf`, `creatureOf`); a test derives the closure from the
-  imports and fails when the list drifts from it. The Recorder and `upload` live in `recording.ts`, outside it.
+  imports and fails when the list drifts from it. The Recorder and `upload` live in `recording.ts`, outside it. So do
+  `legacy.ts` (the shop's labels and text, trait labels, heir names, `ordinal`, `tideLabel`, the localStorage save) and
+  `director.ts` (`cleanLine`, `parseProposal`, `clampProposal`, `checkedDecision`), which is why a wording tweak or a
+  change to how a model reply is read keeps the fingerprint. A file joins the list only when the replay path imports it
+  as a value, so keep what a replay reads in the small modules and the wording and server code out of them; a test
+  checks that editing the shop's text or `clampProposal` leaves the fingerprint unchanged.
 - **Why a content hash at build time, not the git sha:** it changes only when one of those files changes, so a
   README-only or UI-only commit keeps it and old plays stay replayable. Any edit to those files changes it, a comment
   included: that errs towards refusing an exact replay, never towards showing a wrong night.
@@ -228,10 +241,13 @@ anchors first. To repeat: `bun run build && bun run start -- -p 3720`, then `bun
 ## Logo
 
 The logo and everything derived from it (`public/logo/logo.png`, `logo@4x.png`, `logo-noglow.png`, `logo.svg`, and
-`src/app/icon.png`, `favicon.ico`, `apple-icon.png`, `opengraph-image.png`, `twitter-image.png`) are generated by
+`src/app/icon.png`, `favicon.ico`, `apple-icon.png`, `opengraph-image.png`, `twitter-image.png`, and the web app
+manifest's `public/logo/icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`) are generated by
 `bun run logo` (`bun tools/logo/build.ts`). The oil-lamp emblem and the 16 px favicon lamp are character grids in
 `tools/logo/pixel-art.ts`, coloured by `tools/logo/palette.ts`; the wordmark is `LAMPWARDEN` in Ithaca at 16 px and the
 social card's tagline is Tiny5 at 8 px (`src/app/fonts/tiny5/`, OFL), both rasterised from the font files in headless
 Chromium through Playwright; `tools/logo/compose.ts` adds outlines, the extruded shadow and the stepped glow and lays
-everything out. `bun tools/logo/build.ts --check` writes nothing and reports whether each committed asset still
+everything out. The manifest icons (`src/app/manifest.ts` lists them) are the emblem on the night colour like the Apple
+icon: "any" at 5x on 192 px and 14x on 512 px, "maskable" smaller (4x and 10x) so the lamp sits inside a launcher mask's
+safe zone. `bun tools/logo/build.ts --check` writes nothing and reports whether each committed asset still
 matches a fresh build.

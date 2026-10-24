@@ -9,7 +9,7 @@ import {
   offsetFromOctant,
 } from "../scene/assets";
 import { type Creature, type CreatureStats, statsOf } from "./creature";
-import type { Mix } from "./director";
+import type { Mix } from "./director-decision";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 
@@ -286,7 +286,16 @@ function inPlaza(x: number, y: number, margin = 0.92) {
 export const ground = (fromX: number, fromY: number, toX: number, toY: number) =>
   Math.hypot(fromX - toX, (fromY - toY) * 2);
 
-const spawnInterval = (state: State) => 2.3 / (state.tide * (1 + 0.3 * (state.night - 1)));
+// The sea quickens every night. The first nights are gentle, 12% quicker a night, because that is when a person is still
+// learning the plaza (people kept up with about two monsters at a time and lost night 2); from the fourth night it is
+// 30% quicker a night, which is the pace the perfect bot's ceiling was set on. Only the rate of spawns is gentled: the
+// cap on monsters alive and their haste grow as before, because the retune on the human-paced bot did not need them.
+const GENTLE_NIGHTS = 3;
+const GENTLE_QUICKENING = 0.12;
+const QUICKENING = 0.3;
+const quickening = (night: number) =>
+  GENTLE_QUICKENING * (Math.min(night, GENTLE_NIGHTS) - 1) + QUICKENING * Math.max(0, night - GENTLE_NIGHTS);
+const spawnInterval = (state: State) => 2.3 / (state.tide * (1 + quickening(state.night)));
 const maxAlive = (state: State) => Math.round((3 + 1.6 * state.night) * state.tide);
 const haste = (state: State) => 1 + 0.05 * (state.night - 1); // the sea's creatures get bolder every night
 
@@ -724,9 +733,18 @@ function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
 // Dawn reward: a little oil, and a little more for every lamp still burning.
 export const dawnBonus = (state: State) => 2 + litCount(state);
 
+// How much a clean dawn raises the tide: more for a warden who killed fast, and about half as much after the first two
+// nights, when the warden is still learning (the plaza, the aimed swing, which lamp to keep).
+const TIDE_RISE = {
+  learning: { fast: 1.1, steady: 1.06 },
+  settled: { fast: 1.18, steady: 1.1 },
+};
+const LEARNING_NIGHTS = 2;
+
 // What the rules read of a night that ended: all of it is in a recorded play's stats, so the live director's server
 // can work out what the rules would have chosen without replaying anything.
 export interface NightResult {
+  night: number; // which night of the line it was
   outcome: Outcome | null;
   kills: number;
   seconds: number;
@@ -742,13 +760,15 @@ export function rulesTide(tide: number, night: NightResult): number {
   let next = tide;
   if (night.outcome === "dawn") {
     const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;
-    next *= clean ? (killRate > 20 ? 1.18 : 1.1) : 1.0;
+    const rise = TIDE_RISE[night.night <= LEARNING_NIGHTS ? "learning" : "settled"];
+    next *= clean ? (killRate > 20 ? rise.fast : rise.steady) : 1.0;
   } else next *= 0.85;
   return Math.min(2, Math.max(0.6, Math.round(next * 100) / 100));
 }
 
 export function nextTide(tide: number, state: State): number {
   return rulesTide(tide, {
+    night: state.night,
     outcome: state.outcome,
     kills: state.stats.kills,
     seconds: state.stats.time,

@@ -18,6 +18,8 @@ const PALETTE: Record<string, string> = {
   l: "#5e3720", // dark leather
   e: "#e8dcc0", // bone
   E: "#a89a80", // bone shade
+  T: "#a8a29a", // stone
+  t: "#6e6a64", // stone shade
 };
 
 // Adds the 1 px dark outline the sprites have around every drawn pixel (left, right, up and down), for icons whose
@@ -39,7 +41,9 @@ function outlined(rows: readonly string[]): string[] {
   );
 }
 
-const ART: Record<UpgradeId | "oil" | "slain" | "shoot", string[]> = {
+export type IconName = UpgradeId | "oil" | "slain" | "shoot" | "spear" | "sling" | "pouch";
+
+const ART: Record<IconName, string[]> = {
   // a skull: monsters slain
   slain: outlined([
     "................",
@@ -76,6 +80,63 @@ const ART: Record<UpgradeId | "oil" | "slain" | "shoot", string[]> = {
     "...L.R..........",
     "..L.R...........",
     "................",
+    "................",
+  ]),
+  // a spear, point up and to the right: the daughter's strike
+  spear: outlined([
+    "................",
+    "................",
+    ".............S..",
+    "...........SWs..",
+    ".........SSWss..",
+    "........SSWss...",
+    "........SWs.....",
+    ".......Bb.......",
+    "......Ll........",
+    ".....Ll.........",
+    "....Ll..........",
+    "...Ll...........",
+    "..Ll............",
+    ".Bb.............",
+    "................",
+    "................",
+  ]),
+  // a sling with its stone in the pouch, the cords to the hand: the daughter's shot
+  sling: outlined([
+    "................",
+    "................",
+    "........LLLLL...",
+    ".......LLWTTLL..",
+    ".......LWTTTtL..",
+    ".......LTTTttL..",
+    ".......LLTttLL..",
+    ".......LLLllLl..",
+    "......L......L..",
+    ".....L......L...",
+    "....L......L....",
+    "...L......L.....",
+    "..BBLLLLLL......",
+    ".BbbB...........",
+    "..BB............",
+    "................",
+  ]),
+  // a leather pouch of sling stones, tied at the neck
+  pouch: outlined([
+    ".......WT.......",
+    "......WTTt......",
+    "...WT.TTtt.WT...",
+    "..WTTt.tt.WTTt..",
+    "..TTtt....TTtt..",
+    "...ttLLLLLLtt...",
+    "....LLLLLLLL....",
+    "....GGGGGGGG....",
+    "..LLLLLLLLLLll..",
+    ".LBBLLLLLLLLLll.",
+    ".LBLLLLLLLLLLll.",
+    ".LLLLLLLLLLLLll.",
+    ".LLLLLLLLLLLLll.",
+    "..LLLLLLLLLLll..",
+    "...llllllllll...",
     "................",
   ]),
   // a Greek oil lamp (lychnos) with its flame on the spout
@@ -285,9 +346,17 @@ function pixelsOf(rows: readonly string[]): Pixel[] {
   return pixels;
 }
 
-export function Icon({ name, size = 32 }: { name: keyof typeof ART; size?: number }) {
+export function Icon({ name, size = 32 }: { name: IconName; size?: number }) {
   return (
-    <svg className="icon" viewBox="0 0 16 16" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true">
+    <svg
+      className="icon"
+      data-icon={name}
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+    >
       {pixelsOf(ART[name]).map(({ column, row, colour }) => (
         <rect key={`${column},${row}`} x={column} y={row} width={1} height={1} fill={colour} />
       ))}

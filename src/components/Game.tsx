@@ -29,7 +29,6 @@ import {
   saveLegacy,
   TRAITS,
   tideLabel,
-  UPGRADES,
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
@@ -48,6 +47,7 @@ import {
   STAGE_WIDTH,
   type State,
 } from "@/game/sim";
+import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { SEXES, type Sex } from "@/scene/assets";
 import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
@@ -456,6 +456,7 @@ export default function Game() {
   const legacy = legacyRef.current;
   const heirLine = `${legacy.heir.name}, ${ordinal(legacy.generation)} Lampwarden · ${TRAITS[legacy.heir.trait].label}`;
 
+  const shopWarden = shopSex(legacy);
   const shop = (
     <div className="shop">
       <div className="oil">
@@ -464,6 +465,7 @@ export default function Game() {
       {legacy.offers.length === 0 && <p className="dim">Nothing left to buy. The line is complete.</p>}
       {legacy.offers.map((id) => {
         const cost = upgradeCost(legacy, id);
+        const view = upgradeView(id, shopWarden);
         return (
           <button
             key={id}
@@ -473,14 +475,14 @@ export default function Game() {
             disabled={cost === null || legacy.oil < cost}
             onClick={() => purchase(id)}
           >
-            <Icon name={id} />
+            <Icon name={view.icon} />
             <div>
-              <b>{UPGRADES[id].label}</b>
+              <b>{view.label}</b>
               <em role="img" aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`}>
                 {"●".repeat(legacy.levels[id])}
                 {"○".repeat(MAX_LEVEL - legacy.levels[id])}
               </em>
-              <span>{UPGRADES[id].text}</span>
+              <span>{view.text}</span>
               <i>{cost === null ? "max" : `${cost} oil`}</i>
             </div>
           </button>
@@ -575,6 +577,7 @@ export default function Game() {
         {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
         {phase === "night" && (
           <TouchControls
+            sex={legacy.heir.sex}
             onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
             onPress={(action) => press(controls, action, stateRef.current)}
           />
@@ -672,7 +675,7 @@ export default function Game() {
                           />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
-                        <span>{sex === "male" ? "sword and bow" : "spear and sling"}</span>
+                        <span>{ARMS[sex].loadout}</span>
                         <span className="hero-mark">
                           {chosen ? (
                             <>
@@ -747,7 +750,7 @@ export default function Game() {
                   onClick={() => chooseHeir(heir)}
                 >
                   <b>{heir.name}</b>
-                  <span>{heir.sex === "male" ? "sword and bow" : "spear and sling"}</span>
+                  <span>{ARMS[heir.sex].loadout}</span>
                   <span>
                     {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
                   </span>

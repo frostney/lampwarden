@@ -1,7 +1,9 @@
 // Light as pixel art: stepped amber bands with ordered dithering at their edges, glints that twinkle on the lit stone,
 // a sparkle on each brass lantern and broken reflections on the sea. Every texture is painted here pixel by pixel,
 // once, and cached; a frame only picks which precomputed texture each sprite shows, from the scene clock (frozen by the
-// visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint.
+// visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint: the pools and glints
+// lie on the ground under every sprite, the lantern glow and halo sort with their lamp (Scene.tsx). How a lamp lights the
+// characters standing in it is lighting.ts.
 import { Rectangle, Texture } from "pixi.js";
 import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT } from "../game/sim";
 import { ANCHOR_Y } from "./assets";
@@ -37,6 +39,24 @@ const FLICKER_SEQUENCE = [0, 0, 1, 0, 2, 0, 0, 3, 0, 1, 0, 0, 2, 3, 0, 0];
 const FLICKER_FPS = 6;
 const flickerIndex = (clock: number, seed: number) =>
   FLICKER_SEQUENCE[(Math.floor(clock * FLICKER_FPS) + seed * 5) % FLICKER_SEQUENCE.length] ?? 0;
+const lampSeed = (x: number, y: number) => (x * 7 + y * 13) % 16;
+// how many pixels the flicker has moved the edge of the lamp's pool in or out at this moment: what the pool is painted at
+export const lampFlickerStep = (x: number, y: number, clock: number) =>
+  FLICKER_VARIANTS[flickerIndex(clock, lampSeed(x, y))]?.radiusStep ?? 0;
+
+// the falloff exponent of every lamp's pool: how quickly its bands give way to the dark
+export const POOL_FALLOFF = 1.3;
+
+// A lamp's pool of light on the ground: an ellipse (the iso circle of the sim's light radius, a little wider) centred just
+// above the lamp's base. `step` is the flicker's grow or shrink; lit characters read the same shape the pool is painted in.
+export function poolEllipse(x: number, y: number, radius: number, step = 0) {
+  return {
+    centerX: x,
+    centerY: y - 6,
+    radiusX: Math.round(radius * 1.1) + step,
+    radiusY: Math.round(radius * 0.55) + step / 2,
+  };
+}
 
 // --- painting --------------------------------------------------------------------------------------------------
 
@@ -261,7 +281,8 @@ export interface LampLight {
   haloX: number;
   haloY: number;
   halos: readonly LightPiece[];
-  glints: readonly Glint[]; // the stone, the lantern's brass and the sea
+  glints: readonly Glint[]; // the stone and the sea: on the ground, under every sprite
+  brassGlints: readonly Glint[]; // the lantern's brass: at the lamp's height, depth-sorted with the lamp
 }
 
 const lampLights = new Map<string, LampLight>();
@@ -271,14 +292,11 @@ export function lampLight(x: number, y: number, radius: number): LampLight {
   const key = `${x},${y},${radius}`;
   const cached = lampLights.get(key);
   if (cached) return cached;
-  const seed = (x * 7 + y * 13) % 16;
+  const seed = lampSeed(x, y);
   const pool: LightShape = {
-    centerX: x,
-    centerY: y - 6,
-    radiusX: Math.round(radius * 1.1),
-    radiusY: Math.round(radius * 0.55),
+    ...poolEllipse(x, y, radius),
     palette: POOL_PALETTE,
-    falloff: 1.3,
+    falloff: POOL_FALLOFF,
     groundOnly: true,
   };
   const halo: LightShape = {
@@ -300,9 +318,9 @@ export function lampLight(x: number, y: number, radius: number): LampLight {
     halos: FLICKER_VARIANTS.map((variant) => paintLight(halo, variant)),
     glints: [
       ...groundGlints(pool, seededRandom(seed * 7919 + radius)),
-      ...lanternGlints(x, y, seed),
       ...seaGlints(pool, x, seededRandom(seed * 104729 + radius)),
     ],
+    brassGlints: lanternGlints(x, y, seed),
   };
   lampLights.set(key, light);
   return light;
@@ -481,6 +499,27 @@ export function lanternGlow(lampTexture: Texture): LightPiece {
       offsetY: LANTERN.top - Math.round(frame.height * ANCHOR_Y["lamp-lit"]),
     };
     lanterns.set(lampTexture, piece);
+  }
+  return piece;
+}
+
+// The foot of the lit lamp sprite, everything under the lantern, to be drawn warm over the lamp itself: the lamp stands
+// in its own pool, and its brass is lit by it as the lantern is by its flame. Placed relative to the lamp's ground point.
+const FOOT_TOP = LANTERN.top + LANTERN.height;
+const feet = new WeakMap<Texture, LightPiece>();
+export function lampFoot(lampTexture: Texture): LightPiece {
+  let piece = feet.get(lampTexture);
+  if (!piece) {
+    const { frame } = lampTexture;
+    piece = {
+      texture: new Texture({
+        source: lampTexture.source,
+        frame: new Rectangle(frame.x, frame.y + FOOT_TOP, frame.width, frame.height - FOOT_TOP),
+      }),
+      offsetX: -Math.round(frame.width / 2),
+      offsetY: FOOT_TOP - Math.round(frame.height * ANCHOR_Y["lamp-lit"]),
+    };
+    feet.set(lampTexture, piece);
   }
   return piece;
 }

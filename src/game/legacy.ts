@@ -18,7 +18,8 @@ export const UPGRADE_IDS = [
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
 export type Levels = Record<UpgradeId, number>;
 // text: what a level does, with the numbers (the rules themselves are in rulesFor in sim.ts). wardenOnly: lost when the
-// warden falls, because it was only ever theirs.
+// warden falls, because it was only ever theirs. The blade and quiver read here as the son's sword and bow; the shop
+// shows the daughter's spear and sling instead (weapons.ts).
 export const UPGRADES: Record<UpgradeId, { label: string; text: string; wardenOnly?: true }> = {
   wick: { label: "Brighter wicks", text: "Lamps resist claws 35% longer and light 12 px wider." },
   blade: { label: "Keener blade", text: "Melee reaches 10 px further; at level 2 it hits harder." },

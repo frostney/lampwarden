@@ -34,6 +34,7 @@ function importedAtRuntime(file: string): string[] {
   expect(source, `${file}: a side-effect import`).not.toMatch(/^import\s+["']/m);
   expect(source, `${file}: a dynamic import`).not.toMatch(/\bimport\(/);
   expect(source, `${file}: a require`).not.toMatch(/\brequire\(/);
+  expect(source, `${file}: an import with attributes`).not.toMatch(/^(?:import|export)\b[^;]*\bwith\s*\{/m);
   for (const [, typeOnly, clause = "", specifier = ""] of source.matchAll(
     /^(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+["']([^"']+)["'];/gm,
   )) {

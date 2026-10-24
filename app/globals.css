@@ -1,0 +1,18 @@
+html, body { margin: 0; height: 100%; background: #0d1b2a; color: #f4ecd8; font-family: ui-monospace, Menlo, Consolas, monospace; }
+canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.shell { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 8px; box-sizing: border-box; }
+.stage { position: relative; width: 960px; max-width: 100%; aspect-ratio: 960 / 600; }
+.stage canvas { width: 100% !important; height: 100% !important; }
+.hud { position: absolute; inset: 0; pointer-events: none; font-size: 14px; text-shadow: 1px 1px 0 #000; }
+.hud > * { position: absolute; }
+.title { top: 10px; left: 36%; transform: translateX(-50%); font-size: 28px; letter-spacing: 6px; color: #f2c14e; }
+.stats { top: 12px; left: 14px; line-height: 1.6; }
+.bar { width: 160px; height: 12px; background: #3b1f1f; border: 2px solid #f4ecd8; }
+.bar > i { display: block; height: 100%; background: #c8433a; }
+.right { top: 12px; right: 14px; pointer-events: auto; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.btn { font: inherit; color: #f4ecd8; background: #1b2f45; border: 2px solid #f4ecd8; padding: 3px 10px; cursor: pointer; }
+.btn.on { background: #f2c14e; color: #1b1b1b; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.settings { display: flex; gap: 6px; }
+.help { bottom: 10px; left: 14px; font-size: 12px; opacity: .85; }
+.over { inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0,0,0,.6); font-size: 26px; pointer-events: auto; }

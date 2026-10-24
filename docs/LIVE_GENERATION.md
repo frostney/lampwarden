@@ -76,13 +76,16 @@ POST /api/creatures/next  ── no unseen creature, nothing running, limits all
   └─ after()                                                    (the same invocation keeps running after the response)
      1. writing    brief writer: one Mubit call, prompts/creature.md → {name, lore, sprite brief, archetype, 4 modifiers in {-1,0,1}}
                    validated with the contract's Zod schema; given the gallery's names (and the three built-in monsters) to avoid repeats;
-                   a random thread of myth is offered as inspiration, because Mubit takes no temperature and the same prompt gets the same creature
-     2. drawing    generator (prompts/generator.md) → build(k) source, text only
-     3.            tripwire (build-code.ts), then rendering: a Vercel Sandbox booted from the pinned snapshot, deny-all network
+                   a random thread of myth is offered as inspiration, because Mubit takes no temperature and the same prompt gets the same creature;
+                   every brief aims at one body plan the kit draws well (satyr, cyclops, minotaur, harpy, winged or plain humanoid, centaur, hydra) with at most two named parts
+     2. drawing    three candidates at once (CREATURE_CANDIDATES): one generator call each (prompts/generator.md) from the same brief,
+                   each with a different nudge, because Mubit takes no temperature → build(k) source, text only
+     3. rendering  per candidate, as soon as it is drawn: tripwire (build-code.ts), then a Vercel Sandbox of its own, booted from the pinned
+                   snapshot, deny-all network
      4.            engine flags (clipped / too small / too big / too short) → score 0, no verifier call
-     5. judging    verifier (Mubit, sees the 4x PNG); borderline scores are taken twice
-     6. fixing     one fix turn with the verifier's issues, then 3-5 again; best-of
-     7. accept     a verifier pass, or a score of at least 6 with no engine flags. Anything else: the job fails and stores nothing
+     5. judging    verifier (Mubit, sees the 4x PNG) on each survivor, in parallel; borderline scores are taken twice
+     6. fixing     only if the best candidate is not already accepted: one fix turn on that candidate alone, then 3-5 again; best-of
+     7. accept     a verifier pass, or a score of at least 6 with no engine flags (the bar, calibrated below). Anything else: the job fails and stores nothing
                    anchorY from the render's bbox (lowest row + 1 - 4 px of shadow, over 128); stats are derived by creatureStats(), never taken from the model
                    store creatures/sprites/<id>.png + .ts, then creatures/records/<id>.json, then the job: done
 ```
@@ -91,7 +94,7 @@ Model code only ever reaches the sandbox: the function holds `MUBIT_API_KEY`, so
 
 ### How it survives function limits (`after()`, not Vercel Workflow)
 
-`POST /api/creatures/next` starts the job with `after()` from `next/server` and declares `export const maxDuration = 300`. Under Fluid Compute (the default) a function runs 300 s by default on every plan and up to 800 s on Pro (documented limits, read 24 Oct 2026; not exercised on a deployment), and `after()` runs for "the platform's default or configured max duration of your route" (Next's `after` docs). A job took 52-78 s locally (below), so 300 s covers it with room for one slow Mubit call; the job itself gives up after 270 s (`JOB_BUDGET_SECONDS`) so it can record `failed: timed out` before the platform kills the invocation, and a job whose status has not moved for longer than `maxDuration` is read as failed by everything that looks at it (the job route, and the slot check that lets the next job start).
+`POST /api/creatures/next` starts the job with `after()` from `next/server` and declares `export const maxDuration = 300`. Under Fluid Compute (the default) a function runs 300 s by default on every plan and up to 800 s on Pro (documented limits, read 24 Oct 2026; not exercised on a deployment), and `after()` runs for "the platform's default or configured max duration of your route" (Next's `after` docs). A job took 28-78 s locally (below), 59 s on a preview deployment, so 300 s covers it with room for one slow Mubit call; the job itself gives up after 270 s (`JOB_BUDGET_SECONDS`) so it can record `failed: timed out` before the platform kills the invocation, and a job whose status has not moved for longer than `maxDuration` is read as failed by everything that looks at it (the job route, and the slot check that lets the next job start).
 
 Why not Vercel Workflow: Workflow's gain is durability, surviving a crash or deploy mid-job and running past the function limit, and this job needs neither. It is short against the limit, a lost job costs one failed nightly attempt and a retry (the slot frees itself after `maxDuration`), and every step already writes its status to Blob, so nothing is hidden state. Workflow would add a dependency, its own step and replay semantics and a second place the job's state lives, for a failure mode that is cheap here. If jobs ever need to outlive 300-800 s (several fix turns, more candidates), move the loop's stages into workflow steps; `runLoop`'s `onStage` and the store are the seams.
 
@@ -126,36 +129,64 @@ Render sandboxes boot from that snapshot with `networkPolicy: "deny-all"`, 1 vCP
 
 Set on the Vercel project (Production, and Preview if previews should generate); nothing here is needed for the game itself:
 
-| Variable                                   | Required | What                                                                                                               |
-| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------ |
-| `MUBIT_API_KEY`                            | yes      | Mubit, for the brief writer, generator and verifier. Server-only; model code never runs where it lives.            |
-| `VERCEL_SANDBOX_SNAPSHOT_ID`               | yes      | The id printed by `pipeline/sandbox-snapshot.ts`.                                                                  |
-| `CREATURE_RATE_SALT`                       | yes      | At least 16 random characters (`openssl rand -hex 24`). Keys the per-visitor limit; changing it resets the counts. |
-| `BLOB_READ_WRITE_TOKEN`                    | already  | The store `/api/plays` uses.                                                                                       |
-| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` | no       | Default 3.                                                                                                         |
-| `CREATURE_MAX_STARTS_PER_DAY`              | no       | Default 40, site-wide, per UTC day.                                                                                |
-| `CREATURE_BLOB_PREFIX`                     | no       | Default `creatures`. Use another prefix (`creatures-dev`) to keep test runs out of the real gallery.               |
+| Variable                                   | Required | What                                                                                                                                                                          |
+| ------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MUBIT_API_KEY`                            | yes      | Mubit, for the brief writer, generator and verifier. Server-only; model code never runs where it lives.                                                                       |
+| `VERCEL_SANDBOX_SNAPSHOT_ID`               | yes      | The id printed by `pipeline/sandbox-snapshot.ts`.                                                                                                                             |
+| `CREATURE_RATE_SALT`                       | yes      | At least 16 random characters (`openssl rand -hex 24`). Keys the per-visitor limit; changing it resets the counts.                                                            |
+| `BLOB_READ_WRITE_TOKEN`                    | already  | The store `/api/plays` uses.                                                                                                                                                  |
+| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` | no       | Default 3.                                                                                                                                                                    |
+| `CREATURE_MAX_STARTS_PER_DAY`              | no       | Default 40, site-wide, per UTC day.                                                                                                                                           |
+| `CREATURE_CANDIDATES`                      | no       | Candidate sprites drawn side by side per job; default 3, at most 5. More candidates mean more Mubit calls (about 2 more per candidate) and more sandboxes at once.            |
+| `CREATURE_DEBUG_DIR`                       | no       | Local development only, never on Vercel: a directory where each job leaves every candidate's PNG and a score summary, accepted or not. Writes model text (the brief) to disk. |
+| `CREATURE_BLOB_PREFIX`                     | no       | Default `creatures`. Use another prefix (`creatures-dev`) to keep test runs out of the real gallery.                                                                          |
+
+For local runs keep `CREATURE_RATE_SALT` fixed (in `.env.local`, say): a salt that changes with each server start gives every visitor a new key and resets the visitor limit, which is how a test once started a job it should have been refused.
 
 With any of the three required variables missing, `POST /api/creatures/next` still serves the gallery and answers `{kind:"none", reason:"unavailable"}` once it has nothing unseen.
 
+### The acceptance bar, calibrated against our own art
+
+`bun run calibrate:verifier` (`pipeline/calibrate-verifier.ts`) scores every committed sprite and three hero frames exactly as a job does (same verifier prompt and message, the borderline double-take), twice each, 41 scores in all (24 Oct 2026). The strictness of this verifier shows in our own art: buildings and heroes score 7-9, our creatures 5-6.5.
+
+| Score or better     | All 21 sprites | The 12 characters (heroes, Hephaestus, Zeus, lion, cyclops, satyr, harpy, hydra) | The 5 hand-made monsters |
+| ------------------- | -------------- | -------------------------------------------------------------------------------- | ------------------------ |
+| 5                   | 100%           | 100%                                                                             | 100%                     |
+| 5.5                 | 83%            | 71%                                                                              | 40%                      |
+| 6                   | **80%**        | 67%                                                                              | 40%                      |
+| 6.5                 | 71%            | 50%                                                                              | 20%                      |
+| 7 (a verifier pass) | 59%            | 38%                                                                              | 0%                       |
+
+The bar stays where the job already had it: **a verifier pass, or a score of at least 6 with no engine flag**, which about 80% of our committed sprites reach (the engine-flag veto is untouched). A bar of 5.5 would add little; 5 would admit sprites our own README calls weak. The lowest accepted live sprites (score 6: the nymph, the talon-legged Empusa, the winged gorgon) were looked at on the contact sheet: all read as what the brief names, none is clipped or broken. Two verifications of one sprite differ by up to a point, which is why several candidates help.
+
+### What lifted acceptance, measured
+
+Before: **0 of 3 full live jobs accepted** (24 Oct, one candidate, the first brief writer; scores 3-4), and 0 of 3 in the diagnostic runs after it (4-5). Each change below was tried with brief → generator(s) → local render → verifier runs (no sandbox, no storage) before it went into live jobs; the numbers are small samples and a verification is noisy by half a point.
+
+| Change                                                                                                                            | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Brief writer given the kit's builders and a menu of body plans, told to name at most two parts and only colours that exist        | The first version (garments on skeletons, kelp, two colours on one-colour builders) still scored 5 on all 4 creatures. Plain briefs of the form "body plan, two parts, colours" accepted 6 of 6 hand-written ones at one candidate (scores 6-8) and 5 of 7 written by the model at one candidate.                                                                                                                                                                                            |
+| Few-shot: `satyr.ts` and `harpy.ts` in the cached generator prompt                                                                | No gain: on six fixed briefs 6 of 6 accepted with and without (first scores 8,7,6,6,6,6 against 8,6,6,5,6,6), on model briefs at three candidates 7 of 8 both ways (winners averaging 7.5 both ways). Dropped.                                                                                                                                                                                                                                                                               |
+| Three candidates at once (one generator call each, rendered in parallel, best kept, fix only if the best is not already accepted) | 7 of 8 accepted at three candidates against 5 of 7 at one on the same brief writer. Mubit takes no temperature, so three calls from one prompt came out near-identical (5,5,5): each candidate after the first now gets a different nudge (a facing, a pose, contrasting colours), and they differ.                                                                                                                                                                                          |
+| Skipping the fix turn when the best candidate is already accepted                                                                 | A fix turn lowered the score more often than it raised it (5 to 4, 6 to 5, 6.5 to 4) and raised it in only a few of about 14, at the cost of a call, a render and a verification (about 25 s). It now runs only on a best candidate that would be rejected.                                                                                                                                                                                                                                  |
+| The brief writer's reply cap raised from 700 to 1500 tokens                                                                       | 1 reply in 14 was cut off before its JSON ended (the model spends 500-700 tokens on a 120-token answer), which failed a job.                                                                                                                                                                                                                                                                                                                                                                 |
+| Systematic complaints fed back into the brief writer and the candidate nudges                                                     | Garments on a skull-headed skeleton cannot show, a second colour on the hydra or a four-legged animal does not take (the heads and the body come out one colour), a fur cape the colour of the skin vanishes, and a long weapon in an attack pose clipped the frame (3 of 30 candidates flagged, scoring 0). The prompt now says so, and the nudges say "keep everything well inside the frame". Plain four-legged animals scored 5 every time (the committed lion too) and are discouraged. |
+
 ### What was run live (24 Oct 2026, from the UK)
 
-Three full jobs through the built app (`next start`, the real routes with `after()`), real Mubit, real Vercel Sandbox VMs from the pinned snapshot (Bun 1.4.4 seen in the sandbox with `bun --version`, network confirmed unreachable: no DNS, `curl` could not resolve), the real Blob store under `creatures-dev/`. All three were rejected by the quality gate and stored nothing: verifier scores 3 then 4 (job 2) and 4 then 4 (job 3; job 1's were not logged yet), all `failed: the sprite was not good enough`. Jobs 1 and 2 ran before the brief writer was given a random thread of myth, when three parallel brief calls all came back as a barnacled bull of Poseidon, so they were probably that bull. The wiring, not the art, is what these runs prove: a second player asking while the job ran got the same `jobId`; every step was written to Blob and read by the poller; the sandbox renders worked; the failure left the gallery empty; the slot freed itself.
+Ten full jobs through the built app (`next start`: the real routes with `after()`), real Mubit, a real Vercel Sandbox VM per candidate from the pinned snapshot (Bun 1.4.4), the real Blob store under `creatures-dev/`, three candidates a job, each as a different visitor. **8 of 10 accepted.**
 
-| Step (job 2 / job 3)                                         | Time                                                          |
-| ------------------------------------------------------------ | ------------------------------------------------------------- |
-| brief writer (Mubit)                                         | 7.0 s / 7.5 s (job 1: 7.2 s after a 5 s retry delay)          |
-| generator (Mubit)                                            | 9.2 s / 2.7 s                                                 |
-| render in the sandbox, to the PNG in hand and the VM stopped | 4.0 s / 5.3 s, and 4.0 s / 3.8 s for the render after the fix |
-| verifier (Mubit, image)                                      | 13.5 s / 11.0 s; after the fix 11.3 s / 12.9 s                |
-| fix turn (Mubit)                                             | 14.0 s / 5.1 s                                                |
-| whole job                                                    | 66 s / 52 s (job 1: 78 s)                                     |
+| Jobs                                                                  | Accepted |
+| --------------------------------------------------------------------- | -------- |
+| 1-3 (builder-aimed briefs, three candidates)                          | 2 of 3   |
+| 4-8 (after one-colour and plain-animal guidance)                      | 4 of 5   |
+| 9-10 (after the nudges were changed to keep weapons inside the frame) | 2 of 2   |
 
-A Mubit call that fails (the first brief call of job 1) is retried once after 5 s by the client; that is where the odd 12 s writing step came from.
+Accepted, with the winning score: Daughter of Charybdis 6, Empusa of the Shallows 6, Centaur of the Deep 8, Hydra of the Sponge Caves 6.5, Phorcys the Old 8, Graia the Grey Sister 7, Silverfoot Nereid 6.5, Gorgon of the Wreck 6. Rejected: Echidna's Whelp (a hydra in two colours: 5, 5, 5, fix 4) and Lion of Thetis (a plain lion: 5, 5, 5, fix 5).
 
-Separately, three brief → generator → local render → one verifier runs without the sandbox, storage or fix turn (diagnosis after the first three jobs failed): the same thread of myth was offered at random, so the creatures differed (a three-headed hydra, a centaur with a trident, a drowned-sailor skeleton), and the verifier scored them 5, 5 and 4. For comparison, the ten committed sprites from earlier loop runs ended at 7, 7, 5, 7, 6, 5.5, 6.5, 6, 5 and 7 with one fix, which the same acceptance rule would admit 7 of. The honest reading: with this verifier and this kit, expect many jobs to be rejected (the live jobs were 0 of 3, the partial runs 0 of 3 at the first attempt), so the gallery will fill slowly, and the levers are the acceptance bar, more candidates per job (renders are cheap and parallel: see "Parallelism"), or briefs the kit draws more plainly. None of these was changed here.
+Per job: **8.1 Mubit calls on average** (brief 1, generators 3, verifiers 1-5 including borderline double takes, a fix 0-1; no retries), and **about 40 s** from the first step to the last (28-59 s; the client saw 33-64 s). One step in the middle: the brief writer about 10 s, the three generators together 3-9 s, the three renders 2-5 s, the verifiers 12-25 s (several in parallel), a fix turn 12-16 s. That is a quarter of the 270 s the job allows itself. 3 of the 30 candidates were engine-flagged (clipped) and cost no verifier call.
 
-Not exercised live: an accepted job's last steps (`putCreature` and `done`) against Blob, only with fakes and, for the read side, with a hand-written test record through the real store and routes (sprite bytes identical, headers as above); the routes on a Vercel deployment (OIDC inside `after()`, `maxDuration`, the traced files); Mubit failing the whole job in production.
+For the first time an accepted job's last steps ran live: the sprite and record were stored in Blob, the job went `done`, and `GET /api/creatures/:id/sprite.png` served them. A job on the Vercel preview deployment was accepted too (a 6 in 59 s), which shows the platform's OIDC works inside `after()` and that the traced files are there.
 
 ### Shotcup rules
 
@@ -407,7 +438,7 @@ This evaluation used 25 starts and 188 balance seconds of compute ($0.00188, of 
 - Shotcup's wake after idle (0.7-2.3 s on its performance page) was not reproduced.
 - Whether the 4-worker limit is per account, per region or global, and whether a Platform plan or tenant keys raise it. The account's `/me` says `maxConcurrent: 50`, but the runtime refused a fifth concurrent run.
 - `artifacts: "private"` over REST, and pinning a drive version in `mounts`.
-- Vercel duration limits are quoted from Vercel's documentation, not tested: the creature route has run only locally (`next start`), so `maxDuration`, `after()` on the platform, the sandbox's OIDC authentication inside `after()` (the SDK reads the token from the request context, which Next's `after()` should carry; if a deployed job fails with a credentials error, read the token in the route and pass `token`, `teamId` and `projectId` to `Sandbox.create`) and the traced files (`outputFileTracingIncludes`; the build's trace lists them) are unverified on a deployment. All Vercel Sandbox timings are from a client in the UK; a function in `iad1` next to the VMs should save part of each SDK round trip, by an amount not measured.
+- Vercel duration limits are quoted from Vercel's documentation: the creature route ran locally (`next start`) and, once, on a preview deployment (a job accepted in 59 s, which shows the sandbox's OIDC authentication works inside `after()`). A job near the 270 s budget has not been seen anywhere. All Vercel Sandbox timings are from a client in the UK; a function in `iad1` next to the VMs should save part of each SDK round trip, by an amount not measured.
 - Whether `delete()` (0.18-0.27 s) ends a running Vercel session and its billing as `stop()` does: a deleted sandbox disappears from listings and its session returns 404, so I could not read its final state. The renderer uses `stop()`.
 - Root in the Vercel VM against the network policy and the init socket: the probes ran with sudo available and stayed offline, but I did not try to change the policy or talk to `/run/vercel/share/init.sock`.
 - The Vercel and boat bills for these runs: the costs above are list prices times measured usage.

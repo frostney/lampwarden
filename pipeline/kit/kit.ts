@@ -108,10 +108,11 @@ const BIG = 1e6;
 const bbU = (a: Shape, b: Shape): [V, V] => [[Math.min(a.lo[0], b.lo[0]), Math.min(a.lo[1], b.lo[1]), Math.min(a.lo[2], b.lo[2])],
   [Math.max(a.hi[0], b.hi[0]), Math.max(a.hi[1], b.hi[1]), Math.max(a.hi[2], b.hi[2])]];
 function sdPoly2(px: number, py: number, P: number[][]): number {
-  let d = sq(px - P[0][0]) + sq(py - P[0][1]); let s = 1;
+  const firstX = px - P[0][0], firstY = py - P[0][1];
+  let d = firstX * firstX + firstY * firstY; let s = 1;
   for (let i = 0, j = P.length - 1; i < P.length; j = i, i++) {
     const ex = P[j][0] - P[i][0], ey = P[j][1] - P[i][1], wx = px - P[i][0], wy = py - P[i][1];
-    const t = clamp((wx * ex + wy * ey) / (ex * ex + ey * ey || 1), 0, 1);
+    const along = (wx * ex + wy * ey) / (ex * ex + ey * ey || 1); const t = along < 0 ? 0 : along > 1 ? 1 : along;
     const bx = wx - ex * t, by = wy - ey * t; d = Math.min(d, bx * bx + by * by);
     const c1 = py >= P[i][1], c2 = py < P[j][1], c3 = ex * wy > ey * wx;
     if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
@@ -124,7 +125,7 @@ function ext(d2: number, dz: number): number {
 }
 export const S = {
   sphere(c: V, r: number): Shape {
-    return { f: (x, y, z) => Math.sqrt(sq(x - c[0]) + sq(y - c[1]) + sq(z - c[2])) - r, lo: [c[0] - r, c[1] - r, c[2] - r], hi: [c[0] + r, c[1] + r, c[2] + r], lip: 1 };
+    return { f: (x, y, z) => { const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; return Math.sqrt(offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ) - r; }, lo: [c[0] - r, c[1] - r, c[2] - r], hi: [c[0] + r, c[1] + r, c[2] + r], lip: 1 };
   },
   // radii r along axes (default world u,v,z; pass three orthonormal directions to orient it)
   ellipsoid(c: V, r: V, axes?: V[]): Shape {
@@ -132,10 +133,11 @@ export const S = {
     const e: V = [0, 1, 2].map((i) => Math.sqrt(sq(r[0] * A[0][i]) + sq(r[1] * A[1][i]) + sq(r[2] * A[2][i]))) as V;
     return {
       f: (x, y, z) => {
-        const q: V = [x - c[0], y - c[1], z - c[2]];
-        const a = dot(q, A[0]) / r[0], b = dot(q, A[1]) / r[1], g = dot(q, A[2]) / r[2];
+        const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; const axisA = A[0], axisB = A[1], axisG = A[2];
+        const a = (offsetX * axisA[0] + offsetY * axisA[1] + offsetZ * axisA[2]) / r[0], b = (offsetX * axisB[0] + offsetY * axisB[1] + offsetZ * axisB[2]) / r[1], g = (offsetX * axisG[0] + offsetY * axisG[1] + offsetZ * axisG[2]) / r[2];
         const k0 = Math.sqrt(a * a + b * b + g * g);
-        const k1 = Math.sqrt(sq(a / r[0]) + sq(b / r[1]) + sq(g / r[2]));
+        const scaledA = a / r[0], scaledB = b / r[1], scaledG = g / r[2];
+        const k1 = Math.sqrt(scaledA * scaledA + scaledB * scaledB + scaledG * scaledG);
         return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(r[0], r[1], r[2]);
       }, lo: sub(c, e), hi: add(c, e), lip: 0.8,
     };
@@ -144,8 +146,9 @@ export const S = {
     const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = Math.max(r1, R2);
     return {
       f: (x, y, z) => {
-        const pa: V = [x - a[0], y - a[1], z - a[2]]; const h = clamp(dot(pa, ba) / bb, 0, 1);
-        return len(sub(pa, mul(ba, h))) - (r1 + (R2 - r1) * h);
+        const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const along = (offsetX * ba[0] + offsetY * ba[1] + offsetZ * ba[2]) / bb; const h = along < 0 ? 0 : along > 1 ? 1 : along;
+        const awayX = offsetX - ba[0] * h, awayY = offsetY - ba[1] * h, awayZ = offsetZ - ba[2] * h;
+        return Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (r1 + (R2 - r1) * h);
       }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
       hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: r1 === R2 ? 1 : 0.8,
     };
@@ -165,8 +168,8 @@ export const S = {
     const e: V = [0, 1, 2].map((i) => Math.abs(half[0] * axes[0][i]) + Math.abs(half[1] * axes[1][i]) + Math.abs(half[2] * axes[2][i])) as V;
     return {
       f: (x, y, z) => {
-        const q: V = [x - c[0], y - c[1], z - c[2]];
-        const qx = Math.abs(dot(q, axes[0])) - half[0] + r, qy = Math.abs(dot(q, axes[1])) - half[1] + r, qz = Math.abs(dot(q, axes[2])) - half[2] + r;
+        const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; const axisX = axes[0], axisY = axes[1], axisZ = axes[2];
+        const qx = Math.abs(offsetX * axisX[0] + offsetY * axisX[1] + offsetZ * axisX[2]) - half[0] + r, qy = Math.abs(offsetX * axisY[0] + offsetY * axisY[1] + offsetZ * axisY[2]) - half[1] + r, qz = Math.abs(offsetX * axisZ[0] + offsetY * axisZ[1] + offsetZ * axisZ[2]) - half[2] + r;
         const ox = Math.max(qx, 0), oy = Math.max(qy, 0), oz = Math.max(qz, 0);
         return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, qy, qz), 0) - r;
       }, lo: sub(c, e), hi: add(c, e), lip: 1,
@@ -177,9 +180,12 @@ export const S = {
     const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const L = len(ba) || 1e-9; const n = mul(ba, 1 / L); const m = Math.max(r1, R2);
     return {
       f: (x, y, z) => {
-        const pa: V = [x - a[0], y - a[1], z - a[2]]; const t = dot(pa, n);
-        const radial = len(sub(pa, mul(n, t))); const rr = r1 + (R2 - r1) * clamp(t / L, 0, 1);
-        return ext(radial - rr, Math.abs(t - L / 2) - L / 2);
+        const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const t = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2];
+        const awayX = offsetX - n[0] * t, awayY = offsetY - n[1] * t, awayZ = offsetZ - n[2] * t;
+        const radial = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ); const fraction = t / L; const rr = r1 + (R2 - r1) * (fraction < 0 ? 0 : fraction > 1 ? 1 : fraction);
+        const sideDistance = radial - rr, capDistance = Math.abs(t - L / 2) - L / 2;
+        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
       }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
       hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: r1 === R2 ? 0.9 : 0.7,
     };
@@ -193,7 +199,12 @@ export const S = {
       return prof[prof.length - 1][1];
     };
     return {
-      f: (x, y, z) => { const h = z - base[2]; const radial = Math.sqrt(sq(x - base[0]) + sq(y - base[1])); return ext(radial - rAt(h), Math.max(h0 - h, h - h1)); },
+      f: (x, y, z) => {
+        const h = z - base[2]; const offsetX = x - base[0], offsetY = y - base[1]; const radial = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+        const sideDistance = radial - rAt(h), capDistance = Math.max(h0 - h, h - h1);
+        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
+      },
       lo: [base[0] - rm, base[1] - rm, base[2] + h0], hi: [base[0] + rm, base[1] + rm, base[2] + h1], lip: 0.55,
     };
   },
@@ -205,13 +216,25 @@ export const S = {
     const P = pts.map((p) => [dot(sub(p, o), e1), dot(sub(p, o), e2)]);
     const lo: V = [BIG, BIG, BIG], hi: V = [-BIG, -BIG, -BIG]; const t = thick / 2;
     for (const p of pts) for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i] - t); hi[i] = Math.max(hi[i], p[i] + t); }
-    return { f: (x, y, z) => { const q: V = [x - o[0], y - o[1], z - o[2]]; return ext(sdPoly2(dot(q, e1), dot(q, e2), P), Math.abs(dot(q, n)) - t); }, lo, hi, lip: 0.9 };
+    return {
+      f: (x, y, z) => {
+        const offsetX = x - o[0], offsetY = y - o[1], offsetZ = z - o[2];
+        const sideDistance = sdPoly2(offsetX * e1[0] + offsetY * e1[1] + offsetZ * e1[2], offsetX * e2[0] + offsetY * e2[1] + offsetZ * e2[2], P);
+        const capDistance = Math.abs(offsetX * n[0] + offsetY * n[1] + offsetZ * n[2]) - t;
+        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
+      }, lo, hi, lip: 0.9,
+    };
   },
   // torus: centre, axis normal, big radius R, tube radius r (shield rims, rings, belts, bowl lips)
   ring(c: V, n0: V, R: number, r: number): Shape {
     const n = norm(n0); const e: V = [0, 1, 2].map((i) => R * Math.sqrt(Math.max(0, 1 - n[i] * n[i])) + r) as V;
     return {
-      f: (x, y, z) => { const q: V = [x - c[0], y - c[1], z - c[2]]; const h = dot(q, n); const rad = len(sub(q, mul(n, h))); return Math.sqrt(sq(rad - R) + h * h) - r; },
+      f: (x, y, z) => {
+        const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; const h = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2];
+        const awayX = offsetX - n[0] * h, awayY = offsetY - n[1] * h, awayZ = offsetZ - n[2] * h; const rad = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ);
+        const tubeOffset = rad - R; return Math.sqrt(tubeOffset * tubeOffset + h * h) - r;
+      },
       lo: sub(c, e), hi: add(c, e), lip: 1,
     };
   },
@@ -222,9 +245,10 @@ export const S = {
     const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = Math.max(r1, r2) + Math.max(bulge, 0);
     return {
       f: (x, y, z) => {
-        const pa: V = [x - a[0], y - a[1], z - a[2]]; const h = clamp(dot(pa, ba) / bb, 0, 1);
+        const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const along = (offsetX * ba[0] + offsetY * ba[1] + offsetZ * ba[2]) / bb; const h = along < 0 ? 0 : along > 1 ? 1 : along;
         const u = (h - at) / (h < at ? Math.max(at, 0.1) : Math.max(1 - at, 0.1)); const bump = u * u < 1 ? (1 - u * u) : 0;
-        return len(sub(pa, mul(ba, h))) - (r1 + (r2 - r1) * h + bulge * bump * bump * (3 - 2 * bump) * 1.0);
+        const awayX = offsetX - ba[0] * h, awayY = offsetY - ba[1] * h, awayZ = offsetZ - ba[2] * h;
+        return Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (r1 + (r2 - r1) * h + bulge * bump * bump * (3 - 2 * bump) * 1.0);
       }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
       hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: 0.7,
     };
@@ -239,8 +263,10 @@ export const S = {
       f: (x, y, z) => {
         let d = BIG;
         for (let i = 0; i < n; i++) {
-          const a = pts[i]; const pa: V = [x - a[0], y - a[1], z - a[2]]; const h = clamp(dot(pa, bas[i]) / bbs[i], 0, 1);
-          d = Math.min(d, len(sub(pa, mul(bas[i], h))) - (radii[i] + (radii[i + 1] - radii[i]) * h));
+          const a = pts[i]; const segment = bas[i]; const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2];
+          const along = (offsetX * segment[0] + offsetY * segment[1] + offsetZ * segment[2]) / bbs[i]; const h = along < 0 ? 0 : along > 1 ? 1 : along;
+          const awayX = offsetX - segment[0] * h, awayY = offsetY - segment[1] * h, awayZ = offsetZ - segment[2] * h;
+          d = Math.min(d, Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (radii[i] + (radii[i + 1] - radii[i]) * h));
         }
         return d;
       }, lo, hi, lip: 0.8,
@@ -252,10 +278,12 @@ export const S = {
     const e1 = norm(cross(n, t0)); const e2 = cross(n, e1); const m = Math.max(r1, r2) + Math.abs(amp);
     return {
       f: (x, y, z) => {
-        const pa: V = [x - a[0], y - a[1], z - a[2]]; const t = dot(pa, n); const q = clamp(t / L, 0, 1);
-        const ax = dot(pa, e1), ay = dot(pa, e2); const radial = Math.sqrt(ax * ax + ay * ay);
+        const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const t = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2]; const fraction = t / L; const q = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
+        const ax = offsetX * e1[0] + offsetY * e1[1] + offsetZ * e1[2], ay = offsetX * e2[0] + offsetY * e2[1] + offsetZ * e2[2]; const radial = Math.sqrt(ax * ax + ay * ay);
         const th = atan2d(ay, ax); const wob = sind(th * nf) * amp * (0.35 + 0.65 * q);
-        return ext(radial - (r1 + (r2 - r1) * q + wob), Math.abs(t - L / 2) - L / 2) * 0.85;
+        const sideDistance = radial - (r1 + (r2 - r1) * q + wob), capDistance = Math.abs(t - L / 2) - L / 2;
+        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
+        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0)) * 0.85;
       }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
       hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: 0.6,
     };
@@ -267,21 +295,28 @@ export const S = {
     for (const aa of [-wm, wm]) for (const bb of [0, H]) for (const cc of [-mm, mm]) { const p = add(o, add(mul(E1, aa), add(mul(E2, bb), mul(N, cc)))); for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } }
     return {
       f: (x, y, z) => {
-        const q: V = [x - o[0], y - o[1], z - o[2]]; const a = dot(q, E1), b = dot(q, E2), c = dot(q, N); const tt = clamp(b / H, 0, 1);
+        const offsetX = x - o[0], offsetY = y - o[1], offsetZ = z - o[2];
+        const a = offsetX * E1[0] + offsetY * E1[1] + offsetZ * E1[2], b = offsetX * E2[0] + offsetY * E2[1] + offsetZ * E2[2], c = offsetX * N[0] + offsetY * N[1] + offsetZ * N[2];
+        const fraction = b / H; const tt = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
         const w = w0 + (w1 - w0) * tt; const off = sind(a / (wm || 1) * folds * 180) * amp * (0.25 + 0.75 * tt);
-        const d2 = Math.max(Math.abs(a) - w, -b, b - H);
-        return ext(d2, (Math.abs(c - off) - thick / 2)) * 0.7;
+        const d2 = Math.max(Math.abs(a) - w, -b, b - H); const capDistance = Math.abs(c - off) - thick / 2;
+        const outsideSide = Math.max(d2, 0), outsideCap = Math.max(capDistance, 0);
+        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(d2, capDistance), 0)) * 0.7;
       }, lo, hi, lip: 0.5,
     };
   },
   union(...s: Shape[]): Shape {
     let lo = s[0].lo, hi = s[0].hi; for (const q of s.slice(1)) { const b = bbU({ f: s[0].f, lo, hi, lip: 1 }, q); lo = b[0]; hi = b[1]; }
-    return { f: (x, y, z) => { let d = BIG; for (const q of s) d = Math.min(d, q.f(x, y, z)); return d; }, lo, hi, lip: Math.min(...s.map((q) => q.lip)) };
+    return { f: (x, y, z) => { let d = BIG; for (let shapeIndex = 0; shapeIndex < s.length; shapeIndex++) d = Math.min(d, s[shapeIndex].f(x, y, z)); return d; }, lo, hi, lip: Math.min(...s.map((q) => q.lip)) };
   },
   smooth(k: number, ...s: Shape[]): Shape {
     const u = S.union(...s);
     return {
-      f: (x, y, z) => { let d = s[0].f(x, y, z); for (const q of s.slice(1)) { const b = q.f(x, y, z); const h = clamp(0.5 + 0.5 * (b - d) / k, 0, 1); d = b + (d - b) * h - k * h * (1 - h); } return d; },
+      f: (x, y, z) => {
+        let d = s[0].f(x, y, z);
+        for (let shapeIndex = 1; shapeIndex < s.length; shapeIndex++) { const b = s[shapeIndex].f(x, y, z); const blend = 0.5 + 0.5 * (b - d) / k; const h = blend < 0 ? 0 : blend > 1 ? 1 : blend; d = b + (d - b) * h - k * h * (1 - h); }
+        return d;
+      },
       lo: sub(u.lo, [k, k, k]), hi: add(u.hi, [k, k, k]), lip: u.lip * 0.9,
     };
   },

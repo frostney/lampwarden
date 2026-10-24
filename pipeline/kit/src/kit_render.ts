@@ -158,8 +158,8 @@ export class Kit {
       for (let py = py0; py <= py1; py++) for (let px = px0; px <= px1; px++) {
         const d = (px + 0.5 - this.ox) / 2; const cy = py + 0.5;
         // s range from u, v, z bounds: u=(s+d)/2, v=(s-d)/2, z=(this.oy+s-cy)/ZK
-        let a = Math.max(sLo, 2 * lo[0] - d, 2 * lo[1] + d, ZK * lo[2] - this.oy + cy);
-        let b = Math.min(sHi, 2 * hi[0] - d, 2 * hi[1] + d, ZK * hi[2] - this.oy + cy);
+        let a = larger(larger(larger(sLo, 2 * lo[0] - d), 2 * lo[1] + d), ZK * lo[2] - this.oy + cy);
+        let b = smaller(smaller(smaller(sHi, 2 * hi[0] - d), 2 * hi[1] + d), ZK * hi[2] - this.oy + cy);
         if (a > b) continue;
         const idx = py * W + px;
         let t = b + 0.05; let hit = false; let guard = 0;
@@ -170,7 +170,7 @@ export class Kit {
           const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK;
           const dist = s.f(x, y, z);
           if (dist < 0.02) { hit = true; break; }
-          t -= Math.max(dist * lip, 0.01) / VL;
+          t -= larger(dist * lip, 0.01) / VL;
         }
         if (!hit) continue;
         if (unrefined[idx] && t > depth[idx] && t <= depth[idx] + 0.06) refineDepth(idx);
@@ -285,13 +285,13 @@ export class Kit {
             if (rayBound[partIndex] > nearest) continue;
             const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
             const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
-            const partDistance = Math.max(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
+            const partDistance = larger(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
             if (partDistance < nearest) nearestPart = partIndex;
-            nearest = Math.min(nearest, partDistance);
+            nearest = smaller(nearest, partDistance);
           }
           previousNearestPart = nearestPart;
           if (nearest < hitDistance) { inShadow = true; break; }
-          t += Math.max(nearest * 0.8, 0.05);
+          t += larger(nearest * 0.8, 0.05);
         }
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }
       }

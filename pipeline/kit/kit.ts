@@ -40,6 +40,11 @@ export function hash(a: number, b: number, c = 0): number {   // stable 0..1
 }
 const sq = (x: number): number => x * x;
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
+// Math.max, Math.min and Math.abs with identical results (NaN and signed zeros included), as plain functions: in GocciaScript, the
+// engine behind Shotcup, a built-in Math call costs about four times a plain function call. Used in the shape and render hot loops.
+const larger = (first: number, second: number): number => (first > second ? first : first < second ? second : first !== first ? first : second !== second ? second : first === 0 ? first + second : first);
+const smaller = (first: number, second: number): number => (first < second ? first : first > second ? second : first !== first ? first : second !== second ? second : first === 0 ? -(-first - second) : first);
+const magnitude = (value: number): number => (value < 0 ? -value : value + 0);
 export const add = (a: V, b: V): V => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 export const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const mul = (a: V, k: number): V => [a[0] * k, a[1] * k, a[2] * k];
@@ -113,15 +118,11 @@ function sdPoly2(px: number, py: number, P: number[][]): number {
   for (let i = 0, j = P.length - 1; i < P.length; j = i, i++) {
     const ex = P[j][0] - P[i][0], ey = P[j][1] - P[i][1], wx = px - P[i][0], wy = py - P[i][1];
     const along = (wx * ex + wy * ey) / (ex * ex + ey * ey || 1); const t = along < 0 ? 0 : along > 1 ? 1 : along;
-    const bx = wx - ex * t, by = wy - ey * t; d = Math.min(d, bx * bx + by * by);
+    const bx = wx - ex * t, by = wy - ey * t; d = smaller(d, bx * bx + by * by);
     const c1 = py >= P[i][1], c2 = py < P[j][1], c3 = ex * wy > ey * wx;
     if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
   }
   return s * Math.sqrt(d);
-}
-function ext(d2: number, dz: number): number {
-  const a = Math.max(d2, 0), b = Math.max(dz, 0);
-  return Math.sqrt(a * a + b * b) + Math.min(Math.max(d2, dz), 0);
 }
 export const S = {
   sphere(c: V, r: number): Shape {
@@ -138,61 +139,61 @@ export const S = {
         const k0 = Math.sqrt(a * a + b * b + g * g);
         const scaledA = a / r[0], scaledB = b / r[1], scaledG = g / r[2];
         const k1 = Math.sqrt(scaledA * scaledA + scaledB * scaledB + scaledG * scaledG);
-        return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(r[0], r[1], r[2]);
+        return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -smaller(smaller(r[0], r[1]), r[2]);
       }, lo: sub(c, e), hi: add(c, e), lip: 0.8,
     };
   },
   capsule(a: V, b: V, r1: number, r2?: number): Shape {
-    const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = Math.max(r1, R2);
+    const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = larger(r1, R2);
     return {
       f: (x, y, z) => {
         const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const along = (offsetX * ba[0] + offsetY * ba[1] + offsetZ * ba[2]) / bb; const h = along < 0 ? 0 : along > 1 ? 1 : along;
         const awayX = offsetX - ba[0] * h, awayY = offsetY - ba[1] * h, awayZ = offsetZ - ba[2] * h;
         return Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (r1 + (R2 - r1) * h);
-      }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
-      hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: r1 === R2 ? 1 : 0.8,
+      }, lo: [smaller(a[0], b[0]) - m, smaller(a[1], b[1]) - m, smaller(a[2], b[2]) - m],
+      hi: [larger(a[0], b[0]) + m, larger(a[1], b[1]) + m, larger(a[2], b[2]) + m], lip: r1 === R2 ? 1 : 0.8,
     };
   },
   box(lo: V, hi: V, r = 0): Shape {
     const c = lerp(lo, hi, 0.5); const h = mul(sub(hi, lo), 0.5);
     return {
       f: (x, y, z) => {
-        const qx = Math.abs(x - c[0]) - h[0] + r, qy = Math.abs(y - c[1]) - h[1] + r, qz = Math.abs(z - c[2]) - h[2] + r;
-        const ox = Math.max(qx, 0), oy = Math.max(qy, 0), oz = Math.max(qz, 0);
-        return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, qy, qz), 0) - r;
+        const qx = magnitude(x - c[0]) - h[0] + r, qy = magnitude(y - c[1]) - h[1] + r, qz = magnitude(z - c[2]) - h[2] + r;
+        const ox = larger(qx, 0), oy = larger(qy, 0), oz = larger(qz, 0);
+        return Math.sqrt(ox * ox + oy * oy + oz * oz) + smaller(larger(larger(qx, qy), qz), 0) - r;
       }, lo: [lo[0], lo[1], lo[2]], hi: [hi[0], hi[1], hi[2]], lip: 1,
     };
   },
   // oriented box: centre, three orthonormal axes, half sizes
   obox(c: V, axes: V[], half: V, r = 0): Shape {
-    const e: V = [0, 1, 2].map((i) => Math.abs(half[0] * axes[0][i]) + Math.abs(half[1] * axes[1][i]) + Math.abs(half[2] * axes[2][i])) as V;
+    const e: V = [0, 1, 2].map((i) => magnitude(half[0] * axes[0][i]) + magnitude(half[1] * axes[1][i]) + magnitude(half[2] * axes[2][i])) as V;
     return {
       f: (x, y, z) => {
         const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; const axisX = axes[0], axisY = axes[1], axisZ = axes[2];
-        const qx = Math.abs(offsetX * axisX[0] + offsetY * axisX[1] + offsetZ * axisX[2]) - half[0] + r, qy = Math.abs(offsetX * axisY[0] + offsetY * axisY[1] + offsetZ * axisY[2]) - half[1] + r, qz = Math.abs(offsetX * axisZ[0] + offsetY * axisZ[1] + offsetZ * axisZ[2]) - half[2] + r;
-        const ox = Math.max(qx, 0), oy = Math.max(qy, 0), oz = Math.max(qz, 0);
-        return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, qy, qz), 0) - r;
+        const qx = magnitude(offsetX * axisX[0] + offsetY * axisX[1] + offsetZ * axisX[2]) - half[0] + r, qy = magnitude(offsetX * axisY[0] + offsetY * axisY[1] + offsetZ * axisY[2]) - half[1] + r, qz = magnitude(offsetX * axisZ[0] + offsetY * axisZ[1] + offsetZ * axisZ[2]) - half[2] + r;
+        const ox = larger(qx, 0), oy = larger(qy, 0), oz = larger(qz, 0);
+        return Math.sqrt(ox * ox + oy * oy + oz * oz) + smaller(larger(larger(qx, qy), qz), 0) - r;
       }, lo: sub(c, e), hi: add(c, e), lip: 1,
     };
   },
   // capped cylinder (r1 equal r2) or cone frustum between points a and b
   cyl(a: V, b: V, r1: number, r2?: number): Shape {
-    const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const L = len(ba) || 1e-9; const n = mul(ba, 1 / L); const m = Math.max(r1, R2);
+    const R2 = r2 === undefined ? r1 : r2; const ba = sub(b, a); const L = len(ba) || 1e-9; const n = mul(ba, 1 / L); const m = larger(r1, R2);
     return {
       f: (x, y, z) => {
         const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const t = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2];
         const awayX = offsetX - n[0] * t, awayY = offsetY - n[1] * t, awayZ = offsetZ - n[2] * t;
         const radial = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ); const fraction = t / L; const rr = r1 + (R2 - r1) * (fraction < 0 ? 0 : fraction > 1 ? 1 : fraction);
-        const sideDistance = radial - rr, capDistance = Math.abs(t - L / 2) - L / 2;
-        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
-        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
-      }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
-      hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: r1 === R2 ? 0.9 : 0.7,
+        const sideDistance = radial - rr, capDistance = magnitude(t - L / 2) - L / 2;
+        const outsideSide = larger(sideDistance, 0), outsideCap = larger(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + smaller(larger(sideDistance, capDistance), 0);
+      }, lo: [smaller(a[0], b[0]) - m, smaller(a[1], b[1]) - m, smaller(a[2], b[2]) - m],
+      hi: [larger(a[0], b[0]) + m, larger(a[1], b[1]) + m, larger(a[2], b[2]) + m], lip: r1 === R2 ? 0.9 : 0.7,
     };
   },
   // solid of revolution around a vertical axis through base: prof = [[h, r], ...] with h rising
   lathe(base: V, prof: number[][]): Shape {
-    const h0 = prof[0][0], h1 = prof[prof.length - 1][0]; let rm = 0; for (const q of prof) rm = Math.max(rm, q[1]);
+    const h0 = prof[0][0], h1 = prof[prof.length - 1][0]; let rm = 0; for (const q of prof) rm = larger(rm, q[1]);
     const rAt = (h: number): number => {
       if (h <= h0) return prof[0][1];
       for (let i = 1; i < prof.length; i++) if (h <= prof[i][0]) { const t = (h - prof[i - 1][0]) / ((prof[i][0] - prof[i - 1][0]) || 1e-9); return prof[i - 1][1] + (prof[i][1] - prof[i - 1][1]) * t; }
@@ -201,9 +202,9 @@ export const S = {
     return {
       f: (x, y, z) => {
         const h = z - base[2]; const offsetX = x - base[0], offsetY = y - base[1]; const radial = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
-        const sideDistance = radial - rAt(h), capDistance = Math.max(h0 - h, h - h1);
-        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
-        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
+        const sideDistance = radial - rAt(h), capDistance = larger(h0 - h, h - h1);
+        const outsideSide = larger(sideDistance, 0), outsideCap = larger(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + smaller(larger(sideDistance, capDistance), 0);
       },
       lo: [base[0] - rm, base[1] - rm, base[2] + h0], hi: [base[0] + rm, base[1] + rm, base[2] + h1], lip: 0.55,
     };
@@ -215,20 +216,20 @@ export const S = {
     n = norm(n); const o = pts[0]; let e1 = sub(pts[1], o); e1 = norm(sub(e1, mul(n, dot(e1, n)))); const e2 = cross(n, e1);
     const P = pts.map((p) => [dot(sub(p, o), e1), dot(sub(p, o), e2)]);
     const lo: V = [BIG, BIG, BIG], hi: V = [-BIG, -BIG, -BIG]; const t = thick / 2;
-    for (const p of pts) for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i] - t); hi[i] = Math.max(hi[i], p[i] + t); }
+    for (const p of pts) for (let i = 0; i < 3; i++) { lo[i] = smaller(lo[i], p[i] - t); hi[i] = larger(hi[i], p[i] + t); }
     return {
       f: (x, y, z) => {
         const offsetX = x - o[0], offsetY = y - o[1], offsetZ = z - o[2];
         const sideDistance = sdPoly2(offsetX * e1[0] + offsetY * e1[1] + offsetZ * e1[2], offsetX * e2[0] + offsetY * e2[1] + offsetZ * e2[2], P);
-        const capDistance = Math.abs(offsetX * n[0] + offsetY * n[1] + offsetZ * n[2]) - t;
-        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
-        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0);
+        const capDistance = magnitude(offsetX * n[0] + offsetY * n[1] + offsetZ * n[2]) - t;
+        const outsideSide = larger(sideDistance, 0), outsideCap = larger(capDistance, 0);
+        return Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + smaller(larger(sideDistance, capDistance), 0);
       }, lo, hi, lip: 0.9,
     };
   },
   // torus: centre, axis normal, big radius R, tube radius r (shield rims, rings, belts, bowl lips)
   ring(c: V, n0: V, R: number, r: number): Shape {
-    const n = norm(n0); const e: V = [0, 1, 2].map((i) => R * Math.sqrt(Math.max(0, 1 - n[i] * n[i])) + r) as V;
+    const n = norm(n0); const e: V = [0, 1, 2].map((i) => R * Math.sqrt(larger(0, 1 - n[i] * n[i])) + r) as V;
     return {
       f: (x, y, z) => {
         const offsetX = x - c[0], offsetY = y - c[1], offsetZ = z - c[2]; const h = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2];
@@ -242,21 +243,21 @@ export const S = {
   half(p: V, n0: V): Shape { const n = norm(n0); return { f: (x, y, z) => (x - p[0]) * n[0] + (y - p[1]) * n[1] + (z - p[2]) * n[2], lo: [-BIG, -BIG, -BIG], hi: [BIG, BIG, BIG], lip: 1 }; },
   // muscled limb: capsule from a to b whose radius swells by `bulge` around fraction `at` (biceps, thigh, calf)
   limb(a: V, b: V, r1: number, r2: number, bulge = 0, at = 0.4): Shape {
-    const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = Math.max(r1, r2) + Math.max(bulge, 0);
+    const ba = sub(b, a); const bb = dot(ba, ba) || 1e-9; const m = larger(r1, r2) + larger(bulge, 0);
     return {
       f: (x, y, z) => {
         const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const along = (offsetX * ba[0] + offsetY * ba[1] + offsetZ * ba[2]) / bb; const h = along < 0 ? 0 : along > 1 ? 1 : along;
-        const u = (h - at) / (h < at ? Math.max(at, 0.1) : Math.max(1 - at, 0.1)); const bump = u * u < 1 ? (1 - u * u) : 0;
+        const u = (h - at) / (h < at ? larger(at, 0.1) : larger(1 - at, 0.1)); const bump = u * u < 1 ? (1 - u * u) : 0;
         const awayX = offsetX - ba[0] * h, awayY = offsetY - ba[1] * h, awayZ = offsetZ - ba[2] * h;
         return Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (r1 + (r2 - r1) * h + bulge * bump * bump * (3 - 2 * bump) * 1.0);
-      }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
-      hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: 0.7,
+      }, lo: [smaller(a[0], b[0]) - m, smaller(a[1], b[1]) - m, smaller(a[2], b[2]) - m],
+      hi: [larger(a[0], b[0]) + m, larger(a[1], b[1]) + m, larger(a[2], b[2]) + m], lip: 0.7,
     };
   },
   // tapered tube through a list of points (snake hair, tails, tendrils, horns); radii per point
   tube(pts: V[], radii: number[]): Shape {
     const lo: V = [BIG, BIG, BIG], hi: V = [-BIG, -BIG, -BIG];
-    for (let i = 0; i < pts.length; i++) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], pts[i][k] - radii[i]); hi[k] = Math.max(hi[k], pts[i][k] + radii[i]); }
+    for (let i = 0; i < pts.length; i++) for (let k = 0; k < 3; k++) { lo[k] = smaller(lo[k], pts[i][k] - radii[i]); hi[k] = larger(hi[k], pts[i][k] + radii[i]); }
     const n = pts.length - 1; const bas: V[] = [], bbs: number[] = [];
     for (let i = 0; i < n; i++) { const ba = sub(pts[i + 1], pts[i]); bas.push(ba); bbs.push(dot(ba, ba) || 1e-9); }
     return {
@@ -266,7 +267,7 @@ export const S = {
           const a = pts[i]; const segment = bas[i]; const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2];
           const along = (offsetX * segment[0] + offsetY * segment[1] + offsetZ * segment[2]) / bbs[i]; const h = along < 0 ? 0 : along > 1 ? 1 : along;
           const awayX = offsetX - segment[0] * h, awayY = offsetY - segment[1] * h, awayZ = offsetZ - segment[2] * h;
-          d = Math.min(d, Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (radii[i] + (radii[i + 1] - radii[i]) * h));
+          d = smaller(d, Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - (radii[i] + (radii[i + 1] - radii[i]) * h));
         }
         return d;
       }, lo, hi, lip: 0.8,
@@ -274,40 +275,40 @@ export const S = {
   },
   // pleated frustum around an axis (chiton skirts, pteruges straps, tunics): n folds, depth amp, deeper towards b
   fold(a: V, b: V, r1: number, r2: number, nf: number, amp: number): Shape {
-    const ba = sub(b, a); const L = len(ba) || 1e-9; const n = mul(ba, 1 / L); const t0: V = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
-    const e1 = norm(cross(n, t0)); const e2 = cross(n, e1); const m = Math.max(r1, r2) + Math.abs(amp);
+    const ba = sub(b, a); const L = len(ba) || 1e-9; const n = mul(ba, 1 / L); const t0: V = magnitude(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const e1 = norm(cross(n, t0)); const e2 = cross(n, e1); const m = larger(r1, r2) + magnitude(amp);
     return {
       f: (x, y, z) => {
         const offsetX = x - a[0], offsetY = y - a[1], offsetZ = z - a[2]; const t = offsetX * n[0] + offsetY * n[1] + offsetZ * n[2]; const fraction = t / L; const q = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
         const ax = offsetX * e1[0] + offsetY * e1[1] + offsetZ * e1[2], ay = offsetX * e2[0] + offsetY * e2[1] + offsetZ * e2[2]; const radial = Math.sqrt(ax * ax + ay * ay);
         const th = atan2d(ay, ax); const wob = sind(th * nf) * amp * (0.35 + 0.65 * q);
-        const sideDistance = radial - (r1 + (r2 - r1) * q + wob), capDistance = Math.abs(t - L / 2) - L / 2;
-        const outsideSide = Math.max(sideDistance, 0), outsideCap = Math.max(capDistance, 0);
-        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(sideDistance, capDistance), 0)) * 0.85;
-      }, lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m],
-      hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], lip: 0.6,
+        const sideDistance = radial - (r1 + (r2 - r1) * q + wob), capDistance = magnitude(t - L / 2) - L / 2;
+        const outsideSide = larger(sideDistance, 0), outsideCap = larger(capDistance, 0);
+        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + smaller(larger(sideDistance, capDistance), 0)) * 0.85;
+      }, lo: [smaller(a[0], b[0]) - m, smaller(a[1], b[1]) - m, smaller(a[2], b[2]) - m],
+      hi: [larger(a[0], b[0]) + m, larger(a[1], b[1]) + m, larger(a[2], b[2]) + m], lip: 0.6,
     };
   },
   // hanging cloth: top-centre o, width direction e1, drop direction e2; widths w0 (top) .. w1 (hem); length H; vertical folds
   drape(o: V, e1: V, e2: V, w0: number, w1: number, H: number, thick: number, folds: number, amp: number): Shape {
-    const E1 = norm(e1); const E2 = norm(sub(e2, mul(E1, dot(e2, E1)))); const N = cross(E1, E2); const wm = Math.max(w0, w1);
-    const lo: V = [BIG, BIG, BIG], hi: V = [-BIG, -BIG, -BIG]; const mm = thick + Math.abs(amp);
-    for (const aa of [-wm, wm]) for (const bb of [0, H]) for (const cc of [-mm, mm]) { const p = add(o, add(mul(E1, aa), add(mul(E2, bb), mul(N, cc)))); for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } }
+    const E1 = norm(e1); const E2 = norm(sub(e2, mul(E1, dot(e2, E1)))); const N = cross(E1, E2); const wm = larger(w0, w1);
+    const lo: V = [BIG, BIG, BIG], hi: V = [-BIG, -BIG, -BIG]; const mm = thick + magnitude(amp);
+    for (const aa of [-wm, wm]) for (const bb of [0, H]) for (const cc of [-mm, mm]) { const p = add(o, add(mul(E1, aa), add(mul(E2, bb), mul(N, cc)))); for (let k = 0; k < 3; k++) { lo[k] = smaller(lo[k], p[k]); hi[k] = larger(hi[k], p[k]); } }
     return {
       f: (x, y, z) => {
         const offsetX = x - o[0], offsetY = y - o[1], offsetZ = z - o[2];
         const a = offsetX * E1[0] + offsetY * E1[1] + offsetZ * E1[2], b = offsetX * E2[0] + offsetY * E2[1] + offsetZ * E2[2], c = offsetX * N[0] + offsetY * N[1] + offsetZ * N[2];
         const fraction = b / H; const tt = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
         const w = w0 + (w1 - w0) * tt; const off = sind(a / (wm || 1) * folds * 180) * amp * (0.25 + 0.75 * tt);
-        const d2 = Math.max(Math.abs(a) - w, -b, b - H); const capDistance = Math.abs(c - off) - thick / 2;
-        const outsideSide = Math.max(d2, 0), outsideCap = Math.max(capDistance, 0);
-        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + Math.min(Math.max(d2, capDistance), 0)) * 0.7;
+        const d2 = larger(larger(magnitude(a) - w, -b), b - H); const capDistance = magnitude(c - off) - thick / 2;
+        const outsideSide = larger(d2, 0), outsideCap = larger(capDistance, 0);
+        return (Math.sqrt(outsideSide * outsideSide + outsideCap * outsideCap) + smaller(larger(d2, capDistance), 0)) * 0.7;
       }, lo, hi, lip: 0.5,
     };
   },
   union(...s: Shape[]): Shape {
     let lo = s[0].lo, hi = s[0].hi; for (const q of s.slice(1)) { const b = bbU({ f: s[0].f, lo, hi, lip: 1 }, q); lo = b[0]; hi = b[1]; }
-    return { f: (x, y, z) => { let d = BIG; for (let shapeIndex = 0; shapeIndex < s.length; shapeIndex++) d = Math.min(d, s[shapeIndex].f(x, y, z)); return d; }, lo, hi, lip: Math.min(...s.map((q) => q.lip)) };
+    return { f: (x, y, z) => { let d = BIG; for (let shapeIndex = 0; shapeIndex < s.length; shapeIndex++) d = smaller(d, s[shapeIndex].f(x, y, z)); return d; }, lo, hi, lip: Math.min(...s.map((q) => q.lip)) };
   },
   smooth(k: number, ...s: Shape[]): Shape {
     const u = S.union(...s);
@@ -320,10 +321,10 @@ export const S = {
       lo: sub(u.lo, [k, k, k]), hi: add(u.hi, [k, k, k]), lip: u.lip * 0.9,
     };
   },
-  sub(a: Shape, b: Shape): Shape { return { f: (x, y, z) => Math.max(a.f(x, y, z), -b.f(x, y, z)), lo: a.lo, hi: a.hi, lip: Math.min(a.lip, b.lip) }; },
+  sub(a: Shape, b: Shape): Shape { return { f: (x, y, z) => larger(a.f(x, y, z), -b.f(x, y, z)), lo: a.lo, hi: a.hi, lip: smaller(a.lip, b.lip) }; },
   inter(a: Shape, b: Shape): Shape {
-    return { f: (x, y, z) => Math.max(a.f(x, y, z), b.f(x, y, z)), lo: [Math.max(a.lo[0], b.lo[0]), Math.max(a.lo[1], b.lo[1]), Math.max(a.lo[2], b.lo[2])],
-      hi: [Math.min(a.hi[0], b.hi[0]), Math.min(a.hi[1], b.hi[1]), Math.min(a.hi[2], b.hi[2])], lip: Math.min(a.lip, b.lip) };
+    return { f: (x, y, z) => larger(a.f(x, y, z), b.f(x, y, z)), lo: [larger(a.lo[0], b.lo[0]), larger(a.lo[1], b.lo[1]), larger(a.lo[2], b.lo[2])],
+      hi: [smaller(a.hi[0], b.hi[0]), smaller(a.hi[1], b.hi[1]), smaller(a.hi[2], b.hi[2])], lip: smaller(a.lip, b.lip) };
   },
 };
 
@@ -497,8 +498,8 @@ export class Kit {
       for (let py = py0; py <= py1; py++) for (let px = px0; px <= px1; px++) {
         const d = (px + 0.5 - this.ox) / 2; const cy = py + 0.5;
         // s range from u, v, z bounds: u=(s+d)/2, v=(s-d)/2, z=(this.oy+s-cy)/ZK
-        let a = Math.max(sLo, 2 * lo[0] - d, 2 * lo[1] + d, ZK * lo[2] - this.oy + cy);
-        let b = Math.min(sHi, 2 * hi[0] - d, 2 * hi[1] + d, ZK * hi[2] - this.oy + cy);
+        let a = larger(larger(larger(sLo, 2 * lo[0] - d), 2 * lo[1] + d), ZK * lo[2] - this.oy + cy);
+        let b = smaller(smaller(smaller(sHi, 2 * hi[0] - d), 2 * hi[1] + d), ZK * hi[2] - this.oy + cy);
         if (a > b) continue;
         const idx = py * W + px;
         let t = b + 0.05; let hit = false; let guard = 0;
@@ -509,7 +510,7 @@ export class Kit {
           const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK;
           const dist = s.f(x, y, z);
           if (dist < 0.02) { hit = true; break; }
-          t -= Math.max(dist * lip, 0.01) / VL;
+          t -= larger(dist * lip, 0.01) / VL;
         }
         if (!hit) continue;
         if (unrefined[idx] && t > depth[idx] && t <= depth[idx] + 0.06) refineDepth(idx);
@@ -624,13 +625,13 @@ export class Kit {
             if (rayBound[partIndex] > nearest) continue;
             const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
             const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
-            const partDistance = Math.max(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
+            const partDistance = larger(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
             if (partDistance < nearest) nearestPart = partIndex;
-            nearest = Math.min(nearest, partDistance);
+            nearest = smaller(nearest, partDistance);
           }
           previousNearestPart = nearestPart;
           if (nearest < hitDistance) { inShadow = true; break; }
-          t += Math.max(nearest * 0.8, 0.05);
+          t += larger(nearest * 0.8, 0.05);
         }
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }
       }

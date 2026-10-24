@@ -14,7 +14,9 @@ import {
   SWING_HALF_ARC,
 } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
+import { isCharacterKey, withoutPaintedShadow } from "./rim";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -30,7 +32,8 @@ export function loadTextures(): Promise<TextureMap> {
       const texture = loaded[asset.alias];
       if (!texture) continue;
       texture.source.scaleMode = "nearest";
-      textures[asset.alias] = texture;
+      // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
+      textures[asset.alias] = isCharacterKey(asset.alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
     }
     for (const kind of Object.keys(MONSTER)) {
       const base = textures[kind];
@@ -49,6 +52,13 @@ export const flashKey = (kind: MonsterKind | string) => `flash/${kind}`;
 // the flash stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
 function silhouette(texture: Texture): Texture | null {
   const resource = texture.source.resource;
+  // the character sprites are pixel buffers once their painted shadow is taken out (rim.ts): premultiplied, so white
+  // at alpha a is (a, a, a, a)
+  if (resource instanceof Uint8Array) {
+    const white = new Uint8Array(resource.length);
+    for (let index = 0; index < resource.length; index += 4) white.fill(resource[index + 3] ?? 0, index, index + 4);
+    return bufferTexture(white, texture.source.pixelWidth, texture.source.pixelHeight);
+  }
   if (!(resource instanceof HTMLImageElement || resource instanceof ImageBitmap)) return null;
   const canvas = document.createElement("canvas");
   canvas.width = resource.width;
@@ -125,7 +135,8 @@ function mixColours(fromColour: number, toColour: number, amount: number) {
   const blue = interpolate(fromColour & 255, toColour & 255, amount);
   return (Math.round(red) << 16) | (Math.round(green) << 8) | Math.round(blue);
 }
-// night tint (multiplied over the world below the sky): deep blue, warming to dawn over the last fifth of the night
+// night tint (multiplied over the world below the sky; the sea and ground carry it on a container, each sprite on its own
+// so lamp light can bring a character back up): deep blue, warming to dawn over the last fifth of the night
 export function nightTint(progress: number) {
   if (progress < 0.8) return 0x46559a;
   const dawning = (progress - 0.8) / 0.2;
@@ -133,6 +144,8 @@ export function nightTint(progress: number) {
     ? mixColours(0x46559a, 0xd08a7a, dawning / 0.6)
     : mixColours(0xd08a7a, 0xffffff, (dawning - 0.6) / 0.4);
 }
+// how far the night has run, 0 to 1
+export const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
 // the lights fade out over the last 15% of the night
 export const lightsAlpha = (progress: number) => (progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15);
 

@@ -17,7 +17,10 @@ src/
                      replay speed; renders the @pixi/react <Application> and the window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
-                     night starts or a monster spawns or dies
+                     night starts or a monster spawns or dies. Layers, bottom to top: sky, the tinted sea and ground, the
+                     lights that lie on the ground (pools, the warden's light, stone and sea glints), the characters'
+                     shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
+                     sorted with its lamp), the melee sweep, shots and marks
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
@@ -39,6 +42,13 @@ src/
                      islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
+    lighting.ts      how the lamps light a character, as numbers (pure, render-only): how lit it is (the pool's own shape,
+                     flicker and dawn fade, in whole steps), the warm tint for its sprite, which way its shadows fall and
+                     which side its rim is on
+    shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
+                     length, painted on first use
+    rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm
+                     pixels along the edge that faces a lamp
     water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
                      horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
                      drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored

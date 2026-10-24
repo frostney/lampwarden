@@ -163,6 +163,59 @@ const boxDiff = (first, second, [x, y, width, height]) =>
     },
     { first, second, x, y, width, height },
   );
+// mean colour of the box's pixels that changed between two shots by more than 40 levels (a sprite drawn over the same
+// ground), as [red, green, blue] and how many pixels changed
+const changedColour = (first, second, [x, y, width, height]) =>
+  lab.evaluate(
+    async ({ first, second, x, y, width, height }) => {
+      const load = async (encoded) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(x, y, width, height).data;
+      };
+      const firstData = await load(first);
+      const secondData = await load(second);
+      const sum = [0, 0, 0];
+      let count = 0;
+      for (let index = 0; index < firstData.length; index += 4) {
+        const change =
+          Math.abs(firstData[index] - secondData[index]) +
+          Math.abs(firstData[index + 1] - secondData[index + 1]) +
+          Math.abs(firstData[index + 2] - secondData[index + 2]);
+        if (change <= 40) continue;
+        count++;
+        for (let channel = 0; channel < 3; channel++) sum[channel] += firstData[index + channel];
+      }
+      return { colour: sum.map((value) => value / Math.max(1, count)), count };
+    },
+    { first, second, x: Math.round(x), y: Math.round(y), width, height },
+  );
+// mean [red, green, blue] of a box
+const meanColour = (encoded, [x, y, width, height]) =>
+  lab.evaluate(
+    async ({ encoded, x, y, width, height }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${encoded}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(Math.round(x), Math.round(y), width, height).data;
+      const sum = [0, 0, 0];
+      for (let index = 0; index < data.length; index += 4)
+        for (let channel = 0; channel < 3; channel++) sum[channel] += data[index + channel];
+      return sum.map((value) => value / (data.length / 4));
+    },
+    { encoded, x, y, width, height },
+  );
 const text = (selector) => page.locator(selector).allInnerTexts();
 // the title scroll: fully unrolled (both rollers on screen, the bottom one below the parchment), and every line on it
 // inside the viewport, or brought there by scrolling the parchment
@@ -369,6 +422,128 @@ check(
   Math.max(pool[0], pool[1]) + 8 < Math.min(pool[2], pool[3]),
   pool.map((level) => level.toFixed(0)).join(" "),
 );
+
+// 4b lamp light on the characters: a figure in a pool stands in front of it, is lit warm and casts a shadow away from the lamp
+await page.evaluate(() => {
+  const state = window.lampwarden.state();
+  state.monsters = [];
+  state.shots = [];
+  for (const lamp of state.lamps) lamp.lit = true;
+  state.lamps[1].relight = 0;
+  state.hero.animation = "idle";
+  state.hero.frameTime = 0;
+});
+const placeHero = async (x, y) => {
+  await page.evaluate(
+    ([heroX, heroY]) => {
+      const state = window.lampwarden.state();
+      state.hero.x = heroX;
+      state.hero.y = heroY;
+    },
+    [x, y],
+  );
+  await settle();
+  await page.waitForTimeout(60);
+  return (await page.locator(".stage").screenshot()).toString("base64");
+};
+const [lampX, lampY] = lamps[2];
+const empty = await placeHero(80, 560); // the warden far from every lamp: the ground as it is
+// the statue stands in front of the top lamp's pool: the pool lies on the ground under it
+const statue = await meanColour(empty, [470, 262, 16, 18]);
+check(
+  "lamp-lighting",
+  "a statue in front of a lamp's pool is not washed by it",
+  statue[2] - statue[0] > 20,
+  `statue torso rgb ${statue.map((level) => level.toFixed(0)).join(",")}`,
+);
+const heroAt = async (x, y, name) => {
+  const withHero = await placeHero(x, y);
+  writeFileSync(`${OUT}/latest/${name}.png`, Buffer.from(withHero, "base64"));
+  shots.push(name);
+  return withHero;
+};
+const east = await heroAt(lampX + 44, lampY + 8, "04b-hero-east-of-lamp");
+await heroAt(lampX - 44, lampY + 8, "04b-hero-west-of-lamp");
+const darkCorner = await placeHero(140, 322);
+const emptyDark = await placeHero(80, 560);
+const heroBox = (x, y) => [x - 22, y - 90, 44, 90];
+// How much darker the ground in a box is with a satyr standing beside it than without: its shadow. A satyr, as the
+// warden's own light would lift the ground around him.
+const satyrAt = async (x, y) => {
+  await page.evaluate(
+    ([satyrX, satyrY]) => {
+      const state = window.lampwarden.state();
+      state.monsters = [
+        {
+          id: state.nextId++,
+          kind: "satyr",
+          x: satyrX,
+          y: satyrY,
+          health: 1,
+          age: 0,
+          wobble: 0,
+          snuff: 0,
+          attackCooldown: 99,
+          hurt: 0,
+        },
+      ];
+    },
+    [x, y],
+  );
+  await page.waitForTimeout(100); // the monster list reaches React on the next render
+  return placeHero(80, 560);
+};
+const shadowDepth = async (withSatyr, box) => {
+  const [shadowed, bare] = await Promise.all([luminance(withSatyr, [box]), luminance(empty, [box])]);
+  return bare[0] - shadowed[0];
+};
+const feetRow = lampY + 6;
+for (const [side, direction] of [
+  ["east", 1],
+  ["west", -1],
+]) {
+  const satyrX = lampX + direction * 44;
+  const shot = await satyrAt(satyrX, lampY + 8);
+  const farSide = [direction > 0 ? satyrX + 8 : satyrX - 22, feetRow, 14, 7]; // away from the lamp
+  const lampSide = [direction > 0 ? satyrX - 22 : satyrX + 8, feetRow, 14, 7];
+  const [far, near] = [await shadowDepth(shot, farSide), await shadowDepth(shot, lampSide)];
+  check(
+    "lamp-lighting",
+    `${side} of a lamp a shadow falls ${side}, away from it`,
+    far > 12 && far > near * 1.5,
+    `ground darker by ${far.toFixed(0)} away from the lamp, ${near.toFixed(0)} on its side`,
+  );
+}
+await page.evaluate(() => {
+  window.lampwarden.state().monsters = [];
+});
+const lit = await changedColour(east, empty, heroBox(lampX + 44, lampY + 8));
+const unlit = await changedColour(darkCorner, emptyDark, heroBox(140, 322));
+const warmth = ([red, , blue]) => red / blue;
+check(
+  "lamp-lighting",
+  "the warden in a pool is lit warm, far more than in the dark",
+  lit.count > 200 && unlit.count > 200 && warmth(lit.colour) > warmth(unlit.colour) * 1.8,
+  `red/blue ${warmth(lit.colour).toFixed(2)} in the pool, ${warmth(unlit.colour).toFixed(2)} in the dark`,
+);
+// the same spot with the lamp dark: no warmth, no shadow from it
+await page.evaluate(() => {
+  window.lampwarden.state().lamps[2].lit = false;
+});
+const darkLamp = await placeHero(lampX + 44, lampY + 8);
+const darkLampBare = await placeHero(80, 560);
+const darkLampHero = await changedColour(darkLamp, darkLampBare, heroBox(lampX + 44, lampY + 8));
+check(
+  "lamp-lighting",
+  "beside a dark lamp the warden keeps the night's colour",
+  darkLampHero.count > 200 && warmth(darkLampHero.colour) < warmth(lit.colour) / 1.5,
+  `red/blue ${warmth(darkLampHero.colour).toFixed(2)}`,
+);
+await page.evaluate(() => {
+  window.lampwarden.state().lamps[2].lit = true;
+  window.lampwarden.state().hero.x = 560;
+  window.lampwarden.state().hero.y = 360;
+});
 
 // 5 just before dawn: the tint has warmed
 await page.evaluate(() => {

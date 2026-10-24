@@ -9,3 +9,5 @@ pipeline/runs/
 next-env.d.ts
 .vercel/
 __pycache__/
+.vercel
+verify-out/

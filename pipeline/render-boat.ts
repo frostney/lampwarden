@@ -1,4 +1,4 @@
-// boat.dev renderer (--renderer boat): the same contract as the local renderer, with the build running in a boat sandbox.
+// boat.dev renderer (--render boat): the same contract as the local renderer, with the build running in a boat sandbox.
 //
 // Each render creates its own boat sandbox (a full Ubuntu VM with bun preinstalled; `small`, 2 vCPU / 4 GB), copies the
 // kit, the local runner (render/run_local.ts + shims) and the build code into it, runs `bun run_local.ts` there, reads
@@ -220,7 +220,7 @@ export async function renderWithFreshSandbox(
   }
 }
 
-/** The renderer the pipeline selects with `--renderer boat`. Never throws: a failure is a render error to score. */
+/** The renderer the pipeline selects with `--render boat`. Never throws: a failure is a render error to score. */
 export async function renderInBoatSandbox(request: RenderRequest): Promise<RenderResult> {
   const invalidReason = invalidRequestReason(request);
   if (invalidReason) return { ok: false, error: invalidReason };

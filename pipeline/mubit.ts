@@ -1,0 +1,179 @@
+// The Mubit client: every model call of the pipeline goes to https://api.mubit.ai/anthropic/v1/messages (Anthropic
+// pass-through) with model claude-opus-5-5, and never sends `temperature`. The key is passed in by the caller (read from
+// MUBIT_API_KEY in run.ts), goes only into the x-api-key header, and appears in no log row or error.
+import { z } from "zod";
+
+export const MUBIT_MESSAGES_URL = "https://api.mubit.ai/anthropic/v1/messages";
+export const MUBIT_MODEL = "claude-opus-5-5";
+const ANTHROPIC_VERSION = "2023-06-01";
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 500, 502, 503, 504, 529]);
+const REQUEST_TIMEOUT_MILLISECONDS = 240_000;
+const RETRY_DELAY_MILLISECONDS = 5000;
+const ERROR_BODY_LIMIT = 400;
+
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } };
+
+export interface ModelMessage {
+  role: "user" | "assistant";
+  content: string | ContentBlock[];
+}
+
+/** The request body, exactly as it is sent. There is deliberately no `temperature`. */
+export interface MubitRequestBody {
+  model: typeof MUBIT_MODEL;
+  max_tokens: number;
+  system: string;
+  messages: ModelMessage[];
+  metadata: { user_id: string };
+}
+
+const replySchema = z.object({
+  content: z.array(z.object({ text: z.string().optional() })).optional(),
+  usage: z.object({ input_tokens: z.number().nullish(), output_tokens: z.number().nullish() }).optional(),
+  stop_reason: z.string().nullish(),
+});
+
+type MubitReply = z.infer<typeof replySchema>;
+
+interface AttemptSummary {
+  status: number | null;
+  rid: string | null;
+  ms: number;
+  error: string | null;
+}
+
+/**
+ * One row of pipeline/runs/run.jsonl. The keys are the on-disk format (the same names as before the TypeScript port),
+ * so existing logs and new ones read the same. No key and no header is ever stored.
+ */
+export interface CallRecord {
+  ts: string;
+  task: string;
+  status: number | null;
+  /** The `x-middleware-request-id` response header. */
+  rid: string | null;
+  ms: number;
+  session: string;
+  model: string;
+  system_sha: string;
+  in_tokens?: number | null | undefined;
+  out_tokens?: number | null | undefined;
+  stop?: string | null | undefined;
+  error?: string | null | undefined;
+  first_try?: AttemptSummary | undefined;
+  /** Pipeline-level fields (stage, sample, truncation notes, the verdict) are added by the caller. */
+  [field: string]: unknown;
+}
+
+export interface ModelCall {
+  record: CallRecord;
+  /** The reply's text, or null when the call failed. */
+  text: string | null;
+}
+
+/** The parts of `fetch` the client uses, so tests can inject a fake. */
+export type FetchImplementation = (url: string, init: RequestInit) => Promise<Response>;
+
+export interface MubitClientOptions {
+  apiKey: string;
+  fetchImplementation?: FetchImplementation;
+  sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export interface MubitClient {
+  /** One model call with one retry on 429/5xx/timeout. Never throws: a failed call has `text: null` and `record.error`. */
+  call(
+    task: string,
+    system: string,
+    messages: ModelMessage[],
+    session: string,
+    logFields: Record<string, unknown>,
+    maxTokens: number,
+  ): Promise<ModelCall>;
+}
+
+export function shortSha(text: string): string {
+  return new Bun.CryptoHasher("sha256").update(text).digest("hex").slice(0, 12);
+}
+
+interface SentRequest extends AttemptSummary {
+  reply: MubitReply | null;
+}
+
+export function createMubitClient(options: MubitClientOptions): MubitClient {
+  const fetchImplementation: FetchImplementation = options.fetchImplementation ?? ((url, init) => fetch(url, init));
+  const sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+
+  async function send(
+    system: string,
+    messages: ModelMessage[],
+    session: string,
+    maxTokens: number,
+  ): Promise<SentRequest> {
+    const body: MubitRequestBody = {
+      model: MUBIT_MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages,
+      metadata: { user_id: session },
+    };
+    const started = performance.now();
+    const elapsed = () => Math.round(performance.now() - started);
+    try {
+      const response = await fetchImplementation(MUBIT_MESSAGES_URL, {
+        method: "POST",
+        headers: {
+          "x-api-key": options.apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS),
+      });
+      const rid = response.headers.get("x-middleware-request-id");
+      if (!response.ok) {
+        const errorText = (await response.text()).slice(0, ERROR_BODY_LIMIT);
+        return { status: response.status, rid, ms: elapsed(), reply: null, error: errorText };
+      }
+      const reply = replySchema.parse(await response.json());
+      return { status: response.status, rid, ms: elapsed(), reply, error: null };
+    } catch (error) {
+      // any other failure (network, timeout, a reply that is not a message) is logged and retried once like a 5xx
+      return { status: null, rid: null, ms: elapsed(), reply: null, error: String(error).slice(0, 200) };
+    }
+  }
+
+  return {
+    async call(task, system, messages, session, logFields, maxTokens) {
+      let attempt = await send(system, messages, session, maxTokens);
+      let firstTry: AttemptSummary | undefined;
+      if (attempt.status === null || RETRYABLE_STATUSES.has(attempt.status)) {
+        firstTry = { status: attempt.status, rid: attempt.rid, ms: attempt.ms, error: attempt.error };
+        await sleep(RETRY_DELAY_MILLISECONDS);
+        attempt = await send(system, messages, session, maxTokens);
+      }
+      const record: CallRecord = {
+        ts: new Date().toTimeString().slice(0, 8),
+        task,
+        status: attempt.status,
+        rid: attempt.rid,
+        ms: attempt.ms,
+        session,
+        model: MUBIT_MODEL,
+        system_sha: shortSha(system),
+        ...logFields,
+      };
+      if (firstTry) record.first_try = firstTry;
+      if (!attempt.reply) {
+        record.error = attempt.error;
+        return { record, text: null };
+      }
+      record.in_tokens = attempt.reply.usage?.input_tokens;
+      record.out_tokens = attempt.reply.usage?.output_tokens;
+      record.stop = attempt.reply.stop_reason;
+      return { record, text: (attempt.reply.content ?? []).map((block) => block.text ?? "").join("") };
+    },
+  };
+}

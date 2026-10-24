@@ -14,7 +14,7 @@
     "verify:visual": "bun e2e/verify-visual.mjs",
     "balance": "bun scripts/balance.ts",
     "plays": "bun scripts/plays.ts",
-    "assets": "python3 pipeline/run.py",
+    "assets": "bun --no-env-file pipeline/run.ts",
     "kit": "bun pipeline/assemble-kit.ts",
     "assets:hero": "bun --no-env-file pipeline/hero-frames.ts",
     "render": "bun --no-env-file pipeline/render-file.ts",

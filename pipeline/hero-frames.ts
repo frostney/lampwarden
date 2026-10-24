@@ -1,8 +1,8 @@
 // Regenerates the plain 128 px hero animation frames (public/sprites/hero/<sex>_<animation><n>.png). No Mubit call: the
 // builder is deterministic code, so running it with the local renderer reproduces the committed frames (`bun run
 // check:pixels` compares them).
-// usage: bun --no-env-file pipeline/hero-frames.ts [--renderer local|shotcup|vercel|boat] [--out public/sprites/hero]
-// With --renderer shotcup one animation is rendered per Shotcup run.
+// usage: bun --no-env-file pipeline/hero-frames.ts [--render local|shotcup|vercel|boat] [--out public/sprites/hero]
+// With --render shotcup one animation is rendered per Shotcup run.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -13,12 +13,12 @@ import { renderBuild } from "./renderers";
 
 const { values } = parseArgs({
   options: {
-    renderer: { type: "string", default: "local" },
+    render: { type: "string", default: "local" },
     out: { type: "string", default: join(import.meta.dir, "..", "public", "sprites", "hero") },
   },
 });
-const rendererName = RENDERER_NAMES.find((candidate) => candidate === values.renderer);
-if (!rendererName) throw new Error(`--renderer must be one of ${RENDERER_NAMES.join(", ")}`);
+const rendererName = RENDERER_NAMES.find((candidate) => candidate === values.render);
+if (!rendererName) throw new Error(`--render must be one of ${RENDERER_NAMES.join(", ")}`);
 const outputDirectory = resolve(values.out);
 mkdirSync(outputDirectory, { recursive: true });
 

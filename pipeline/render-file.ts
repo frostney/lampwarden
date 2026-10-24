@@ -1,5 +1,5 @@
 // Renders one build script with the chosen renderer: writes <out_dir>/<name>.png and prints the stats as JSON.
-// usage: bun --no-env-file pipeline/render-file.ts [--renderer local|shotcup|vercel|boat] <build.ts> <name> <out_dir> [pose]
+// usage: bun --no-env-file pipeline/render-file.ts [--render local|shotcup|vercel|boat] <build.ts> <name> <out_dir> [pose]
 // On failure it prints the reason to stderr and exits 1.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,13 +10,13 @@ import { renderBuild } from "./renderers";
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   allowPositionals: true,
-  options: { renderer: { type: "string", default: "local" } },
+  options: { render: { type: "string", default: "local" } },
 });
 const [buildPath, name, outputDirectory, pose = ""] = positionals;
-const rendererName = RENDERER_NAMES.find((candidate) => candidate === values.renderer);
+const rendererName = RENDERER_NAMES.find((candidate) => candidate === values.render);
 if (!buildPath || !name || !outputDirectory || !rendererName) {
   console.error(
-    `usage: bun pipeline/render-file.ts [--renderer ${RENDERER_NAMES.join("|")}] <build.ts> <name> <out_dir> [pose]`,
+    `usage: bun pipeline/render-file.ts [--render ${RENDERER_NAMES.join("|")}] <build.ts> <name> <out_dir> [pose]`,
   );
   process.exit(2);
 }

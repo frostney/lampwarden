@@ -1,4 +1,4 @@
-// Vercel Sandbox renderer (--renderer vercel): the same contract as the local renderer, with the build running in a
+// Vercel Sandbox renderer (--render vercel): the same contract as the local renderer, with the build running in a
 // locked-down microVM.
 //
 // Each render creates its own Firecracker microVM (vercel/sandbox/universal, which ships bun), copies the kit, the
@@ -134,7 +134,7 @@ export async function deleteSnapshot(snapshotId: string): Promise<void> {
   await snapshot.delete();
 }
 
-/** The renderer the pipeline selects with `--renderer vercel`. Never throws: a failure is a render error to score. */
+/** The renderer the pipeline selects with `--render vercel`. Never throws: a failure is a render error to score. */
 export async function renderInVercelSandbox(request: RenderRequest): Promise<RenderResult> {
   const invalidReason = invalidRequestReason(request);
   if (invalidReason) return { ok: false, error: invalidReason };

@@ -1,4 +1,4 @@
-// Shotcup renderer (--renderer shotcup): the same contract as the local renderer, over Shotcup's REST API.
+// Shotcup renderer (--render shotcup): the same contract as the local renderer, over Shotcup's REST API.
 //
 // The assembled kit (kit/kit.ts) lives on a Shotcup drive named `lampwarden` (written once per process, by content: a
 // write of identical content makes no new version) and every run mounts it read-only at /kit; the run itself only

@@ -5,7 +5,7 @@
 // instead of fading.
 //
 // Who is lit: every character (the warden himself a little, the monsters by his light and the lamps'), and the small props
-// (the statue, the stall, the olive trees and the lamps' own posts: lightProp), each by the point on the ground where it
+// (the statue, the stall, the olive trees, the decorations and the lamps' own posts: lightProp), each by the point on the ground where it
 // stands. The buildings (temple, house, wall) and the boats are not: one tint across a sprite that large would light its
 // whole face at once, a wall of warm over a building whose far end is a hundred pixels from the lamp. They keep the night's
 // tint, and the pools of light on the ground are what shows a lamp is near.

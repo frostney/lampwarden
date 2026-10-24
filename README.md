@@ -112,7 +112,7 @@ Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `run.py`.
 - `pipeline/run.py` was ported and its local render path was exercised (render, flags, no-key shotcup error), but no full Mubit round trip was run from this repo.
-- **Shotcup:** the kit was rendered on Shotcup 11 times through its MCP server with pixel-identical output to local, but it was much slower than local (see `pipeline/README.md`), and the Python REST client (`pipeline/shotcup_render.py`) has never been run against the API.
+- **Shotcup:** the REST client (`pipeline/shotcup_render.py`) was run against the API: 47 renders of 6 sprites were pixel-identical to local, but 118-314x slower (10-107 s per sprite against 0.1-0.3 s), and batching or parallel runs don't help (see `pipeline/README.md`). A design for live generation with Shotcup as the only place model code runs is in [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md); no Mubit round trip has been run through it.
 
 ## Deploy on Vercel
 

@@ -102,12 +102,16 @@ export interface MubitClientOptions {
    * for claude-opus-5-5 to be cached; a shorter one is silently not cached. Default on.
    */
   promptCaching?: boolean;
+  /** How long one request may take (default 240 s: a sprite's generation). The director's answer is worth 8 s. */
+  requestTimeoutMilliseconds?: number;
+  /** Retry once on 429/5xx/timeout (default on). A caller with a deadline of its own turns it off. */
+  retry?: boolean;
   fetchImplementation?: FetchImplementation;
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
 export interface MubitClient {
-  /** One model call with one retry on 429/5xx/timeout. Never throws: a failed call has `text: null` and `record.error`. */
+  /** One model call with one retry on 429/5xx/timeout (unless the client was made without it). Never throws: a failed call has `text: null` and `record.error`. */
   call(
     task: string,
     system: string,
@@ -129,6 +133,8 @@ interface SentRequest extends AttemptSummary {
 export function createMubitClient(options: MubitClientOptions): MubitClient {
   const fetchImplementation: FetchImplementation = options.fetchImplementation ?? ((url, init) => fetch(url, init));
   const promptCaching = options.promptCaching ?? true;
+  const requestTimeout = options.requestTimeoutMilliseconds ?? REQUEST_TIMEOUT_MILLISECONDS;
+  const retry = options.retry ?? true;
   const sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 
   async function send(
@@ -155,7 +161,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS),
+        signal: AbortSignal.timeout(requestTimeout),
       });
       const rid = response.headers.get("x-middleware-request-id");
       if (!response.ok) {
@@ -174,7 +180,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
     async call(task, system, messages, session, logFields, maxTokens) {
       let attempt = await send(system, messages, session, maxTokens);
       let firstTry: AttemptSummary | undefined;
-      if (attempt.status === null || RETRYABLE_STATUSES.has(attempt.status)) {
+      if (retry && (attempt.status === null || RETRYABLE_STATUSES.has(attempt.status))) {
         firstTry = { status: attempt.status, rid: attempt.rid, ms: attempt.ms, error: attempt.error };
         await sleep(RETRY_DELAY_MILLISECONDS);
         attempt = await send(system, messages, session, maxTokens);

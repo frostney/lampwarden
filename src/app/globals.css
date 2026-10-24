@@ -219,6 +219,25 @@ h1 {
 .dim {
   opacity: 0.7;
 }
+/* The sea's answer (the live director's line) on the dawn and heir panels: in the sea's colour, set in italics, stepped in */
+.panel p.sea-answer {
+  color: #8fd0ea;
+  font-style: italic;
+  animation: sea-answer-in 0.6s steps(6) both;
+}
+@keyframes sea-answer-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel p.sea-answer {
+    animation: none;
+  }
+}
 .tiny {
   font-size: 8px;
 }
@@ -619,6 +638,16 @@ h1 {
 }
 .privacy {
   font-size: 12px;
+}
+/* On a phone the HUD's canvas-relative size came out at 10-11 px, too small to read and off Tiny5's pixel grid (it
+   draws crisp at multiples of 8 px). Touch screens get 16 px text throughout. */
+@media (pointer: coarse) {
+  .hud {
+    font-size: 16px;
+  }
+  .privacy {
+    font-size: 16px;
+  }
 }
 .scroll-content .privacy {
   line-height: 1.2;

@@ -50,6 +50,11 @@ Follow `.agents/skills/git-workflow` and `.agents/skills/create-pr` / `update-pr
 
 - Never print, log or commit `MUBIT_API_KEY`, `BLOB_READ_WRITE_TOKEN` or any token (a Vercel OIDC token included).
   Read keys from the environment only; run `gitleaks git --redact .` before every push.
+- Environment variables are declared in `.env.schema` (Varlock): name, type, where required, `@sensitive` for every key,
+  token and salt. Read them through `ENV` from `varlock/env` in server code, or from the environment a `varlock run`
+  script gets; never add a variable without declaring it, never put a value in `.env.schema`, and keep local keys in the
+  git-ignored `.env.local` as `exec()` or `keychain()` references (docs/tooling.md, "Environment"). Pipeline scripts get
+  only the variables they `--filter`; model-written code never gets any.
 - Every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5`; never send
   `temperature`.
 - Model-generated build code runs only in Vercel Sandbox.

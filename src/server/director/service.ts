@@ -23,6 +23,8 @@ const PLAY_RETRIES = 3;
 const PLAY_RETRY_DELAY_MILLISECONDS = 700;
 const MAX_TOKENS = 700;
 const TASK = "director";
+/** One call to the model per play per this long: the claim on a play lapses by itself, so a lost claim cannot lock a play out. */
+export const CALL_WINDOW_MILLISECONDS = 60_000;
 
 export interface DirectorDeps {
   store: DirectorStore;
@@ -107,28 +109,38 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     if (!model || config.rateSalt === null) return fallback("unavailable");
     const now = deps.now();
     const visitor = visitorKey(input.ip, config.rateSalt);
+    // Only one of the calls that ask about this play at the same moment goes on: the others would all read the same
+    // empty ledger below and each pay for the model. The rules answer them; a retry after the window asks again.
+    if (!(await deps.store.claim(`${play.id}-${Math.floor(now.getTime() / CALL_WINDOW_MILLISECONDS)}`))) {
+      deps.log({ event: "director-busy", play: play.id });
+      return fallback("rate-limited");
+    }
     if (!(await checkStartLimits(deps.store, now, visitor, config.limits)).allowed) return fallback("rate-limited");
+    // marked before the model is asked, so the limits count this call whatever happens to it; if it cannot be marked the
+    // limits would be blind to it, and the rules answer instead
+    try {
+      await deps.store.recordCall(visitor, play.id, now);
+    } catch (error) {
+      deps.log({ event: "director-mark-failed", kind: error instanceof Error ? error.name : "unknown" });
+      return fallback("error");
+    }
     const limited = performance.now();
 
     const summary = summarise(play, await previousReasoning(deps, play));
     const session = /^[a-z0-9]{1,40}$/.test(play.session) ? play.session : "anon";
-    // the call is marked for the limits while the model thinks, not before
-    const [call] = await Promise.all([
-      model.call(
-        TASK,
-        deps.prompt,
-        [
-          {
-            role: "user",
-            content: `Night report (data):\n${JSON.stringify(summary)}\n\nReply with the JSON object only.`,
-          },
-        ],
-        session,
-        { play: play.id, night: play.legacy.night },
-        MAX_TOKENS,
-      ),
-      deps.store.recordCall(visitor, play.id, now).catch(() => undefined),
-    ]);
+    const call = await model.call(
+      TASK,
+      deps.prompt,
+      [
+        {
+          role: "user",
+          content: `Night report (data):\n${JSON.stringify(summary)}\n\nReply with the JSON object only.`,
+        },
+      ],
+      session,
+      { play: play.id, night: play.legacy.night },
+      MAX_TOKENS,
+    );
     const answered = performance.now();
     const proposal = call.text === null ? null : parseProposal(call.text);
     const decision = proposal && clampProposal(proposal, rules.rulesTide, play.legacy.night, play.id);
@@ -151,6 +163,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
       session,
       at: now.toISOString(),
       night: play.legacy.night,
+      replayed: false,
       source: decision ? "mubit" : "rules",
       fallback: reason,
       decision: decision ?? rules,

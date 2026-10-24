@@ -2,7 +2,7 @@
 // -> best-of -> public/sprites.
 //
 // usage: MUBIT_API_KEY=... bun --no-env-file pipeline/run.ts [--render local|shotcup|vercel|boat] [--out public/sprites]
-//                                                            [--pose idle] [--concurrency 4] "brief one" "brief two" ...
+//                                                            [--pose idle] [--concurrency 4] [--no-prompt-caching] "brief one" ...
 //        bun --no-env-file pipeline/run.ts --file briefs.json      # {"id": ["category", "brief"], ...}
 // The renderer can also come from LAMPWARDEN_RENDERER. The keys (MUBIT_API_KEY, SHOTCUP_API_KEY, BOAT_API_KEY, the
 // Vercel OIDC token) are read from the environment only; they are never printed, logged or written to disk.
@@ -46,6 +46,7 @@ const { values, positionals } = parseArgs({
     out: { type: "string", default: join(PIPELINE_DIRECTORY, "..", "public", "sprites") },
     pose: { type: "string", default: "" },
     concurrency: { type: "string" },
+    "no-prompt-caching": { type: "boolean", default: false },
   },
 });
 const rendererName = RENDERER_NAMES.find(
@@ -64,7 +65,7 @@ if (!apiKey) throw new Error("MUBIT_API_KEY is not set (export it in your shell;
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
 const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8");
 const context: LoopContext = {
-  model: createMubitClient({ apiKey }),
+  model: createMubitClient({ apiKey, promptCaching: !values["no-prompt-caching"] }),
   render: (request) => renderBuild(rendererName, request),
   rendererName,
   pose: values.pose,

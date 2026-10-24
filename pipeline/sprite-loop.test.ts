@@ -45,7 +45,7 @@ function spritePng(): Uint8Array {
 }
 
 interface SentRequest {
-  system: string;
+  system: Array<{ type: string; text: string; cache_control?: { type: string } }>;
   max_tokens: number;
   messages: Array<{ role: string; content: unknown }>;
 }
@@ -96,6 +96,8 @@ function contextWith(
   };
 }
 
+/** A system prompt as it is sent with prompt caching on: one block marked as the end of the cacheable prefix. */
+const cachedSystem = (prompt: string) => [{ type: "text", text: prompt, cache_control: { type: "ephemeral" } }];
 const verdictJson = (score: number, extra = "") =>
   `{"pass": ${score >= 7}, "score": ${score}, "issues": ["too plain"], "fix": "add a flame", "lesson": ""${extra}}`;
 const fenced = (code: string) => `\`\`\`ts\n${code}\n\`\`\``;
@@ -106,7 +108,11 @@ describe("the generate-verify loop's requests", () => {
     const context = contextWith([{ text: fenced(GOOD_CODE) }, { text: verdictJson(6.5) }, { text: verdictJson(7.5) }]);
     const row = await processBrief(context, brief);
     expect(sent.map((request) => request.max_tokens)).toEqual([1500, 1800, 1800]);
-    expect(sent.map((request) => request.system)).toEqual([GENERATOR_PROMPT, VERIFIER_PROMPT, VERIFIER_PROMPT]);
+    expect(sent.map((request) => request.system)).toEqual([
+      cachedSystem(GENERATOR_PROMPT),
+      cachedSystem(VERIFIER_PROMPT),
+      cachedSystem(VERIFIER_PROMPT),
+    ]);
     expect(sent[0]?.messages).toEqual([{ role: "user", content: "Brief: a lamp on a post" }]);
 
     const verifierContent = sent[1]?.messages[0]?.content;
@@ -138,7 +144,7 @@ describe("the generate-verify loop's requests", () => {
     const row = await processBrief(context, brief);
     const fixRequest = sent[2];
     expect(fixRequest?.max_tokens).toBe(3000);
-    expect(fixRequest?.system).toBe(GENERATOR_PROMPT);
+    expect(fixRequest?.system).toEqual(cachedSystem(GENERATOR_PROMPT));
     expect(fixRequest?.messages).toEqual([
       { role: "user", content: "Brief: a lamp on a post" },
       { role: "assistant", content: fenced(GOOD_CODE) },
@@ -195,7 +201,11 @@ describe("what never reaches the renderer or the verifier", () => {
       (request) => (request.name.endsWith("-fixed") ? { ok: true, stats: STATS, png: spritePng() } : clipped),
     );
     const row = await processBrief(context, brief);
-    expect(sent.map((request) => request.system)).toEqual([GENERATOR_PROMPT, GENERATOR_PROMPT, VERIFIER_PROMPT]);
+    expect(sent.map((request) => request.system[0]?.text)).toEqual([
+      GENERATOR_PROMPT,
+      GENERATOR_PROMPT,
+      VERIFIER_PROMPT,
+    ]);
     expect(row).toMatchObject({ first_score: 0, final: "fixed" });
   });
 

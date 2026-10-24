@@ -20,18 +20,33 @@ export interface ModelMessage {
   content: string | ContentBlock[];
 }
 
+/** A system prompt block; `cache_control` marks the end of the stable prefix the API may cache (5 minute TTL). */
+export interface SystemBlock {
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+}
+
 /** The request body, exactly as it is sent. There is deliberately no `temperature`. */
 export interface MubitRequestBody {
   model: typeof MUBIT_MODEL;
   max_tokens: number;
-  system: string;
+  /** A plain string, or with prompt caching on one cacheable text block. */
+  system: string | SystemBlock[];
   messages: ModelMessage[];
   metadata: { user_id: string };
 }
 
 const replySchema = z.object({
   content: z.array(z.object({ text: z.string().optional() })).optional(),
-  usage: z.object({ input_tokens: z.number().nullish(), output_tokens: z.number().nullish() }).optional(),
+  usage: z
+    .object({
+      input_tokens: z.number().nullish(),
+      output_tokens: z.number().nullish(),
+      cache_creation_input_tokens: z.number().nullish(),
+      cache_read_input_tokens: z.number().nullish(),
+    })
+    .optional(),
   stop_reason: z.string().nullish(),
 });
 
@@ -60,6 +75,9 @@ export interface CallRecord {
   system_sha: string;
   in_tokens?: number | null | undefined;
   out_tokens?: number | null | undefined;
+  /** Prompt caching: tokens written to / read from the cache (a read is billed at 0.05x on claude-opus-5-5). */
+  cache_creation_input_tokens?: number | null | undefined;
+  cache_read_input_tokens?: number | null | undefined;
   stop?: string | null | undefined;
   error?: string | null | undefined;
   first_try?: AttemptSummary | undefined;
@@ -78,6 +96,11 @@ export type FetchImplementation = (url: string, init: RequestInit) => Promise<Re
 
 export interface MubitClientOptions {
   apiKey: string;
+  /**
+   * Mark the system prompt cacheable (`cache_control: {type: "ephemeral"}`). The prompt must be at least 512 tokens
+   * for claude-opus-5-5 to be cached; a shorter one is silently not cached. Default on.
+   */
+  promptCaching?: boolean;
   fetchImplementation?: FetchImplementation;
   sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -104,6 +127,7 @@ interface SentRequest extends AttemptSummary {
 
 export function createMubitClient(options: MubitClientOptions): MubitClient {
   const fetchImplementation: FetchImplementation = options.fetchImplementation ?? ((url, init) => fetch(url, init));
+  const promptCaching = options.promptCaching ?? true;
   const sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 
   async function send(
@@ -115,7 +139,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
     const body: MubitRequestBody = {
       model: MUBIT_MODEL,
       max_tokens: maxTokens,
-      system,
+      system: promptCaching ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] : system,
       messages,
       metadata: { user_id: session },
     };
@@ -172,6 +196,8 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
       }
       record.in_tokens = attempt.reply.usage?.input_tokens;
       record.out_tokens = attempt.reply.usage?.output_tokens;
+      record.cache_creation_input_tokens = attempt.reply.usage?.cache_creation_input_tokens;
+      record.cache_read_input_tokens = attempt.reply.usage?.cache_read_input_tokens;
       record.stop = attempt.reply.stop_reason;
       return { record, text: (attempt.reply.content ?? []).map((block) => block.text ?? "").join("") };
     },

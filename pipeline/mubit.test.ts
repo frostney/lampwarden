@@ -12,7 +12,7 @@ function reply(status: number, body: unknown, headers: Record<string, string> = 
   return new Response(JSON.stringify(body), { status, headers: { "x-middleware-request-id": "req-1", ...headers } });
 }
 
-function clientWith(responses: Array<Response | Error>) {
+function clientWith(responses: Array<Response | Error>, promptCaching?: boolean) {
   const requests: CapturedRequest[] = [];
   const sleeps: number[] = [];
   const fetchImplementation: FetchImplementation = async (url, init) => {
@@ -24,6 +24,7 @@ function clientWith(responses: Array<Response | Error>) {
   };
   const client = createMubitClient({
     apiKey: TEST_KEY,
+    ...(promptCaching === undefined ? {} : { promptCaching }),
     fetchImplementation,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
@@ -64,7 +65,7 @@ describe("Mubit request", () => {
     expect(body).toEqual({
       model: "claude-opus-5-5",
       max_tokens: 1500,
-      system: "system prompt",
+      system: [{ type: "text", text: "system prompt", cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: "Brief: lamp" }],
       metadata: { user_id: "session-1" },
     });
@@ -79,6 +80,27 @@ describe("Mubit request", () => {
       in_tokens: 10,
       out_tokens: 2,
       stop: "end_turn",
+    });
+  });
+
+  test("with prompt caching off the system prompt is a plain string, as run.py sent it", async () => {
+    const { client, requests } = clientWith([reply(200, okReply)], false);
+    await client.call("gen", "system prompt", [{ role: "user", content: "x" }], "session", {}, 100);
+    expect(JSON.parse(String(requests[0]?.init.body)).system).toBe("system prompt");
+  });
+
+  test("logs the cache tokens next to the other token counts", async () => {
+    const cachedReply = {
+      ...okReply,
+      usage: { input_tokens: 12, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 5400 },
+    };
+    const { client } = clientWith([reply(200, cachedReply)]);
+    const call = await client.call("gen", "system", [{ role: "user", content: "x" }], "session", {}, 100);
+    expect(call.record).toMatchObject({
+      in_tokens: 12,
+      out_tokens: 3,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 5400,
     });
   });
 

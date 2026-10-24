@@ -25,6 +25,12 @@ Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3
 
 Calls go to `https://api.mubit.ai/anthropic/v1/messages` (Anthropic pass-through) with model `claude-opus-5-5`, `x-api-key` from the `MUBIT_API_KEY` environment variable, `anthropic-version: 2023-06-01` (`mubit.ts`). Each call's request id (`x-middleware-request-id` response header), session (`metadata.user_id`), status, token counts and verdict are appended to `pipeline/runs/run.jsonl` (git-ignored; no key or headers are stored).
 
+### Prompt caching
+
+Both system prompts are sent as one text block marked `cache_control: {"type": "ephemeral"}` (5 minute TTL), so the generator's `prompts/generator.md` (about 5.4k tokens) and the verifier's prompt are written to the cache once and read back by the calls that follow within five minutes. `claude-opus-5-5` caches prefixes of at least 512 tokens and bills a read at 0.05x the input price (a write at 1.25x). The breakpoint sits on the system block only: the messages after it (the brief, the code, the image) differ per call, so a marker there would only add write cost. Each log row records `cache_creation_input_tokens` and `cache_read_input_tokens` next to `in_tokens` and `out_tokens`.
+
+Checked live on 24 Oct 2026: two generator calls in a row with `generator.md` as the system prompt. The first wrote 5,379 tokens to the cache (`cache_read_input_tokens` 0), the second read all 5,379 back, so Mubit passes `cache_control` through. Calls that start together (the first briefs of a run with `--concurrency 4`) all miss, since an entry exists only once the first response has begun; later calls hit. `--no-prompt-caching` sends `system` as a plain string, which is what the Python pipeline did.
+
 ### The Good/Bad button is not the improvement loop
 
 The Good/Bad button in the Mubit console rates a model output. It is feedback on a single response. The improvement loop in this pipeline is the **verifier**: it looks at the rendered image, scores it, and its issues are fed back into the fix call. Console ratings are not read by this code and do not change what it generates.
@@ -43,7 +49,7 @@ bun run assets -- --render shotcup "brief"         # render on Shotcup
 
 `bun run assets` is `bun --no-env-file pipeline/run.ts`: bun does not load `.env` files into the process, so a token that happens to sit in one never reaches the pipeline; export what a renderer needs.
 
-Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|shotcup|vercel|boat` (or `LAMPWARDEN_RENDERER`), `--concurrency N` (briefs in flight; default 4 local, 1 Shotcup, 4 Vercel Sandbox, 2 boat.dev). The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
+Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|shotcup|vercel|boat` (or `LAMPWARDEN_RENDERER`), `--no-prompt-caching`, `--concurrency N` (briefs in flight; default 4 local, 1 Shotcup, 4 Vercel Sandbox, 2 boat.dev). The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 
 Other scripts:
 - `bun run render -- [--render NAME] build.ts name out_dir [pose]` renders one build script with any renderer and prints the stats.
@@ -58,7 +64,7 @@ Other scripts:
 | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `run.ts`                                                                                                 | the command line: briefs in, the loop per brief, at most `--concurrency` at once                                                                |
 | `sprite-loop.ts`                                                                                         | the loop above for one brief; model, renderer and directories are injected so tests can fake them                                               |
-| `mubit.ts`                                                                                               | the Mubit client: the only code that calls Mubit                                                                                                |
+| `mubit.ts`                                                                                               | the Mubit client: the only code that calls Mubit (and marks the system prompt cacheable)                                                        |
 | `verifier-image.ts`                                                                                      | the 4× backdrop image the verifier sees                                                                                                         |
 | `build-code.ts`                                                                                          | the banned-identifier tripwire and the `function build` check                                                                                   |
 | `render-types.ts`                                                                                        | the contract: `RenderRequest` in, `RenderResult` (`RenderStats` + PNG bytes, or an error) out, for every renderer                               |
@@ -105,4 +111,4 @@ The TypeScript client in this repository is a port of that Python client: the `/
 
 ## Tests
 
-`bun test` covers the pipeline's behaviour without any network: `mubit.test.ts` pins the request Mubit receives (URL, headers, body keys, model, no temperature, retries, no key in the log) and `sprite-loop.test.ts` drives the loop with a fake model and a fake renderer (max tokens per task, the borderline double verification, the fix turn's messages, best-of, banned code never reaching a renderer, the manifest's keys and order). `bun run check:pixels` is the renderer-side check.
+`bun test` covers the pipeline's behaviour without any network: `mubit.test.ts` pins the request Mubit receives (URL, headers, body keys, model, no temperature, prompt caching on and off, cache token logging, retries, no key in the log) and `sprite-loop.test.ts` drives the loop with a fake model and a fake renderer (max tokens per task, the borderline double verification, the fix turn's messages, best-of, banned code never reaching a renderer, the manifest's keys and order). `bun run check:pixels` is the renderer-side check.

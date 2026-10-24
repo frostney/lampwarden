@@ -28,5 +28,5 @@
     "types": ["node", "bun"]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
-  "exclude": ["node_modules", "pipeline", "public"]
+  "exclude": ["node_modules", "public", "pipeline/kit", "pipeline/render"]
 }

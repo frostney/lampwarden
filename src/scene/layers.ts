@@ -31,6 +31,7 @@ import {
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { cutCharacterFrames, isCharacterKey, withoutPaintedShadow } from "./rim";
+import { VIGNETTE_STRENGTHS, vignetteTexture } from "./vignette";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -54,6 +55,8 @@ export function loadTextures(): Promise<TextureMap> {
       const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
       for (const [key, frame] of cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells) ?? []) textures[key] = frame;
     }
+    // the vignette's pictures are painted now, not in the frame of the first blow
+    for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) vignetteTexture(strength);
     for (const kind of Object.keys(MONSTER)) {
       const base = textures[kind];
       const white = base && silhouette(base);

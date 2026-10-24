@@ -20,8 +20,7 @@ function ipv6Groups(address: string): number[] | null {
     for (const [index, part] of parts.entries()) {
       if (index === parts.length - 1 && part.includes(".")) {
         const octets = part.split(".").map(Number);
-        if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255))
-          return null;
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(part) || octets.some((octet) => octet > 255)) return null;
         groups.push((octets[0] ?? 0) * 256 + (octets[1] ?? 0), (octets[2] ?? 0) * 256 + (octets[3] ?? 0));
       } else if (/^[0-9a-f]{1,4}$/.test(part)) {
         groups.push(Number.parseInt(part, 16));
@@ -46,10 +45,12 @@ function ipv6Groups(address: string): number[] | null {
  */
 export function visitorAddress(address: string | null): string {
   if (address === null) return "unknown";
+  // a port may follow the address: "1.2.3.4:5555", "[2001:db8::1]:443"
   const text = address
     .trim()
     .toLowerCase()
-    .replace(/^\[|\]$/g, "");
+    .replace(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/, "$1")
+    .replace(/^\[(.*)\](?::\d+)?$/, "$1");
   const unzoned = text.split("%")[0] ?? text;
   if (!unzoned.includes(":")) return unzoned;
   const groups = ipv6Groups(unzoned);

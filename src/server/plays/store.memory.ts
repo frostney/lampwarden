@@ -8,12 +8,26 @@ export interface MemoryPlayStore extends PlayStore {
 
 export function createMemoryPlayStore(): MemoryPlayStore {
   const plays = new Map<string, string>();
+  const versions = new Map<string, number>();
   const uploads: Array<{ visitor: string; at: Date }> = [];
+  const write = (playId: string, json: string) => {
+    plays.set(playId, json);
+    versions.set(playId, (versions.get(playId) ?? 0) + 1);
+  };
   return {
     plays,
     async putIfAbsent(playId, json) {
       if (plays.has(playId)) return false;
-      plays.set(playId, json);
+      write(playId, json);
+      return true;
+    },
+    async read(playId) {
+      const json = plays.get(playId);
+      return json === undefined ? null : { json, version: String(versions.get(playId)) };
+    },
+    async replace(playId, json, version) {
+      if (String(versions.get(playId)) !== version) return false;
+      write(playId, json);
       return true;
     },
     async recordUpload(visitor, _playId, uploadedAt) {

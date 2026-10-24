@@ -112,13 +112,13 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     if (!model || config.rateSalt === null) return fallback("unavailable");
     const now = deps.now();
     const visitor = visitorKey(input.ip, config.rateSalt);
-    // Only one of the calls that ask about this play at the same moment goes on: the others would all read the same
-    // empty ledger below and each pay for the model. The rules answer them; a retry after the window asks again.
+    if (!(await checkStartLimits(deps.store, now, visitor, config.limits)).allowed) return fallback("rate-limited");
+    // Only one of the calls that ask about this play at the same moment goes on: the others read the same empty ledger
+    // above and would each pay for the model. The rules answer them; a retry after the window asks again.
     if (!(await deps.store.claim(`${play.id}-${Math.floor(now.getTime() / CALL_WINDOW_MILLISECONDS)}`))) {
       deps.log({ event: "director-busy", play: play.id });
       return fallback("rate-limited");
     }
-    if (!(await checkStartLimits(deps.store, now, visitor, config.limits)).allowed) return fallback("rate-limited");
     // marked before the model is asked, so the limits count this call whatever happens to it; if it cannot be marked the
     // limits would be blind to it, and the rules answer instead
     try {

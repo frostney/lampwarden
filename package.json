@@ -6,11 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "check": "bun run lint && bun run typecheck && bun test && bun run knip && bun run build",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit -p .",
+    "knip": "knip",
+    "verify:visual": "bun scripts/verify-visual.mjs",
+    "balance": "bun scripts/balance.ts",
+    "plays": "bun scripts/plays.ts",
     "assets": "python3 pipeline/run.py",
     "kit": "bash pipeline/kit/assemble.sh",
-    "verify:visual": "node scripts/verify-visual.mjs",
-    "balance": "bun scripts/balance.ts",
-    "replay-check": "bun scripts/replay-check.ts"
+    "prepare": "lefthook install",
+    "logo": "bun tools/logo/build.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",
@@ -18,13 +25,19 @@
     "next": "^16.4.3",
     "pixi.js": "^8.22.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
+    "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "knip": "^6.43.0",
+    "lefthook": "^2.2.2",
     "playwright": "^1.64.1",
     "typescript": "^7.0.2"
-  }
+  },
+  "packageManager": "bun@1.4.3"
 }

@@ -1,0 +1,7 @@
+# Runs Biome's fixes on staged files and re-stages them; unfixable findings block the commit.
+pre-commit:
+  commands:
+    biome:
+      glob: "*.{js,jsx,mjs,ts,tsx,json,jsonc,css}"
+      run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true

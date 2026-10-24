@@ -1,11 +1,27 @@
 // Sprite list for the scene. Frame counts match pipeline/shotcup_main.py (FRAMES).
-export type Sex = "male" | "female";
-export type Anim = "idle" | "walk" | "melee" | "ranged";
+export const SEXES = ["male", "female"] as const;
+export type Sex = (typeof SEXES)[number];
+export const ANIMS = ["idle", "walk", "melee", "ranged"] as const;
+export type Anim = (typeof ANIMS)[number];
 
 export const FRAMES: Record<Anim, number> = { idle: 4, walk: 6, melee: 5, ranged: 5 };
 export const FPS: Record<Anim, number> = { idle: 6, walk: 10, melee: 14, ranged: 12 };
 
-export const SINGLE = ["satyr", "cyclops", "harpy", "zeus-statue", "olive", "galley-dock", "trireme", "temple", "house", "lamp-lit", "lamp-unlit", "wall", "stall"] as const;
+export const SINGLE = [
+  "satyr",
+  "cyclops",
+  "harpy",
+  "zeus-statue",
+  "olive",
+  "galley-dock",
+  "trireme",
+  "temple",
+  "house",
+  "lamp-lit",
+  "lamp-unlit",
+  "wall",
+  "stall",
+] as const;
 export type SingleKey = (typeof SINGLE)[number];
 
 // Anchor y (fraction of the 128px frame) where each sprite's feet / base touch the ground.
@@ -26,17 +42,24 @@ export const ANCHOR_Y: Record<SingleKey | "hero", number> = {
   hero: 0.82,
 };
 
+// the anchor for any sprite key; hero frames and unknown keys fall back to sensible defaults
+export function anchorYFor(key: string): number {
+  if (key.startsWith("hero/")) return ANCHOR_Y.hero;
+  for (const [name, anchorY] of Object.entries(ANCHOR_Y)) if (name === key) return anchorY;
+  return 0.85;
+}
+
 export function heroKey(sex: Sex, anim: Anim, frame: number) {
   return `hero/${sex}_${anim}${frame + 1}`;
 }
 
 export function assetList(): { alias: string; src: string; data: { scaleMode: "nearest" } }[] {
   const list: { alias: string; src: string; data: { scaleMode: "nearest" } }[] = [];
-  for (const k of SINGLE) list.push({ alias: k, src: `/sprites/${k}.png`, data: { scaleMode: "nearest" } });
-  for (const sex of ["male", "female"] as Sex[])
-    for (const anim of Object.keys(FRAMES) as Anim[])
-      for (let i = 0; i < FRAMES[anim]; i++) {
-        const alias = heroKey(sex, anim, i);
+  for (const key of SINGLE) list.push({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } });
+  for (const sex of SEXES)
+    for (const anim of ANIMS)
+      for (let frame = 0; frame < FRAMES[anim]; frame++) {
+        const alias = heroKey(sex, anim, frame);
         list.push({ alias, src: `/sprites/${alias}.png`, data: { scaleMode: "nearest" } });
       }
   return list;

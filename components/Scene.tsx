@@ -4,22 +4,50 @@
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { extend, useTick } from "@pixi/react";
-import { Container, Graphics, Sprite, UPDATE_PRIORITY, type FederatedPointerEvent, type Texture, type Ticker } from "pixi.js";
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Container, type FederatedPointerEvent, Graphics, Sprite, type Ticker, UPDATE_PRIORITY } from "pixi.js";
+import {
+  createContext,
+  memo,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { heroKey, type Sex } from "@/lib/assets";
-import { bindKeyboard, consumePresses, liveInput, shootAt, type Controls } from "@/lib/controls";
+import { bindKeyboard, type Controls, consumePresses, liveInput, shootAt } from "@/lib/controls";
+import { newGamepadMemory, pollGamepadForPlay } from "@/lib/gamepad";
+import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/lib/light";
+import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/lib/projectiles";
 import { STEP } from "@/lib/replay";
 import {
-  PROPS, anchor, drawGround, drawMarks, drawSheet, drawSweep, flicker, glowTexture, heroFrame, lightsAlpha, nightTint, type Tex,
+  anchor,
+  drawGround,
+  drawMarks,
+  drawSheet,
+  drawSweep,
+  heroFrame,
+  lightsAlpha,
+  nightTint,
+  PROPS,
+  type Tex,
 } from "@/lib/scene";
-import { CX, MONSTER, step, type Hero as HeroState, type Input, type Lamp, type Monster, type Rules, type State } from "@/lib/sim";
+import { CX, type Hero as HeroState, type Input, type Lamp, MONSTER, type Monster, type State, step } from "@/lib/sim";
 
 extend({ Container, Graphics, Sprite });
 
-// Chooses the input for sim step n: live play passes `live` through (and records it), a replay ignores it.
-export type Driver = (n: number, live: Input, s: State) => Input;
+// Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
+export type Driver = (stepIndex: number, live: Input, state: State) => Input;
 // What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
-export interface Night { state: State; sex: Sex; driver: Driver | null }
+export interface Night {
+  state: State;
+  sex: Sex;
+  driver: Driver | null;
+}
 
 interface SceneProps {
   night: Night;
@@ -27,15 +55,23 @@ interface SceneProps {
   controls: Controls;
   paused: boolean;
   speed: number;
-  frozenClock: number | null;   // visual verifier: a fixed flicker/pulse phase
-  onTick: (s: State) => void;   // every frame, after the sim has stepped
-  onReady: () => void;          // the scene is on the stage
+  frozenClock: number | null; // visual verifier: a fixed flicker/pulse phase
+  onTick: (state: State) => void; // every frame, after the sim has stepped
+  onReady: () => void; // the scene is on the stage
 }
 
-// Shared by every entity for the life of the scene: textures, the glow disc and the clock (seconds; the boat's bob and
-// the dark lamps' pulse). The clock is a ref so it can move every frame without a render.
-const SceneContext = createContext<{ tex: Tex; glow: Texture; clock: RefObject<number> } | null>(null);
-const useScene = () => useContext(SceneContext)!;
+// Shared by every entity for the life of the scene: textures and the clock (seconds; the boat's bob, the dark lamps'
+// pulse, the lights' flicker and glints). The clock is a ref so it can move every frame without a render.
+interface SceneShared {
+  tex: Tex;
+  clock: RefObject<number>;
+}
+const SceneContext = createContext<SceneShared | null>(null);
+function useScene(): SceneShared {
+  const shared = useContext(SceneContext);
+  if (!shared) throw new Error("Scene entities must be rendered inside <Scene>");
+  return shared;
+}
 
 // Keeps a Pixi object in step with the sim: once when it mounts (before it is first drawn), then every frame.
 function useFrame(update: () => void) {
@@ -43,67 +79,102 @@ function useFrame(update: () => void) {
   useTick(update);
 }
 
-const noDraw = () => {};   // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
+const noDraw = () => {}; // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
 
-export const Scene = memo(function Scene({ night, tex, controls, paused, speed, frozenClock, onTick, onReady }: SceneProps) {
-  const glow = useMemo(glowTexture, []);
+export const Scene = memo(function Scene({
+  night,
+  tex,
+  controls,
+  paused,
+  speed,
+  frozenClock,
+  onTick,
+  onReady,
+}: SceneProps) {
   const clock = useRef(0);
-  const ctx = useMemo(() => ({ tex, glow, clock }), [tex, glow]);
+  const shared = useMemo(() => ({ tex, clock }), [tex]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
-  useLayoutEffect(() => { live.current = { paused, speed, frozenClock, onTick }; }, [paused, speed, frozenClock, onTick]);
+  useLayoutEffect(() => {
+    live.current = { paused, speed, frozenClock, onTick };
+  }, [paused, speed, frozenClock, onTick]);
 
   // a new night starts from step 0 with no keys held
-  const run = useRef({ n: 0, acc: 0 });
-  useLayoutEffect(() => { run.current = { n: 0, acc: 0 }; controls.keys.clear(); }, [night, controls]);
+  const run = useRef({ night, stepIndex: 0, accumulated: 0 });
+  const gamepadMemory = useRef(newGamepadMemory());
+  useLayoutEffect(() => {
+    run.current = { night, stepIndex: 0, accumulated: 0 };
+    controls.keys.clear();
+  }, [night, controls]);
 
   useEffect(() => bindKeyboard(controls), [controls]);
-  useEffect(() => { onReady(); }, [onReady]);
+  useEffect(() => {
+    onReady();
+  }, [onReady]);
 
   useTick({
     priority: UPDATE_PRIORITY.HIGH,
-    callback: useCallback((t: Ticker) => {
-      const dt = Math.min(t.deltaMS / 1000, 0.05);
-      const { paused, speed, frozenClock, onTick } = live.current;
-      clock.current = frozenClock ?? clock.current + dt;
-      const s = night.state, r = run.current;
-      if (!paused) {
-        // fixed 60 Hz sim step, so a recorded night replays exactly
-        r.acc += dt * speed;
-        let inp = liveInput(controls);
-        while (r.acc >= STEP && !s.outcome) {
-          step(s, STEP, night.driver ? night.driver(r.n, inp, s) : inp);
-          r.n++; r.acc -= STEP;
-          if (inp.melee || inp.ranged) { consumePresses(controls); inp = { ...inp, melee: false, ranged: false }; }
+    callback: useCallback(
+      (ticker: Ticker) => {
+        const elapsedSeconds = Math.min(ticker.deltaMS / 1000, 0.05);
+        const settings = live.current;
+        clock.current = settings.frozenClock ?? clock.current + elapsedSeconds;
+        const state = night.state;
+        const progress = run.current;
+        if (!settings.paused) {
+          // fixed 60 Hz sim step, so a recorded night replays exactly
+          progress.accumulated += elapsedSeconds * settings.speed;
+          pollGamepadForPlay(controls, state, gamepadMemory.current);
+          let input = liveInput(controls);
+          while (progress.accumulated >= STEP && !state.outcome) {
+            step(state, STEP, night.driver ? night.driver(progress.stepIndex, input, state) : input);
+            progress.stepIndex++;
+            progress.accumulated -= STEP;
+            if (input.melee || input.ranged) {
+              consumePresses(controls);
+              input = { ...input, melee: false, ranged: false };
+            }
+          }
         }
-      }
-      onTick(s);
-    }, [night, controls]),
+        settings.onTick(state);
+      },
+      [night, controls],
+    ),
   });
 
   // a click on the canvas shoots towards it
-  const shoot = useCallback((e: FederatedPointerEvent) => shootAt(controls, e.global.x, e.global.y), [controls]);
-  const s = night.state;
-  const sweep = useCallback((g: Graphics) => drawSweep(g, s), [s]);
-  const marks = useCallback((g: Graphics) => drawMarks(g, s, clock.current), [s]);
+  const shoot = useCallback(
+    (event: FederatedPointerEvent) => shootAt(controls, event.global.x, event.global.y),
+    [controls],
+  );
+  const state = night.state;
+  const sweep = useCallback((graphics: Graphics) => drawSweep(graphics, state), [state]);
+  const marks = useCallback((graphics: Graphics) => drawMarks(graphics, state, clock.current), [state]);
 
   return (
-    <SceneContext.Provider value={ctx}>
+    <SceneContext.Provider value={shared}>
       <pixiGraphics draw={drawGround} eventMode="static" onPointerDown={shoot} />
       <pixiContainer sortableChildren>
-        {PROPS.map(([k, x, y], i) => <pixiSprite key={i} texture={tex[k]} anchor={anchor(k)} x={x} y={y} zIndex={y} />)}
+        {PROPS.map(([key, x, y]) => (
+          <pixiSprite key={`${key}@${x},${y}`} texture={tex[key]} anchor={anchor(key)} x={x} y={y} zIndex={y} />
+        ))}
         <Trireme />
-        <Hero hero={s.hero} sex={night.sex} />
-        {s.lamps.map((l, i) => <LampPost key={i} lamp={l} />)}
-        <Monsters state={s} />
+        <Hero hero={state.hero} sex={night.sex} />
+        {state.lamps.map((lamp) => (
+          <LampPost key={`lamp@${lamp.x},${lamp.y}`} lamp={lamp} />
+        ))}
+        <Monsters state={state} />
       </pixiContainer>
       <Strokes draw={sweep} />
-      <NightSheet state={s} />
-      <Lights state={s}>
-        <HeroGlow hero={s.hero} />
-        {s.lamps.map((l, i) => <LampGlow key={i} lamp={l} rules={s.rules} />)}
+      <NightSheet state={state} />
+      <Lights state={state}>
+        <HeroLight hero={state.hero} />
+        {state.lamps.map((lamp) => (
+          <LampLight key={`light@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightR} />
+        ))}
       </Lights>
+      <Projectiles state={state} sex={night.sex} />
       <Strokes draw={marks} />
     </SceneContext.Provider>
   );
@@ -112,104 +183,230 @@ export const Scene = memo(function Scene({ night, tex, controls, paused, speed, 
 function Trireme() {
   const { tex, clock } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => { ref.current!.y = 440 + Math.sin(clock.current * 1.5) * 4; }, [clock]));
+  useFrame(
+    useCallback(() => {
+      if (ref.current) ref.current.y = 440 + Math.sin(clock.current * 1.5) * 4;
+    }, [clock]),
+  );
   return <pixiSprite ref={ref} texture={tex.trireme} anchor={anchor("trireme")} x={130} y={440} zIndex={440} />;
 }
 
-const Hero = memo(function Hero({ hero: h, sex }: { hero: HeroState; sex: Sex }) {
+const Hero = memo(function Hero({ hero, sex }: { hero: HeroState; sex: Sex }) {
   const { tex } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => {
-    const sp = ref.current!;
-    sp.texture = tex[heroKey(sex, h.anim, heroFrame(h.anim, h.frameT))];
-    sp.position.set(Math.round(h.x), Math.round(h.y)); sp.zIndex = h.y;
-    sp.scale.x = h.left ? -1 : 1;
-    sp.tint = h.hurt > 0 ? 0xff8080 : 0xffffff;
-  }, [tex, h, sex]));
+  useFrame(
+    useCallback(() => {
+      const sprite = ref.current;
+      const texture = tex[heroKey(sex, hero.anim, heroFrame(hero.anim, hero.frameT))];
+      if (!sprite || !texture) return;
+      sprite.texture = texture;
+      sprite.position.set(Math.round(hero.x), Math.round(hero.y));
+      sprite.zIndex = hero.y;
+      sprite.scale.x = hero.left ? -1 : 1;
+      sprite.tint = hero.hurt > 0 ? 0xff8080 : 0xffffff;
+    }, [tex, hero, sex]),
+  );
   return <pixiSprite ref={ref} texture={tex[heroKey(sex, "idle", 0)]} anchor={anchor("hero")} />;
 });
 
 const LampPost = memo(function LampPost({ lamp }: { lamp: Lamp }) {
   const { tex } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => { ref.current!.texture = tex[lamp.lit ? "lamp-lit" : "lamp-unlit"]; }, [tex, lamp]));
-  return <pixiSprite ref={ref} texture={tex["lamp-lit"]} anchor={anchor("lamp-lit")} x={lamp.x} y={lamp.y} zIndex={lamp.y} />;
+  useFrame(
+    useCallback(() => {
+      const texture = tex[lamp.lit ? "lamp-lit" : "lamp-unlit"];
+      if (ref.current && texture) ref.current.texture = texture;
+    }, [tex, lamp]),
+  );
+  return (
+    <pixiSprite ref={ref} texture={tex["lamp-lit"]} anchor={anchor("lamp-lit")} x={lamp.x} y={lamp.y} zIndex={lamp.y} />
+  );
 });
 
 // The monster list is the only React state that changes during a night: when one spawns or dies, not every frame.
 function Monsters({ state }: { state: State }) {
   const [shown, setShown] = useState({ state, list: state.monsters.slice() });
   // a new night replaces the list in the same render, so the last night's monsters are never drawn over it
-  const cur = shown.state === state ? shown : { state, list: state.monsters.slice() };
-  if (cur !== shown) setShown(cur);
-  const last = useRef(cur.list);   // the list last handed to React, so a pending render is not asked for twice
-  useLayoutEffect(() => { last.current = cur.list; }, [cur]);
-  useTick(useCallback(() => {
-    const ms = state.monsters, c = last.current;
-    if (ms.length === c.length && ms.every((m, i) => m === c[i])) return;
-    last.current = ms.slice();
-    setShown({ state, list: last.current });
-  }, [state]));
-  return cur.list.map((m) => <MonsterSprite key={m.id} m={m} />);
+  const current = shown.state === state ? shown : { state, list: state.monsters.slice() };
+  if (current !== shown) setShown(current);
+  const lastHandedToReact = useRef(current.list); // so a pending render is not asked for twice
+  useLayoutEffect(() => {
+    lastHandedToReact.current = current.list;
+  }, [current]);
+  useTick(
+    useCallback(() => {
+      const monsters = state.monsters;
+      const handed = lastHandedToReact.current;
+      if (monsters.length === handed.length && monsters.every((monster, index) => monster === handed[index])) return;
+      lastHandedToReact.current = monsters.slice();
+      setShown({ state, list: lastHandedToReact.current });
+    }, [state]),
+  );
+  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} />);
 }
 
-const MonsterSprite = memo(function MonsterSprite({ m }: { m: Monster }) {
+const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monster }) {
   const { tex } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => {
-    const sp = ref.current!, fly = MONSTER[m.kind].fly;
-    const bob = Math.sin(m.t * (fly ? 7 : 5)) * (fly ? 6 : 2);
-    sp.position.set(Math.round(m.x), Math.round(m.y - (fly ? 22 : 0) + bob)); sp.zIndex = m.y;
-    sp.scale.x = m.x > CX ? -1 : 1;
-    sp.tint = m.hurt > 0 ? 0xff7070 : 0xffffff;
-  }, [m]));
-  return <pixiSprite ref={ref} texture={tex[m.kind]} anchor={anchor(m.kind)} />;
+  useFrame(
+    useCallback(() => {
+      const sprite = ref.current;
+      if (!sprite) return;
+      const flying = MONSTER[monster.kind].fly;
+      const bob = Math.sin(monster.t * (flying ? 7 : 5)) * (flying ? 6 : 2);
+      sprite.position.set(Math.round(monster.x), Math.round(monster.y - (flying ? 22 : 0) + bob));
+      sprite.zIndex = monster.y;
+      sprite.scale.x = monster.x > CX ? -1 : 1;
+      sprite.tint = monster.hurt > 0 ? 0xff7070 : 0xffffff;
+    }, [monster]),
+  );
+  return <pixiSprite ref={ref} texture={tex[monster.kind]} anchor={anchor(monster.kind)} />;
 });
 
 // a Graphics layer cleared and redrawn every frame (shots, puffs, rings)
-function Strokes({ draw }: { draw: (g: Graphics) => void }) {
+function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
   const ref = useRef<Graphics>(null);
-  useFrame(useCallback(() => { const g = ref.current!; g.clear(); draw(g); }, [draw]));
+  useFrame(
+    useCallback(() => {
+      const graphics = ref.current;
+      if (!graphics) return;
+      graphics.clear();
+      draw(graphics);
+    }, [draw]),
+  );
   return <pixiGraphics ref={ref} draw={noDraw} />;
 }
 
-const progress = (s: State) => Math.min(1, s.elapsed / s.length);
+const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
 
 // the night, multiplied over everything below it: deep blue, warming to dawn
 function NightSheet({ state }: { state: State }) {
   const ref = useRef<Graphics>(null);
-  useFrame(useCallback(() => { ref.current!.tint = nightTint(progress(state)); }, [state]));
+  useFrame(
+    useCallback(() => {
+      if (ref.current) ref.current.tint = nightTint(nightProgress(state));
+    }, [state]),
+  );
   return <pixiGraphics ref={ref} draw={drawSheet} blendMode="multiply" />;
 }
 
 // additive lights over the night; they fade as dawn comes
 function Lights({ state, children }: { state: State; children: ReactNode }) {
   const ref = useRef<Container>(null);
-  useFrame(useCallback(() => { ref.current!.alpha = lightsAlpha(progress(state)); }, [state]));
+  useFrame(
+    useCallback(() => {
+      if (ref.current) ref.current.alpha = lightsAlpha(nightProgress(state));
+    }, [state]),
+  );
   return <pixiContainer ref={ref}>{children}</pixiContainer>;
 }
 
-const HeroGlow = memo(function HeroGlow({ hero: h }: { hero: HeroState }) {
-  const { glow } = useScene();
+// a light piece drawn at a point: its texture, placed by its top-left offset
+function place(sprite: Sprite, piece: LightPiece, x: number, y: number) {
+  sprite.texture = piece.texture;
+  sprite.position.set(x + piece.offsetX, y + piece.offsetY);
+}
+
+// the warden's own small light, in the same stepped bands as the lamps
+const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
+  const { clock } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => { ref.current!.position.set(h.x, h.y - 4); }, [h]));
-  return <pixiSprite ref={ref} texture={glow} anchor={0.5} blendMode="add" width={120} height={60} alpha={0.5} />;
+  useFrame(
+    useCallback(() => {
+      const sprite = ref.current;
+      if (!sprite) return;
+      const centerX = Math.round(hero.x),
+        centerY = Math.round(hero.y) - 4;
+      place(sprite, heroLight(centerX, centerY, clock.current), centerX, centerY);
+    }, [hero, clock]),
+  );
+  return <pixiSprite ref={ref} blendMode="add" />;
 });
 
-// a lit lamp's pool of light on the ground and the glow of the lantern itself
-const LampGlow = memo(function LampGlow({ lamp: l, rules }: { lamp: Lamp; rules: Rules }) {
-  const { glow } = useScene();
-  const pool = useRef<Sprite>(null), head = useRef<Sprite>(null);
-  useFrame(useCallback(() => {
-    const f = flicker(l), g = pool.current!, hd = head.current!;
-    g.visible = hd.visible = l.lit;
-    g.width = rules.lightR * 2.2 * f; g.height = rules.lightR * 1.1 * f;
-    hd.width = hd.height = 46 * f;
-  }, [l, rules]));
+// A lit lamp's light, all of it precomputed in lib/light.ts: the pool on the ground, the lantern glowing in its own
+// colours inside a halo, and the glints on the stone, the brass and the sea. A dark lamp shows none of it.
+const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius: number }) {
+  const { tex, clock } = useScene();
+  const lantern = lanternGlow(tex["lamp-lit"]);
+  const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
+  const group = useRef<Container>(null),
+    pool = useRef<Sprite>(null),
+    halo = useRef<Sprite>(null);
+  const glintSprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const groupContainer = group.current,
+        poolSprite = pool.current,
+        haloSprite = halo.current;
+      if (!groupContainer || !poolSprite || !haloSprite) return;
+      groupContainer.visible = lamp.lit;
+      if (!lamp.lit) return;
+      const variant = lampFlicker(light, clock.current);
+      place(poolSprite, light.pools[variant], light.poolX, light.poolY);
+      place(haloSprite, light.halos[variant], light.haloX, light.haloY);
+      light.glints.forEach((glint, index) => {
+        const sprite = glintSprites.current[index];
+        if (!sprite) return;
+        const frame = glintFrame(glint, clock.current);
+        sprite.visible = frame !== null;
+        if (frame) place(sprite, frame, glint.x, glint.y);
+      });
+    }, [lamp, light, clock]),
+  );
   return (
-    <>
-      <pixiSprite ref={pool} texture={glow} anchor={0.5} blendMode="add" x={l.x} y={l.y - 6} />
-      <pixiSprite ref={head} texture={glow} anchor={0.5} blendMode="add" alpha={0.8} x={l.x} y={l.y - 78} />
-    </>
+    <pixiContainer ref={group}>
+      <pixiSprite ref={pool} blendMode="add" />
+      <pixiSprite ref={halo} blendMode="add" />
+      <pixiSprite
+        texture={lantern.texture}
+        x={lamp.x + lantern.offsetX}
+        y={lamp.y + lantern.offsetY}
+        blendMode="add"
+        alpha={0.45}
+      />
+      {light.glints.map((glint, index) => (
+        <pixiSprite
+          key={`${glint.x},${glint.y}`}
+          ref={(sprite: Sprite | null) => {
+            glintSprites.current[index] = sprite;
+          }}
+          blendMode="add"
+        />
+      ))}
+    </pixiContainer>
   );
 });
+
+// Shots in flight, above the night tint so they stay readable: arrows for the bow, stones for the sling. Sprites are
+// pooled by shot id and moved from the tick, so a volley never causes a React render.
+function Projectiles({ state, sex }: { state: State; sex: Sex }) {
+  const textures = useMemo<ProjectileTextures>(createProjectileTextures, []);
+  const layer = useRef<Container>(null);
+  const spritesByShot = useRef(new Map<number, Sprite>());
+  useFrame(
+    useCallback(() => {
+      const container = layer.current;
+      if (!container) return;
+      const kind = projectileFor(sex);
+      const inFlight = new Set<number>();
+      for (const shot of state.shots) {
+        inFlight.add(shot.id);
+        let sprite = spritesByShot.current.get(shot.id);
+        if (!sprite) {
+          sprite = new Sprite(textures.stone);
+          sprite.anchor.set(0.5);
+          container.addChild(sprite);
+          spritesByShot.current.set(shot.id, sprite);
+        }
+        sprite.texture = kind === "arrow" ? arrowTextureFor(textures, shot.vx, shot.vy) : textures.stone;
+        sprite.position.set(Math.round(shot.x), Math.round(shot.y));
+      }
+      for (const [shotId, sprite] of spritesByShot.current) {
+        if (inFlight.has(shotId)) continue;
+        sprite.destroy();
+        spritesByShot.current.delete(shotId);
+      }
+    }, [state, sex, textures]),
+  );
+  return <pixiContainer ref={layer} />;
+}

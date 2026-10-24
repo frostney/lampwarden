@@ -180,6 +180,73 @@ await page.waitForTimeout(1200); await freeze();
 b = await shoot("08-replay");
 check("replay", "replay bar shown", (await text(".replaybar")).join("").includes("REPLAY"));
 
+// 9 gamepad: a mocked standard-mapping pad drives the menus and the warden
+{
+  const padPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  padPage.on("pageerror", (error) => errors.push(`gamepad: ${error}`));
+  await padPage.addInitScript(() => {
+    const pad = { id: "Verifier pad", index: 0, connected: true, mapping: "standard", timestamp: 0, axes: [0, 0, 0, 0],
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), vibrationActuator: null };
+    window.verifierPad = pad;
+    navigator.getGamepads = () => [pad, null, null, null];
+  });
+  const mainPage = page;
+  page = padPage;
+  const tapButton = async (index) => {
+    await page.evaluate((index) => { window.verifierPad.buttons[index].pressed = true; }, index);
+    await page.waitForTimeout(120);
+    await page.evaluate((index) => { window.verifierPad.buttons[index].pressed = false; }, index);
+    await page.waitForTimeout(120);
+  };
+  const setAxes = (axes) => page.evaluate((axes) => { window.verifierPad.axes = axes; }, axes);
+  await page.goto(URL_ + "/?verify=1");
+  await page.evaluate(() => localStorage.clear()); await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
+  await tapButton(9);   // Start presses the title's primary button
+  const started = await page.waitForSelector('[data-phase="night"]', { timeout: 3000 }).then(() => true, () => false);
+  check("gamepad", "Start lights the lamps", started);
+  if (started) {
+    check("gamepad", "help line shows pad controls", (await text(".help")).join("").includes("Left stick"));
+    const startX = await page.evaluate(() => window.lampwarden.state().hero.x);
+    await setAxes([1, 0, 0, 0]); await page.waitForTimeout(500); await setAxes([0, 0, 0, 0]);
+    const movedX = await page.evaluate(() => window.lampwarden.state().hero.x);
+    check("gamepad", "left stick moves the warden", movedX - startX > 30, `Δx ${(movedX - startX).toFixed(0)}`);
+    await tapButton(0);
+    check("gamepad", "A strikes", (await page.evaluate(() => window.lampwarden.state().hero.anim)) === "melee");
+    await page.waitForTimeout(500);
+    await setAxes([0, 0, -1, 0]);   // right stick left, then the right trigger shoots that way
+    await tapButton(7);
+    await page.waitForTimeout(250);
+    const shot = await page.evaluate(() => { const shots = window.lampwarden.state().shots; return shots[0] ? { vx: shots[0].vx, x: shots[0].x, y: shots[0].y } : null; });
+    check("gamepad", "right trigger shoots along the right stick", shot !== null && shot.vx < 0, shot ? `vx ${shot.vx.toFixed(0)}` : "no shot");
+    await setAxes([0, 0, 0, 0]);
+    if (shot) {
+      await freeze();
+      b = await shoot("09-gamepad-arrow");
+      const now = await page.evaluate(() => { const shots = window.lampwarden.state().shots; return shots[0] ? { x: shots[0].x, y: shots[0].y } : null; });
+      if (now) {
+        const arrowBox = [Math.round(now.x) - 10, Math.round(now.y) - 10, 21, 21];
+        const [around] = await lum(b, [arrowBox]);
+        check("gamepad", "arrow sprite drawn where the shot is", around > 40, `mean luminance ${around.toFixed(0)} around (${Math.round(now.x)}, ${Math.round(now.y)})`);
+      }
+      await page.evaluate(() => window.lampwarden.scene().setPaused(false));
+    }
+    await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.length - 0.01; s.oilEarned = 40; });
+    await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+    await page.waitForTimeout(200);
+    await setAxes([0, 1, 0, 0]); await page.waitForTimeout(80); await setAxes([0, 0, 0, 0]);   // down: focus the first button
+    const focusedText = await page.evaluate(() => document.activeElement?.textContent ?? "");
+    await tapButton(0);
+    const levels = await page.evaluate(() => window.lampwarden.legacy().levels);
+    check("gamepad", "d-pad focuses and A buys an upgrade", Object.values(levels).some((level) => level > 0), `focused "${focusedText.slice(0, 20)}", levels ${JSON.stringify(levels)}`);
+    await freeze();
+    await shoot("10-gamepad-dawn");
+  }
+  page = mainPage;
+  await padPage.close();
+}
+
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
 // --- mobile: WebKit (Safari's engine) on phone profiles, with touch ------------------------------------------

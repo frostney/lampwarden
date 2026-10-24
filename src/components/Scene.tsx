@@ -3,7 +3,7 @@
 // re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
-import { extend, useTick } from "@pixi/react";
+import { extend, useApplication, useTick } from "@pixi/react";
 import {
   Container,
   type FederatedPointerEvent,
@@ -33,11 +33,15 @@ import { newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
 import { STEP } from "@/game/replay";
 import {
   CENTRE_X,
+  FLASH_TIME,
+  GHOST_TIME,
   type Hero as HeroState,
+  HURT_TIME,
   type Input,
   type Lamp,
   MONSTER,
   type Monster,
+  type MonsterKind,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
@@ -49,8 +53,10 @@ import {
   drawGround,
   drawMarks,
   drawSweep,
+  flashKey,
   heroFrame,
   lightsAlpha,
+  monsterBob,
   nightTint,
   PROPS,
   type TextureMap,
@@ -221,7 +227,9 @@ export const Scene = memo(function Scene({
         ))}
       </Lights>
       <Projectiles state={state} sex={night.sex} />
+      <Flashes state={state} />
       <Strokes draw={marks} />
+      <ScreenShake state={state} />
     </SceneContext.Provider>
   );
 });
@@ -429,9 +437,7 @@ const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monste
     useCallback(() => {
       const sprite = ref.current;
       if (!sprite) return;
-      const flying = MONSTER[monster.kind].fly;
-      const bob = Math.sin(monster.age * (flying ? 7 : 5)) * (flying ? 6 : 2);
-      sprite.position.set(Math.round(monster.x), Math.round(monster.y - (flying ? 22 : 0) + bob));
+      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(monster.kind, monster.age)));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? 0xff7070 : 0xffffff;
@@ -577,4 +583,110 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
     }, [state, sex, textures]),
   );
   return <pixiContainer ref={layer} />;
+}
+
+// The white silhouettes of a blow, above the night tint so they read as a flash and not as another shade of blue: a
+// monster that was just hit, for its first FLASH_TIME, and a monster that was just killed, flung back along the blow
+// while it fades (the sim keeps it on the kill's puff, since the monster is gone from the list the moment it dies).
+// Sprites are pooled by key like the shots'.
+function Flashes({ state }: { state: State }) {
+  const { textures } = useScene();
+  const layer = useRef<Container>(null);
+  const sprites = useRef(new Map<string, Sprite>());
+  useFrame(
+    useCallback(() => {
+      const container = layer.current;
+      if (!container) return;
+      const shown = new Set<string>();
+      const show = (key: string, kind: MonsterKind, x: number, y: number, alpha: number) => {
+        shown.add(key);
+        let sprite = sprites.current.get(key);
+        if (!sprite) {
+          sprite = new Sprite(textureFor(textures, flashKey(kind)));
+          sprite.anchor.copyFrom(anchor(kind));
+          sprite.scale.x = x > CENTRE_X ? -1 : 1;
+          container.addChild(sprite);
+          sprites.current.set(key, sprite);
+        }
+        sprite.position.set(Math.round(x), Math.round(y));
+        sprite.alpha = alpha;
+      };
+      for (const monster of state.monsters)
+        if (monster.hurt > HURT_TIME - FLASH_TIME)
+          show(`monster${monster.id}`, monster.kind, monster.x, monster.y + monsterBob(monster.kind, monster.age), 1);
+      for (const puff of state.puffs) {
+        const ghost = puff.ghost;
+        if (!ghost || puff.age >= GHOST_TIME) continue;
+        const progress = puff.age / GHOST_TIME;
+        // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
+        const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
+        const travel = 30 * MONSTER[ghost.monster].recoil * (1 - (1 - flight) ** 2);
+        show(
+          `puff${puff.id}`,
+          ghost.monster,
+          ghost.x + puff.directionX * travel,
+          ghost.y + puff.directionY * travel * 0.5 + monsterBob(ghost.monster, ghost.monsterAge + puff.age),
+          progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
+        );
+      }
+      for (const [key, sprite] of sprites.current) {
+        if (shown.has(key)) continue;
+        sprite.destroy();
+        sprites.current.delete(key);
+      }
+    }, [state, textures]),
+  );
+  return <pixiContainer ref={layer} />;
+}
+
+// A kill rattles the whole picture by a pixel or two for a moment. It runs on the sim's clock, so it holds still while
+// paused, and it never runs for a player who asks for reduced motion.
+const SHAKE_TIME = 0.12;
+function ScreenShake({ state }: { state: State }) {
+  const { app } = useApplication();
+  const reducedMotion = useRef(false);
+  const memory = useRef({
+    state,
+    kills: state.stats.kills,
+    startedAt: Number.NEGATIVE_INFINITY,
+    elapsed: state.elapsed,
+  });
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      reducedMotion.current = query.matches;
+    };
+    update();
+    query.addEventListener("change", update);
+    return () => {
+      query.removeEventListener("change", update);
+      app.stage.position.set(0, 0);
+    };
+  }, [app]);
+  useFrame(
+    useCallback(() => {
+      // a new night starts the count again
+      if (memory.current.state !== state)
+        memory.current = {
+          state,
+          kills: state.stats.kills,
+          startedAt: Number.NEGATIVE_INFINITY,
+          elapsed: state.elapsed,
+        };
+      const remembered = memory.current;
+      if (state.stats.kills > remembered.kills) remembered.startedAt = state.elapsed;
+      remembered.kills = state.stats.kills;
+      const age = state.elapsed - remembered.startedAt;
+      const running = state.elapsed !== remembered.elapsed;
+      remembered.elapsed = state.elapsed;
+      if (reducedMotion.current || !running || age > SHAKE_TIME) {
+        app.stage.position.set(0, 0);
+        return;
+      }
+      const amplitude = age < SHAKE_TIME / 2 ? 2 : 1;
+      const tick = Math.floor(age * 60);
+      app.stage.position.set(tick % 2 === 0 ? amplitude : -amplitude, tick % 3 === 0 ? -1 : 1);
+    }, [state, app]),
+  );
+  return null;
 }

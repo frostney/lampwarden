@@ -32,7 +32,7 @@ Every night is recorded and sent to `/api/plays`, which stores it as a private b
 - `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
 - The visual verifier opens the game with `?verify=1`, and those nights are not uploaded.
 
-Controls: **WASD / arrows** move, **J / Space** melee, **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
+Controls: **WASD / arrows** move, **J / Space** melee (hits the arc in front of you: hold a direction while striking to turn), **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
 
 ## The loop
 

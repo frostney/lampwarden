@@ -39,6 +39,8 @@ export interface CreatureConfig {
   candidates: number;
   /** Dev only: where a job leaves every candidate sprite and a score summary, accepted or not. */
   debugDirectory: string | null;
+  /** EXPERIMENT: the base64 PKCS#8 Ed25519 key a job signs accepted creatures with (src/game/creature-signing.ts). */
+  signingKey: string | null;
 }
 
 const positiveInteger = (fallback: number) =>
@@ -74,6 +76,7 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,
     candidates: Math.min(MAX_CANDIDATES, positiveInteger(DEFAULT_CANDIDATES).parse(env.CREATURE_CANDIDATES)),
     debugDirectory: present(env.CREATURE_DEBUG_DIR),
+    signingKey: present(env.CREATURE_SIGNING_KEY),
   };
 }
 

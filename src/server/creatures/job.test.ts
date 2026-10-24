@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { creatureSchema, creatureStats, statsOf } from "@/game/creature";
 import { sha256Hex } from "@/game/creature-build";
+import { generateSigningKeys, signBuild, verifyBuild } from "@/game/creature-signing";
 import {
   briefJson,
   CLEAN_STATS,
@@ -373,5 +374,25 @@ describe("a job whose judge renderer is not the one the browser uses", () => {
       expect(await store.listCreatureIds()).toEqual([]);
       expect(store.codes.size).toBe(0);
     }
+  });
+});
+
+describe("a job with a signing key (the option E experiment)", () => {
+  test("signs the id and both hashes of the creature it stores, and a job without a key stores no signature", async () => {
+    const keys = await generateSigningKeys();
+    const signed = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    signed.deps.sign = (id, build) => signBuild(keys.privateKey, id, build);
+    expect((await runCreatureJob(signed.deps, "job-signed-aaaa")).step).toBe("done");
+    const [id] = await signed.store.listCreatureIds();
+    const build = (await signed.store.getCreature(id ?? ""))?.build;
+    expect(build?.signature).toBeString();
+    expect(
+      await verifyBuild(keys.publicKey, id ?? "", build ?? { codeSha256: "", pixelsSha256: "" }, build?.signature),
+    ).toBe(true);
+
+    const unsigned = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    expect((await runCreatureJob(unsigned.deps, "job-unsigned-aaaa")).step).toBe("done");
+    const [otherId] = await unsigned.store.listCreatureIds();
+    expect((await unsigned.store.getCreature(otherId ?? ""))?.build?.signature).toBeUndefined();
   });
 });

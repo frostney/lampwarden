@@ -11,3 +11,4 @@ __pycache__/
 verify-out/
 .agent/
 walkthrough-out/
+public/creature-direct-worker.js

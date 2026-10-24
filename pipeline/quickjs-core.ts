@@ -21,34 +21,13 @@ import {
   type QuickJSRuntime,
   type QuickJSWASMModule,
 } from "quickjs-emscripten-core";
+import { DETERMINISM_PRELUDE, kitScript, type PreparedKit, prepareBuild } from "./build-script";
 import type { QuickJsLimits } from "./quickjs-limits";
 
 export const SPRITE_SIZE = 128;
 export const SPRITE_PIXEL_BYTES = SPRITE_SIZE * SPRITE_SIZE * 4;
 /** The stats line is a few hundred bytes; anything much longer is a build trying to make the host copy a lot. */
 export const MAXIMUM_STATS_CHARACTERS = 4096;
-
-export interface PreparedKit {
-  /** SHA-256 of `kit/kit.ts`, the version of the kit these pixels come from. */
-  sha256: string;
-  /** Every name the kit exports, in source order; build code may call any of them. */
-  names: string[];
-  /** The kit as statements: no types, no `export`. */
-  body: string;
-}
-
-/** The kit as one script that defines `__kit` (an object holding every export) in the global scope it runs in. */
-export function kitScript(kit: PreparedKit): string {
-  return `var __kit = (function () {\n${kit.body}\nreturn { ${kit.names.join(", ")} };\n})();\n`;
-}
-
-/**
- * The build script without its leading `export`, the way `render/run_local.ts` does. Build code is plain JavaScript
- * (that is what the generator writes and what the committed sprite scripts are); a type annotation is a syntax error.
- */
-export function prepareBuild(code: string): string {
-  return code.replace(/^\s*export\s+/m, "").replace(/^\s*export\s*\{[^}]*\};?\s*$/m, "");
-}
 
 /**
  * The script that runs one build against `__kit` and evaluates to `{ stats, pixels }`: `stats` is a JSON string and
@@ -71,17 +50,6 @@ export function runScript(kit: PreparedKit, buildBody: string, pose: string): st
     "})()",
   ].join("\n");
 }
-
-/** Replaces Math.random with a seeded generator, so a render never depends on entropy (the kit itself never calls it). */
-export const DETERMINISM_PRELUDE = `(function () {
-  var state = 0x9e3779b9;
-  Math.random = function () {
-    state = (state + 0x6d2b79f5) | 0;
-    var mixed = Math.imul(state ^ (state >>> 15), 1 | state);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
-  };
-})();`;
 
 const WASM_PAGE_BYTES = 65536;
 const WASM_INITIAL_BYTES = 16 * 1024 * 1024;

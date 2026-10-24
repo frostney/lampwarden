@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
+import { signBuild } from "../src/game/creature-signing.ts";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
 import { decodePng } from "../tools/logo/png.ts";
 
@@ -34,9 +35,24 @@ const sha256 = (data) => createHash("sha256").update(data).digest("hex");
 const SEA_CODE = readFileSync("public/sprites/satyr.ts", "utf8");
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
 const SEA_PIXELS = decodePng(SEA_SPRITE).data;
-const SEA_BUILD = { codeSha256: sha256(SEA_CODE), pixelsSha256: sha256(SEA_PIXELS) };
+const SEA_ID = "brine-hound-satyr";
+// EXPERIMENT (docs/LIVE_GENERATION.md, option E): `--draw direct --keys FILE` runs the whole pass on the direct draw path,
+// with the fixture record signed by the private key in FILE (a JSON file made by generateSigningKeys, kept out of the repo).
+const DIRECT_DRAW = argument("--draw", "quickjs") === "direct";
+const DRAW_QUERY = DIRECT_DRAW ? "&draw=direct" : "";
+const SEA_HASHES = { codeSha256: sha256(SEA_CODE), pixelsSha256: sha256(SEA_PIXELS) };
+const SEA_BUILD = DIRECT_DRAW
+  ? {
+      ...SEA_HASHES,
+      signature: await signBuild(
+        JSON.parse(readFileSync(argument("--keys", ""), "utf8")).privateKey,
+        SEA_ID,
+        SEA_HASHES,
+      ),
+    }
+  : SEA_HASHES;
 const SEA_CREATURE = {
-  id: "brine-hound-satyr",
+  id: SEA_ID,
   name: "Drowned sponge diver", // a real generated name
   // lore as long as the contract allows (160), so a panel that only fits short lore fails here
   lore: "He dove too deep for the sponge beds and never rose. Now he climbs the quay dripping and blows our flames out with his last held breath, one by one, till dawn.",
@@ -417,7 +433,7 @@ const heroTextures = () =>
   });
 
 // --- scenarios ----------------------------------------------------------------------------------------------
-await page.goto(`${BASE_URL}/?verify=1`);
+await page.goto(`${BASE_URL}/?verify=1${DRAW_QUERY}`);
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
@@ -837,7 +853,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     page.evaluate((axes) => {
       window.verifierPad.axes = axes;
     }, axes);
-  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.goto(`${BASE_URL}/?verify=1${DRAW_QUERY}`);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
@@ -948,7 +964,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   heroPage.on("pageerror", (error) => errors.push(`hero choice: ${error}`));
   const mainPage = page;
   page = heroPage;
-  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.goto(`${BASE_URL}/?verify=1${DRAW_QUERY}`);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
@@ -1116,7 +1132,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const mainPage = page;
   page = seaPage;
   const openTitle = async () => {
-    await page.goto(`${BASE_URL}/?verify=1`);
+    await page.goto(`${BASE_URL}/?verify=1${DRAW_QUERY}`);
     await page.evaluate(() => localStorage.clear());
     sea.polls = 0;
     await page.reload();
@@ -1466,7 +1482,7 @@ for (const [tag, device, sex] of [
   page = await context.newPage();
   page.on("pageerror", (error) => errors.push(`${tag}: ${error}`));
   const { width: viewportWidth, height: viewportHeight } = device.viewport;
-  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.goto(`${BASE_URL}/?verify=1${DRAW_QUERY}`);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });

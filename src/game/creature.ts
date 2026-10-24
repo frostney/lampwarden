@@ -55,6 +55,8 @@ const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const creatureBuildSchema = z.object({
   codeSha256: sha256Schema, // SHA-256 of the build code's UTF-8 text, as GET /api/creatures/:id/code serves it
   pixelsSha256: sha256Schema, // SHA-256 of the 128 x 128 RGBA pixels the verifier judged (65,536 bytes)
+  // EXPERIMENT (direct execution, creature-signing.ts): the server's Ed25519 signature of the id and both hashes, base64
+  signature: z.string().max(128).optional(),
 });
 
 export const creatureSchema = z.object({

@@ -670,6 +670,157 @@ Done, with these differences: the kit is prepared by `bun run kit` into a commit
 - `isolated-vm`: the spike's crash on `memory-objects` (Node 24.19 and 26.8, with the kit loaded) was not reproduced in the bare re-run on Node 24.22.1 and 26.12.1, and the cause was not found; the kit-loaded setup was not repeated on the newer Node. The renderer is not in the tree, and a Linux prebuild on Vercel was not tried.
 - Model-written sprites, as opposed to the 58 committed ones, were not rendered: a build that needs more stack or memory than the defaults would fail as a render error, not as a security problem.
 
+## Direct execution in the browser (option E)
+
+An experiment, not an adoption. The owner's question: download the creature's code to the client and run it with no sandbox, plain JavaScript in the browser, no QuickJS. **Adopting it would change the AGENTS.md hard rule (model code runs only in a sandbox, the allowlisted local renderer, or QuickJS with no host functions), which is the owner's call; this branch does not change the rule.** The QuickJS path stays the default; the direct path runs only with `?draw=direct` on the page. Measured on 24 Oct 2026 on the machine of "The code in the browser" (Mac, 10 cores, Bun 1.4.3, `next start`, Playwright 1.64.1: Chromium, and WebKit with the `iPhone 14 landscape` profile, which is Safari's engine on this Mac's CPU, not a phone). **The machine was shared and loaded (load average 7-14 on 10 cores) while these ran**: the two draw paths were interleaved sample by sample so the load hits both alike, but absolute numbers, and the frame-timing rows especially, are noisy. Everything is over loopback.
+
+### What was built
+
+- `src/scene/creature-direct-worker.ts`: a Web Worker that runs the prepared kit and the build as plain JavaScript, the way `pipeline/render/run_local.ts` does (`new Function(...kitNames, "POSE", build + "return build")`), and replies with the 128 x 128 RGBA pixels. `pipeline/build-script.ts` holds the part of `quickjs-core.ts` it shares (the kit as a script, the `export` strip, the seeded `Math.random`), so the worker carries no interpreter.
+- `pipeline/build-direct-worker.ts` bundles that worker and the kit into one script, `public/creature-direct-worker.js` (git-ignored; `bun run dev` and `bun run build` make it). It is a file of its own so that its own HTTP response can carry a Content-Security-Policy, which is what limits a worker (below). 205,170 bytes raw, 55,772 sent.
+- `src/scene/creature-render.ts`: `?draw=direct` selects it; a fresh worker per draw, terminated at a 2 s deadline; the reply's shape is checked on the page.
+- `src/game/creature-signing.ts` and the `signature` field of a record's `build`: Ed25519 signing (below).
+- `next.config.ts`: the policies (below), chosen at build time with `CREATURE_DIRECT_CSP`.
+- `e2e/check-creature-direct.mjs` (`bun run check:creature-direct -- --url ... --keys FILE`) and `e2e/verify-visual.mjs --draw direct --keys FILE`.
+
+### Containment
+
+What a worker gives for free: no DOM, no page, no `window`, no cookies of its own, and no access to the page's variables; the page terminates it at the deadline, so a loop or a hang ends there. What the worker adds before any creature code runs: every name in its global scope that is not a language built-in is shadowed with `undefined` (on the scope and, where the engine allows, deleted from the prototypes it inherits from): `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `importScripts`, `indexedDB`, `caches`, `postMessage`, `Worker`, `SharedWorker`, `navigator`, timers, `Date`, `performance`, `crypto`, `console`, `WebAssembly`, 53 names are left, all of them the language's. The reply goes through a reference to `postMessage` taken before the strip, and the worker script is strict so that `caller` and `arguments` do not lead up to it. `Math.random` is seeded and there is no `Date`, as in #45, and the 20 hero frames and 18 sprites draw to the PNGs' bytes.
+
+What this does not do, said plainly:
+- **A constructor chain does not escape; it finds the stripped scope.** `(function(){}).constructor("return this")()`, `[].constructor.constructor(...)`, indirect `eval` and `Object.getPrototypeOf(globalThis)` all return the same global object the worker stripped (probe `escape-global`: same object on all four routes, no host name reachable). That is a property of stripping the one scope there is, and it is a blocklist's weakness too: it holds for the names it has seen. Anything a future browser adds to a worker's scope is shadowed (the strip enumerates the scope, it does not list names), but a new way into the network that is not a global name would not be.
+- **`import()` is syntax, not a global, and cannot be shadowed.** With the scope stripped and no policy, `import("https://...")` was the one route left, in Chromium and WebKit: the canary server saw a request and the app's own API saw a `GET`. Only a policy closes it.
+- **Memory is bounded by time only.** A build allocated 1 GiB of typed arrays and 10 million objects without being stopped, and 4 GiB in under the 2 s deadline in Chromium and WebKit; the page survived and the next draw was exact, but the browser gives a worker no memory limit and a longer deadline or a slower machine would let it go further. QuickJS stops the same probe at its 32 MiB cap.
+- **CPU is bounded by the deadline.** The endless loop and the regular-expression bomb end at the 2 s terminate (WebKit ended the regex early); the page's timers and frames were not affected beyond the machine's noise.
+
+### The Content-Security-Policy, measured
+
+Four builds (`CREATURE_DIRECT_CSP` = `none`, `page`, `worker`, `both`) against the network probes. Each cell is requests that reached the canary server on another port / requests the app's API saw / storage written, summed over `net-cross-origin`, `net-same-origin`, `import-scripts-remote` and `storage`. "Plain" is the control: the same probes in an unstripped worker the page makes from a blob, which inherits the page's policy.
+
+| Policy                                                                                                             | Direct worker, Chromium | Direct worker, WebKit | Plain worker, Chromium | Plain worker, WebKit |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------- | --------------------- | ---------------------- | -------------------- |
+| none                                                                                                               | 2 / 1 / 0               | 2 / 1 / 0             | 13 / 6 / 2             | 10 / 6 / 1           |
+| page only (`connect-src 'self' blob: data:` among others, `?draw=direct` only)                                     | 2 / 1 / 0               | 2 / 1 / 0             | 0 / 6 / 2              | 0 / 6 / 1            |
+| worker's own response only (`default-src 'none'; script-src 'unsafe-eval'; connect-src 'none'; worker-src 'none'`) | 0 / 0 / 0               | 0 / 0 / 0             | 13 / 6 / 0             | 10 / 6 / 0           |
+| both (the default)                                                                                                 | 0 / 0 / 0               | 0 / 0 / 0             | 0 / 6 / 2              | 0 / 6 / 1            |
+
+What it shows:
+- **A page-level `connect-src 'self'` does not block the direct worker's cross-origin request.** A worker made from a URL takes its policy from its own response, not from the page; only a blob or data worker inherits the page's. The page policy did stop the plain blob worker's cross-origin requests (13 to 0), and left its same-origin API calls (6) and storage writes alone, as `'self'` says.
+- **The policy that works is on the worker script's own response**, which is why the direct worker is a file of its own: `connect-src 'none'` stops `fetch`, XHR, WebSocket and EventSource, `script-src 'unsafe-eval'` (no source, so no URL) stops `importScripts` and `import()`, and `worker-src 'none'` stops nested workers. It needs `'unsafe-eval'` because the build is run with `new Function`. It held in Chromium and WebKit.
+- **Effect on the rest of the app: none found.** The page policy (`default-src 'self'`, scripts `'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:`, styles `'unsafe-inline'`, images `data: blob:`, fonts `data:`, `connect-src 'self' blob: data:`, `worker-src 'self' blob:`) is sent only for `/?draw=direct`. `'unsafe-inline'` is for Next's inline bootstrap, `'unsafe-eval'` for Pixi's shader compiler and `blob:` for Pixi's own workers, so it is a weak policy against script injection; its only job is the page's own `fetch`. The whole headed visual verifier ran on the direct path with it (`--draw direct`, 150 of 150 checks, in desktop Chromium and the WebKit iPhone profiles), the title page loaded with zero violations and page errors in both browsers, and the game drew through Pixi. The verifier's own run-to-run noise is up to 6.5% of a dawn frame (a second default pass changed `07-heir` 6.5%, `10-gamepad-dawn` 1.7% and `16-sea-dawn` 1.5% against the first; the direct pass changed `10-gamepad-dawn` 1.4% and `16-sea-dawn` 2.6%), and the creature's title, night, flash and hurt frames did not change between paths.
+- **What a policy cannot do here:** it also needs to be kept. It is a header on one static file; a deployment that serves the file without it (a CDN rule, a rename) silently loses the network containment, and nothing in the page would notice. The Next `headers()` entry is the single place that sets it.
+
+### Signing, and the supply-chain risk
+
+**The risk.** With QuickJS, a tampered gallery record can at worst draw a wrong picture or burn a worker's time, because the code runs with nothing to reach. With direct execution, whoever can write the gallery (a leaked `BLOB_READ_WRITE_TOKEN`, a compromised deploy, a bug in the job that stores model output) can make **every player's browser run arbitrary JavaScript** the next time that creature is met. The worker's strip and the policy shrink what that code can reach; they are one browser-engine behaviour deep each, and the worker has the player's IP address and a CPU. This is the main reason to prefer a contained interpreter over a plain worker.
+
+**What signing does about it.** When the job accepts a creature it signs the creature's id and both hashes (`lampwarden-creature-v1`, the id, the code hash and the pixel hash, newline-separated) with an Ed25519 private key from `CREATURE_SIGNING_KEY` (a Web Crypto key, PKCS#8 base64) and stores the signature in `build.signature`. The browser has the public key built into its bundle (`NEXT_PUBLIC_CREATURE_PUBLIC_KEY`, read at build time) and verifies the signature before it fetches the code, and the code's hash before it runs it; a creature that fails either is no creature that night. Writing the store is then not enough to make players run code: the attacker needs the private key, which lives only in the job's environment. Tried with a key generated for the experiment (kept in `/tmp`, never committed), a fresh browser context for each case, in both browsers:
+
+| Record                                            | Result  | Code fetched | Direct worker started | Canary hits |
+| ------------------------------------------------- | ------- | ------------ | --------------------- | ----------- |
+| signed, code as signed                            | drawn   | yes          | yes                   | 0           |
+| code replaced in the store, record untouched      | refused | yes          | no                    | 0           |
+| code and record hashes replaced together (no key) | refused | no           | no                    | 0           |
+| signed by another key                             | refused | no           | no                    | 0           |
+| no signature                                      | refused | no           | no                    | 0           |
+
+The replaced code in the last four cases fetched the canary URL; it never ran. `creature-signing.test.ts` and a job test cover the same at unit level.
+
+**What signing does not address.** It authenticates the store, not the model. The server signs what the model wrote after the judge render accepted it, and a model (or a prompt injection in a brief) can write code that renders a good sprite in the server's QuickJS and does something else when it finds itself in a browser worker (the two engines differ in many observable ways). So a signed creature is still untrusted code, and the worker's containment and policy still have to hold; signing narrows who can put code in front of players from "anyone with store write access" to "the model and the job". It also adds a key to manage: rotating it means re-signing or dropping every earlier creature, and a key in the job's environment is a secret the job's compromise reveals. And the browser needs Ed25519 in Web Crypto (Chromium 137+, Safari 17+; both browsers here had it).
+
+### Measurements
+
+**Pixel identity.** Every committed single sprite script (the 18 in `public/sprites/*.ts`) and the male hero's 20 frames (idle 4, walk 6, melee 5, ranged 5, from `heroFrameBuilds`) draw exactly their PNGs, byte for byte, through the real path (signature, code route, hash checks, direct worker): **18 of 18 and 20 of 20 in Chromium, 18 of 18 and 20 of 20 in WebKit.** The trireme, which sits at QuickJS's 4 s deadline, draws in 0.2 s here.
+
+**Draw time** (milliseconds, wall from asking for pixels to having them, a new worker every draw; cold = a fresh browser context, so the worker script, kit and, for QuickJS, the WebAssembly are fetched, one sample per sprite; warm = the same page, 5 draws per sprite and 3 per hero frame; median / p95). QuickJS is #45's path in the same page and run:
+
+| Browser        | Samples                 | QuickJS median / p95 | Direct median / p95 | Median ratio |
+| -------------- | ----------------------- | -------------------- | ------------------- | ------------ |
+| Chromium       | cold, 18 single sprites | 1018.3 / 4125        | 128.6 / 218.4       | 7.9x         |
+| Chromium       | warm, 18 single sprites | 960.8 / 4396.1       | 121.6 / 212.2       | 7.9x         |
+| Chromium       | warm, 20 hero frames    | 934.7 / 981.4        | 134.8 / 165.4       | 6.9x         |
+| iPhone profile | cold, 18 single sprites | 781 / 3280           | 67 / 129            | 12x          |
+| iPhone profile | warm, 18 single sprites | 753.5 / 3222         | 56 / 112            | 13x          |
+| iPhone profile | warm, 20 hero frames    | 684.5 / 714          | 56 / 59             | 12x          |
+
+The p95 of the single sprites is the trireme (QuickJS 4.1-4.5 s, direct 0.17-0.22 s). Per sprite, the warm medians run from lamp-lit 93 ms (QuickJS 411) and satyr 132 ms (QuickJS 964) to temple 205 ms (2,500) in Chromium, and 29 / 59 / 107 ms (316 / 756 / 1,920) in the iPhone profile; the harness's JSON has every row. Hero frames by animation (Chromium, warm median): idle 135 ms, walk 135, melee 131, ranged 139, against QuickJS 948, 965, 897, 876. Of the direct path's 120 ms in Chromium, the build itself is about 55 ms (the worker's own timer); the rest is starting a worker, parsing its 205 KB and evaluating the kit; cold and warm differ by under 10 ms because over loopback fetching the file costs almost nothing (no download time is in any number). A phone will be slower than this Mac in both paths.
+
+**Bytes** (as sent through the counting proxy, gzip, first creature on a page, cold cache):
+
+| What                                                 | Bytes sent                                                             |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| direct: `creature-direct-worker.js` (kit + glue)     | 55,772 (205,170 raw)                                                   |
+| QuickJS (#45): 8 chunks and the WebAssembly          | 307,612 in Chromium, 311,552 in WebKit (the WebAssembly alone 234,043) |
+| a creature's code (satyr / harpy / cyclops / temple) | 317 / 222 / 293 / 109                                                  |
+| the same sprites' PNGs                               | 2,065 / 2,093 / 2,881 / 3,933                                          |
+
+The first creature costs about 27 times its PNG's bytes on this path (150 times on QuickJS); a later one costs its code, because the script is cached (the file is served with `max-age=3600`, not content-hashed, so a change takes up to an hour to reach a returning player).
+
+**Main-thread impact** (animation-frame gaps on the title page, which has Pixi's preview running, while workers draw back to back; ms):
+
+| Browser        | Case                | Frames | Median | p95  | Max  | Gaps over 50 ms |
+| -------------- | ------------------- | ------ | ------ | ---- | ---- | --------------- |
+| Chromium       | idle                | 177    | 16.7   | 16.8 | 33.3 | 0               |
+| Chromium       | direct, satyr x20   | 145    | 16.7   | 33.3 | 33.4 | 0               |
+| Chromium       | direct, cyclops x20 | 164    | 16.7   | 33.4 | 83.4 | 2               |
+| Chromium       | QuickJS, satyr x6   | 274    | 16.7   | 33.4 | 99.9 | 3               |
+| Chromium       | QuickJS, cyclops x4 | 343    | 16.7   | 33.4 | 50   | 0               |
+| Chromium       | idle, again         | 174    | 16.7   | 16.8 | 50.1 | 1               |
+| iPhone profile | idle                | 178    | 17     | 18   | 18   | 0               |
+| iPhone profile | direct, cyclops x20 | 103    | 17     | 18   | 19   | 0               |
+| iPhone profile | QuickJS, cyclops x4 | 326    | 17     | 17   | 23   | 0               |
+
+Neither path moved the frame rate more than the idle page does on this loaded machine (the two idle rows differ from each other as much as the drawing rows do); WebKit stayed at 17 ms throughout. Neither path does main-thread work during a draw beyond the page's own `postMessage` of 64 KiB; what is not measured is the texture upload and rim-light work after the pixels arrive, which is the same for both.
+
+### Probe matrix
+
+Hostile creature code through the direct path, both policies on, 19 probes in Chromium and WebKit. Per probe: whether it was contained, what it reached (canary server requests, requests the app's API saw, storage written), whether the page's frames and a 10 ms timer kept going (the longest gap is in the JSON; none was above 350 ms except noise on the loaded machine, 160 ms at most), and whether the next draw (the satyr, in a new worker) was exactly its PNG. **"Contained" here means no network, no API call, no storage, a live page, an exact next draw; it does not mean the resources were bounded** (see memory).
+
+| Probe                                   | What it tries                                                                                                                                                                                                     | What it came to                                                                                    | Reached                      | Next draw |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------- | --------- |
+| `escape-global`                         | constructor chains, indirect eval and the prototype chain to the real global                                                                                                                                      | the same stripped object on every route; no host name reachable; 53 names left, all the language's | nothing                      | identical |
+| `caller-walk`                           | `caller` and `arguments` up to the worker's own code and its `postMessage`                                                                                                                                        | no callers visible                                                                                 | nothing                      | identical |
+| `net-cross-origin`                      | `fetch` (direct, via `Function`, via a constructor chain, via the prototype), sync XHR, WebSocket, EventSource, `sendBeacon`, `importScripts`, `import()`, a nested Worker from a blob, a data URL and the canary | `TypeError` (not a function) for each but `import()`, which ran and was stopped by the policy      | 0 canary hits                | identical |
+| `net-same-origin`                       | POST `/api/plays` and `/api/creatures/next`, sync XHR to both, `importScripts` and `import()` of an API URL                                                                                                       | the same                                                                                           | 0 API calls                  | identical |
+| `import-scripts-remote`                 | `importScripts` of a remote URL, also via `Function`; `import()` of it                                                                                                                                            | `TypeError`; `import()` ran and was stopped by the policy                                          | 0 canary hits                | identical |
+| `storage`                               | writes to IndexedDB, the Cache API, the origin-private file system, Web Locks; the page then looks                                                                                                                | `TypeError` for each                                                                               | nothing stored               | identical |
+| `postmessage-flood`, `forge-reply`      | `postMessage` 100,000 times by seven routes; a forged "success" reply                                                                                                                                             | `TypeError` for every route                                                                        | nothing sent                 | identical |
+| `cpu-burner`, `regex-loop`              | `while (true) {}`; a catastrophic regular expression on 64 `a`s and a `b`                                                                                                                                         | ended by the 2 s terminate (WebKit finished the regex early)                                       | frames and timers kept going | identical |
+| `memory-bomb`, `memory-objects`         | 1 GiB of typed arrays; 10 million objects (and 4 GiB, run separately)                                                                                                                                             | **allocated everything, not stopped**; the build threw after; the page survived                    | memory, unbounded            | identical |
+| `stack-overflow`                        | unbounded recursion                                                                                                                                                                                               | `RangeError: Maximum call stack size exceeded`                                                     | nothing                      | identical |
+| `schedule-after`                        | timers, microtasks, a spinning promise job after the build returns                                                                                                                                                | no timers; the promise job is queued (microtasks exist) and dies with the worker                   | nothing                      | identical |
+| `prototype-pollution`, `kit-state`      | rewrites `Object`, `Array`, `Math`, `Uint8Array` prototypes and the kit's tables, then draws                                                                                                                      | the sprite failed or threw (the kit is polluted in this worker); a new worker draws exactly        | nothing                      | identical |
+| `throws`, `throws-object`, `huge-error` | an Error; an object whose conversions never return; a 40-million-character message                                                                                                                                | reported by name and message only (the worker never converts a thrown object), capped              | nothing                      | identical |
+
+The controls: the same probes in an unstripped blob worker with no policy reached the canary 13 times in Chromium and 10 in WebKit, the API 6 times (two `fetch`es, two sync XHRs, `importScripts`, `import()`) and wrote to IndexedDB and the cache, so the probes can reach what they claim to. Not tried: a WebAssembly-level or engine bug, `WebTransport`/WebRTC (not exposed in these workers' scopes, which the strip would shadow anyway), timing side channels, and any browser but these two.
+
+### Comparison
+
+|                               | QuickJS in WebAssembly (#45)                                           | Direct JavaScript in a worker (this)                                                                                           | Server-rendered frames as an atlas (option C)                               |
+| ----------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| What the player runs          | model code, in an interpreter with no host functions                   | model code, on the browser's own engine, in a stripped worker under a policy                                                   | no model code: images                                                       |
+| Containment                   | structural: the code can name nothing (19 of 19 probes, memory capped) | behavioural: a strip and a header (19 of 19 probes with both, `import()` open without the header; memory not capped)           | none needed in the browser; the server render stays in QuickJS or a sandbox |
+| A tampered gallery record     | wrong pixels or wasted CPU                                             | arbitrary JavaScript in every player's browser unless signed; signing makes it the model's and the job's code, not the store's | wrong images                                                                |
+| Draw time, warm median        | 0.4-4.5 s (satyr 0.96 s) Chromium; 0.3-3.3 s iPhone profile            | 0.09-0.22 s (satyr 0.13 s); 0.03-0.12 s iPhone profile                                                                         | decode of an image; the server pays the render once                         |
+| First-creature bytes          | about 308 KB (kit, interpreter, WebAssembly)                           | about 56 KB (kit)                                                                                                              | a PNG per frame, a few KB (the male hero's 20 frames are 46 KB of PNGs)     |
+| Animation                     | 0.7-0.9 s a frame: 20 frames about 19 s                                | 0.13 s a frame: 20 frames about 2.7 s                                                                                          | free in the browser; the server renders each frame once                     |
+| Delivers what the owner asked | yes: "we only have code and run the code that comes back"              | yes, and fast                                                                                                                  | no: ships an image, though the code can still be kept                       |
+| What it needs                 | nothing but the rule change #45 made                                   | the rule changed again, a key pair and its rotation, the header kept on one file                                               | a render step per creature and a place for the atlas                        |
+
+The direct server worker (the other lane's measurement of running the code in a Node worker on the server) is not repeated here; its numbers are not in this section.
+
+### Recommendation
+
+Do not adopt it as the default. It is 8 to 13 times faster than QuickJS and 5 times smaller on the wire, and with its strip and its policy it was contained against every probe tried, in two browsers. But its containment is two browser behaviours (a name strip that a future scope change or a syntax-level route can undo, and a response header on one file) where QuickJS's is that the code has nothing to name; it cannot bound memory at all; and the failure mode of a mistake is code execution on every player's machine, not a wrong picture. QuickJS is already fast enough for what the game does (a creature is drawn once, behind the title screen, in about a second); the thing direct execution buys that matters is animation, 20 frames in 2.7 s against 19 s, and option C buys that without running model code in the player's browser at all, at the price of shipping images. If the owner wants direct execution anyway: ship the signing with it (it works and refuses every tampered case here), keep `CREATURE_DIRECT_CSP=both` as a tested default, serve `creature-direct-worker.js` with the policy and a content hash in its name, check in CI that the header is on that response, and consider a rate limit on what a creature is allowed to cost (a 2 s deadline is already the cap on CPU).
+
+### Not verified (option E)
+
+- Nothing ran on a Vercel deployment: only `next start` on macOS arm64. Whether Vercel serves `public/creature-direct-worker.js` with the `headers()` entry, and whether its build runs `bun run build` (which makes the file) and not `next build`, was not tried; without the file the direct path draws nothing.
+- Chromium and WebKit only, at the versions Playwright 1.64.1 ships; not Firefox, not a real iPhone, not Safari itself. A phone's draw times will be higher.
+- The machine was loaded by other work (load average 7-14); the paths were interleaved, but the numbers carry that noise, and the frame rows cannot show a difference smaller than it.
+- The probes are the ones listed, written by the author of the strip; a hostile creature would be written by someone who has read the strip. No fuzzing of the engine, no timing side channels, no attempt at an engine bug.
+- A real live job with a real signing key was not run (no Mubit calls were made); the job's signing is covered by a unit test with a fake model, and the browser path by the fixtures above.
+
 ## Not verified
 
 - QuickJS on a Vercel deployment: the route ran on `next start` on macOS arm64 (a live job, 36.5 s), not on a Vercel function. That the `.wasm` and the worker chunk are in the function's trace is read from the build's `.nft.json`; `resourceLimits` on a worker thread, Linux x64, Fluid compute's memory and CPU were not tried. The judge render times above are this Mac's.

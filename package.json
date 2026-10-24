@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bun pipeline/build-direct-worker.ts && next dev",
+    "build": "bun pipeline/build-direct-worker.ts && next build",
     "start": "next start",
     "check": "bun run lint && bun run typecheck && bun test && bun run knip && bun run build",
     "lint": "biome check .",
@@ -24,7 +24,8 @@
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts",
     "check:pixels": "bun pipeline/check-pixels.ts",
-    "check:creature-worker": "bun e2e/check-creature-worker.mjs"
+    "check:creature-worker": "bun e2e/check-creature-worker.mjs",
+    "check:creature-direct": "bun e2e/check-creature-direct.mjs"
   },
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",

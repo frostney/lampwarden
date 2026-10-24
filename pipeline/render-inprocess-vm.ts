@@ -11,8 +11,9 @@
 
 import { types } from "node:util";
 import { createContext, Script } from "node:vm";
+import { DETERMINISM_PRELUDE, kitScript, prepareBuild } from "./build-script";
 import { PREPARED_KIT } from "./prepared-kit";
-import { DETERMINISM_PRELUDE, errorSummary, kitScript, prepareBuild, runScript } from "./quickjs-core";
+import { errorSummary, runScript } from "./quickjs-core";
 import { finishRender } from "./render-finish";
 import { isCommittedSpriteScript, plainJavaScript } from "./render-inprocess-shared";
 import { invalidRequestReason, type Renderer, type RenderRequest, type RenderResult } from "./render-types";

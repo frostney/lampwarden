@@ -7,10 +7,16 @@
 // The worker is created when a creature is announced and terminated as soon as it answers or its deadline passes, so
 // nothing is loaded for a night without a creature and nothing is kept for one that has been drawn. Any failure, a code
 // fetch that fails, a hash that does not match, a worker error or a deadline, is null: no creature that night.
+//
+// EXPERIMENT (docs/LIVE_GENERATION.md, "Direct execution in the browser (option E)"): with `?draw=direct` the worker is
+// src/scene/creature-direct-worker.ts instead, which runs the code as plain JavaScript with no interpreter, and a creature
+// is drawn only when the server's signature on its record verifies. QuickJS stays the default.
 
 import { RENDER_LIMITS } from "../../pipeline/quickjs-limits";
 import { type Creature, creatureCodePath } from "../game/creature";
-import { type CreatureCodeSource, drawCreature } from "../game/creature-build";
+import { CREATURE_PIXEL_BYTES, type CreatureCodeSource, drawCreature } from "../game/creature-build";
+import { verifyBuild } from "../game/creature-signing";
+import type { DirectDrawRequest } from "./creature-direct-worker";
 import type { DrawReply, DrawRequest } from "./creature-worker";
 
 /** The whole draw gets this long, from creating the worker (which fetches the WebAssembly) to having the pixels. */
@@ -19,6 +25,24 @@ const DRAW_DEADLINE_MILLISECONDS = 5000;
 const INTERPRETER_MARGIN_MILLISECONDS = 1000;
 const CODE_FETCH_TIMEOUT_MILLISECONDS = 5000;
 const MAXIMUM_CODE_CHARACTERS = 100_000;
+/** EXPERIMENT (option E): a direct worker has no interpreter deadline of its own, so this is the whole of its budget. */
+const DIRECT_DEADLINE_MILLISECONDS = 2000;
+/**
+ * EXPERIMENT: the direct worker is one self-contained script that `bun pipeline/build-direct-worker.ts` bundles from
+ * creature-direct-worker.ts into public/, so that its own response can carry a Content-Security-Policy (next.config.ts).
+ */
+const DIRECT_WORKER_URL = "/creature-direct-worker.js";
+/** EXPERIMENT: the public half of the key the server signs creatures with, built into the bundle (creature-signing.ts). */
+const SIGNING_PUBLIC_KEY = process.env.NEXT_PUBLIC_CREATURE_PUBLIC_KEY;
+
+/** Which worker draws: QuickJS (the default) or, with `?draw=direct`, the experiment's plain-JavaScript worker. */
+type DrawPath = "quickjs" | "direct";
+
+function selectedDrawPath(): DrawPath {
+  return typeof location !== "undefined" && new URLSearchParams(location.search).get("draw") === "direct"
+    ? "direct"
+    : "quickjs";
+}
 
 function isDrawReply(value: unknown): value is DrawReply {
   return typeof value === "object" && value !== null && "ok" in value;
@@ -39,7 +63,13 @@ export type DrawResult =
  * Runs `code` in a new worker. The worker is gone when this settles, whatever happened in it. This does not check the code
  * against anything: it is for `drawCreature`, which checks it first, and for the visual verifier's probes.
  */
-export function drawInWorker(code: string, deadlineMilliseconds = DRAW_DEADLINE_MILLISECONDS): Promise<DrawResult> {
+export function drawInWorker(
+  code: string,
+  deadlineMilliseconds?: number,
+  path: DrawPath = selectedDrawPath(),
+): Promise<DrawResult> {
+  const direct = path === "direct";
+  const deadline = deadlineMilliseconds ?? (direct ? DIRECT_DEADLINE_MILLISECONDS : DRAW_DEADLINE_MILLISECONDS);
   return new Promise((resolve) => {
     let worker: Worker | undefined;
     const started = performance.now();
@@ -62,21 +92,31 @@ export function drawInWorker(code: string, deadlineMilliseconds = DRAW_DEADLINE_
         runMilliseconds: reply.runMilliseconds,
       });
     };
-    const timer = setTimeout(() => finish({ ok: false, reason: "deadline" }), deadlineMilliseconds);
+    const timer = setTimeout(() => finish({ ok: false, reason: "deadline" }), deadline);
     try {
-      worker = new Worker(new URL("./creature-worker.ts", import.meta.url), { type: "module" });
+      worker = direct
+        ? new Worker(DIRECT_WORKER_URL)
+        : new Worker(new URL("./creature-worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = (event: MessageEvent<unknown>) => {
         const reply = event.data;
         if (!isDrawReply(reply)) return finish({ ok: false, reason: "unexpected reply" });
-        finish(reply.ok ? { ok: true, reply } : { ok: false, reason: reply.reason });
+        // the direct worker is not trusted to answer in the right shape (the hash check would catch wrong pixels anyway)
+        if (reply.ok && !(reply.pixels instanceof ArrayBuffer && reply.pixels.byteLength === CREATURE_PIXEL_BYTES))
+          return finish({ ok: false, reason: "unexpected reply" });
+        finish(reply.ok ? { ok: true, reply } : { ok: false, reason: String(reply.reason).slice(0, 400) });
       };
       worker.onerror = () => finish({ ok: false, reason: "worker error" });
       worker.onmessageerror = () => finish({ ok: false, reason: "worker message error" });
-      const request: DrawRequest = {
-        code,
-        limits: { ...RENDER_LIMITS, timeoutMilliseconds: deadlineMilliseconds - INTERPRETER_MARGIN_MILLISECONDS },
-      };
-      worker.postMessage(request);
+      if (direct) {
+        const request: DirectDrawRequest = { code };
+        worker.postMessage(request);
+      } else {
+        const request: DrawRequest = {
+          code,
+          limits: { ...RENDER_LIMITS, timeoutMilliseconds: deadline - INTERPRETER_MARGIN_MILLISECONDS },
+        };
+        worker.postMessage(request);
+      }
     } catch {
       finish({ ok: false, reason: "no worker" });
     }
@@ -99,6 +139,13 @@ const browserSource: CreatureCodeSource = {
     const result = await drawInWorker(code);
     return result.ok ? result.pixels : null;
   },
+  // Plain JavaScript is run only for a creature the server signed. Without the public key built in there is nothing to
+  // verify against, so the direct path draws nothing. (QuickJS, which is sandboxed, needs no signature.)
+  authentic: async (creature) =>
+    selectedDrawPath() !== "direct" ||
+    (SIGNING_PUBLIC_KEY !== undefined &&
+      creature.build !== undefined &&
+      (await verifyBuild(SIGNING_PUBLIC_KEY, creature.id, creature.build, creature.build.signature))),
 };
 
 const draws = new Map<string, Promise<Uint8Array<ArrayBuffer> | null>>();

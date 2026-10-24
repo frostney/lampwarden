@@ -21,6 +21,11 @@ export interface CreatureCodeSource {
   fetchCode(creatureId: string, fresh?: boolean): Promise<string | null>;
   /** Runs the code and returns the sprite's RGBA pixels, or null when it failed or ran out of time. */
   draw(code: string): Promise<Uint8Array<ArrayBuffer> | null>;
+  /**
+   * EXPERIMENT (direct execution, creature-signing.ts): whether the server vouches for this record. When present it is
+   * asked before anything is fetched; a creature it refuses is neither fetched nor run.
+   */
+  authentic?(creature: Pick<Creature, "id" | "build">): Promise<boolean>;
 }
 
 /**
@@ -34,6 +39,8 @@ export async function drawCreature(
   const { build } = creature;
   if (!build) return null;
   try {
+    // the signature covers the id and both hashes, so it is checked first: an unvouched record's code is not even fetched
+    if (source.authentic && !(await source.authentic(creature))) return null;
     let code = await source.fetchCode(creature.id);
     if (code !== null && (await sha256Hex(code)) !== build.codeSha256) {
       // the route is cached for good, so a truncated or stale copy would stay in the HTTP cache: ask once for a fresh one

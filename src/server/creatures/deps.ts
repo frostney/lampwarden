@@ -6,6 +6,7 @@
 // renderer reads none: the prepared kit is in its bundle and the WebAssembly file is traced with it.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { signBuild } from "@/game/creature-signing";
 import { createMubitClient } from "../../../pipeline/mubit";
 import { renderInQuickJsWorker } from "../../../pipeline/render-quickjs";
 import type { Renderer, RendererName } from "../../../pipeline/render-types";
@@ -75,7 +76,7 @@ function createRenderer(
 
 /** The deployed job's dependencies, or null when generation is not configured. */
 function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | null {
-  const { mubitApiKey } = config;
+  const { mubitApiKey, signingKey } = config;
   const renderer = createRenderer(config);
   if (!generationAvailable(config) || mubitApiKey === null || renderer === null) return null;
   return {
@@ -92,6 +93,7 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
     budgetMilliseconds: JOB_BUDGET_SECONDS * 1000,
     candidates: config.candidates,
     ...(config.debugDirectory ? { onOutcome: debugSink(config.debugDirectory) } : {}),
+    ...(signingKey === null ? {} : { sign: (id, build) => signBuild(signingKey, id, build) }),
   };
 }
 

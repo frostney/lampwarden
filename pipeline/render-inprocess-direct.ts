@@ -5,8 +5,10 @@
 // all in reach. There is no isolation of any kind. To keep it from ever being a way to run untrusted code, it refuses
 // every build that is not byte-for-byte one of the scripts committed in this repository (public/sprites/*.ts and the
 // generated hero frame builds), and it is not listed in `renderers.ts`, so `pipeline/run.ts` cannot select it.
+
+import { kitScript, prepareBuild } from "./build-script";
 import { PREPARED_KIT } from "./prepared-kit";
-import { errorSummary, kitScript, prepareBuild } from "./quickjs-core";
+import { errorSummary } from "./quickjs-core";
 import { finishRender } from "./render-finish";
 import { isCommittedSpriteScript, plainJavaScript } from "./render-inprocess-shared";
 import { invalidRequestReason, type Renderer } from "./render-types";

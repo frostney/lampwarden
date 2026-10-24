@@ -7,8 +7,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import * as nodeModule from "node:module";
 import { join } from "node:path";
 import { HERO_ANIMATIONS, SEXES } from "../src/scene/assets";
+import { prepareBuild } from "./build-script";
 import { heroFrameBuilds } from "./hero-animation";
-import { prepareBuild } from "./quickjs-core";
 
 // Bun runs the source in place. For Node the harness bundles the pipeline first and points this variable at pipeline/.
 const PIPELINE_DIRECTORY = process.env.LAMPWARDEN_PIPELINE_DIRECTORY ?? import.meta.dirname;

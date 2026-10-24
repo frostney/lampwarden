@@ -98,6 +98,8 @@ export interface JobDeps {
    * no browser would ever draw, because two engines can differ in the last bit of a float.
    */
   drawCheck?: Renderer;
+  /** EXPERIMENT (src/game/creature-signing.ts): signs an accepted creature's id and hashes; absent when no key is set. */
+  sign?: (id: string, build: { codeSha256: string; pixelsSha256: string }) => Promise<string>;
   prompts: { creature: string; generator: string; verifier: string };
   /** Random hex for ids. */
   entropy: () => string;
@@ -193,7 +195,14 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     const build = await buildHashes(outcome.winner.code, outcome.winner.png);
     if (deps.drawCheck && !(await drawsTheSame(deps.drawCheck, outcome.winner.code, build.pixelsSha256)))
       return fail("the sprite would not draw the same in the browser");
-    const creature = buildCreature(id, written.brief, outcome.winner, build, deps.now());
+    const signature = deps.sign ? await deps.sign(id, build) : undefined;
+    const creature = buildCreature(
+      id,
+      written.brief,
+      outcome.winner,
+      signature === undefined ? build : { ...build, signature },
+      deps.now(),
+    );
     await deps.store.putCreature(creature, outcome.winner.code);
     await conclude("done", { creature });
   }

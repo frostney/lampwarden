@@ -148,7 +148,7 @@ async function runChild(
 async function runControl(): Promise<void> {
   const { default: variant } = await import("@jitl/quickjs-wasmfile-release-sync");
   const { newQuickJSWASMModuleFromVariant } = await import("quickjs-emscripten-core");
-  const shared = await import("./quickjs-core");
+  const shared = { ...(await import("./build-script")), ...(await import("./quickjs-core")) };
   const { PREPARED_KIT } = await import("./prepared-kit");
   const { createQuickJsRenderer } = await import("./render-inprocess-quickjs");
   const polluting = readFileSync(join(PROBES_DIRECTORY, "kit-state.js"), "utf8");

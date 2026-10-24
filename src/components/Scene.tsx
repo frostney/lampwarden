@@ -51,13 +51,24 @@ import {
   drawSweep,
   heroFrame,
   lightsAlpha,
+  nightProgress,
   nightTint,
   PROPS,
   type TextureMap,
   textureFor,
 } from "@/scene/layers";
-import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/scene/light";
+import { glintFrame, heroLight, type LightPiece, lampFlicker, lampFoot, lampLight, lanternGlow } from "@/scene/light";
+import {
+  type CharacterLight,
+  DARK_CHARACTER,
+  lampFootTint,
+  lightCharacter,
+  mirroredOctant,
+  type RimSpec,
+} from "@/scene/lighting";
 import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/scene/projectiles";
+import { rimTexture } from "@/scene/rim";
+import { shadowPiece } from "@/scene/shadow";
 import {
   LIGHTHOUSE_LAMP,
   lighthouseFrame,
@@ -93,11 +104,14 @@ interface SceneProps {
   onReady: () => void; // the scene is on the stage
 }
 
-// Shared by every entity for the life of the scene: textures and the clock (seconds; the boat's bob, the dark lamps'
-// pulse, the lights' flicker and glints). The clock is a ref so it can move every frame without a render.
+// Shared by every entity for the life of the scene: textures, the clock (seconds; the boat's bob, the dark lamps'
+// pulse, the lights' flicker and glints) and how the lamps light each character. The clock is a ref so it can move every
+// frame without a render; the lighting is worked out once a frame, right after the sim steps, and read by identity.
+type Lighting = Map<object, CharacterLight>;
 interface SceneShared {
   textures: TextureMap;
   clock: RefObject<number>;
+  lighting: Lighting;
 }
 const SceneContext = createContext<SceneShared | null>(null);
 function useScene(): SceneShared {
@@ -125,7 +139,8 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
-  const shared = useMemo(() => ({ textures, clock }), [textures]);
+  const lighting = useMemo<Lighting>(() => new Map(), []);
+  const shared = useMemo(() => ({ textures, clock, lighting }), [textures, lighting]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
@@ -170,9 +185,10 @@ export const Scene = memo(function Scene({
             }
           }
         }
+        lightCharacters(state, lighting, clock.current);
         settings.onTick(state);
       },
-      [night, controls],
+      [night, controls, lighting],
     ),
   });
 
@@ -192,34 +208,31 @@ export const Scene = memo(function Scene({
         <World state={state}>
           <Water />
           <pixiGraphics draw={drawGround} />
-          <pixiContainer sortableChildren>
-            {PROPS.map(([key, x, y]) => (
-              <pixiSprite
-                key={`${key}@${x},${y}`}
-                texture={textureFor(textures, key)}
-                anchor={anchor(key)}
-                x={x}
-                y={y}
-                zIndex={y}
-              />
-            ))}
-            <Trireme />
-            <Hero hero={state.hero} sex={night.sex} />
-            {state.lamps.map((lamp) => (
-              <LampPost key={`lamp@${lamp.x},${lamp.y}`} lamp={lamp} />
-            ))}
-            <Monsters state={state} />
-          </pixiContainer>
+        </World>
+        <GroundLights state={state}>
+          <MoonGlitter />
+          <HeroLight hero={state.hero} />
+          {state.lamps.map((lamp) => (
+            <LampPool key={`pool@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightRadius} />
+          ))}
+        </GroundLights>
+        <Shadows state={state} />
+        <pixiContainer sortableChildren>
+          <Props state={state} />
+          <Trireme state={state} />
+          <Hero state={state} sex={night.sex} />
+          {state.lamps.map((lamp) => (
+            <LampPost key={`lamp@${lamp.x},${lamp.y}`} state={state} lamp={lamp} />
+          ))}
+          {state.lamps.map((lamp) => (
+            <LampGlow key={`glow@${lamp.x},${lamp.y}`} state={state} lamp={lamp} radius={state.rules.lightRadius} />
+          ))}
+          <Monsters state={state} />
+        </pixiContainer>
+        <World state={state}>
           <Strokes draw={sweep} />
         </World>
       </pixiContainer>
-      <Lights state={state}>
-        <MoonGlitter />
-        <HeroLight hero={state.hero} />
-        {state.lamps.map((lamp) => (
-          <LampLight key={`light@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightRadius} />
-        ))}
-      </Lights>
       <Projectiles state={state} sex={night.sex} />
       <Strokes draw={marks} />
     </SceneContext.Provider>
@@ -341,13 +354,43 @@ function Water() {
   );
 }
 
-function Trireme() {
+const tintOf = (state: State) => nightTint(nightProgress(state));
+
+// the static props, depth-sorted with everything that moves; each is tinted by the night on its own, as the sprites
+// share a container with the lights that must not be
+function Props({ state }: { state: State }) {
+  const { textures } = useScene();
+  const sprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const tint = tintOf(state);
+      for (const sprite of sprites.current) if (sprite) sprite.tint = tint;
+    }, [state]),
+  );
+  return PROPS.map(([key, x, y], index) => (
+    <pixiSprite
+      key={`${key}@${x},${y}`}
+      ref={(sprite: Sprite | null) => {
+        sprites.current[index] = sprite;
+      }}
+      texture={textureFor(textures, key)}
+      anchor={anchor(key)}
+      x={x}
+      y={y}
+      zIndex={y}
+    />
+  ));
+}
+
+function Trireme({ state }: { state: State }) {
   const { textures, clock } = useScene();
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
-      if (ref.current) ref.current.y = 440 + Math.sin(clock.current * 1.5) * 4;
-    }, [clock]),
+      if (!ref.current) return;
+      ref.current.y = 440 + Math.sin(clock.current * 1.5) * 4;
+      ref.current.tint = tintOf(state);
+    }, [clock, state]),
   );
   return (
     <pixiSprite
@@ -361,32 +404,65 @@ function Trireme() {
   );
 }
 
-const Hero = memo(function Hero({ hero, sex }: { hero: HeroState; sex: Sex }) {
-  const { textures } = useScene();
+// Puts a character's rim over it: the hard warm pixels along the edge that faces the lamp, a sprite of its own over the
+// character's (it must not take the night's tint), mirrored with the character.
+function showRim(rim: Sprite | null, sprite: Sprite, texture: Texture, spec: RimSpec | null) {
+  if (!rim) return;
+  const rimOver = spec
+    ? rimTexture(texture, sprite.scale.x < 0 ? mirroredOctant(spec.direction) : spec.direction)
+    : null;
+  rim.visible = spec !== null && rimOver !== null;
+  if (!spec || !rimOver) return;
+  rim.texture = rimOver;
+  rim.alpha = spec.alpha;
+  rim.position.copyFrom(sprite.position);
+  rim.scale.x = sprite.scale.x;
+  rim.zIndex = sprite.zIndex + 0.001;
+}
+
+// multiplies two tints, as one lands on top of the other
+function multiplyTints(first: number, second: number) {
+  const mixed = (shift: number) => Math.round((((first >> shift) & 255) * ((second >> shift) & 255)) / 255) << shift;
+  return mixed(16) | mixed(8) | mixed(0);
+}
+
+const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
+  const { textures, lighting } = useScene();
+  const hero = state.hero;
   const ref = useRef<Sprite>(null);
+  const rim = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
       const texture = textures[heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime))];
       if (!sprite || !texture) return;
+      const light = lighting.get(hero) ?? DARK_CHARACTER;
       sprite.texture = texture;
       sprite.position.set(Math.round(hero.x), Math.round(hero.y));
       sprite.zIndex = hero.y;
       sprite.scale.x = hero.left ? -1 : 1;
-      sprite.tint = hero.hurt > 0 ? 0xff8080 : 0xffffff;
-    }, [textures, hero, sex]),
+      sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, 0xff8080) : light.tint;
+      showRim(rim.current, sprite, texture, light.rim);
+    }, [textures, lighting, hero, sex]),
   );
-  return <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0))} anchor={anchor("hero")} />;
+  return (
+    <>
+      <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0))} anchor={anchor("hero")} />
+      <pixiSprite ref={rim} anchor={anchor("hero")} visible={false} />
+    </>
+  );
 });
 
-const LampPost = memo(function LampPost({ lamp }: { lamp: Lamp }) {
+const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: Lamp }) {
   const { textures } = useScene();
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       const texture = textures[lamp.lit ? "lamp-lit" : "lamp-unlit"];
-      if (ref.current && texture) ref.current.texture = texture;
-    }, [textures, lamp]),
+      if (!ref.current) return;
+      if (texture) ref.current.texture = texture;
+      ref.current.tint = tintOf(state);
+    }, [textures, state, lamp]),
   );
   return (
     <pixiSprite
@@ -423,22 +499,76 @@ function Monsters({ state }: { state: State }) {
 }
 
 const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monster }) {
-  const { textures } = useScene();
+  const { textures, lighting } = useScene();
   const ref = useRef<Sprite>(null);
+  const rim = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
       if (!sprite) return;
       const flying = MONSTER[monster.kind].fly;
       const bob = Math.sin(monster.age * (flying ? 7 : 5)) * (flying ? 6 : 2);
+      const light = lighting.get(monster) ?? DARK_CHARACTER;
       sprite.position.set(Math.round(monster.x), Math.round(monster.y - (flying ? 22 : 0) + bob));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
-      sprite.tint = monster.hurt > 0 ? 0xff7070 : 0xffffff;
-    }, [monster]),
+      sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
+      showRim(rim.current, sprite, textureFor(textures, monster.kind), light.rim);
+    }, [monster, textures, lighting]),
   );
-  return <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />;
+  return (
+    <>
+      <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />
+      <pixiSprite ref={rim} anchor={anchor(monster.kind)} visible={false} />
+    </>
+  );
 });
+
+// How the lamps light each character, worked out once a frame after the sim has stepped: its warm tint, its shadows and its
+// rim (src/scene/lighting.ts). Everything that draws a character reads it from here.
+function lightCharacters(state: State, lighting: Lighting, clock: number) {
+  lighting.clear();
+  lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock));
+  for (const monster of state.monsters)
+    lighting.set(monster, lightCharacter(state, monster.x, monster.y, MONSTER[monster.kind].fly, clock));
+}
+
+// The characters' shadows on the ground: under every sprite and over the lamps' pools, so a figure stands in front of its
+// own shadow and the light it blocks. One faint for the moon, one for each lamp lighting it; the sprites are pooled.
+function Shadows({ state }: { state: State }) {
+  const { lighting } = useScene();
+  const layer = useRef<Container>(null);
+  const sprites = useRef<Sprite[]>([]);
+  useFrame(
+    useCallback(() => {
+      const container = layer.current;
+      if (!container) return;
+      let used = 0;
+      const cast = (character: object, x: number, y: number) => {
+        for (const shadow of lighting.get(character)?.shadows ?? []) {
+          if (shadow.alpha <= 0) continue;
+          let sprite = sprites.current[used];
+          if (!sprite) {
+            sprite = new Sprite();
+            container.addChild(sprite);
+            sprites.current.push(sprite);
+          }
+          used++;
+          sprite.visible = true;
+          sprite.alpha = shadow.alpha;
+          place(sprite, shadowPiece(shadow.angleIndex, shadow.lengthStep), Math.round(x), Math.round(y));
+        }
+      };
+      cast(state.hero, state.hero.x, state.hero.y);
+      for (const monster of state.monsters) cast(monster, monster.x, monster.y);
+      for (let index = used; index < sprites.current.length; index++) {
+        const sprite = sprites.current[index];
+        if (sprite) sprite.visible = false;
+      }
+    }, [state, lighting]),
+  );
+  return <pixiContainer ref={layer} />;
+}
 
 // a Graphics layer cleared and redrawn every frame (shots, puffs, rings)
 function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
@@ -454,10 +584,9 @@ function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
   return <pixiGraphics ref={ref} draw={noDraw} />;
 }
 
-const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
-
-// additive lights over the night; they fade as dawn comes
-function Lights({ state, children }: { state: State; children: ReactNode }) {
+// The lights that lie on the ground, added over the night tint: the moon's path, the warden's own light and the lamps'
+// pools. They sit under every sprite, shadows included, and fade as dawn comes.
+function GroundLights({ state, children }: { state: State; children: ReactNode }) {
   const ref = useRef<Container>(null);
   useFrame(
     useCallback(() => {
@@ -473,7 +602,7 @@ function place(sprite: Sprite, piece: LightPiece, x: number, y: number) {
   sprite.position.set(x + piece.offsetX, y + piece.offsetY);
 }
 
-// the warden's own small light, in the same stepped bands as the lamps
+// the warden's own small light on the ground, in the same stepped bands as the lamps
 const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
   const { clock } = useScene();
   const ref = useRef<Sprite>(null);
@@ -489,29 +618,23 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
   return <pixiSprite ref={ref} blendMode="add" />;
 });
 
-// A lit lamp's light, all of it precomputed in src/scene/light.ts: the pool on the ground, the lantern glowing in its own
-// colours inside a halo, and the glints on the stone, the brass and the sea. A dark lamp shows none of it.
-const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius: number }) {
-  const { textures, clock } = useScene();
-  const lantern = lanternGlow(textureFor(textures, "lamp-lit"));
+// A lit lamp's light on the ground, precomputed in src/scene/light.ts: the pool and the glints on the stone and the sea.
+// A dark lamp shows none of it.
+const LampPool = memo(function LampPool({ lamp, radius }: { lamp: Lamp; radius: number }) {
+  const { clock } = useScene();
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
   const group = useRef<Container>(null),
-    pool = useRef<Sprite>(null),
-    halo = useRef<Sprite>(null);
+    pool = useRef<Sprite>(null);
   const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
       const groupContainer = group.current,
-        poolSprite = pool.current,
-        haloSprite = halo.current;
-      if (!groupContainer || !poolSprite || !haloSprite) return;
+        poolSprite = pool.current;
+      if (!groupContainer || !poolSprite) return;
       groupContainer.visible = lamp.lit;
       if (!lamp.lit) return;
-      const variant = lampFlicker(light, clock.current);
-      const poolPiece = light.pools[variant];
-      const haloPiece = light.halos[variant];
+      const poolPiece = light.pools[lampFlicker(light, clock.current)];
       if (poolPiece) place(poolSprite, poolPiece, light.poolX, light.poolY);
-      if (haloPiece) place(haloSprite, haloPiece, light.haloX, light.haloY);
       light.glints.forEach((glint, index) => {
         const sprite = glintSprites.current[index];
         if (!sprite) return;
@@ -524,6 +647,54 @@ const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius
   return (
     <pixiContainer ref={group}>
       <pixiSprite ref={pool} blendMode="add" />
+      {light.glints.map((glint, index) => (
+        <pixiSprite
+          key={`${glint.x},${glint.y}`}
+          ref={(sprite: Sprite | null) => {
+            glintSprites.current[index] = sprite;
+          }}
+          blendMode="add"
+        />
+      ))}
+    </pixiContainer>
+  );
+});
+
+// What a lit lamp shows at its own height, depth-sorted with the lamp so it lies over what stands behind it and under
+// what stands in front: the lamp's foot lit warm by its own pool, the lantern glowing in its own colours inside a halo,
+// and the glints on the brass.
+const LampGlow = memo(function LampGlow({ state, lamp, radius }: { state: State; lamp: Lamp; radius: number }) {
+  const { textures, clock } = useScene();
+  const lantern = lanternGlow(textureFor(textures, "lamp-lit"));
+  const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
+  const foot = lampFoot(textureFor(textures, "lamp-lit"));
+  const group = useRef<Container>(null),
+    halo = useRef<Sprite>(null),
+    footSprite = useRef<Sprite>(null);
+  const glintSprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const groupContainer = group.current,
+        haloSprite = halo.current;
+      if (!groupContainer || !haloSprite) return;
+      groupContainer.visible = lamp.lit;
+      if (!lamp.lit) return;
+      groupContainer.alpha = lightsAlpha(nightProgress(state));
+      if (footSprite.current) footSprite.current.tint = lampFootTint(state);
+      const haloPiece = light.halos[lampFlicker(light, clock.current)];
+      if (haloPiece) place(haloSprite, haloPiece, light.haloX, light.haloY);
+      light.brassGlints.forEach((glint, index) => {
+        const sprite = glintSprites.current[index];
+        if (!sprite) return;
+        const frame = glintFrame(glint, clock.current);
+        sprite.visible = frame !== null;
+        if (frame) place(sprite, frame, glint.x, glint.y);
+      });
+    }, [state, lamp, light, clock]),
+  );
+  return (
+    <pixiContainer ref={group} zIndex={lamp.y + 0.1}>
+      <pixiSprite ref={footSprite} texture={foot.texture} x={lamp.x + foot.offsetX} y={lamp.y + foot.offsetY} />
       <pixiSprite ref={halo} blendMode="add" />
       <pixiSprite
         texture={lantern.texture}
@@ -532,7 +703,7 @@ const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius
         blendMode="add"
         alpha={0.45}
       />
-      {light.glints.map((glint, index) => (
+      {light.brassGlints.map((glint, index) => (
         <pixiSprite
           key={`${glint.x},${glint.y}`}
           ref={(sprite: Sprite | null) => {

@@ -5,6 +5,7 @@ import { Assets, type Graphics, Texture } from "pixi.js";
 import { CENTRE_X, CENTRE_Y, MONSTER, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH, type State } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 import { PLAZA_WALL } from "./plaza";
+import { isCharacterKey, withoutPaintedShadow } from "./rim";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -20,7 +21,8 @@ export function loadTextures(): Promise<TextureMap> {
       const texture = loaded[asset.alias];
       if (!texture) continue;
       texture.source.scaleMode = "nearest";
-      textures[asset.alias] = texture;
+      // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
+      textures[asset.alias] = isCharacterKey(asset.alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
     }
     return textures;
   })();
@@ -84,7 +86,8 @@ function mixColours(fromColour: number, toColour: number, amount: number) {
   const blue = interpolate(fromColour & 255, toColour & 255, amount);
   return (Math.round(red) << 16) | (Math.round(green) << 8) | Math.round(blue);
 }
-// night tint (multiplied over the world below the sky): deep blue, warming to dawn over the last fifth of the night
+// night tint (multiplied over the world below the sky; the sea and ground carry it on a container, each sprite on its own
+// so lamp light can bring a character back up): deep blue, warming to dawn over the last fifth of the night
 export function nightTint(progress: number) {
   if (progress < 0.8) return 0x46559a;
   const dawning = (progress - 0.8) / 0.2;
@@ -92,6 +95,8 @@ export function nightTint(progress: number) {
     ? mixColours(0x46559a, 0xd08a7a, dawning / 0.6)
     : mixColours(0xd08a7a, 0xffffff, (dawning - 0.6) / 0.4);
 }
+// how far the night has run, 0 to 1
+export const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
 // the lights fade out over the last 15% of the night
 export const lightsAlpha = (progress: number) => (progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15);
 

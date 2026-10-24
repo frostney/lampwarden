@@ -12,7 +12,7 @@ const DEFAULT_STARTS_PER_DAY = 40;
 const DEFAULT_BLOB_PREFIX = "creatures";
 const DEFAULT_CANDIDATES = 3;
 const MAX_CANDIDATES = 5;
-const MIN_SALT_LENGTH = 16;
+export const MIN_SALT_LENGTH = 16;
 
 export interface StartLimits {
   perVisitorPerHour: number;
@@ -32,7 +32,7 @@ export interface CreatureConfig {
   debugDirectory: string | null;
 }
 
-const positiveInteger = (fallback: number) =>
+export const positiveInteger = (fallback: number) =>
   z
     .string()
     .regex(/^[0-9]+$/)
@@ -45,7 +45,7 @@ const prefixSchema = z
   .regex(/^[a-z0-9][a-z0-9/_-]{0,60}$/)
   .catch(DEFAULT_BLOB_PREFIX);
 
-const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
+export const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
 
 export function readCreatureConfig(env: Readonly<Record<string, string | undefined>>): CreatureConfig {
   const salt = present(env.CREATURE_RATE_SALT);

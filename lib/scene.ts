@@ -69,7 +69,7 @@ function nightTint(p: number) {
 
 const PROPS: [string, number, number][] = [
   ["temple", 372, 236], ["house", 620, 240], ["zeus-statue", CX, CY + 14], ["galley-dock", CX + 345, CY + 112],
-  ["olive", 160, 300], ["olive", 800, 300],
+  ["olive", 160, 300], ["olive", 800, 300], ["stall", 610, 330], ["wall", 250, 228],
 ];
 
 export interface SceneHandle {
@@ -106,6 +106,7 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
   const hero = sprite("hero/male_idle1", 0, 0);
   const lamps: Sprite[] = [];
   const glows: Sprite[] = [];
+  const heads: Sprite[] = [];
   const mons = new Map<number, Sprite>();
   const glow = () => { const g = new Sprite(glowTex); g.anchor.set(0.5); g.blendMode = "add"; lights.addChild(g); return g; };
   const heroGlow = glow();
@@ -160,13 +161,16 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
 
     // lamps
     s.lamps.forEach((l, i) => {
-      if (!lamps[i]) { lamps[i] = sprite("lamp-lit", l.x, l.y); glows[i] = glow(); }
+      if (!lamps[i]) { lamps[i] = sprite("lamp-lit", l.x, l.y); glows[i] = glow(); heads[i] = glow(); }
       lamps[i].texture = tex[l.lit ? "lamp-lit" : "lamp-unlit"];
       const g = glows[i];
       g.visible = l.lit;
       const f = 1 + Math.sin(l.flicker * 9) * 0.03 + Math.sin(l.flicker * 23) * 0.02;
       g.width = R.lightR * 2.2 * f; g.height = R.lightR * 1.1 * f;
       g.position.set(l.x, l.y - 6);
+      const hd = heads[i];   // the lantern itself
+      hd.visible = l.lit; hd.width = hd.height = 46 * f; hd.alpha = 0.8;
+      hd.position.set(l.x, l.y - 78);
     });
     heroGlow.width = 120; heroGlow.height = 60; heroGlow.alpha = 0.5;
     heroGlow.position.set(h.x, h.y - 4);

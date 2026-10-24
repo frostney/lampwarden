@@ -1,6 +1,7 @@
 // The Mubit client: every model call of the pipeline goes to https://api.mubit.ai/anthropic/v1/messages (Anthropic
 // pass-through) with model claude-opus-5-5, and never sends `temperature`. The key is passed in by the caller (read from
 // MUBIT_API_KEY in run.ts), goes only into the x-api-key header, and appears in no log row or error.
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const MUBIT_MESSAGES_URL = "https://api.mubit.ai/anthropic/v1/messages";
@@ -118,7 +119,7 @@ export interface MubitClient {
 }
 
 export function shortSha(text: string): string {
-  return new Bun.CryptoHasher("sha256").update(text).digest("hex").slice(0, 12);
+  return createHash("sha256").update(text).digest("hex").slice(0, 12);
 }
 
 interface SentRequest extends AttemptSummary {

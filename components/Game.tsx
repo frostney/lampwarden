@@ -5,8 +5,10 @@ import {
   MAX_LEVEL, TRAITS, UPGRADES, buy, clearLegacy, heirChoices, loadLegacy, newLegacy, ordinal, saveLegacy, tideLabel, upgradeCost,
   type Heir, type Legacy, type UpgradeId,
 } from "@/lib/legacy";
+import { Icon } from "./Icons";
+import { Recorder, Replayer, legacyOf, upload, verifyPlay, type Play } from "@/lib/replay";
 import { createScene, type SceneHandle } from "@/lib/scene";
-import { dawnBonus, litCount, newNight, nextTide, type Outcome, type State } from "@/lib/sim";
+import { dawnBonus, litCount, newNight, newSeed, nextTide, type Outcome, type State } from "@/lib/sim";
 
 const SETTINGS = [
   { id: "greek", label: "Lychnos (Greek)", live: true },
@@ -14,7 +16,7 @@ const SETTINGS = [
   { id: "egyptian", label: "Egyptian", live: false },
 ];
 
-type Phase = "title" | "night" | "dawn" | "heir";
+type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd";
 interface Hud { hp: number; maxHp: number; lit: number; lamps: number; kills: number; oil: number; dawn: number }
 interface Report { outcome: Outcome; night: number; kills: number; lampsLost: number; oil: number; bonus: number; name: string; tideBefore: number; tideAfter: number }
 
@@ -38,8 +40,22 @@ export default function Game() {
   const [heirs, setHeirs] = useState<Heir[]>([]);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  const recorder = useRef<Recorder | null>(null);
+  const [replay, setReplay] = useState<{ play: Play; endsMatch: boolean | null; error?: string } | null>(null);
+  const [speed, setSpeed] = useState(1);
+
+  // every night is recorded (inputs + timeline) and sent to /api/plays; the last one is also kept locally (?replay=last)
+  const sendPlay = useCallback((s: State | null) => {
+    const r = recorder.current;
+    recorder.current = null;
+    if (!r || !s) return;
+    const p = r.finish(s);
+    try { localStorage.setItem("lampwarden:lastPlay", JSON.stringify(p)); } catch { /* full */ }
+    if (!new URLSearchParams(location.search).has("verify")) void upload(p);   // the visual verifier's nights are not real plays
+  }, []);
 
   const endNight = useCallback((s: State) => {
+    sendPlay(s);
     const l = legacy.current;
     const outcome = s.outcome!;
     const bonus = outcome === "dawn" ? dawnBonus(s) : 0;
@@ -64,7 +80,7 @@ export default function Game() {
     saveLegacy(l);
     scene.current?.setPaused(true);
     setReport(rep);
-  }, []);
+  }, [sendPlay]);
 
   useEffect(() => {
     legacy.current = loadLegacy();
@@ -72,6 +88,12 @@ export default function Game() {
     let handle: SceneHandle | null = null, dead = false;
     let last: Hud | null = null;
     createScene(host.current!, (s) => {
+      if (phaseRef.current === "replay") {
+        if (s.outcome) { phaseRef.current = "replayEnd"; setPhase("replayEnd"); return; }
+        const h = hudOf(s, legacy.current);
+        if (!last || !sameHud(last, h)) { last = h; setHud(h); }
+        return;
+      }
       if (phaseRef.current !== "night") return;
       if (s.outcome) { endNight(s); return; }
       const h = hudOf(s, legacy.current);
@@ -83,15 +105,44 @@ export default function Game() {
       const s = newNight(legacy.current); state.current = s;
       h.setState(s, legacy.current.heir.sex);
       setReady(true);
+      const id = new URLSearchParams(location.search).get("replay");
+      if (id) void startReplay(id);
     });
-    (window as unknown as { lampwarden: unknown }).lampwarden = { state: () => state.current, legacy: () => legacy.current };
-    return () => { dead = true; handle?.destroy(); scene.current = null; };
-  }, [endNight]);
+    // debug hook for the visual verifier and recordings
+    (window as unknown as { lampwarden: unknown }).lampwarden = { state: () => state.current, legacy: () => legacy.current, scene: () => scene.current };
+    // a night abandoned by closing the tab is still recorded (outcome null)
+    const leave = () => { if (phaseRef.current === "night") sendPlay(state.current); };
+    window.addEventListener("pagehide", leave);
+    return () => { dead = true; window.removeEventListener("pagehide", leave); handle?.destroy(); scene.current = null; };
+  }, [endNight, sendPlay]);
+
+  const startReplay = async (id: string) => {
+    let play: Play;
+    try {
+      if (id === "last") play = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
+      else { const r = await fetch(`/api/plays/${encodeURIComponent(id)}`); if (!r.ok) throw new Error(`HTTP ${r.status}`); play = await r.json(); }
+      if (!play || play.v !== 1) throw new Error("no recording");
+    } catch (e) { setReplay({ play: null as unknown as Play, endsMatch: null, error: String(e) }); return; }
+    const l = legacyOf(play);
+    legacy.current = { ...legacy.current, ...l };   // shown in the HUD only; never saved
+    const s = newNight(l, play.seed);
+    state.current = s;
+    const r = new Replayer(play);
+    scene.current?.setState(s, l.heir.sex, (n) => r.input(n));
+    scene.current?.setPaused(false);
+    setReplay({ play, endsMatch: play.outcome ? verifyPlay(play).endsMatch : null });
+    setHud(hudOf(s, legacy.current));
+    phaseRef.current = "replay";
+    setPhase("replay");
+  };
 
   const startNight = () => {
-    const s = newNight(legacy.current);
+    const seed = newSeed();
+    const s = newNight(legacy.current, seed);
     state.current = s;
-    scene.current?.setState(s, legacy.current.heir.sex);
+    const rec = new Recorder(legacy.current, seed, "");
+    recorder.current = rec;
+    scene.current?.setState(s, legacy.current.heir.sex, (n, live, st) => { rec.input(n, live, st); return live; });
     scene.current?.setPaused(false);
     setHud(hudOf(s, legacy.current));
     setReport(null);
@@ -107,14 +158,17 @@ export default function Game() {
 
   const shop = (
     <div className="shop">
-      <div className="oil">Oil: {l.oil}</div>
+      <div className="oil"><Icon name="oil" size={16} /> {l.oil} oil</div>
       {(Object.keys(UPGRADES) as UpgradeId[]).map((id) => {
         const c = upgradeCost(l, id);
         return (
           <button key={id} className="btn up" disabled={c === null || l.oil < c} onClick={() => purchase(id)}>
-            <b>{UPGRADES[id].label}</b> {"●".repeat(l.levels[id])}{"○".repeat(MAX_LEVEL - l.levels[id])}
-            <span>{UPGRADES[id].text}</span>
-            <i>{c === null ? "max" : `${c} oil`}</i>
+            <Icon name={id} />
+            <div>
+              <b>{UPGRADES[id].label}</b> {"●".repeat(l.levels[id])}{"○".repeat(MAX_LEVEL - l.levels[id])}
+              <span>{UPGRADES[id].text}</span>
+              <i>{c === null ? "max" : `${c} oil`}</i>
+            </div>
           </button>
         );
       })}
@@ -125,12 +179,12 @@ export default function Game() {
     <div className="stage" data-phase={phase} data-ready={ready ? 1 : 0} data-hp={hud?.hp} data-lit={hud?.lit} data-kills={hud?.kills}>
       <div ref={host} className="canvas" />
       <div className="hud">
-        {phase === "night" && hud && (
+        {(phase === "night" || phase === "replay") && hud && (
           <>
             <div className="stats">
               <div>{heirLine}</div>
               <div className="bar"><i style={{ width: `${(hud.hp / hud.maxHp) * 100}%` }} /></div>
-              <div>Slain {hud.kills} · Oil {hud.oil}</div>
+              <div className="oilline">Slain {hud.kills} · <Icon name="oil" size={16} /> {hud.oil}</div>
             </div>
             <div className="nightbar">
               <div>Night {l.night} · the sea is {tideLabel(l.tide)}</div>
@@ -139,9 +193,26 @@ export default function Game() {
             <div className="lamps">
               Lamps {Array.from({ length: hud.lamps }, (_, i) => <span key={i} className={i < hud.lit ? "lit" : ""}>◆</span>)}
             </div>
-            <div className="help">WASD / arrows move · J or Space strike · K or click shoot · stand by a dark lamp to relight it</div>
+            {phase === "night"
+              ? <div className="help">WASD / arrows move · J or Space strike · K or click shoot · stand by a dark lamp to relight it</div>
+              : <div className="help replaybar">
+                  REPLAY {replay?.play.id}
+                  {[1, 2, 4].map((x) => (
+                    <button key={x} className={`btn small ${speed === x ? "on" : ""}`} onClick={() => { setSpeed(x); scene.current?.setSpeed(x); }}>{x}×</button>
+                  ))}
+                </div>}
           </>
         )}
+
+        {phase === "replayEnd" && replay && (
+          <div className="panel">
+            <div className="logo small">REPLAY OVER</div>
+            <p>{replay.play.legacy.heir.name}, night {replay.play.legacy.night}: {replay.play.outcome ?? "abandoned"}, {replay.play.stats.kills} slain, {replay.play.stats.lampsLost} lamps snuffed, {replay.play.timeline.length} s.</p>
+            <p className="dim">{replay.endsMatch === null ? "Abandoned night: no end to compare." : replay.endsMatch ? "Replay ends exactly where the live night ended." : "Replay diverged from the live night."}</p>
+            <button className="btn big" onClick={() => void startReplay(new URLSearchParams(location.search).get("replay") || "last")}>Watch again</button>
+          </div>
+        )}
+        {replay?.error && <div className="panel"><p>Could not load that replay: {replay.error}</p></div>}
 
         {phase === "title" && (
           <div className="panel">
@@ -157,6 +228,7 @@ export default function Game() {
             <p className="dim">{heirLine} · night {l.night}{l.bestNight ? ` · best night ${l.bestNight}` : ""}</p>
             <button className="btn big" disabled={!ready} onClick={startNight}>{ready ? "Light the lamps" : "Lighting the lamps…"}</button>
             {l.generation > 1 && <button className="btn small" onClick={newLine}>Start a new bloodline</button>}
+            <p className="dim tiny">Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.</p>
           </div>
         )}
 

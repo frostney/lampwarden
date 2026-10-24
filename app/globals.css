@@ -29,6 +29,14 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: bloc
 .shop { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-width: 700px; }
 .shop .oil { grid-column: 1 / -1; color: #ffcf6a; }
 .btn.up, .btn.heir { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font-size: 12px; }
+.btn.up { flex-direction: row; align-items: center; gap: 10px; }
+.btn.up > div { display: flex; flex-direction: column; gap: 2px; }
+.icon { image-rendering: pixelated; flex-shrink: 0; filter: drop-shadow(1px 1px 0 #000); }
+.btn[disabled] .icon { filter: grayscale(.6); }
+.oil, .oilline { display: flex; align-items: center; gap: 4px; }
+.oil { justify-content: center; }
 .btn.up b, .btn.heir b { font-size: 14px; }
 .btn.up i { font-style: normal; color: #ffcf6a; }
 .btn.heir { width: 190px; }
+.tiny { font-size: 11px; }
+.replaybar { display: flex; gap: 8px; align-items: center; pointer-events: auto; color: #ffcf6a; }

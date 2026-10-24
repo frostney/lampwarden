@@ -1,7 +1,8 @@
 // The Pixi side: one Application, sprites synced from the sim state every tick. React only draws the HUD and menus.
 import { Application, Assets, Container, Graphics, Sprite, Texture } from "pixi.js";
 import { ANCHOR_Y, FPS, FRAMES, assetList, heroKey, type Sex } from "./assets";
-import { CX, CY, H, HALF_H, HALF_W, MONSTER, NO_INPUT, W, step, type Input, type State } from "./sim";
+import { STEP, quantise } from "./replay";
+import { CX, CY, H, HALF_H, HALF_W, MONSTER, W, step, type Input, type State } from "./sim";
 
 type Tex = Record<string, Texture>;
 
@@ -72,9 +73,14 @@ const PROPS: [string, number, number][] = [
   ["olive", 160, 300], ["olive", 800, 300], ["stall", 610, 330], ["wall", 250, 228],
 ];
 
+// Chooses the input for sim step n: live play passes `live` through (and records it), a replay ignores it.
+export type Driver = (n: number, live: Input, s: State) => Input;
+
 export interface SceneHandle {
-  setState(s: State, sex: Sex): void;
+  setState(s: State, sex: Sex, driver?: Driver): void;
   setPaused(p: boolean): void;
+  setSpeed(x: number): void;
+  freezeClock(c: number | null): void;   // visual verifier: fixed flicker/pulse phase
   destroy(): void;
 }
 
@@ -85,6 +91,7 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
   host.appendChild(app.canvas);
 
   let state: State | null = null, sex: Sex = "male", paused = true;
+  let driver: Driver | null = null, stepN = 0, acc = 0, speed = 1, frozen: number | null = null;
   const ground = new Graphics(); drawGround(ground);
   const world = new Container({ sortableChildren: true });
   const fx = new Graphics();
@@ -134,20 +141,33 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
   let clock = 0;
   app.ticker.add((t) => {
     const dt = Math.min(t.deltaMS / 1000, 0.05);
-    clock += dt;
+    clock = frozen ?? clock + dt;
     trireme.y = 440 + Math.sin(clock * 1.5) * 4;
     const s = state;
     if (!s) return;
-    const inp: Input = paused ? NO_INPUT : {
-      dx: (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0),
-      dy: (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0),
-      melee: pend.melee, ranged: pend.ranged, aim: pend.aim,
-    };
-    pend.melee = false; pend.ranged = false;
-    if (!paused) step(s, dt, inp);
+    if (!paused) {
+      // fixed 60 Hz sim step, so a recorded night replays exactly
+      acc += dt * speed;
+      let live: Input = quantise({
+        dx: (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0),
+        dy: (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0),
+        melee: pend.melee, ranged: pend.ranged, aim: pend.aim,
+      });
+      while (acc >= STEP && !s.outcome) {
+        step(s, STEP, driver ? driver(stepN, live, s) : live);
+        stepN++; acc -= STEP;
+        if (live.melee || live.ranged) { pend.melee = false; pend.ranged = false; live = { ...live, melee: false, ranged: false }; }
+      }
+    }
     draw(s);
     onTick(s);
   });
+
+  // a progress ring; moveTo first, or the arc is joined to wherever the previous shape ended
+  const ring = (x: number, y: number, r: number, k: number, color: number) => {
+    const a0 = -Math.PI / 2, a1 = a0 + Math.PI * 2 * Math.min(1, k);
+    ui.moveTo(x + Math.cos(a0) * r, y + Math.sin(a0) * r).arc(x, y, r, a0, a1).stroke({ width: 3, color });
+  };
 
   function draw(s: State) {
     const R = s.rules;
@@ -210,21 +230,23 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
       if (!l.lit) {   // dark lamp: pulsing marker and relight progress
         const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
         ui.ellipse(l.x, l.y, 26, 13).stroke({ width: 2, color: 0xffd27a, alpha: 0.35 + 0.4 * pulse });
-        if (l.relight > 0) ui.arc(l.x, l.y - 70, 9, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * l.relight) / R.relight).stroke({ width: 3, color: 0xffe6a0 });
+        if (l.relight > 0) ring(l.x, l.y - 70, 9, l.relight / R.relight, 0xffe6a0);
       }
     }
     for (const m of s.monsters) {   // clawing a lamp: red progress over it
       if (m.snuff <= 0) continue;
       const k = m.snuff / (MONSTER[m.kind].snuff * R.snuffMul);
-      ui.arc(m.x, m.y - 74, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ width: 3, color: 0xff5a4a });
+      ring(m.x, m.y - 74, 8, k, 0xff5a4a);
     }
     for (const m of s.monsters) if (MONSTER[m.kind].hp > 1)
       for (let i = 0; i < m.hp; i++) ui.rect(m.x - 8 + i * 6, m.y - 84, 4, 3).fill(0xff5a4a);
   }
 
   return {
-    setState(s, sx) { state = s; sex = sx; keys.clear(); },
+    setState(s, sx, d) { state = s; sex = sx; driver = d ?? null; stepN = 0; acc = 0; keys.clear(); },
     setPaused(p) { paused = p; if (p) keys.clear(); },
+    setSpeed(x) { speed = x; },
+    freezeClock(c) { frozen = c; if (c !== null) clock = c; },
     destroy() {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);

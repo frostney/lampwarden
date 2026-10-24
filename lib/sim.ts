@@ -39,6 +39,7 @@ export interface Rules {
 export interface State {
   hero: Hero; monsters: Monster[]; shots: Shot[]; puffs: Puff[]; lamps: Lamp[];
   night: number; length: number; elapsed: number; spawnT: number; nextId: number; tide: number;
+  rng: number;   // mulberry32 state: a night replays exactly from its seed and inputs
   rules: Rules; stats: Stats; oilEarned: number; outcome: Outcome | null;
 }
 
@@ -59,14 +60,23 @@ export function rulesFor(l: Pick<Legacy, "levels">, trait: TraitId): Rules {
   };
 }
 
-export function newNight(l: Legacy): State {
+// seeded RNG kept in the state (mulberry32)
+export function rand(s: State): number {
+  let t = (s.rng = (s.rng + 0x6d2b79f5) | 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+export const newSeed = () => (Math.random() * 4294967296) >>> 0;
+
+export function newNight(l: Legacy, seed = newSeed()): State {
   const rules = rulesFor(l, l.heir.trait);
   const maxHp = 100 + 20 * l.levels.heart + (l.heir.trait === "stout" ? 30 : 0);
   const s: State = {
     hero: { x: CX, y: CY + 62, anim: "idle", frameT: 0, left: false, dirX: 0, dirY: 1, fired: false, aim: null, hp: maxHp, maxHp, hurt: 0, shotCd: 0 },
     monsters: [], shots: [], puffs: [],
     lamps: LAMP_SPOTS.map(([x, y], i) => ({ x, y, lit: true, relight: 0, flicker: i * 1.7 })),
-    night: l.night, length: nightLength(l.night), elapsed: 0, spawnT: 2.5, nextId: 1, tide: l.tide,
+    night: l.night, length: nightLength(l.night), elapsed: 0, spawnT: 2.5, nextId: 1, tide: l.tide, rng: seed | 0,
     rules, stats: { kills: 0, lampsLost: 0, hpLost: 0, time: 0 }, oilEarned: 0, outcome: null,
   };
   return s;
@@ -89,13 +99,13 @@ function pickKind(s: State, r: number): MonsterKind {
   return "satyr";
 }
 
-export function spawn(s: State, rand = Math.random) {
-  const kind = pickKind(s, rand());
+export function spawn(s: State) {
+  const kind = pickKind(s, rand(s));
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
-  const a = rand() < 0.6 ? Math.PI * (0.15 + rand() * 0.7) : rand() * Math.PI * 2;
+  const a = rand(s) < 0.6 ? Math.PI * (0.15 + rand(s) * 0.7) : rand(s) * Math.PI * 2;
   s.monsters.push({
     id: s.nextId++, kind, x: CX + Math.cos(a) * HALF_W * 0.9, y: CY + Math.sin(a) * HALF_H * 0.9,
-    hp: MONSTER[kind].hp, t: rand() * 10, wob: 10 + rand() * 18, snuff: 0, cd: 0, hurt: 0,
+    hp: MONSTER[kind].hp, t: rand(s) * 10, wob: 10 + rand(s) * 18, snuff: 0, cd: 0, hurt: 0,
   });
 }
 
@@ -106,7 +116,7 @@ export const litCount = (s: State) => s.lamps.reduce((n, l) => n + (l.lit ? 1 : 
 const inLight = (s: State, x: number, y: number) => s.lamps.some((l) => l.lit && ground(l.x, l.y, x, y) < s.rules.lightR);
 export const AGGRO = 80;
 
-export function step(s: State, dt: number, inp: Input, rand = Math.random) {
+export function step(s: State, dt: number, inp: Input) {
   if (s.outcome) return;
   s.elapsed += dt; s.stats.time += dt;
   const h = s.hero, R = s.rules;
@@ -216,7 +226,7 @@ export function step(s: State, dt: number, inp: Input, rand = Math.random) {
 
   if (s.elapsed < s.length) {
     s.spawnT -= dt;
-    if (s.spawnT <= 0 && s.monsters.length < maxAlive(s)) { spawn(s, rand); s.spawnT = spawnInterval(s); }
+    if (s.spawnT <= 0 && s.monsters.length < maxAlive(s)) { spawn(s); s.spawnT = spawnInterval(s); }
   }
 
   if (h.hp <= 0) s.outcome = "fallen";

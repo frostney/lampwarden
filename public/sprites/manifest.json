@@ -1,6 +1,6 @@
 {
  "setting": "greek",
- "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. lamp-lit and lamp-unlit, and the temple-handwritten, house-handwritten, wall-handwritten and stall-handwritten fallbacks, are hand-written examples calling the kit's building builders, not Mubit output. Rows with source "mubit" (temple, house, wall, stall and the decorations) were drawn with three candidates, one fix and best-of, and are the ones the scene draws (see their 'source' field).",
+ "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. lamp-lit and lamp-unlit, and the temple-handwritten, house-handwritten, wall-handwritten and stall-handwritten fallbacks, are hand-written examples calling the kit's building builders, not Mubit output. Rows with source \"mubit\" (temple, house, wall, stall and the decorations) were drawn with three candidates, one fix and best-of, and are the ones the scene draws (see their 'source' field).",
  "sprites": {
   "hero-male-still": {
    "brief": "male hero warrior with a xiphos in hand and a bow slung on his back",

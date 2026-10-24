@@ -61,7 +61,7 @@ echo "VERCEL_SANDBOX_SNAPSHOT_ID=snap_..." >> .env.local   # or export it in you
 
 Rebuild the snapshot after any change to `pipeline/kit/kit.ts` or `pipeline/render/`; a stale one fails the render with the command to run. Details: [`docs/tooling.md`](docs/tooling.md), "Rendering needs Vercel auth".
 
-This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the temple, house, lamp, wall and stall, which are hand-written calls to the building builders, and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
+This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the two lamps, which are hand-written calls to the lampstand builder (with the hand-written temple, house, wall and stall kept as `-handwritten` fallbacks), and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
 
 ### Live creatures
 

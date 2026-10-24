@@ -1,7 +1,7 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
-import { Assets, type Graphics, Texture } from "pixi.js";
+import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
 import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
   CENTRE_X,
@@ -53,7 +53,12 @@ export function loadTextures(): Promise<TextureMap> {
       const atlas = textures[heroAtlasKey(sex)];
       if (!atlas) continue;
       const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
-      for (const [key, frame] of cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells) ?? []) textures[key] = frame;
+      const cut = cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells);
+      // a browser that will not give up the atlas's pixels still draws the frames, with their painted shadow and no rim
+      for (const cell of cells)
+        textures[cell.key] =
+          cut?.get(cell.key) ??
+          new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
     }
     // the vignette's pictures are painted now, not in the frame of the first blow
     for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) vignetteTexture(strength);

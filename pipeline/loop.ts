@@ -58,6 +58,8 @@ export interface SpriteRow {
   first_score?: number | null;
   /** With several candidates: every candidate's score, in the order drawn. */
   candidate_scores?: Array<number | null>;
+  /** With several candidates: every candidate's generator request id, in the order drawn (`gen` is the chosen one's). */
+  candidate_gen?: Array<string | null>;
   fix?: string | null;
   fixed_verify?: Array<string | null>;
   fixed_score?: number | null;
@@ -563,6 +565,7 @@ export async function runCandidateLoop(
   row.verify = first.requestIds;
   row.first_score = first.verdict.score;
   row.candidate_scores = attempts.map((attempt) => attempt.verdict.score);
+  row.candidate_gen = drawn.map((item) => item.generation.record.rid);
   let best: { attempt: Attempt; which: "first" | "fixed" } = { attempt: first, which: "first" };
   print(`${brief.id} | candidates ${JSON.stringify(row.candidate_scores)} | ${describeAttempt(first)}`);
   const firstAttempt: LoopWinner | null = first.render.ok

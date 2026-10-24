@@ -9,11 +9,14 @@
 //
 // SIM_SOURCES is the value-import closure of step() and newNight() (src/game/sim.ts) and of the replay driver
 // (src/game/replay.ts: the fixed step, quantise, Replayer, legacyOf, creatureOf); sim-fingerprint.test.ts derives that
-// closure from the imports and fails when this list drifts from it:
+// closure from the imports and fails when this list drifts from it. Wording (the shop's labels and text, trait and heir
+// names), the line's storage (legacy.ts) and the server's reading of a model reply (director.ts) are deliberately
+// outside it, so a copy edit or a parsing fix does not retire recorded nights:
 //   sim.ts       the rules, the monsters, the step
 //   random.ts    the seeded generator behind rand(state)
-//   legacy.ts    levels, upgrades and traits, which newNight reads (replay.ts calls levelsOf)
-//   director.ts  the live director's decision a night is played under (legacy.ts and replay.ts read it: directorFrom)
+//   levels.ts    the upgrade ids and the levels in them, which newNight reads (replay.ts calls levelsOf)
+//   director-decision.ts  the live director's decision a night is played under: its shape, bounds and the rules' own
+//                (replay.ts calls directorFrom)
 //   creature.ts  a creature's stats from its archetype and modifiers, and the recorded subset the replay builds from
 //   replay.ts    STEP, quantise, Replayer and the headless verification
 //   assets.ts    FRAMES and FRAMES_PER_SECOND, which time the warden's animations inside the sim
@@ -24,8 +27,8 @@ import { join } from "node:path";
 export const SIM_SOURCES = [
   "src/game/sim.ts",
   "src/game/random.ts",
-  "src/game/legacy.ts",
-  "src/game/director.ts",
+  "src/game/levels.ts",
+  "src/game/director-decision.ts",
   "src/game/creature.ts",
   "src/game/replay.ts",
   "src/scene/assets.ts",

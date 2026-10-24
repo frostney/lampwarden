@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { appleTouchIcon, favicon16, favicon32, logo, socialCard } from "./compose";
+import { appleTouchIcon, favicon16, favicon32, logo, manifestIcon, socialCard } from "./compose";
 import { rasteriseTexts } from "./glyphs";
 import { type PixelImage, scaleImage, toSvg } from "./image";
 import { decodeIco, decodePng, encodeIco, encodePng } from "./png";
@@ -43,6 +43,10 @@ async function buildAssets(): Promise<Asset[]> {
     pngAsset("src/app/icon.png", icon),
     { path: "src/app/favicon.ico", bytes: encodeIco([smallFavicon, icon]), frames: [smallFavicon, icon] },
     pngAsset("src/app/apple-icon.png", appleTouchIcon()),
+    pngAsset("public/logo/icon-192.png", manifestIcon(192, false)),
+    pngAsset("public/logo/icon-512.png", manifestIcon(512, false)),
+    pngAsset("public/logo/icon-maskable-192.png", manifestIcon(192, true)),
+    pngAsset("public/logo/icon-maskable-512.png", manifestIcon(512, true)),
     pngAsset("src/app/opengraph-image.png", card),
     pngAsset("src/app/twitter-image.png", card),
   ];

@@ -1,19 +1,22 @@
 // Recorded plays: what the API routes that store and serve them share.
 import { z } from "zod";
-import { creatureSchema } from "./creature";
+import { recordedCreatureSchema } from "./creature";
 
 export const PLAY_ID = /^[0-9-]{19}-[a-z0-9]{1,10}$/;
 
-// The creature a night met, as the recording keeps it: enough to build the same night again (id, archetype, modifiers,
-// anchorY) and to name it in reports. A play from before creatures existed has none.
-export const recordedCreatureSchema = creatureSchema.pick({
-  id: true,
-  name: true,
-  archetype: true,
-  modifiers: true,
-  anchorY: true,
-});
-export type RecordedCreature = ReturnType<typeof recordedCreatureSchema.parse>;
+// A sim fingerprint: the first 12 hex digits of a hash of the sources that decide how a night plays out
+// (tools/sim-fingerprint). A play records the one it was played on.
+export const SIM_FINGERPRINT = /^[0-9a-f]{12}$/;
+
+// The fingerprint of the sim this build runs: computed by next.config.ts and inlined into the client and server bundles.
+// Undefined outside Next (bun test, scripts), where callers pass the fingerprint they mean.
+export const RUNNING_SIM: string | undefined = process.env.NEXT_PUBLIC_SIM_FINGERPRINT;
+
+// A recording replays exactly only on the sim it was played on. A play from before fingerprints has no `sim` and is
+// of an unknown version: it is not replayed either, because a replay that diverges shows a night nobody played.
+export function replaysExactlyOn(play: { sim?: string | undefined }, runningSim: string | undefined): boolean {
+  return play.sim !== undefined && play.sim === runningSim;
+}
 
 // The shape a client must send to /api/plays; everything else in the recording is stored as sent.
 export const incomingPlay = z.looseObject({
@@ -22,4 +25,5 @@ export const incomingPlay = z.looseObject({
   seed: z.number().int(),
   inputs: z.array(z.array(z.number()).length(7)),
   creature: recordedCreatureSchema.optional(), // the creature from the sea the night met; plays from before have none
+  sim: z.string().regex(SIM_FINGERPRINT).optional(), // the sim the night was played on; plays from before have none
 });

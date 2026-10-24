@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
+import { simFingerprint } from "./tools/sim-fingerprint/sim-fingerprint";
 
 const nextConfig: NextConfig = {
   reactStrictMode: false, // the Pixi application is created once; strict-mode double mount just churns the GL context
+  // The fingerprint of the sources that decide how a night plays out, hashed at build time and inlined into the client
+  // and server bundles (src/game/plays.ts, RUNNING_SIM). Every recorded play carries it; a replay only plays a night
+  // recorded on the same one.
+  env: { NEXT_PUBLIC_SIM_FINGERPRINT: simFingerprint(process.cwd()) },
   // The creature job reads these at runtime (src/server/creatures/deps.ts): the model prompts, and the kit and runner
   // to compute the digest the sandbox snapshot must match. Nothing here is run in the function; the kit and runner
   // that render sprites live in the sandbox snapshot.

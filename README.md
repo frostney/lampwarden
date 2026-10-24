@@ -27,8 +27,8 @@ bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs 
 ## Recorded plays
 
 Every night is recorded and sent to `/api/plays`, which stores it as a private blob in the `lampwarden-plays` Vercel Blob store (London). A recording holds the night's seed, the legacy it started from, the warden's input changes at the fixed 60 Hz sim step, and a per-second timeline (kills, lamps lit, health, monsters, lamps lost): about 2.5 KB for a 40 s night, no personal data, a random per-browser session id. The title screen says so.
-- Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did.
-- Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]`: outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
+- Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did. A night replays only on the version of the sim it was played on (each play records a fingerprint of the sim sources, see `docs/ARCHITECTURE.md`, "Sim fingerprint"); an older one shows a panel with its summary instead of a different night.
+- Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]` (`--verify` replays only the nights recorded on this checkout's sim and counts the others): outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
 - `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
 - The visual verifier opens the game with `?verify=1`, and those nights are not uploaded.
 

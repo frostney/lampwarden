@@ -3,13 +3,15 @@
 How it works: the assembled kit (kit/kit.ts) lives on a Shotcup drive named `lampwarden` (written once, by content, only when it changed) and every run mounts it
 read-only at /kit; the run itself only carries the short generated /main.ts (see shotcup_main.py). Needs SHOTCUP_API_KEY in the environment (never printed or logged).
 
-STATUS: this REST client has NOT been executed by its author (no API key was available on the box when it was written). The same run body
-(code + engine {canvas:true} + mounts [{drive:'lampwarden', path:'/kit', mode:'ro'}]) was executed through the Shotcup MCP server and its output was
-pixel-identical to the local renderer, but this Python code path is untested. Endpoints follow https://shotcup.dev/docs/quickstart and /docs/drives.
+STATUS (2026-10-24): run against the live API on a Scale-plan account. Endpoints, Bearer auth, the drive create/write (409 when the drive exists,
+`created: false` for an unchanged write) and the run response (`run.status`, `run.stdout`, `run.artifacts[].inlineBase64`, `run.metrics.engineMs`)
+work as written here. 47 renders of 6 sprites were pixel-identical to the local renderer. Fixed after the first runs: timeoutMs above the plan's
+300 s was clamped with a warning, and a "runtime is busy" refusal (all workers taken) was reported as a render error; it is now retried.
+Timings and sandbox checks: pipeline/README.md and docs/LIVE_GENERATION.md.
 
 CLI (batch many sprites in one run): python3 pipeline/shotcup_render.py out_dir build1.ts build2.ts ...   (names from file stems)
 """
-import base64, hashlib, json, os, sys, urllib.request, urllib.error, urllib.parse
+import base64, hashlib, json, os, sys, time, urllib.request, urllib.error, urllib.parse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from shotcup_main import main_ts
@@ -17,6 +19,7 @@ from shotcup_main import main_ts
 BASE = os.environ.get("SHOTCUP_BASE", "https://shotcup.dev")
 DRIVE = os.environ.get("SHOTCUP_DRIVE", "lampwarden")
 KIT = os.path.join(HERE, "kit", "kit.ts")
+BUSY_RETRIES = 2
 _seeded = False
 
 def _req(method, path, body=None, timeout=600):
@@ -39,14 +42,18 @@ def seed_drive():
     if st not in (200, 201): raise RuntimeError("write drive failed: HTTP %d %s" % (st, str(js)[:200]))
     _seeded = True
 
-def run_batch(items, out, pose="", timeout_ms=600000):
+def run_batch(items, out, pose="", timeout_ms=300000):   # 300 s is the Scale plan's ceiling; a larger value is clamped with a `timeout-clamped` warning
     """items [(name, code)] in one Shotcup run -> {name: stats} or raises. Saves PNGs into out/."""
     seed_drive()
     body = {"code": main_ts(items, pose), "engine": {"canvas": True}, "mounts": [{"drive": DRIVE, "path": "/kit", "mode": "ro"}], "timeoutMs": timeout_ms, "deterministic": True}
-    st, js = _req("POST", "/api/v1/runs", body)
-    if st != 200 or not js or "run" not in js: raise RuntimeError("run request failed: HTTP %d %s" % (st, str(js)[:200]))
-    run = js["run"]
-    if run.get("status") != "succeeded": raise RuntimeError("shotcup run %s: %s" % (run.get("status"), (run.get("stderr") or str(run.get("error")) or "")[-300:]))
+    for attempt in range(BUSY_RETRIES + 1):
+        st, js = _req("POST", "/api/v1/runs", body)
+        if st != 200 or not js or "run" not in js: raise RuntimeError("run request failed: HTTP %d %s" % (st, str(js)[:200]))
+        run = js["run"]
+        # all workers taken: the run queues ~30 s, then fails as daemon-error "the runtime is busy; retry shortly". Not the build code's fault, so retry.
+        if run.get("failureKind") != "daemon-error" or "busy" not in str(run.get("error")): break
+        time.sleep(2 + 3 * attempt)
+    if run.get("status") != "succeeded": raise RuntimeError("shotcup run %s (%s): %s" % (run.get("status"), run.get("failureKind"), (run.get("stderr") or str(run.get("error")) or "")[-300:]))
     for a in run.get("artifacts", []):
         if not a["path"].endswith(".png"): continue
         if a.get("inlineBase64"): png = base64.b64decode(a["inlineBase64"])

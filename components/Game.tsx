@@ -1,15 +1,23 @@
 "use client";
 
+import { Application } from "@pixi/react";
+import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Sex } from "@/lib/assets";
+import { newControls, press, release, stick } from "@/lib/controls";
 import {
   MAX_LEVEL, TRAITS, UPGRADES, buy, clearLegacy, heirChoices, loadLegacy, newLegacy, ordinal, saveLegacy, tideLabel, upgradeCost,
   type Heir, type Legacy, type UpgradeId,
 } from "@/lib/legacy";
 import { Icon } from "./Icons";
+import { Scene, type Driver, type Night } from "./Scene";
 import { TouchControls } from "./TouchControls";
 import { Recorder, Replayer, legacyOf, upload, verifyPlay, type Play } from "@/lib/replay";
-import { createScene, type SceneHandle } from "@/lib/scene";
-import { dawnBonus, litCount, newNight, newSeed, nextTide, type Outcome, type State } from "@/lib/sim";
+import { loadTextures, type Tex } from "@/lib/scene";
+import { H, W, dawnBonus, litCount, newNight, newSeed, nextTide, type Outcome, type State } from "@/lib/sim";
+
+// the canvas: 960x600 game pixels, scaled by CSS, no smoothing
+const APP = { width: W, height: H, background: 0x1e5f8a, antialias: false, roundPixels: true, resolution: 1, autoDensity: false };
 
 const SETTINGS = [
   { id: "greek", label: "Lychnos (Greek)", live: true },
@@ -28,9 +36,14 @@ const hudOf = (s: State, l: Legacy): Hud => ({
 const sameHud = (a: Hud, b: Hud) => a.hp === b.hp && a.lit === b.lit && a.kills === b.kills && a.oil === b.oil && Math.abs(a.dawn - b.dawn) < 0.01;
 
 export default function Game() {
-  const host = useRef<HTMLDivElement>(null);
-  const scene = useRef<SceneHandle | null>(null);
-  const state = useRef<State | null>(null);
+  const app = useRef<PixiApp | null>(null);
+  const state = useRef<State | null>(null);   // the night on screen, also read outside React (debug hook, pagehide)
+  const [tex, setTex] = useState<Tex | null>(null);
+  const [night, setNight] = useState<Night | null>(null);
+  const [paused, setPaused] = useState(true);
+  const [frozenClock, freezeClock] = useState<number | null>(null);
+  const [controls] = useState(newControls);
+  const lastHud = useRef<Hud | null>(null);
   const legacy = useRef<Legacy>(newLegacy());
   const [, rerender] = useState(0);
   const refresh = () => rerender((n) => n + 1);
@@ -54,6 +67,9 @@ export default function Game() {
     try { localStorage.setItem("lampwarden:lastPlay", JSON.stringify(p)); } catch { /* full */ }
     if (!new URLSearchParams(location.search).has("verify")) void upload(p);   // the visual verifier's nights are not real plays
   }, []);
+
+  // pausing also lets go of held keys and the stick
+  const pause = useCallback((p: boolean) => { setPaused(p); if (p) release(controls); }, [controls]);
 
   const endNight = useCallback((s: State) => {
     sendPlay(s);
@@ -79,43 +95,56 @@ export default function Game() {
       setPhase("heir");
     }
     saveLegacy(l);
-    scene.current?.setPaused(true);
+    pause(true);
     setReport(rep);
-  }, [sendPlay]);
+  }, [sendPlay, pause]);
+
+  // every frame, after the sim has stepped: HUD, end of the night, end of a replay
+  const onTick = useCallback((s: State) => {
+    if (s !== state.current) return;   // a night just replaced and not yet on stage
+    const showHud = () => {
+      const h = hudOf(s, legacy.current);
+      if (!lastHud.current || !sameHud(lastHud.current, h)) { lastHud.current = h; setHud(h); }
+    };
+    if (phaseRef.current === "replay") {
+      if (s.outcome) { phaseRef.current = "replayEnd"; setPhase("replayEnd"); return; }
+      showHud();
+      return;
+    }
+    if (phaseRef.current !== "night") return;
+    if (s.outcome) { endNight(s); return; }
+    showHud();
+  }, [endNight]);
+  const onReady = useCallback(() => setReady(true), []);
+  const onInit = useCallback((a: PixiApp) => { app.current = a; }, []);
+
+  // puts a night on stage
+  const show = (s: State, sex: Sex, driver: Driver | null = null) => { state.current = s; setNight({ state: s, sex, driver }); };
 
   useEffect(() => {
     legacy.current = loadLegacy();
     refresh();
-    let handle: SceneHandle | null = null, dead = false;
-    let last: Hud | null = null;
-    createScene(host.current!, (s) => {
-      if (phaseRef.current === "replay") {
-        if (s.outcome) { phaseRef.current = "replayEnd"; setPhase("replayEnd"); return; }
-        const h = hudOf(s, legacy.current);
-        if (!last || !sameHud(last, h)) { last = h; setHud(h); }
-        return;
-      }
-      if (phaseRef.current !== "night") return;
-      if (s.outcome) { endNight(s); return; }
-      const h = hudOf(s, legacy.current);
-      if (!last || !sameHud(last, h)) { last = h; setHud(h); }
-    }).then((h) => {
-      if (dead) { h.destroy(); return; }
-      handle = h; scene.current = h;
+    let dead = false;
+    void loadTextures().then((t) => {
+      if (dead) return;
+      setTex(t);
       // preview: a quiet plaza behind the title screen
-      const s = newNight(legacy.current); state.current = s;
-      h.setState(s, legacy.current.heir.sex);
-      setReady(true);
+      show(newNight(legacy.current), legacy.current.heir.sex);
       const id = new URLSearchParams(location.search).get("replay");
       if (id) void startReplay(id);
     });
     // debug hook for the visual verifier and recordings
-    (window as unknown as { lampwarden: unknown }).lampwarden = { state: () => state.current, legacy: () => legacy.current, scene: () => scene.current };
+    const scene = {
+      setPaused: pause, freezeClock, setSpeed,
+      stick: (dx: number, dy: number) => stick(controls, dx, dy),
+      press: (k: "melee" | "ranged") => press(controls, k, state.current),
+    };
+    (window as unknown as { lampwarden: unknown }).lampwarden = { state: () => state.current, legacy: () => legacy.current, scene: () => scene, app: () => app.current };
     // a night abandoned by closing the tab is still recorded (outcome null)
     const leave = () => { if (phaseRef.current === "night") sendPlay(state.current); };
     window.addEventListener("pagehide", leave);
-    return () => { dead = true; window.removeEventListener("pagehide", leave); handle?.destroy(); scene.current = null; };
-  }, [endNight, sendPlay]);
+    return () => { dead = true; window.removeEventListener("pagehide", leave); };
+  }, [sendPlay, pause, controls]);
 
   const startReplay = async (id: string) => {
     let play: Play;
@@ -127,10 +156,9 @@ export default function Game() {
     const l = legacyOf(play);
     legacy.current = { ...legacy.current, ...l };   // shown in the HUD only; never saved
     const s = newNight(l, play.seed);
-    state.current = s;
     const r = new Replayer(play);
-    scene.current?.setState(s, l.heir.sex, (n) => r.input(n));
-    scene.current?.setPaused(false);
+    show(s, l.heir.sex, (n) => r.input(n));
+    pause(false);
     setReplay({ play, endsMatch: play.outcome ? verifyPlay(play).endsMatch : null });
     setHud(hudOf(s, legacy.current));
     phaseRef.current = "replay";
@@ -140,11 +168,10 @@ export default function Game() {
   const startNight = () => {
     const seed = newSeed();
     const s = newNight(legacy.current, seed);
-    state.current = s;
     const rec = new Recorder(legacy.current, seed, "");
     recorder.current = rec;
-    scene.current?.setState(s, legacy.current.heir.sex, (n, live, st) => { rec.input(n, live, st); return live; });
-    scene.current?.setPaused(false);
+    show(s, legacy.current.heir.sex, (n, live, st) => { rec.input(n, live, st); return live; });
+    pause(false);
     setHud(hudOf(s, legacy.current));
     setReport(null);
     phaseRef.current = "night";
@@ -178,7 +205,13 @@ export default function Game() {
 
   return (
     <div className="stage" data-phase={phase} data-ready={ready ? 1 : 0} data-hp={hud?.hp} data-lit={hud?.lit} data-kills={hud?.kills}>
-      <div ref={host} className="canvas" />
+      <div className="canvas">
+        <Application {...APP} onInit={onInit}>
+          {tex && night && (
+            <Scene night={night} tex={tex} controls={controls} paused={paused} speed={speed} frozenClock={frozenClock} onTick={onTick} onReady={onReady} />
+          )}
+        </Application>
+      </div>
       <div className="hud">
         {(phase === "night" || phase === "replay") && hud && (
           <>
@@ -199,14 +232,14 @@ export default function Game() {
               : <div className="help replaybar">
                   REPLAY {replay?.play.id}
                   {[1, 2, 4].map((x) => (
-                    <button key={x} className={`btn small ${speed === x ? "on" : ""}`} onClick={() => { setSpeed(x); scene.current?.setSpeed(x); }}>{x}×</button>
+                    <button key={x} className={`btn small ${speed === x ? "on" : ""}`} onClick={() => setSpeed(x)}>{x}×</button>
                   ))}
                 </div>}
           </>
         )}
 
         {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
-        {phase === "night" && <TouchControls onStick={(x, y) => scene.current?.stick(x, y)} onPress={(k) => scene.current?.press(k)} />}
+        {phase === "night" && <TouchControls onStick={(x, y) => stick(controls, x, y)} onPress={(k) => press(controls, k, state.current)} />}
 
         {phase === "replayEnd" && replay && (
           <div className="panel">

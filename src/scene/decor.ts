@@ -58,7 +58,7 @@ export interface DecorKind {
   edges?: readonly Rim[]; // for "edge": the rims it may stand along
   bobs?: boolean; // afloat: the scene rocks it on the water
   ripples?: readonly Ripple[]; // for the sea: rings round it, as offsets from its anchor
-  planks?: Point; // for the sea: where a jetty of planks starts, as an offset from its anchor (see drawPlanks)
+  bridge?: Point; // for the sea: the tip of its pier, as an offset from its anchor, from which planks lead to the plaza
 }
 
 // Placed in this order, so what comes first has the pick of the plaza. Adding a kind is one entry here and its sprite.
@@ -95,7 +95,7 @@ export const DECOR: readonly DecorKind[] = [
     key: "galley-dock",
     where: "shore-right",
     groups: [1, 1],
-    planks: [-75, -4],
+    bridge: [-48, -26],
     ripples: [
       // the galley at the dock and the dock's posts
       { x: 15, y: -10, radiusX: 22, radiusY: 8, growth: 0.35, dashes: 7, phase: 3 },
@@ -169,6 +169,24 @@ const LAMPS_DRAWN: readonly { lantern: Box; pole: Box }[] = LAMP_SPOTS.map(([x, 
   };
 });
 
+// The boards of a bridge from a pier's tip to the plaza: one every BOARD_STEP px along the way that goes straight to the
+// stone, which on the ground is across the front rim and on the screen is up and to the left, two across for every one up.
+// The last board lies against the rim's wall. Null when the pier's tip is too near the stone or too far from it to bridge.
+const BOARD_STEP = 12;
+const BOARD_RISE = 7; // up for every 14 across: the bridge's way, and what the iso steps to the stone fall by
+const MIN_REACH = 1; // iso steps (of BOARD_RISE * 2 across) from the tip to the stone, least and most
+const MAX_REACH = 12;
+function bridgeBoards(tipX: number, tipY: number): Point[] | null {
+  const reach = shoreDistance(tipX, tipY) / (BOARD_RISE * 2);
+  if (reach < MIN_REACH || reach > MAX_REACH) return null;
+  const end = reach - 0.2;
+  const count = Math.max(2, Math.round((end * BOARD_RISE * 2) / BOARD_STEP) + 1);
+  return Array.from({ length: count }, (_, index): Point => {
+    const along = (end * index) / (count - 1);
+    return [Math.round(tipX - BOARD_RISE * 2 * along), Math.round(tipY - BOARD_RISE * along)];
+  });
+}
+
 // --- the layout ---------------------------------------------------------------------------------------------------------
 
 export interface Placed {
@@ -180,7 +198,7 @@ export interface Layout {
   props: Placed[]; // standing on the plaza or moored by it, depth-sorted by the scene with everything else
   boats: Placed[]; // afloat, rocked by the scene
   ripples: Ripple[]; // rings on the water, in canvas pixels
-  planks: Point[]; // where each jetty of planks starts, in canvas pixels
+  planks: Point[]; // the centre of each board of a pier's bridge, in canvas pixels, from the dock to the plaza's rim
 }
 
 // a stream of numbers for decor alone: the night's seed, run through the generator once and salted, so it is neither the
@@ -248,9 +266,11 @@ class Placement {
     return null;
   }
 
-  // whether a boat may lie with its anchor at (x, y): on the sea, off the stone and its walls, and on the canvas
-  private seaworthy(key: string, x: number, y: number): boolean {
-    const { hull, solid, sprite } = extentsOf(key);
+  // whether a boat may lie with its anchor at (x, y): on the sea, off the stone and its walls, on the canvas and, when it
+  // has a pier, near enough to the stone to bridge
+  private seaworthy(kind: DecorKind, x: number, y: number): boolean {
+    const { hull, solid, sprite } = extentsOf(kind.key);
+    if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) return false;
     if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) return false;
     const whole = boxAt(sprite, x, y);
     if (whole.left < 0 || whole.right > STAGE_WIDTH || whole.bottom > STAGE_HEIGHT) return false;
@@ -296,7 +316,7 @@ class Placement {
 
   private fits(kind: DecorKind, x: number, y: number, group: number): boolean {
     if (kind.where === "centre") return true;
-    if (kind.where === "shore-left" || kind.where === "shore-right") return this.seaworthy(kind.key, x, y);
+    if (kind.where === "shore-left" || kind.where === "shore-right") return this.seaworthy(kind, x, y);
     return this.rejection(kind, x, y, group) === null;
   }
 
@@ -306,7 +326,7 @@ class Placement {
     const { solid, sprite } = extentsOf(kind.key);
     this.standing.push({ base: groundShape(solid, x, y), body: boxAt(sprite, x, y), group });
     for (const ripple of kind.ripples ?? []) this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
-    if (kind.planks) this.layout.planks.push([x + kind.planks[0], y + kind.planks[1]]);
+    if (kind.bridge) this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
   }
 
   place(kind: DecorKind) {

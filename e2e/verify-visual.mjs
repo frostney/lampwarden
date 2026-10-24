@@ -13,7 +13,7 @@ import { newLegacy, openShop } from "../src/game/legacy.ts";
 import { anchorYFor, heroAtlasCell } from "../src/scene/assets.ts";
 import { decorFor } from "../src/scene/decor.ts";
 import { baseBandOf } from "../src/scene/extent.ts";
-import { onPlaza, plazaInset } from "../src/scene/plaza.ts";
+import { onPlaza, plazaInset, shoreDistance as shoreDistanceOf } from "../src/scene/plaza.ts";
 import { PixelImage } from "../tools/logo/image.ts";
 import { decodePng, encodePng } from "../tools/logo/png.ts";
 
@@ -1005,6 +1005,26 @@ const setPropsShown = (shown) =>
     [PROP_KEYS.filter((key) => key !== "zeus-statue"), shown],
   );
 
+// The dock's bridge is drawn: at the centre of each board the seed lays out the picture is brown (red as strong as blue,
+// under the night's tint, where the sea is blue by 30 levels or more), and the bridge ends against the rim, not out at sea.
+async function checkBridge(scene, label, picture, seed) {
+  const boards = decorFor(seed | 0).planks;
+  const [, ...bridged] = boards; // the first lies under the pier
+  const problems = [];
+  for (const [x, y] of bridged) {
+    const [red, , blue] = await meanColour(picture, [x - 2, y - 1, 4, 3]);
+    if (blue - red > 12) problems.push(`${x},${y}: red ${red.toFixed(0)}, blue ${blue.toFixed(0)}`);
+  }
+  const last = boards.at(-1);
+  const against = last ? shoreDistanceOf(last[0], last[1]) : Number.POSITIVE_INFINITY;
+  check(
+    scene,
+    `${label}: planks lead from the dock to the plaza's rim`,
+    boards.length >= 3 && problems.length === 0 && against > 0 && against <= 4,
+    problems.join("; ") || `${boards.length} boards, the last ${against.toFixed(1)} steps off the stone`,
+  );
+}
+
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -1807,7 +1827,8 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
     await page.evaluate(() => window.lampwarden.scene().setPaused(true));
     await freeze();
-    await shoot(`08c-plaza-${index + 1}`);
+    const plaza = await shoot(`08c-plaza-${index + 1}`);
+    await checkBridge("plazas", `seed ${seed}`, plaza, seed);
     const props = await drawnProps();
     check(
       "plazas",

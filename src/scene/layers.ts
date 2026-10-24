@@ -319,15 +319,27 @@ export function drawGround(graphics: Graphics) {
   graphics.ellipse(CENTRE_X, CENTRE_Y + 8, 46, 23).fill({ color: 0x3d6f8c, alpha: 0.35 });
 }
 
-const PLANK_COUNT = 6; // planks in a jetty
-// the planks of a night's jetties (decor.ts: a galley's dock brings its own), over the ground and under the sprites
+// the boards of a night's bridge (decor.ts: the galley's dock brings one, from its pier to the plaza's rim), over the ground
+// and under the sprites: each lies across the way to the stone, 24 px wide and 9 deep, and they alternate in tone
+const BOARD_ACROSS: Point = [24, -12];
+const BOARD_DEEP: Point = [-9, -4.5];
 export function drawPlanks(graphics: Graphics, planks: readonly Point[]) {
-  for (const [startX, startY] of planks)
-    for (let plank = 0; plank < PLANK_COUNT; plank++) {
-      const x = startX + plank * 14;
-      const y = startY - plank * 7;
-      graphics.poly([x, y, x + 34, y + 17, x + 34, y + 23, x, y + 6]).fill(plank % 2 ? 0x8a6a3a : 0x9b7843);
-    }
+  planks.forEach(([centreX, centreY], index) => {
+    const x = centreX - (BOARD_ACROSS[0] + BOARD_DEEP[0]) / 2;
+    const y = centreY - (BOARD_ACROSS[1] + BOARD_DEEP[1]) / 2;
+    graphics
+      .poly([
+        x,
+        y,
+        x + BOARD_ACROSS[0],
+        y + BOARD_ACROSS[1],
+        x + BOARD_ACROSS[0] + BOARD_DEEP[0],
+        y + BOARD_ACROSS[1] + BOARD_DEEP[1],
+        x + BOARD_DEEP[0],
+        y + BOARD_DEEP[1],
+      ])
+      .fill(index % 2 ? 0x8a6a3a : 0x9b7843);
+  });
 }
 
 const interpolate = (start: number, end: number, amount: number) => start + (end - start) * amount;

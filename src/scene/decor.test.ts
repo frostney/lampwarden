@@ -11,7 +11,7 @@ import { anchorYFor } from "./assets";
 import { DECOR, decorFor, type Placed, SPAWN_POINTS } from "./decor";
 import { SPRITE_EXTENTS } from "./decor-extents";
 import { baseBandOf, SOLID_ALPHA, SPRITE_SIZE } from "./extent";
-import { onPlaza, onSea, plazaInset } from "./plaza";
+import { onPlaza, onSea, plazaInset, shoreDistance } from "./plaza";
 
 const SEEDS = 500;
 const seedOf = (index: number) => Math.imul(index + 1, 2654435761) >>> 0; // spread over all of 32 bits
@@ -79,7 +79,7 @@ describe("a night's decorations", () => {
       });
       for (const key of ["temple", "house", "stall", "galley-dock", "trireme"]) expect(count(key)).toBe(1);
       expect(count("olive")).toBeGreaterThanOrEqual(2);
-      expect(layout.planks).toHaveLength(1);
+      expect(layout.planks.length).toBeGreaterThanOrEqual(2);
       expect(layout.ripples.length).toBe(10);
     }
     // the optional kinds turn up too, in some layouts
@@ -113,6 +113,35 @@ describe("a night's decorations", () => {
       for (const boat of [...layout.boats, ...layout.props.filter((placed) => placed.key === "galley-dock")])
         for (const pixel of pixelsOf(boat, true))
           if (!onSea(Math.floor(pixel.x), Math.floor(pixel.y))) throw new Error(`${boat.key}'s base is not on the sea`);
+  });
+
+  test("bridge the dock to the plaza: the boards run from the pier's tip straight to the rim, and end against it", () => {
+    const tip = DECOR.find((kind) => kind.key === "galley-dock")?.bridge ?? [0, 0];
+    for (const { seed, layout } of layouts) {
+      const dock = layout.props.find((placed) => placed.key === "galley-dock");
+      if (!dock) throw new Error(`seed ${seed}: no dock`);
+      const boards = layout.planks;
+      const first = boards[0];
+      const last = boards.at(-1);
+      if (!first || !last) throw new Error(`seed ${seed}: no bridge`);
+      // it starts at the pier's tip
+      expect(Math.abs(first[0] - (dock.x + tip[0])) + Math.abs(first[1] - (dock.y + tip[1]))).toBeLessThanOrEqual(1);
+      // it ends against the rim's wall: on the sea, a few iso steps off the stone
+      expect(shoreDistance(last[0], last[1])).toBeGreaterThan(0);
+      expect(shoreDistance(last[0], last[1])).toBeLessThanOrEqual(4);
+      for (const [index, board] of boards.entries()) {
+        // every board is on the sea and the bridge leaves the dock for the stone: the distance to the stone only falls
+        if (!onSea(Math.floor(board[0]), Math.floor(board[1]))) throw new Error(`seed ${seed}: a board is off the sea`);
+        const next = boards[index + 1];
+        if (next && shoreDistance(next[0], next[1]) >= shoreDistance(board[0], board[1]))
+          throw new Error(`seed ${seed}: the bridge turns away from the stone`);
+        // and straight: two across for every one up, the way that is shortest from the tip to the rim
+        if (next && Math.abs((board[0] - next[0]) / 2 - (board[1] - next[1])) > 1)
+          throw new Error(`seed ${seed}: the bridge is not straight`);
+        // between the dock and the rim: no board is farther from the stone than the pier's tip
+        expect(shoreDistance(board[0], board[1])).toBeLessThanOrEqual(shoreDistance(first[0], first[1]));
+      }
+    }
   });
 
   test("leave every lamp a ring to be relit from, its lantern in view, and the statue and the warden's start clear", () => {

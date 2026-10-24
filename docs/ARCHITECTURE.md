@@ -90,7 +90,7 @@ src/
                      warden's eight directions (octants), the five of them drawn and the three mirrored
     creature-animation.ts  which frame a creature from the sea shows (walk, attack, idle) from what the sim says about it; drawing only
     layers.ts        textures (and the creature's, loaded at runtime from its sprite path and, with frames, its atlas; a sprite that fails means a
-                     night without it), ground (the plaza over the sea, and the planks of the night's jetties), night tint (the world below the horizon
+                     night without it), ground (the plaza over the sea, and the boards of the dock's bridge), night tint (the world below the horizon
                      is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
                      and anchor
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
@@ -168,7 +168,7 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
 Each night's props are laid out from the night's seed, so no two plazas are alike and a replay, which starts from the recorded
 seed, shows the plaza it was played on. `Game.tsx` calls `decorFor(state.randomState)` as it puts a night on stage (the sim has
 not drawn from the seed yet), and the layout is read by `Scene.tsx`: `props` (depth-sorted sprites), `boats` (rocked by the
-water), `planks` (the jetty's boards, `drawPlanks`) and `ripples` (`createRipples` in `water.ts`, painted over the sea for
+water), `planks` (the boards of the dock's bridge, laid from its pier's tip straight to the rim; `drawPlanks`) and `ripples` (`createRipples` in `water.ts`, painted over the sea for
 each layout). The seed goes through the generator once and is salted, a stream of its own: nothing here draws from the sim's
 `rand(state)`, props have no collision, and `src/scene/decor.ts` is not among the sim fingerprint's sources, so a
 decor change never refuses a recorded night.

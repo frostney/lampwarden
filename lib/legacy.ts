@@ -2,7 +2,8 @@
 // Saved to localStorage, so a reload keeps the line going.
 import type { Sex } from "./assets";
 
-export type UpgradeId = "wick" | "blade" | "quiver" | "heart";
+export const UPGRADE_IDS = ["wick", "blade", "quiver", "heart"] as const;
+export type UpgradeId = (typeof UPGRADE_IDS)[number];
 export const UPGRADES: Record<UpgradeId, { label: string; text: string; cost: number[] }> = {
   wick: { label: "Brighter wicks", text: "lamps burn longer under claws and throw a wider light", cost: [8, 18, 32] },
   blade: { label: "Keener blade", text: "melee reaches further and cleaves harder", cost: [8, 18, 32] },
@@ -11,7 +12,8 @@ export const UPGRADES: Record<UpgradeId, { label: string; text: string; cost: nu
 };
 export const MAX_LEVEL = 3;
 
-export type TraitId = "swift" | "stout" | "lamplighter" | "longarm" | "keen";
+const TRAIT_IDS = ["swift", "stout", "lamplighter", "longarm", "keen"] as const;
+export type TraitId = (typeof TRAIT_IDS)[number];
 export const TRAITS: Record<TraitId, { label: string; text: string }> = {
   swift: { label: "Swift", text: "moves a quarter faster" },
   stout: { label: "Stout", text: "+30 health" },
@@ -20,57 +22,70 @@ export const TRAITS: Record<TraitId, { label: string; text: string }> = {
   keen: { label: "Keen-eyed", text: "shots pierce through monsters" },
 };
 
-export interface Heir { name: string; sex: Sex; trait: TraitId }
+export interface Heir {
+  name: string;
+  sex: Sex;
+  trait: TraitId;
+}
 
 export interface Legacy {
-  generation: number;           // which warden of the line this is (1-based)
+  generation: number; // which warden of the line this is (1-based)
   heir: Heir;
-  night: number;                // the night the current warden is on
+  night: number; // the night the current warden is on
   bestNight: number;
   oil: number;
   levels: Record<UpgradeId, number>;
-  tide: number;                 // director difficulty multiplier, read from how the player did (0.6..2)
+  tide: number; // director difficulty multiplier, read from how the player did (0.6..2)
   fallen: { name: string; night: number; cause: string }[];
 }
 
-const NAMES: Record<Sex, string[]> = {
+const NAMES: Record<Sex, readonly [string, ...string[]]> = {
   male: ["Nikias", "Theron", "Lykos", "Damon", "Kleon", "Aristos", "Philon", "Iason"],
   female: ["Phaedra", "Ione", "Thalia", "Korinna", "Myrto", "Eudora", "Melitta", "Kallisto"],
 };
 
-export function randomHeir(rand = Math.random): Heir {
-  const sex: Sex = rand() < 0.5 ? "male" : "female";
-  const names = NAMES[sex];
-  const traits = Object.keys(TRAITS) as TraitId[];
-  return { name: names[Math.floor(rand() * names.length)], sex, trait: traits[Math.floor(rand() * traits.length)] };
+// one item of a non-empty list, by a roll in [0, 1)
+function pick<Item>(items: readonly [Item, ...Item[]], roll: number): Item {
+  return items[Math.floor(roll * items.length)] ?? items[0];
 }
 
-export function heirChoices(rand = Math.random): Heir[] {
-  const out: Heir[] = [];
-  while (out.length < 3) {
-    const h = randomHeir(rand);
-    if (!out.some((o) => o.name === h.name || o.trait === h.trait)) out.push(h);
+function randomHeir(random: () => number): Heir {
+  const sex: Sex = random() < 0.5 ? "male" : "female";
+  return { name: pick(NAMES[sex], random()), sex, trait: pick(TRAIT_IDS, random()) };
+}
+
+export function heirChoices(random = Math.random): Heir[] {
+  const choices: Heir[] = [];
+  while (choices.length < 3) {
+    const heir = randomHeir(random);
+    if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) choices.push(heir);
   }
-  return out;
+  return choices;
 }
 
 export function newLegacy(): Legacy {
   return {
-    generation: 1, heir: { name: "Lykos", sex: "male", trait: "swift" }, night: 1, bestNight: 0, oil: 0,
-    levels: { wick: 0, blade: 0, quiver: 0, heart: 0 }, tide: 1, fallen: [],
+    generation: 1,
+    heir: { name: "Lykos", sex: "male", trait: "swift" },
+    night: 1,
+    bestNight: 0,
+    oil: 0,
+    levels: { wick: 0, blade: 0, quiver: 0, heart: 0 },
+    tide: 1,
+    fallen: [],
   };
 }
 
-export function upgradeCost(l: Legacy, id: UpgradeId): number | null {
-  const lv = l.levels[id];
-  return lv >= MAX_LEVEL ? null : UPGRADES[id].cost[lv];
+export function upgradeCost(legacy: Legacy, id: UpgradeId): number | null {
+  const level = legacy.levels[id];
+  return level >= MAX_LEVEL ? null : (UPGRADES[id].cost[level] ?? null);
 }
 
-export function buy(l: Legacy, id: UpgradeId): boolean {
-  const c = upgradeCost(l, id);
-  if (c === null || l.oil < c) return false;
-  l.oil -= c;
-  l.levels[id]++;
+export function buy(legacy: Legacy, id: UpgradeId): boolean {
+  const cost = upgradeCost(legacy, id);
+  if (cost === null || legacy.oil < cost) return false;
+  legacy.oil -= cost;
+  legacy.levels[id]++;
   return true;
 }
 
@@ -79,21 +94,32 @@ export function loadLegacy(): Legacy {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
     if (raw) return { ...newLegacy(), ...JSON.parse(raw) };
-  } catch { /* corrupt or unavailable storage: start a new line */ }
+  } catch {
+    /* corrupt or unavailable storage: start a new line */
+  }
   return newLegacy();
 }
-export function saveLegacy(l: Legacy) {
-  try { localStorage.setItem(KEY, JSON.stringify(l)); } catch { /* private mode etc. */ }
+export function saveLegacy(legacy: Legacy) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(legacy));
+  } catch {
+    /* private mode etc. */
+  }
 }
 export function clearLegacy() {
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
-export function ordinal(n: number) {
-  const s = ["th", "st", "nd", "rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+const ORDINAL_SUFFIXES = ["th", "st", "nd", "rd"];
+export function ordinal(value: number) {
+  const lastTwoDigits = value % 100;
+  return value + (ORDINAL_SUFFIXES[(lastTwoDigits - 20) % 10] || ORDINAL_SUFFIXES[lastTwoDigits] || "th");
 }
 
-export function tideLabel(t: number) {
-  return t < 0.85 ? "calm" : t < 1.15 ? "restless" : t < 1.5 ? "rising" : "raging";
+export function tideLabel(tide: number) {
+  return tide < 0.85 ? "calm" : tide < 1.15 ? "restless" : tide < 1.5 ? "rising" : "raging";
 }

@@ -2,63 +2,117 @@
 // step. One mutable object, written by keyboard, pointer and touch handlers and read by the scene's fixed-step loop, so
 // input never causes a React render.
 import { quantise } from "./replay";
-import { MONSTER, type Input, type State } from "./sim";
+import { type Input, MONSTER, type State } from "./sim";
 
 export interface Controls {
   keys: Set<string>;
-  stickX: number; stickY: number;
-  gamepadX: number; gamepadY: number;   // the gamepad's left stick or d-pad, 8-way
-  melee: boolean; ranged: boolean; aim: { x: number; y: number } | null;
+  stickX: number;
+  stickY: number;
+  gamepadX: number; // the gamepad's left stick or d-pad, 8-way
+  gamepadY: number;
+  melee: boolean;
+  ranged: boolean;
+  aim: { x: number; y: number } | null;
 }
 
-export const newControls = (): Controls => ({ keys: new Set(), stickX: 0, stickY: 0, gamepadX: 0, gamepadY: 0, melee: false, ranged: false, aim: null });
+export const newControls = (): Controls => ({
+  keys: new Set(),
+  stickX: 0,
+  stickY: 0,
+  gamepadX: 0,
+  gamepadY: 0,
+  melee: false,
+  ranged: false,
+  aim: null,
+});
 
-const held = (c: Controls, a: string, b: string) => (c.keys.has(a) || c.keys.has(b) ? 1 : 0);
-const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
+const held = (controls: Controls, key: string, alternative: string) =>
+  controls.keys.has(key) || controls.keys.has(alternative) ? 1 : 0;
+const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 
 // the input for the next sim step, quantised so live play and replay see identical numbers
-export function liveInput(c: Controls): Input {
+export function liveInput(controls: Controls): Input {
   return quantise({
-    dx: clamp1(held(c, "d", "arrowright") - held(c, "a", "arrowleft") + c.stickX + c.gamepadX),
-    dy: clamp1(held(c, "s", "arrowdown") - held(c, "w", "arrowup") + c.stickY + c.gamepadY),
-    melee: c.melee, ranged: c.ranged, aim: c.aim,
+    dx: clampUnit(
+      held(controls, "d", "arrowright") - held(controls, "a", "arrowleft") + controls.stickX + controls.gamepadX,
+    ),
+    dy: clampUnit(
+      held(controls, "s", "arrowdown") - held(controls, "w", "arrowup") + controls.stickY + controls.gamepadY,
+    ),
+    melee: controls.melee,
+    ranged: controls.ranged,
+    aim: controls.aim,
   });
 }
 
 // a press reaches exactly one sim step
-export function consumePresses(c: Controls) { c.melee = false; c.ranged = false; }
+export function consumePresses(controls: Controls) {
+  controls.melee = false;
+  controls.ranged = false;
+}
 
 // pausing lets go of every held key and the stick
-export function release(c: Controls) { c.keys.clear(); c.stickX = c.stickY = 0; c.gamepadX = c.gamepadY = 0; }
+export function release(controls: Controls) {
+  controls.keys.clear();
+  controls.stickX = 0;
+  controls.stickY = 0;
+  controls.gamepadX = 0;
+  controls.gamepadY = 0;
+}
 
-export function stick(c: Controls, dx: number, dy: number) { c.stickX = dx; c.stickY = dy; }
+export function stick(controls: Controls, horizontal: number, vertical: number) {
+  controls.stickX = horizontal;
+  controls.stickY = vertical;
+}
 
 // a shot towards a point on the canvas (mouse click)
-export function shootAt(c: Controls, x: number, y: number) { c.ranged = true; c.aim = { x, y }; }
+export function shootAt(controls: Controls, x: number, y: number) {
+  controls.ranged = true;
+  controls.aim = { x, y };
+}
 
 // touch buttons: no cursor, so a shot aims at the nearest monster's body, or along the facing when there is none
-export function press(c: Controls, k: "melee" | "ranged", s: State | null) {
-  if (k === "melee") { c.melee = true; return; }
-  c.ranged = true; c.aim = null;
-  if (!s) return;
-  let best = Infinity;
-  for (const m of s.monsters) {
-    const d = Math.hypot(m.x - s.hero.x, (m.y - s.hero.y) * 2);
-    if (d < best) { best = d; c.aim = { x: m.x, y: m.y - (MONSTER[m.kind].fly ? 56 : 32) }; }
+export function press(controls: Controls, action: "melee" | "ranged", state: State | null) {
+  if (action === "melee") {
+    controls.melee = true;
+    return;
+  }
+  controls.ranged = true;
+  controls.aim = null;
+  if (!state) return;
+  let best = Number.POSITIVE_INFINITY;
+  for (const monster of state.monsters) {
+    const distance = Math.hypot(monster.x - state.hero.x, (monster.y - state.hero.y) * 2);
+    if (distance < best) {
+      best = distance;
+      controls.aim = { x: monster.x, y: monster.y - (MONSTER[monster.kind].fly ? 56 : 32) };
+    }
   }
 }
 
 // WASD / arrows move, J / Space melee, K ranged along the facing; returns the unbind function
-export function bindKeyboard(c: Controls): () => void {
-  const down = (e: KeyboardEvent) => {
-    const k = e.key.toLowerCase();
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
-    if (k === "j" || k === " ") { if (!e.repeat) c.melee = true; return; }
-    if (k === "k") { if (!e.repeat) { c.ranged = true; c.aim = null; } return; }
-    c.keys.add(k);
+export function bindKeyboard(controls: Controls): () => void {
+  const keyDown = (event: KeyboardEvent) => {
+    const key = event.key.toLowerCase();
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
+    if (key === "j" || key === " ") {
+      if (!event.repeat) controls.melee = true;
+      return;
+    }
+    if (key === "k") {
+      if (!event.repeat) {
+        controls.ranged = true;
+        controls.aim = null;
+      }
+      return;
+    }
+    controls.keys.add(key);
   };
-  const up = (e: KeyboardEvent) => c.keys.delete(e.key.toLowerCase());
-  window.addEventListener("keydown", down);
-  window.addEventListener("keyup", up);
-  return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  const keyUp = (event: KeyboardEvent) => controls.keys.delete(event.key.toLowerCase());
+  window.addEventListener("keydown", keyDown);
+  window.addEventListener("keyup", keyUp);
+  return () => {
+    window.removeEventListener("keydown", keyDown);
+    window.removeEventListener("keyup", keyUp);
+  };
 }

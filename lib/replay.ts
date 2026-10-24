@@ -2,7 +2,7 @@
 // warden's inputs at a fixed 60 Hz step, so a recording is just those inputs (only when they change) plus a per-second
 // timeline that the balance analysis can read without replaying anything.
 import type { Legacy } from "./legacy";
-import { litCount, newNight, step, type Input, type State } from "./sim";
+import { type Input, litCount, newNight, type State, step } from "./sim";
 
 export const STEP = 1 / 60;
 
@@ -14,95 +14,153 @@ type TimelineRow = [number, number, number, number, number, number];
 export interface Play {
   v: 1;
   id: string;
-  session: string;              // random per browser, no personal data
-  build: string;                // git sha of the deployment, when known
+  session: string; // random per browser, no personal data
+  build: string; // git sha of the deployment, when known
   startedAt: string;
   seed: number;
   legacy: Pick<Legacy, "night" | "generation" | "tide" | "levels" | "heir">;
   inputs: InputRow[];
   timeline: TimelineRow[];
   steps: number;
-  outcome: string | null;       // dawn | dark | fallen | null when abandoned
+  outcome: string | null; // dawn | dark | fallen | null when abandoned
   stats: State["stats"] & { oilEarned: number; hp: number; maxHp: number; lit: number };
   replay?: { endsMatch: boolean }; // filled in when a recording is verified by replay
 }
 
-const rid = () => Math.random().toString(36).slice(2, 10);
+const randomId = () => Math.random().toString(36).slice(2, 10);
 export function sessionId(): string {
   try {
-    let s = localStorage.getItem("lampwarden:session");
-    if (!s) { s = rid() + rid(); localStorage.setItem("lampwarden:session", s); }
-    return s;
-  } catch { return "anon"; }
+    let session = localStorage.getItem("lampwarden:session");
+    if (!session) {
+      session = randomId() + randomId();
+      localStorage.setItem("lampwarden:session", session);
+    }
+    return session;
+  } catch {
+    return "anon";
+  }
 }
 
 // Inputs are quantised before they reach the sim, so live play and replay see identical numbers.
-export function quantise(inp: Input): Input {
-  return inp.aim ? { ...inp, aim: { x: Math.round(inp.aim.x), y: Math.round(inp.aim.y) } } : inp;
+export function quantise(input: Input): Input {
+  return input.aim ? { ...input, aim: { x: Math.round(input.aim.x), y: Math.round(input.aim.y) } } : input;
 }
 
 export class Recorder {
   play: Play;
   private last: InputRow | null = null;
-  constructor(l: Legacy, seed: number, build: string) {
+  constructor(legacy: Legacy, seed: number, build: string) {
+    const { night, generation, tide, levels, heir } = legacy;
     this.play = {
-      v: 1, id: new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + "-" + rid(), session: sessionId(), build,
-      startedAt: new Date().toISOString(), seed,
-      legacy: JSON.parse(JSON.stringify({ night: l.night, generation: l.generation, tide: l.tide, levels: l.levels, heir: l.heir })),
-      inputs: [], timeline: [], steps: 0, outcome: null,
+      v: 1,
+      id: `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${randomId()}`,
+      session: sessionId(),
+      build,
+      startedAt: new Date().toISOString(),
+      seed,
+      legacy: structuredClone({ night, generation, tide, levels, heir }),
+      inputs: [],
+      timeline: [],
+      steps: 0,
+      outcome: null,
       stats: { kills: 0, lampsLost: 0, hpLost: 0, time: 0, oilEarned: 0, hp: 0, maxHp: 0, lit: 0 },
     };
   }
-  // call once per sim step n with the input about to be applied; s is the state after steps 0..n-1
-  input(n: number, inp: Input, s: State) {
-    this.play.steps = n + 1;
-    if (n > 0 && n % 60 === 0) this.play.timeline.push([n / 60, s.stats.kills, litCount(s), Math.ceil(s.hero.hp), s.monsters.length, s.stats.lampsLost]);
-    const row: InputRow = [n, inp.dx, inp.dy, inp.melee ? 1 : 0, inp.ranged ? 1 : 0, inp.aim ? inp.aim.x : -1, inp.aim ? inp.aim.y : -1];
-    const l = this.last;
-    if (!l || row[3] || row[4] || l[1] !== row[1] || l[2] !== row[2]) { this.play.inputs.push(row); this.last = row; }
+  // call once per sim step with the input about to be applied; state is the state after steps 0..stepIndex-1
+  input(stepIndex: number, input: Input, state: State) {
+    this.play.steps = stepIndex + 1;
+    if (stepIndex > 0 && stepIndex % 60 === 0)
+      this.play.timeline.push([
+        stepIndex / 60,
+        state.stats.kills,
+        litCount(state),
+        Math.ceil(state.hero.hp),
+        state.monsters.length,
+        state.stats.lampsLost,
+      ]);
+    const row: InputRow = [
+      stepIndex,
+      input.dx,
+      input.dy,
+      input.melee ? 1 : 0,
+      input.ranged ? 1 : 0,
+      input.aim ? input.aim.x : -1,
+      input.aim ? input.aim.y : -1,
+    ];
+    const last = this.last;
+    if (!last || row[3] || row[4] || last[1] !== row[1] || last[2] !== row[2]) {
+      this.play.inputs.push(row);
+      this.last = row;
+    }
   }
-  finish(s: State): Play {
-    const p = this.play;
-    p.outcome = s.outcome;
-    p.stats = { ...s.stats, oilEarned: s.oilEarned, hp: Math.ceil(s.hero.hp), maxHp: s.hero.maxHp, lit: litCount(s) };
-    return p;
+  finish(state: State): Play {
+    const play = this.play;
+    play.outcome = state.outcome;
+    play.stats = {
+      ...state.stats,
+      oilEarned: state.oilEarned,
+      hp: Math.ceil(state.hero.hp),
+      maxHp: state.hero.maxHp,
+      lit: litCount(state),
+    };
+    return play;
   }
 }
 
 // Feeds a recording's inputs back step by step.
 export class Replayer {
-  private i = 0;
-  private cur: Input = { dx: 0, dy: 0, melee: false, ranged: false, aim: null };
+  private nextRow = 0;
+  private current: Input = { dx: 0, dy: 0, melee: false, ranged: false, aim: null };
   constructor(public play: Play) {}
-  input(n: number): Input {
+  input(stepIndex: number): Input {
     const rows = this.play.inputs;
     let edge = false;
-    while (this.i < rows.length && rows[this.i][0] <= n) {
-      const r = rows[this.i++];
-      this.cur = { dx: r[1], dy: r[2], melee: r[3] === 1, ranged: r[4] === 1, aim: r[5] >= 0 ? { x: r[5], y: r[6] } : null };
-      edge = r[0] === n;
+    let row = rows[this.nextRow];
+    while (row && row[0] <= stepIndex) {
+      const [rowStep, moveX, moveY, melee, ranged, aimX, aimY] = row;
+      this.current = {
+        dx: moveX,
+        dy: moveY,
+        melee: melee === 1,
+        ranged: ranged === 1,
+        aim: aimX >= 0 ? { x: aimX, y: aimY } : null,
+      };
+      edge = rowStep === stepIndex;
+      this.nextRow++;
+      row = rows[this.nextRow];
     }
-    return edge ? this.cur : { ...this.cur, melee: false, ranged: false };
+    return edge ? this.current : { ...this.current, melee: false, ranged: false };
   }
 }
 
-export function legacyOf(p: Play): Legacy {
-  return { ...p.legacy, bestNight: 0, oil: 0, fallen: [] } as Legacy;
+export function legacyOf(play: Play): Legacy {
+  return { ...play.legacy, bestNight: 0, oil: 0, fallen: [] };
 }
 
 // Replays a recording headlessly and reports whether it ends where the live play ended.
-export function verifyPlay(p: Play): { state: State; endsMatch: boolean } {
-  const s = newNight(legacyOf(p), p.seed);
-  const r = new Replayer(p);
-  for (let n = 0; n < p.steps && !s.outcome; n++) step(s, STEP, r.input(n));
-  const endsMatch = s.outcome === p.outcome && s.stats.kills === p.stats.kills && s.stats.lampsLost === p.stats.lampsLost;
-  return { state: s, endsMatch };
+export function verifyPlay(play: Play): { state: State; endsMatch: boolean } {
+  const state = newNight(legacyOf(play), play.seed);
+  const replayer = new Replayer(play);
+  for (let stepIndex = 0; stepIndex < play.steps && !state.outcome; stepIndex++)
+    step(state, STEP, replayer.input(stepIndex));
+  const endsMatch =
+    state.outcome === play.outcome &&
+    state.stats.kills === play.stats.kills &&
+    state.stats.lampsLost === play.stats.lampsLost;
+  return { state, endsMatch };
 }
 
-export async function upload(p: Play): Promise<boolean> {
+export async function upload(play: Play): Promise<boolean> {
   try {
-    const body = JSON.stringify(p);
-    const r = await fetch("/api/plays", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: body.length < 60000 });
-    return r.ok;
-  } catch { return false; }
+    const body = JSON.stringify(play);
+    const response = await fetch("/api/plays", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      keepalive: body.length < 60000,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }

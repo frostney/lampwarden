@@ -12,12 +12,23 @@ const CANVAS_SIZE = 21;
 const CENTRE = 10;
 
 const OUTLINE = "#1b1410";
-const ARROW_COLOURS = { shaft: "#a0703c", head: "#e4e8ee", headShade: "#8e98a8", feather: "#d8433a", featherLight: "#fff6d8" };
+const ARROW_COLOURS = {
+  shaft: "#a0703c",
+  head: "#e4e8ee",
+  headShade: "#8e98a8",
+  feather: "#d8433a",
+  featherLight: "#fff6d8",
+};
 const STONE_PIXELS = [".KKK.", "KWSsK", "KSSsK", "KsssK", ".KKK."];
 const STONE_COLOURS: Record<string, string> = { K: OUTLINE, W: "#e8e4dc", S: "#a8a29a", s: "#6e6a64" };
 
 type PixelMap = Map<string, string>;
-const NEIGHBOUR_STEPS: ReadonlyArray<readonly [number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const NEIGHBOUR_STEPS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 const pixelKey = (column: number, row: number) => `${column},${row}`;
 
 function setPixel(pixels: PixelMap, column: number, row: number, colour: string) {
@@ -54,20 +65,24 @@ function toTexture(pixels: PixelMap): Texture {
 // An arrow pointing along `angle` (radians, screen space): the tip at +7 pixels from the centre, the nock at -6.
 function arrowPixels(angle: number): PixelMap {
   const pixels: PixelMap = new Map();
-  const alongX = Math.cos(angle), alongY = Math.sin(angle);
-  const acrossX = -alongY, acrossY = alongX;
-  const at = (along: number, across: number): [number, number] =>
-    [CENTRE + alongX * along + acrossX * across, CENTRE + alongY * along + acrossY * across];
-  for (let along = -6; along <= 4; along += 0.5) setPixel(pixels, ...at(along, 0), ARROW_COLOURS.shaft);
+  const alongX = Math.cos(angle),
+    alongY = Math.sin(angle);
+  const acrossX = -alongY,
+    acrossY = alongX;
+  const pointAt = (along: number, across: number): [number, number] => [
+    CENTRE + alongX * along + acrossX * across,
+    CENTRE + alongY * along + acrossY * across,
+  ];
+  for (let along = -6; along <= 4; along += 0.5) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.shaft);
   // a broad leaf-shaped head: two pixels of point, then a barb on each side
-  for (const along of [5, 6, 7]) setPixel(pixels, ...at(along, 0), ARROW_COLOURS.head);
+  for (const along of [5, 6, 7]) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.head);
   for (const side of [1, -1]) {
-    setPixel(pixels, ...at(5, side), ARROW_COLOURS.head);
-    setPixel(pixels, ...at(4, side), ARROW_COLOURS.headShade);
+    setPixel(pixels, ...pointAt(5, side), ARROW_COLOURS.head);
+    setPixel(pixels, ...pointAt(4, side), ARROW_COLOURS.headShade);
   }
   for (const along of [-5, -6]) {
-    setPixel(pixels, ...at(along, 1), along === -5 ? ARROW_COLOURS.feather : ARROW_COLOURS.featherLight);
-    setPixel(pixels, ...at(along, -1), along === -5 ? ARROW_COLOURS.feather : ARROW_COLOURS.featherLight);
+    setPixel(pixels, ...pointAt(along, 1), along === -5 ? ARROW_COLOURS.feather : ARROW_COLOURS.featherLight);
+    setPixel(pixels, ...pointAt(along, -1), along === -5 ? ARROW_COLOURS.feather : ARROW_COLOURS.featherLight);
   }
   outline(pixels);
   return pixels;
@@ -75,17 +90,24 @@ function arrowPixels(angle: number): PixelMap {
 
 function stonePixels(): PixelMap {
   const pixels: PixelMap = new Map();
-  STONE_PIXELS.forEach((line, row) => [...line].forEach((symbol, column) => {
-    const colour = STONE_COLOURS[symbol];
-    if (colour) setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
-  }));
+  STONE_PIXELS.forEach((line, row) => {
+    [...line].forEach((symbol, column) => {
+      const colour = STONE_COLOURS[symbol];
+      if (colour) setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
+    });
+  });
   return pixels;
 }
 
-export interface ProjectileTextures { arrow: Texture[]; stone: Texture }
+export interface ProjectileTextures {
+  arrow: Texture[];
+  stone: Texture;
+}
 
 export function createProjectileTextures(): ProjectileTextures {
-  const arrow = Array.from({ length: DIRECTION_COUNT }, (_, direction) => toTexture(arrowPixels((direction / DIRECTION_COUNT) * Math.PI * 2)));
+  const arrow = Array.from({ length: DIRECTION_COUNT }, (_, direction) =>
+    toTexture(arrowPixels((direction / DIRECTION_COUNT) * Math.PI * 2)),
+  );
   return { arrow, stone: toTexture(stonePixels()) };
 }
 

@@ -16,7 +16,7 @@ Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react
 bun install
 bun run dev        # http://localhost:3000
 bun run build      # production build
-bun run balance    # headless balance check: an idle and a bot warden play nights 1-7
+bun run balance    # headless balance check: an idle warden, a perfect bot and a human-paced bot play nights 1-8
 bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs `bun run start` running), see below
 ```
 
@@ -103,7 +103,7 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 
 Built and run:
 - Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `src/scene/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
-- Balance from `bun run balance` (seeded, 1000 runs per night): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, aims every swing, no upgrades) holds nights 1-3 every time, night 5 about 40% and night 7 never. Playing nights 1-8 in a row and buying the cheapest level it can afford, it earns about 12 oil on night 1 and buys about 1.2 levels a night over nights 1-3, with no upgrade at its top level before night 6. Human play-testing has not been done.
+- Balance from `bun run balance` (seeded, 1000 runs per night; the full table of both bots is in the pull request that tuned it): an idle warden loses night 1 in about 20 s. The curve is tuned on a human-paced bot (`scripts/human-bot.ts`: 250-400 ms reaction, aim error, a held direction before each strike, imperfect target choice, late or no relighting, a different clumsiness each night, driven through the same controls as live play), which in a line of nights in a row reaches dawn on about 80% of night 1s, 60% of night 2s, 47% of night 3s, 20% of night 4s and 4% of night 5s. The perfect bot (perfect information, 150 ms reaction, aims every swing) is the ceiling: it holds nights 1-3 every time, night 5 about 80%, night 6 about 60%. Playing nights in a row and buying the cheapest level it can afford, it earns about 12 oil on night 1 and buys about a level a night over nights 1-3. The nine recorded human nights this was set against were played on older sims; human play-testing on the current one has not been done.
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 200 hero animation frames (20 per sex from five directions, the other three mirrored, packed into one atlas a sex; deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 
 Not built / not claimed:

@@ -281,7 +281,15 @@ function inPlaza(x: number, y: number, margin = 0.92) {
 export const ground = (fromX: number, fromY: number, toX: number, toY: number) =>
   Math.hypot(fromX - toX, (fromY - toY) * 2);
 
-const spawnInterval = (state: State) => 2.3 / (state.tide * (1 + 0.3 * (state.night - 1)));
+// The sea quickens every night. The first nights are gentle, 12% quicker a night, because that is when a person is still
+// learning the plaza (people kept up with about two monsters at a time and lost night 2); from the fourth night it is
+// 30% quicker a night, which is the pace the perfect bot's ceiling was set on.
+const GENTLE_NIGHTS = 3;
+const GENTLE_QUICKENING = 0.12;
+const QUICKENING = 0.3;
+const quickening = (night: number) =>
+  GENTLE_QUICKENING * (Math.min(night, GENTLE_NIGHTS) - 1) + QUICKENING * Math.max(0, night - GENTLE_NIGHTS);
+const spawnInterval = (state: State) => 2.3 / (state.tide * (1 + quickening(state.night)));
 const maxAlive = (state: State) => Math.round((3 + 1.6 * state.night) * state.tide);
 const haste = (state: State) => 1 + 0.05 * (state.night - 1); // the sea's creatures get bolder every night
 
@@ -719,6 +727,14 @@ function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
 // Dawn reward: a little oil, and a little more for every lamp still burning.
 export const dawnBonus = (state: State) => 2 + litCount(state);
 
+// How much a clean dawn raises the tide: more for a warden who killed fast, and about half as much after the first two
+// nights, when the warden is still learning (the plaza, the aimed swing, which lamp to keep).
+const TIDE_RISE = {
+  learning: { fast: 1.1, steady: 1.06 },
+  settled: { fast: 1.18, steady: 1.1 },
+};
+const LEARNING_NIGHTS = 2;
+
 // The director: read the night as implicit feedback and set the next tide.
 // Clean dawn with most lamps and health kept → the sea pushes harder; a lost night → it eases off.
 export function nextTide(tide: number, state: State): number {
@@ -726,7 +742,8 @@ export function nextTide(tide: number, state: State): number {
   let next = tide;
   if (state.outcome === "dawn") {
     const clean = state.stats.lampsLost <= 1 && state.hero.health > state.hero.maxHealth * 0.5;
-    next *= clean ? (killRate > 20 ? 1.18 : 1.1) : 1.0;
+    const rise = TIDE_RISE[state.night <= LEARNING_NIGHTS ? "learning" : "settled"];
+    next *= clean ? (killRate > 20 ? rise.fast : rise.steady) : 1.0;
   } else next *= 0.85;
   return Math.min(2, Math.max(0.6, Math.round(next * 100) / 100));
 }

@@ -198,7 +198,6 @@ h1 {
 .btn.small {
   opacity: 0.8;
 }
-.settings,
 .heirs {
   display: flex;
   gap: 8px;
@@ -639,7 +638,7 @@ h1 {
   flex-direction: column;
   align-items: center;
   gap: calc(4px * var(--scale));
-  padding: calc(6px * var(--scale)) calc(12px * var(--scale)) calc(7px * var(--scale));
+  padding: calc(4px * var(--scale)) calc(12px * var(--scale)) calc(5px * var(--scale));
 }
 .scroll-content p {
   margin: 0;
@@ -650,7 +649,7 @@ h1 {
   opacity: 1;
   color: var(--ink-faded);
 }
-/* one column, or on a wide scroll the introduction, settings and privacy note beside the hero choice */
+/* one column, or on a wide scroll the introduction beside the hero choice */
 .scroll-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -666,6 +665,10 @@ h1 {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+/* the introduction's lines sit closer, so the title, a creature with long lore and How to play fit the desktop parchment */
+.scroll-intro {
+  gap: 4px;
 }
 .scroll-hero {
   gap: 6px;
@@ -723,9 +726,6 @@ h1 {
 [data-input="gamepad"] .hero-card:focus {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
-}
-.settings {
-  row-gap: 6px;
 }
 /* hero choice: the idle frame cropped to the warden (80 x 88 of the 128 px frame) at a whole multiple */
 .hero-cards {

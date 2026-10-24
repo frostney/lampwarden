@@ -67,12 +67,6 @@ const APP = {
 
 const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
 
-const SETTINGS = [
-  { id: "greek", label: "Lychnos (Greek)", live: true },
-  { id: "norse", label: "Norse", live: false },
-  { id: "egyptian", label: "Egyptian", live: false },
-];
-
 const INTRODUCTION = [
   "Lychnos is a harbour of lamps.",
   "Every night the sea sends its creatures to put them out.",
@@ -635,20 +629,6 @@ export default function Game() {
                   <p key={line} data-line>
                     {line}
                   </p>
-                ))}
-              </div>
-              <div className="settings" data-line>
-                {SETTINGS.map((setting) => (
-                  <button
-                    key={setting.id}
-                    type="button"
-                    className={`btn ${setting.id === "greek" ? "on" : ""}`}
-                    disabled={!setting.live}
-                    title={setting.live ? "" : "Coming soon"}
-                  >
-                    {setting.label}
-                    {setting.live ? "" : " (soon)"}
-                  </button>
                 ))}
               </div>
               <SeaSends tonight={tonight} onSpriteBroken={withdraw} />

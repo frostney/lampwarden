@@ -42,7 +42,7 @@ Controls: **WASD / arrows** move, **J / Space** melee (hits the arc in front of 
 4. **Heirs.** When a night is lost, the warden is gone and the line starts again from night 1 with the oil and upgrades kept. You pick one of three heirs (male: sword and bow, female: spear and sling), each with a trait (swift, stout, lamplighter, long-armed, keen-eyed).
 5. **The tide.** A director reads each night as implicit feedback (kill rate, lamps lost, health kept) and makes the next night's sea calmer or rougher. Nothing is asked of the player.
 
-Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`. The setting buttons on the title screen list Greek (live) and Norse / Egyptian ("soon").
+Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`.
 
 ## How the sprites are made (the Mubit loop)
 
@@ -107,7 +107,7 @@ Built and run:
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 
 Not built / not claimed:
-- Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
+- Audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
 - `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip has been run through the command line. The same loop (`pipeline/loop.ts`) has run end to end, live, behind the creature route: see `docs/LIVE_GENERATION.md`.
 - **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`; [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md) compares them for a live generation route, with measured timings, parallelism limits and Mubit latency.

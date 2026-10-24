@@ -1,7 +1,7 @@
 // Play recording for testing and balancing. A night is fully determined by its seed, the legacy it started from and the
 // warden's inputs at a fixed 60 Hz step, so a recording is just those inputs (only when they change) plus a per-second
 // timeline that the balance analysis can read without replaying anything.
-import type { Legacy } from "./legacy";
+import { type Legacy, levelsOf } from "./legacy";
 import { type Input, litCount, newNight, type State, step } from "./sim";
 
 export const STEP = 1 / 60;
@@ -18,7 +18,8 @@ export interface Play {
   build: string; // git sha of the deployment, when known
   startedAt: string;
   seed: number;
-  legacy: Pick<Legacy, "night" | "generation" | "tide" | "levels" | "heir">;
+  // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf)
+  legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & { levels: Partial<Legacy["levels"]> };
   inputs: InputRow[];
   timeline: TimelineRow[];
   steps: number;
@@ -135,7 +136,15 @@ export class Replayer {
 }
 
 export function legacyOf(play: Play): Legacy {
-  return { ...play.legacy, bestNight: 0, oil: 0, fallen: [] };
+  return {
+    ...play.legacy,
+    levels: levelsOf(play.legacy.levels),
+    offerSeed: 0,
+    offers: [],
+    bestNight: 0,
+    oil: 0,
+    fallen: [],
+  };
 }
 
 // Replays a recording headlessly and reports whether it ends where the live play ended.

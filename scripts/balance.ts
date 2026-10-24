@@ -1,7 +1,8 @@
 // Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
 // usage: bun scripts/balance.ts [runs=200]; seeded, so two builds are compared on the same nights
-import { newLegacy } from "../src/game/legacy";
+import { buy, type Legacy, MAX_LEVEL, newLegacy, openShop, UPGRADE_IDS, upgradeCost } from "../src/game/legacy";
 import {
+  dawnBonus,
   ground,
   type Input,
   litCount,
@@ -9,6 +10,7 @@ import {
   type Monster,
   NO_INPUT,
   newNight,
+  nextTide,
   type State,
   step,
 } from "../src/game/sim";
@@ -58,10 +60,7 @@ function bot(state: State): Input {
   };
 }
 
-function play(night: number, tide: number, policy: "idle" | "bot", seed: number) {
-  const legacy = newLegacy();
-  legacy.night = night;
-  legacy.tide = tide;
+function playNight(legacy: Legacy, policy: "idle" | "bot", seed: number) {
   const state = newNight(legacy, seed);
   let input = NO_INPUT;
   let think = 0;
@@ -82,8 +81,17 @@ function play(night: number, tide: number, policy: "idle" | "bot", seed: number)
     lit: litCount(state),
     kills: state.stats.kills,
     oil: state.oilEarned,
+    income: state.oilEarned + (state.outcome === "dawn" ? dawnBonus(state) : 0), // what the warden banks for the night
     healthLost: state.stats.hpLost,
+    nextTide: nextTide(legacy.tide, state),
   };
+}
+
+function play(night: number, tide: number, policy: "idle" | "bot", seed: number) {
+  const legacy = newLegacy(seed);
+  legacy.night = night;
+  legacy.tide = tide;
+  return playNight(legacy, policy, seed);
 }
 
 const runs = Number(process.argv[2] || 200);
@@ -106,7 +114,58 @@ for (const policy of ["idle", "bot"] as const) {
       results.reduce((total, result) => total + measure(result), 0);
     const killsPerMinute = (60 * sum((result) => result.kills)) / sum((result) => result.time);
     console.log(
-      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}`,
+      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
     );
   }
+}
+
+// A campaign: the bot holds nights 1..CAMPAIGN_NIGHTS in a row, banking each night's oil and spending it in the shop
+// (the cheapest level on offer it can afford, until nothing is affordable), the way a player who buys whatever is cheap
+// would. It stops at the first night it does not hold. Shows whether the oil buys about one level a night and keeps
+// the top levels out of early reach.
+const CAMPAIGN_NIGHTS = 8;
+const levelsOwned = (legacy: Legacy) => UPGRADE_IDS.reduce((total, id) => total + legacy.levels[id], 0);
+interface Row {
+  income: number;
+  bought: number;
+  ownedAfter: number;
+  highest: number;
+}
+const campaigns = Array.from({ length: runs }, (_, run) => {
+  const legacy = newLegacy(run + 1);
+  const rows: Row[] = [];
+  for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
+    legacy.night = night;
+    const result = playNight(legacy, "bot", night * 100_000 + run);
+    if (result.outcome !== "dawn") break;
+    legacy.oil += result.income;
+    legacy.tide = result.nextTide;
+    openShop(legacy);
+    const owned = levelsOwned(legacy);
+    for (;;) {
+      const affordable = legacy.offers
+        .map((id) => ({ id, cost: upgradeCost(legacy, id) }))
+        .filter((offer) => offer.cost !== null && offer.cost <= legacy.oil)
+        .sort((first, second) => (first.cost ?? 0) - (second.cost ?? 0))[0];
+      if (!affordable || !buy(legacy, affordable.id)) break;
+    }
+    rows.push({
+      income: result.income,
+      bought: levelsOwned(legacy) - owned,
+      ownedAfter: levelsOwned(legacy),
+      highest: Math.max(...UPGRADE_IDS.map((id) => legacy.levels[id])),
+    });
+  }
+  return rows;
+});
+console.log(`\ncampaign (the bot holds nights in a row, buys the cheapest affordable level; ${runs} lines):`);
+for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
+  const rows = campaigns.flatMap((line) => line[night - 1] ?? []);
+  if (rows.length === 0) break;
+  const average = (measure: (row: Row) => number) =>
+    (rows.reduce((total, row) => total + measure(row), 0) / rows.length).toFixed(1);
+  const atTop = rows.filter((row) => row.highest >= MAX_LEVEL).length;
+  console.log(
+    `  night ${night}: held by ${((100 * rows.length) / runs).toFixed(0)}% | income ${average((row) => row.income)}, levels bought ${average((row) => row.bought)}, levels owned ${average((row) => row.ownedAfter)}, an upgrade at top level in ${((100 * atTop) / rows.length).toFixed(0)}%`,
+  );
 }

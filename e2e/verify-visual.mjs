@@ -407,11 +407,45 @@ check(
 );
 check(
   "dawn",
-  "dawn panel with four upgrades",
-  (await text(".logo")).join("").includes("DAWN") && (await page.locator(".btn.up").count()) === 4,
+  "dawn panel with three upgrades on offer",
+  (await text(".logo")).join("").includes("DAWN") && (await page.locator(".btn.up").count()) === 3,
 );
 const icons = await page.locator(".btn.up .icon").count();
-check("dawn", "every upgrade has an icon", icons === 4, `${icons} icons`);
+check("dawn", "every upgrade has an icon", icons === 3, `${icons} icons`);
+// each offer shows its label, level pips, effect text and cost, and they are three different upgrades
+const offerCards = await page.locator(".btn.up").evaluateAll((cards) =>
+  cards.map((card) => ({
+    id: card.dataset.upgrade,
+    label: card.querySelector("b")?.textContent ?? "",
+    pips: card.querySelector("em")?.textContent ?? "",
+    effect: card.querySelector("span")?.textContent ?? "",
+    cost: card.querySelector("i")?.textContent ?? "",
+  })),
+);
+check(
+  "dawn",
+  "three different offers, each with label, pips, effect and cost",
+  new Set(offerCards.map((card) => card.id)).size === 3 &&
+    offerCards.every(
+      (card) =>
+        card.label.length > 0 &&
+        /^[●○]{3}$/.test(card.pips) &&
+        card.effect.length > 10 &&
+        /^\d+ oil$|^max$/.test(card.cost),
+    ),
+  JSON.stringify(offerCards.map((card) => `${card.id} ${card.pips} ${card.cost}`)),
+);
+const savedOffers = await page.evaluate(() => ({
+  shown: window.lampwarden.legacy().offers,
+  saved: JSON.parse(localStorage.getItem("lampwarden:legacy:v1") ?? "{}").offers,
+}));
+check(
+  "dawn",
+  "the offers are saved with the legacy, so a reload keeps them",
+  JSON.stringify(savedOffers.shown) === JSON.stringify(savedOffers.saved) &&
+    JSON.stringify(savedOffers.shown) === JSON.stringify(offerCards.map((card) => card.id)),
+  JSON.stringify(savedOffers),
+);
 
 // 7 heir screen after the lamps go dark
 await page.getByRole("button", { name: /Into night/ }).click();
@@ -903,8 +937,8 @@ for (const [tag, device] of [
   check(
     tag,
     "shop and continue reachable",
-    reachable === 4 && continueBounds && inView(continueBounds, viewportWidth, viewportHeight),
-    `${reachable}/4 upgrades`,
+    upgradeCount === 3 && reachable === 3 && continueBounds && inView(continueBounds, viewportWidth, viewportHeight),
+    `${reachable}/${upgradeCount} offers`,
   );
   await context.close();
 }

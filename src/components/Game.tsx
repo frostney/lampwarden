@@ -13,6 +13,7 @@ import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } 
 import {
   buy,
   clearLegacy,
+  endWarden,
   type Heir,
   heirAs,
   heirChoices,
@@ -20,11 +21,11 @@ import {
   loadLegacy,
   MAX_LEVEL,
   newLegacy,
+  openShop,
   ordinal,
   saveLegacy,
   TRAITS,
   tideLabel,
-  UPGRADE_IDS,
   UPGRADES,
   type UpgradeId,
   upgradeCost,
@@ -210,10 +211,12 @@ export default function Game() {
         legacy.bestNight = Math.max(legacy.bestNight, legacy.night - 1);
         legacy.generation++;
         legacy.night = 1;
+        endWarden(legacy);
         setHeirs(heirChoices());
         phaseRef.current = "heir";
         setPhase("heir");
       }
+      openShop(legacy); // the shop opens on the new offers; saved with them, so a reload does not reroll
       saveLegacy(legacy);
       pause(true);
       setReport(nightReport);
@@ -402,20 +405,25 @@ export default function Game() {
       <div className="oil">
         <Icon name="oil" size={16} /> {legacy.oil} oil
       </div>
-      {UPGRADE_IDS.map((id) => {
+      {legacy.offers.length === 0 && <p className="dim">Nothing left to buy. The line is complete.</p>}
+      {legacy.offers.map((id) => {
         const cost = upgradeCost(legacy, id);
         return (
           <button
             key={id}
             type="button"
             className="btn up"
+            data-upgrade={id}
             disabled={cost === null || legacy.oil < cost}
             onClick={() => purchase(id)}
           >
             <Icon name={id} />
             <div>
-              <b>{UPGRADES[id].label}</b> {"●".repeat(legacy.levels[id])}
-              {"○".repeat(MAX_LEVEL - legacy.levels[id])}
+              <b>{UPGRADES[id].label}</b>
+              <em role="img" aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`}>
+                {"●".repeat(legacy.levels[id])}
+                {"○".repeat(MAX_LEVEL - legacy.levels[id])}
+              </em>
               <span>{UPGRADES[id].text}</span>
               <i>{cost === null ? "max" : `${cost} oil`}</i>
             </div>

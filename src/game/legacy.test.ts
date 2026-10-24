@@ -1,5 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { heirAs, newLegacy } from "./legacy";
+import {
+  buy,
+  drawOffers,
+  emptyLevels,
+  endWarden,
+  heirAs,
+  LEVEL_COSTS,
+  MAX_LEVEL,
+  newLegacy,
+  OFFER_COUNT,
+  openShop,
+  parseLegacy,
+  UPGRADE_IDS,
+  type UpgradeId,
+} from "./legacy";
 
 describe("heirAs", () => {
   test("gives the warden a name of the other sex and keeps the trait", () => {
@@ -19,5 +33,144 @@ describe("heirAs", () => {
     const daughter = heirAs({ name: "Stranger", sex: "male", trait: "keen" }, "female");
     expect(daughter.sex).toBe("female");
     expect(daughter.name).not.toBe("Stranger");
+  });
+});
+
+// a legacy as an earlier build saved it: four upgrades, no shop
+const OLD_SAVE: Record<string, unknown> = {
+  generation: 3,
+  heir: { name: "Ione", sex: "female", trait: "keen" },
+  night: 4,
+  bestNight: 6,
+  oil: 31,
+  levels: { wick: 2, blade: 1, quiver: 0, heart: 3 },
+  tide: 1.3,
+  fallen: [{ name: "Lykos", night: 5, cause: "fell in the plaza" }],
+};
+
+describe("the shop's offers", () => {
+  test("a seed draws the same three distinct upgrades every time", () => {
+    const levels = emptyLevels();
+    const offers = drawOffers(12345, levels);
+    expect(offers).toHaveLength(OFFER_COUNT);
+    expect(new Set(offers).size).toBe(OFFER_COUNT);
+    expect(drawOffers(12345, levels)).toEqual(offers);
+  });
+
+  test("different seeds draw different offers, and every upgrade turns up", () => {
+    const seen = new Set<UpgradeId>();
+    const draws = new Set<string>();
+    for (let seed = 1; seed <= 200; seed++) {
+      const offers = drawOffers(seed, emptyLevels());
+      draws.add(offers.join());
+      for (const id of offers) seen.add(id);
+    }
+    expect(draws.size).toBeGreaterThan(20);
+    expect(seen.size).toBe(UPGRADE_IDS.length);
+  });
+
+  test("an upgrade at its top level is never offered", () => {
+    const levels = { ...emptyLevels(), wick: MAX_LEVEL, blade: MAX_LEVEL, heart: MAX_LEVEL };
+    for (let seed = 1; seed <= 200; seed++) {
+      const offers = drawOffers(seed, levels);
+      expect(offers).toHaveLength(OFFER_COUNT);
+      for (const id of ["wick", "blade", "heart"] as const) expect(offers).not.toContain(id);
+    }
+  });
+
+  test("offers what is left when fewer than three can still be bought", () => {
+    const levels = emptyLevels();
+    for (const id of UPGRADE_IDS) levels[id] = MAX_LEVEL;
+    levels.stride = 1;
+    levels.tinder = 2;
+    expect(drawOffers(7, levels).toSorted()).toEqual(["stride", "tinder"]);
+    levels.stride = MAX_LEVEL;
+    levels.tinder = MAX_LEVEL;
+    expect(drawOffers(7, levels)).toEqual([]);
+  });
+
+  test("each shop that opens draws from a new seed, and a line draws the same shops again from the same start", () => {
+    const first = newLegacy(99);
+    const second = newLegacy(99);
+    const seeds = new Set<number>();
+    const sequences = [first, second].map((legacy) => {
+      const shops: string[] = [];
+      for (let night = 0; night < 6; night++) {
+        openShop(legacy);
+        seeds.add(legacy.offerSeed);
+        shops.push(legacy.offers.join());
+      }
+      return shops;
+    });
+    expect(sequences[0]).toEqual(sequences[1]);
+    expect(seeds.size).toBe(6);
+    expect(new Set(sequences[0]).size).toBeGreaterThan(2);
+  });
+
+  test("a reload keeps the offers instead of rerolling them", () => {
+    const legacy = newLegacy(4242);
+    openShop(legacy);
+    const reloaded = parseLegacy(JSON.parse(JSON.stringify(legacy)));
+    expect(reloaded.offers).toEqual(legacy.offers);
+    expect(reloaded.offerSeed).toBe(legacy.offerSeed);
+  });
+});
+
+describe("buying", () => {
+  test("a bought upgrade stays on offer for a second level while the oil lasts", () => {
+    const legacy = newLegacy(5);
+    const [id] = legacy.offers;
+    if (!id) throw new Error("no offer");
+    legacy.oil = LEVEL_COSTS[0] + LEVEL_COSTS[1] + 1;
+    expect(buy(legacy, id)).toBe(true);
+    expect(buy(legacy, id)).toBe(true);
+    expect(legacy.levels[id]).toBe(2);
+    expect(legacy.oil).toBe(1);
+    expect(legacy.offers).toContain(id);
+    expect(buy(legacy, id)).toBe(false); // the third level costs more than is left
+  });
+
+  test("only what is on offer can be bought, and a top level cannot be bought past", () => {
+    const legacy = newLegacy(5);
+    legacy.oil = 1000;
+    const absent = UPGRADE_IDS.find((id) => !legacy.offers.includes(id));
+    if (!absent) throw new Error("everything on offer");
+    expect(buy(legacy, absent)).toBe(false);
+    const [offered] = legacy.offers;
+    if (!offered) throw new Error("no offer");
+    for (let count = 0; count < MAX_LEVEL; count++) expect(buy(legacy, offered)).toBe(true);
+    expect(buy(legacy, offered)).toBe(false);
+    expect(legacy.levels[offered]).toBe(MAX_LEVEL);
+  });
+
+  test("what was only the warden's falls with them; the line's upgrades stay", () => {
+    const legacy = newLegacy(5);
+    legacy.levels.hide = 2;
+    legacy.levels.heart = 2;
+    endWarden(legacy);
+    expect(legacy.levels.hide).toBe(0);
+    expect(legacy.levels.heart).toBe(2);
+  });
+});
+
+describe("loading a saved legacy", () => {
+  test("a save from before the new upgrades keeps its levels, starts the new ones at 0 and gets offers", () => {
+    const legacy = parseLegacy(OLD_SAVE);
+    expect(legacy.levels).toEqual({ ...emptyLevels(), wick: 2, blade: 1, heart: 3 });
+    expect(legacy.oil).toBe(31);
+    expect(legacy.generation).toBe(3);
+    expect(legacy.heir).toEqual({ name: "Ione", sex: "female", trait: "keen" });
+    expect(legacy.fallen).toEqual([{ name: "Lykos", night: 5, cause: "fell in the plaza" }]);
+    expect(legacy.offers).toHaveLength(OFFER_COUNT);
+    expect(legacy.offers).not.toContain("heart"); // already at its top level
+  });
+
+  test("a damaged save keeps what is readable and replaces the rest", () => {
+    const legacy = parseLegacy({ ...OLD_SAVE, oil: "lots", tide: 99, levels: { wick: 7, blade: 2 }, heir: 4 });
+    expect(legacy.oil).toBe(0);
+    expect(legacy.tide).toBe(1);
+    expect(legacy.levels).toEqual({ ...emptyLevels(), blade: 2 });
+    expect(legacy.heir).toEqual(newLegacy().heir);
+    expect(legacy.night).toBe(4);
   });
 });

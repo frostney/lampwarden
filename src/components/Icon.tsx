@@ -1,6 +1,6 @@
 // 16x16 pixel icons for the upgrades, the HUD and the touch controls, drawn as crisp SVG rects. One character per pixel;
 // '.' is transparent.
-import type { UpgradeId } from "@/game/legacy";
+import type { TraitId, UpgradeId } from "@/game/legacy";
 
 const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline
@@ -41,9 +41,104 @@ function outlined(rows: readonly string[]): string[] {
   );
 }
 
-export type IconName = UpgradeId | "oil" | "slain" | "shoot" | "spear" | "sling" | "pouch";
+export type IconName = UpgradeId | TraitId | "oil" | "slain" | "shoot" | "spear" | "sling" | "pouch";
 
 const ART: Record<IconName, string[]> = {
+  // a wing swept back with streaks behind it: the swift heir
+  swift: outlined([
+    "................",
+    "................",
+    "......YYY.......",
+    ".......WYY......",
+    "ssssss..WYY.....",
+    ".........WYY....",
+    "..........WYY...",
+    ".sssssssss.WYY..",
+    "..........OOO...",
+    ".........OOO....",
+    "ssssss..OOO.....",
+    ".......OOO......",
+    "......OOO.......",
+    "................",
+    "................",
+    "................",
+  ]),
+  // a bronze breastplate with its shoulder guards: the stout heir
+  stout: outlined([
+    "................",
+    "..BBBB....BBBB..",
+    ".BGGGGB..BGGGGB.",
+    ".BGWGGGBBGGGGbB.",
+    ".BGGGGGGGGGGGbB.",
+    "..BBGGWbbWGGbB..",
+    "...BGGWbbWGGB...",
+    "...BGGGbbGGGB...",
+    "...BGGGbbGGbB...",
+    "...BbGGbbGGbB...",
+    "...BBGGbbGGBB...",
+    "....LLLLLLLL....",
+    "....LlLlLlLl....",
+    "....LlLlLlLl....",
+    ".....l.l.l.l....",
+    "................",
+  ]),
+  // a taper in a chamberstick with its ring handle: the lamplighter
+  lamplighter: outlined([
+    "................",
+    ".......Y........",
+    "......OYO.......",
+    "......YWY.......",
+    "......OYO.......",
+    ".......K........",
+    "......eeE.......",
+    "......eWE.......",
+    "......eeE.......",
+    "......eeE.......",
+    "....BBBBBBB.....",
+    "...BGGGGGGbBBB..",
+    "...BbbbbbbbB.BB.",
+    "....KBBBBBB..BB.",
+    ".....KKKKK.BBB..",
+    "................",
+  ]),
+  // an arm stretched out to a fist, with the reach marked under it: the long-armed heir
+  longarm: outlined([
+    "................",
+    "................",
+    "..........BBBB..",
+    "LLLL.....BBGGBb.",
+    "LLllsBBBBBBBGBb.",
+    "LLLLsBBBBBGBBBb.",
+    "LLllsbbbbbbBBBb.",
+    "LLLL.......bbb..",
+    "................",
+    "................",
+    "...........Y....",
+    "............Y...",
+    ".YYYYYYYYYYYYY..",
+    "............Y...",
+    "...........Y....",
+    "................",
+  ]),
+  // an eye with an arrow through it: the keen-eyed heir
+  keen: outlined([
+    "................",
+    "................",
+    "....eeeeeeee....",
+    "..eeWWWGGWWWee..",
+    ".eWWWGGGGGGWWWe.",
+    "RWWWWGGGGGGWWSWe",
+    "RRLLLGGKKGGLLSSS",
+    "RWWWWGGKKGGWWSWe",
+    ".eWWWGGGGGGWWWe.",
+    "..eeWWWGGWWWee..",
+    "....eeeeeeee....",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+  ]),
   // a skull: monsters slain
   slain: outlined([
     "................",

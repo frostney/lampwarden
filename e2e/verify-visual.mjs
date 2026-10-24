@@ -379,6 +379,42 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
     scroll.unreachable.join(", "),
   );
 }
+// every element matching the selector names one trait and shows exactly that trait's icon, hidden from assistive tech
+// because the name is beside it
+const TRAIT_ICONS = {
+  Swift: "swift",
+  Stout: "stout",
+  Lamplighter: "lamplighter",
+  "Long-armed": "longarm",
+  "Keen-eyed": "keen",
+};
+async function checkTraitIcons(tag, name, selector, expectedCount) {
+  const found = await page.locator(selector).evaluateAll((elements) =>
+    elements.map((element) => ({
+      text: element.textContent,
+      icons: [...element.querySelectorAll("[data-icon]")].map((icon) => ({
+        name: icon.dataset.icon,
+        hidden: icon.getAttribute("aria-hidden") === "true",
+        drawn: icon.querySelectorAll("rect").length,
+      })),
+    })),
+  );
+  const problems = found.flatMap((element) => {
+    const label = Object.keys(TRAIT_ICONS).find((trait) => element.text.includes(trait));
+    const [icon] = element.icons;
+    if (!label) return [`no trait in "${element.text.slice(0, 30)}"`];
+    if (element.icons.length !== 1 || icon.name !== TRAIT_ICONS[label])
+      return [`${label}: icons ${element.icons.map((shown) => shown.name).join(",") || "none"}`];
+    if (!icon.hidden || icon.drawn < 20) return [`${label}: hidden ${icon.hidden}, ${icon.drawn} pixels`];
+    return [];
+  });
+  check(
+    tag,
+    name,
+    found.length === expectedCount && problems.length === 0,
+    problems.join("; ") || `${found.length} shown`,
+  );
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -437,9 +473,12 @@ check(
   (await page.locator(".hero-card").count()) === 2 && chosenCards === 1,
 );
 
+await checkTraitIcons("title", "the warden line shows the trait's icon", ".scroll .warden", 1);
+
 // 2 night start: all five lamps lit
 await page.getByRole("button", { name: "Light the lamps" }).click();
 await page.waitForSelector('[data-phase="night"]');
+await checkTraitIcons("night", "the HUD's warden line shows the trait's icon", ".hud .stats > div:first-child", 1);
 await freeze();
 const lamps = await page.evaluate(() => window.lampwarden.state().lamps.map((lamp) => [lamp.x, lamp.y]));
 const head = ([x, y]) => [x - 4, y - 82, 8, 8];
@@ -751,6 +790,7 @@ await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
 shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
+await checkTraitIcons("heir", "each heir button shows its trait's icon", ".btn.heir", 3);
 // the shop is for the fallen warden until an heir is picked, then for the heir (a daughter if one is offered)
 await checkWeaponShop("heir", "male");
 {
@@ -950,6 +990,32 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const wardenLine = (await text(".scroll .warden")).join("");
   check("hero-choice", "the warden line names her", wardenLine.includes(daughter.name), wardenLine);
   await shoot("11-hero-choice");
+  // every trait: its icon on the warden line (a saved legacy with that trait), and the five icons are all different
+  const drawings = [];
+  for (const trait of Object.values(TRAIT_ICONS)) {
+    await page.evaluate((trait) => {
+      const saved = JSON.parse(localStorage.getItem("lampwarden:legacy:v1"));
+      localStorage.setItem("lampwarden:legacy:v1", JSON.stringify({ ...saved, heir: { ...saved.heir, trait } }));
+    }, trait);
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    const shown = await page.locator(".scroll .warden [data-icon]").evaluateAll((icons) =>
+      icons.map((icon) => ({
+        name: icon.dataset.icon,
+        drawing: [...icon.querySelectorAll("rect")]
+          .map((rect) => `${rect.getAttribute("x")},${rect.getAttribute("y")},${rect.getAttribute("fill")}`)
+          .join(";"),
+      })),
+    );
+    check("traits", `the ${trait} trait shows the ${trait} icon`, shown.length === 1 && shown[0].name === trait);
+    drawings.push(shown[0]?.drawing);
+  }
+  check("traits", "the five trait icons are all different", new Set(drawings).size === drawings.length);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await page.click('.hero-card[data-sex="female"]');
   await page.click('.hero-card[data-sex="male"]');
   const son = await heir();
   check(

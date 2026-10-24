@@ -28,6 +28,7 @@ import {
   ordinal,
   saveLegacy,
   TRAITS,
+  type TraitId,
   tideLabel,
   type UpgradeId,
   upgradeCost,
@@ -454,7 +455,6 @@ export default function Game() {
   };
 
   const legacy = legacyRef.current;
-  const heirLine = `${legacy.heir.name}, ${ordinal(legacy.generation)} Lampwarden · ${TRAITS[legacy.heir.trait].label}`;
 
   const shopWarden = shopSex(legacy);
   const shop = (
@@ -523,7 +523,7 @@ export default function Game() {
               <div>
                 {legacy.heir.name}
                 <span className="long">
-                  , {ordinal(legacy.generation)} Lampwarden · {TRAITS[legacy.heir.trait].label}
+                  , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </span>
               </div>
               <div className="bar">
@@ -690,7 +690,7 @@ export default function Game() {
                   })}
                 </div>
                 <p className="warden" data-line>
-                  {heirLine}
+                  {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </p>
                 <p className="dim" data-line>
                   Night {legacy.night}
@@ -749,11 +749,14 @@ export default function Game() {
                   className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
                   onClick={() => chooseHeir(heir)}
                 >
-                  <b>{heir.name}</b>
-                  <span>{ARMS[heir.sex].loadout}</span>
-                  <span>
-                    {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
-                  </span>
+                  <Icon name={heir.trait} />
+                  <div>
+                    <b>{heir.name}</b>
+                    <span>{ARMS[heir.sex].loadout}</span>
+                    <span>
+                      {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -773,6 +776,16 @@ export default function Game() {
         )}
       </div>
     </div>
+  );
+}
+
+// a trait's name with its icon (the icon is decoration: the name says it)
+function TraitMark({ trait }: { trait: TraitId }) {
+  return (
+    <span className="trait">
+      <Icon name={trait} size={16} />
+      {TRAITS[trait].label}
+    </span>
   );
 }
 

@@ -8,7 +8,8 @@
 // usage: bun run build && bun run start -- -p 3720 &
 //        bun scripts/measure-pixel-scaling.mjs --url http://localhost:3720 [--profile desktop-2x,desktop-1.5x,phone-land,phone-port]
 //                                              [--seconds 20] [--runs 3] [--out measure-out] [--looks-only]
-// Headed browsers only (real GPU compositing). The run takes the shared screen lock /tmp/lw-screen.lock (it waits while
+// Headed browsers only (real GPU compositing). The run takes the screen lock /tmp/lw-screen.lock that agents hold while they run a headed browser (this script and the agents
+// that follow the convention take it; e2e/verify-visual.mjs does not; it waits while
 // another live process holds it) and removes it when done.
 //
 // Per profile it first plays a short night, pauses it and screenshots the stage in each mode (and the HUD alone, with the
@@ -48,7 +49,7 @@ const LOOKS_ONLY = process.argv.includes("--looks-only");
 const profileNames = argument("--profile", Object.keys(PROFILES).join(",")).split(",");
 const UNCAPPED_FLAGS = ["--disable-frame-rate-limit", "--disable-gpu-vsync"];
 
-// --- the shared screen lock -------------------------------------------------------------------------------------
+// --- the screen lock -------------------------------------------------------------------------------------
 const LOCK = "/tmp/lw-screen.lock";
 const alive = (pid) => {
   try {
@@ -60,16 +61,22 @@ const alive = (pid) => {
 };
 async function takeScreenLock() {
   for (;;) {
+    try {
+      writeFileSync(LOCK, String(process.pid), { flag: "wx" }); // atomic: fails when the file exists
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
     let holder = Number.NaN;
     try {
       holder = Number(readFileSync(LOCK, "utf8").trim());
     } catch {
-      break; // no lock file
+      continue; // released between the two calls
     }
-    if (!Number.isInteger(holder) || !alive(holder)) break; // stale
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (!Number.isInteger(holder) || !alive(holder))
+      rmSync(LOCK, { force: true }); // stale
+    else await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  writeFileSync(LOCK, String(process.pid));
 }
 function releaseScreenLock() {
   try {
@@ -246,6 +253,7 @@ async function measureOnce(browser, profile, mode, syncGpu) {
         : null;
     return { ...result, cpu };
   } finally {
+    await cdp?.detach();
     await context.close();
   }
 }
@@ -277,10 +285,12 @@ function differenceMap(first, second) {
   return map;
 }
 
-function crop(image, left, top, width, height) {
+function crop(image, wantedLeft, wantedTop, width, height) {
+  // kept inside the shot, so a hero near an edge gives a shifted crop, not a transparent band
+  const left = Math.max(0, Math.min(image.width - width, Math.round(wantedLeft)));
+  const top = Math.max(0, Math.min(image.height - height, Math.round(wantedTop)));
   const cropped = new PixelImage(width, height);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) cropped.set(x, y, image.get(Math.round(left) + x, Math.round(top) + y));
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) cropped.set(x, y, image.get(left + x, top + y));
   return cropped;
 }
 

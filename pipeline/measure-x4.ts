@@ -24,6 +24,8 @@ const SPRITE_NAMES = ["lamp-lit", "house", "satyr", "temple"] as const;
 
 const { values } = parseArgs({ options: { runs: { type: "string", default: "10" } } });
 const RUNS = Number(values.runs);
+if (!Number.isInteger(RUNS) || RUNS < 1)
+  throw new Error(`--runs must be a whole number of at least 1, got ${values.runs}`);
 
 interface Timings {
   wall: number[];

@@ -139,18 +139,18 @@ rather than the display's refresh. Chromium's CPU while capped (browser / render
 14 against B 1 / 10 / 11 at 2×, and 1 / 11 / 13 against 2 / 11 / 12 at 1.5×; uncapped the GPU process runs at 178% for A and
 159% for B at 2×, but B finishes 30% fewer frames. Frame time at the display's refresh is pinned to the refresh in every
 mode (no long frames beyond noise), so nothing here makes the game slower or faster on these machines; the only
-difference is headroom, and A has more of it.
+difference is headroom, and A has more of it in the uncapped runs. That rests on one uncapped Chromium run per cell on a Mac GPU, and the phones are only proxied by WebKit on macOS, so treat it as "B and C show no gain", not as a measured phone result.
 
 How it looks, from `diff-A-*.png` and `crops.png` written next to the numbers (every crop viewed):
 - **The HUD is untouched.** With the canvas hidden the stage screenshots are identical in every mode (0 differing pixels in all four profiles). Over the canvas the text and bars only blend against a different background.
 - **At the whole 2× (B = C), a sprite that stays on the same pixel is pixel-identical to A** (the lamps, the hero, the temple). What differs (2.5% of the screenshot's pixels) is (1) the vector layers, which rasterise on the finer grid: the ground's tile lines and the rings and strokes become thin, finely stepped lines that no longer share the sprites' pixel grid, and (2) props whose ground anchor is a fraction of a game pixel (the stall's `0.88 × 128 = 112.64`, the statue, the house, the boats), which `roundPixels` now rounds to half a game pixel instead of a whole one, so they shift by one device pixel. The temple and lamps, whose anchors are whole pixels (0.93 × 128 = 119.04, 0.82 × 128 = 104.96), do not move.
 - **At a non-whole scale (1.5×, 2.06×), B is not crisper than A**: Pixi's nearest sampling steps unevenly exactly as the browser's does (7-9% of pixels differ: where the steps fall, plus the thinner lines). C is nearer to A at 2.06× (3.4% differ) but adds a browser resample of 1.03×.
 
-**Recommendation: keep A.** It is already the cheapest place (a 1× draw, then a compositor texture scale that takes no CPU work in the page), it keeps every layer on one pixel grid, and B/C draw 2-4× the pixels for no gain in
+**Recommendation: keep A.** It is already a cheap place (a 1× draw, then a compositor texture scale that takes no CPU work in the page), it keeps every layer on one pixel grid, and B/C draw 2-4× the pixels for no gain in
 what a player sees at the display's refresh. Neither B nor C wins on speed and look, so the default is not changed. If a
 sharper vector layer were ever wanted, `src/scene/layers.ts` would have to round or snap its strokes and the props'
 anchors first. To repeat: `bun run build && bun run start -- -p 3720`, then `bun scripts/measure-pixel-scaling.mjs --url http://localhost:3720`
-(see the script's header; it takes `/tmp/lw-screen.lock` while it runs headed browsers).
+(see the script's header; it takes `/tmp/lw-screen.lock`, the lock agents hold around headed browsers, while it runs).
 
 ## Logo
 

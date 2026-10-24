@@ -13,9 +13,8 @@ import { TouchControls } from "@/components/TouchControls";
 import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
-import { mayEase } from "@/game/director";
 import { askDirector } from "@/game/director-api";
-import { engagementOf } from "@/game/engagement";
+import { engagementOf, heldTide } from "@/game/engagement";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   applyDirector,
@@ -257,8 +256,10 @@ export default function Game() {
       const tideBefore = legacy.tide;
       legacy.oil += state.oilEarned + bonus;
       // a night the player was not there for (idle, tab away, left) is no evidence it was too hard: the tide does not ease
-      const engagement = sent ? engagementOf(sent.play).kind : undefined;
-      setRulesDirector(legacy, nextTide(legacy.tide, state, mayEase(engagement)), state.night, sent?.id, engagement); // the live director may replace it
+      // (a night with no recording cannot be judged, and is held the same way)
+      const engagement = sent ? engagementOf(sent.play).kind : "idle";
+      const nextRulesTide = heldTide(legacy.tide, nextTide(legacy.tide, state), engagement);
+      setRulesDirector(legacy, nextRulesTide, state.night, sent?.id, engagement); // the live director may replace it
       const nightReport: Report = {
         outcome,
         night: state.night,

@@ -10,7 +10,7 @@ import {
   rulesDirector,
   tideRange,
 } from "./director";
-import { engagementOf, type RecordedEngagement } from "./engagement";
+import { engagementOf, heldTide, type RecordedEngagement } from "./engagement";
 import { applyDirector, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
 import { rulesTide } from "./sim";
 
@@ -58,16 +58,22 @@ describe("the engagement of a night", () => {
 
   test("a night with most of its real time away is paused, but only with the real time and at least 10 s of it", () => {
     const played = night(1200, 20);
-    expect(engagementOf({ ...played, wallSeconds: 40 }).kind).toBe("engaged"); // as long as the sim
-    expect(engagementOf({ ...played, wallSeconds: 70 }).kind).toBe("engaged"); // 43% of it away
-    const away = engagementOf({ ...played, wallSeconds: 120 });
+    expect(engagementOf({ ...played, hiddenSeconds: 0 }).kind).toBe("engaged");
+    expect(engagementOf({ ...played, hiddenSeconds: 30 }).kind).toBe("engaged"); // 43% of the real time away
+    const away = engagementOf({ ...played, hiddenSeconds: 80 });
     expect(away.kind).toBe("paused");
+    expect(away.wallSeconds).toBe(120);
     expect(away.pausedSeconds).toBe(80);
     expect(away.pausedShare).toBe(0.67);
-    expect(engagementOf({ ...night(1200, 20, { steps: 240 }), wallSeconds: 9 }).kind).not.toBe("paused"); // 5 s away of 9
+    expect(engagementOf({ ...night(1200, 20, { steps: 240 }), hiddenSeconds: 8 }).kind).not.toBe("paused"); // 67% away, but under 10 s
   });
 
-  test("a play from before the real time was kept has no pause time and is judged on its inputs", () => {
+  test("a slow device is not a paused one: only time the tab was hidden counts, however long the night took to play", () => {
+    // the sim of a 10 frames a second device runs at half speed, so its real time is twice the sim's; nothing was hidden
+    expect(engagementOf({ ...night(1200, 20), hiddenSeconds: 0 }).kind).toBe("engaged");
+  });
+
+  test("a play from before the hidden time was kept has no pause time and is judged on its inputs", () => {
     const engagement = engagementOf(night(1200, 20));
     expect(engagement.wallSeconds).toBeNull();
     expect(engagement.pausedSeconds).toBeNull();
@@ -165,11 +171,14 @@ describe("nothing gets easier after a night nobody played", () => {
 
   test("the rules' director does not ease after such a night either", () => {
     const loss = { outcome: "dark" as const, kills: 2, seconds: 18, lampsLost: 5, health: 38, maxHealth: 100 };
-    expect(rulesTide(1.1, loss)).toBe(0.94);
-    expect(rulesTide(1.1, loss, false)).toBe(1.1);
-    // a dawn is untouched: it never eased
+    const eased = rulesTide(1.1, loss);
+    expect(eased).toBe(0.94);
+    for (const kind of away) expect(heldTide(1.1, eased, kind)).toBe(1.1); // an idle, paused or left loss holds the tide
+    expect(heldTide(1.1, eased, "engaged")).toBe(0.94); // an engaged loss still eases
+    expect(heldTide(1.1, eased, undefined)).toBe(0.94); // so does a night with no engagement on record (an old save)
+    // a dawn never eased, and a push after a night nobody played is kept
     const dawn = { ...loss, outcome: "dawn" as const, lampsLost: 0, health: 90, kills: 10, seconds: 40 };
-    expect(rulesTide(1.1, dawn, false)).toBe(rulesTide(1.1, dawn));
+    expect(heldTide(1.1, rulesTide(1.1, dawn), "idle")).toBe(rulesTide(1.1, dawn));
   });
 
   test("the game takes the model's answer after an idle night only as far as the bounds allow, against its own engagement", () => {

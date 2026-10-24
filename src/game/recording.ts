@@ -33,9 +33,9 @@ export interface Play {
   outcome: string | null; // dawn | dark | fallen | null when abandoned
   // hp and maxHp are the warden's health and maxHealth; the keys stay as recorded so stored plays still read
   stats: State["stats"] & { oilEarned: number; hp: number; maxHp: number; lit: number };
-  // Real seconds from the night's start to its end, from a monotonic clock. The sim stops when the tab is hidden, so this
-  // minus steps / 60 is the time away (src/game/engagement.ts). Plays from before it was kept have none.
-  wallSeconds?: number;
+  // Seconds the tab was hidden during the night (it stops the sim; src/game/engagement.ts reads it as time away). Plays from
+  // before it was kept have none.
+  hiddenSeconds?: number;
   replay?: { endsMatch: boolean }; // filled in when a recording is verified by replay
 }
 
@@ -56,7 +56,18 @@ function sessionId(): string {
 export class Recorder {
   play: Play;
   private last: InputRow | null = null;
-  private readonly startedClock = performance.now();
+  private hiddenSeconds = 0;
+  private hiddenSince: number | null = null;
+  // the tab's visibility, kept for the night: a hidden tab is the one way a night is paused
+  private readonly onVisibility = () => {
+    if (document.visibilityState === "hidden") this.hiddenSince ??= performance.now();
+    else this.closeHidden();
+  };
+  private closeHidden() {
+    if (this.hiddenSince === null) return;
+    this.hiddenSeconds += (performance.now() - this.hiddenSince) / 1000;
+    this.hiddenSince = null;
+  }
   constructor(
     legacy: Legacy,
     seed: number,
@@ -64,6 +75,10 @@ export class Recorder {
     creature: RecordedCreature | null = null,
     sim: string | undefined = undefined,
   ) {
+    if (typeof document !== "undefined") {
+      if (document.visibilityState === "hidden") this.hiddenSince = performance.now();
+      document.addEventListener("visibilitychange", this.onVisibility);
+    }
     const { night, generation, tide, levels, heir, director } = legacy;
     this.play = {
       v: 1,
@@ -111,7 +126,9 @@ export class Recorder {
   }
   finish(state: State): Play {
     const play = this.play;
-    play.wallSeconds = Math.round((performance.now() - this.startedClock) / 100) / 10;
+    this.closeHidden();
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
+    play.hiddenSeconds = Math.round(this.hiddenSeconds * 10) / 10;
     play.outcome = state.outcome;
     play.stats = {
       ...state.stats,

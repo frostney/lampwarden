@@ -2210,9 +2210,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   );
   check(
     "director-answer",
-    "the recording keeps the real seconds the night took, for the engagement summary",
-    typeof sentPlay?.wallSeconds === "number" && sentPlay.wallSeconds >= 0.5 && sentPlay.wallSeconds < 30,
-    String(sentPlay?.wallSeconds),
+    "the recording keeps the seconds the tab was hidden (none: it stayed in view), for the engagement summary",
+    sentPlay?.hiddenSeconds === 0,
+    String(sentPlay?.hiddenSeconds),
   );
   check(
     "director-answer",

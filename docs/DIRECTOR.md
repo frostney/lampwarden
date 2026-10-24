@@ -52,26 +52,27 @@ A night that was left alone must not make the next one easier. `src/game/engagem
 a recorded play, how engaged the player was, and a night that was not engaged is no evidence it was too hard.
 
 **What a recording keeps.** Inputs are recorded when they change (a move, a strike, a shot), so the share of the night
-spent moving, the strikes and the shots come straight from them. Pausing is not in the sim: there is no pause button in a
-night, the sim only advances while frames are drawn, a hidden tab stops it, and a long frame is clamped to 50 ms
-(`Scene.tsx`). So time away is the real time minus the sim's (`steps / 60`). The recording had no real time. `startedAt`
-and the server's `receivedAt` are two clocks that can disagree by minutes (on the nine recorded plays they agree within
-1.5 s, which is luck, not a guarantee), so the recorder now keeps `wallSeconds`, the seconds from the night's start to its
-end by a monotonic clock (`performance.now()`), as an optional field (`incomingPlay` validates it, 0 to 86400). It is
-recorder-only: the sim and `replay.ts` do not read it, replays are exact with or without it, and `recording.ts` and
-`plays.ts` are outside the sim fingerprint. (`director.ts` and `sim.ts` are inside it and were edited for this, so the
-fingerprint changes with this branch, as it does with any edit to those files.) A play without `wallSeconds` has no
-pause time and is judged on its inputs alone. Slow frames also count as time away; a device under about 10 frames a second
-would read as half paused.
+spent moving, the strikes and the shots come straight from them. There is no pause button in a night; a night is paused by
+hiding the tab, which stops the sim (it only advances while frames are drawn). The sim cannot say for how long, and the
+timestamps cannot either: `startedAt` and the server's `receivedAt` are two clocks that can disagree by minutes (on the nine
+recorded plays they agree within 1.5 s, which is luck), and real time minus the sim's would read a slow device, or a slow
+start, as time away. So the recorder keeps `hiddenSeconds`: the time the tab was hidden during the night, from the page's
+visibility events and a monotonic clock (`performance.now()`), as an optional field (`incomingPlay` validates it, 0 to
+86400). The real time of the night is the sim's plus that. It is recorder-only: the sim and `replay.ts` do not read it,
+replays are exact with or without it (a test replays both), and `recording.ts` and `plays.ts` are outside the sim
+fingerprint. (`director.ts` is inside it and was edited for this, so the fingerprint changes with this branch, as it
+does with any edit to that file; `sim.ts` is not edited: the hold is applied by the callers, `heldTide`.) A play without
+`hiddenSeconds` has no pause time and is judged on its inputs alone. The recording is the client's, so all of this is for an
+honest client: one that fabricates its inputs, or leaves the field out, is judged on what it sent.
 
 **The rule**, in this order:
 
-| kind      | when                                                                                       |
-| --------- | ------------------------------------------------------------------------------------------ |
-| `left`    | the night did not finish (outcome null): it says nothing about how hard it was             |
-| `paused`  | more than 50% of the real time was spent away, and at least 10 s of it                     |
-| `idle`    | moving for under 15% of the night **and** striking or shooting fewer than 6 times a minute |
-| `engaged` | anything else                                                                              |
+| kind      | when                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------- |
+| `left`    | the night did not finish (outcome null): it says nothing about how hard it was                 |
+| `paused`  | the tab was hidden for more than 50% of the real time (sim plus hidden), and for at least 10 s |
+| `idle`    | moving for under 15% of the night **and** striking or shooting fewer than 6 times a minute     |
+| `engaged` | anything else                                                                                  |
 
 The two clauses of `idle` are needed: one recorded night moves for only 13% of it but strikes and shoots 26 times a
 minute, a warden who stands his ground and fights, and is engaged.
@@ -91,13 +92,14 @@ minute, a warden who stands his ground and fights, and is engaged.
 | 9 (night 2, dark)     | 27.9 s    | 46%    | 5 + 21          | 55.8     | engaged                               |
 
 The two 7 s quits are not idle: both moved and acted (45% moving and two strikes; 33% and five shots). They read as `left`,
-which holds the same way. No recorded night is idle or paused, and none can be shown paused (they have no `wallSeconds`;
+which holds the same way. No recorded night is idle or paused, and none can be shown paused (they have no `hiddenSeconds`;
 the timestamps, for what they are worth, put the real time within 1.5 s of the simulated on every one).
 
 **Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director.ts`):
-- the tide is at least the rules' tide (`tideRange(rulesTide, kind)`), and the rules' tide itself does not ease: `rulesTide`
-  in `sim.ts` takes `mayEase`, and `endNight` passes it, so an idle loss no longer multiplies the tide by 0.85 (before
-  this the rules eased after every lost night, idle or not);
+- the tide is at least the rules' tide (`tideRange(rulesTide, kind)`), and the rules' tide itself does not ease: `heldTide`
+  (`engagement.ts`) keeps the tide the night was played at when the rules would have lowered it, in `endNight` and in the
+  server's `rulesTideAfter`, so an idle loss no longer multiplies the tide by 0.85 (before this the rules eased after every
+  lost night, idle or not); the range the model is told is the one the game keeps;
 - no mix weight is below 1, and the creature share is at least the default 0.25;
 - this is `clampProposal` on the model's reply, again in the game on the answer it receives against the game's own read
   of the night (`applyDirector` passes `waiting.engagement`; the server's claim is not trusted), and `directorSchema`,
@@ -115,9 +117,9 @@ is the backstop): a 7 s quit (play 6, `left`): held at the rules' 0.94, even mix
 the night says little"; an engaged loss (play 5): eased to 0.8 with cyclops 0.6 and harpies 0.8, "Engaged loss: all lamps
 dark by second 18 while health held, so ease pace and fast snuffers"; the same loss with its inputs removed (`idle`):
 1.1, the rules' (which held), even mix, "The player was idle, with no movement, strikes or shots, so the loss says nothing";
-the same loss with `wallSeconds` 120 (`paused`, 101.6 s away): 1.1, even mix, "The player was away for most of the night,
-so the loss is not evidence". The idle and paused nights are the same recording as the engaged loss with its inputs
-removed or its real time set, since no recorded night was idle or paused. Model time 3.0 to 5.0 s.
+the same loss with `hiddenSeconds` 100 (`paused`, 100 s away): 1.1, even mix, "The tab was hidden most of the night, so the
+loss is not evidence; holding the rules' tide and an even mix". The idle and paused nights are the same recording as the engaged loss with its inputs
+removed or its hidden time set, since no recorded night was idle or paused. Model time 3.0 to 5.0 s.
 
 ## The route
 

@@ -81,12 +81,12 @@ All of it applies to the next night only. Numbers outside these bounds are clamp
 
 # Was the player there?
 
-The report has an "engagement" object, worked out from the recording's inputs and from the real time the night took.
+The report has an "engagement" object, worked out from the recording's inputs and from the time the tab was hidden.
 Its "kind" is one of:
 - "engaged": the warden moved and acted through the night. Only an engaged night is evidence of how hard it was.
 - "idle": the warden moved for under 15 percent of the night and struck or shot fewer than six times a minute. The
   player stood by, so a loss, dark lamps or lost health say nothing about the difficulty.
-- "paused": more than half of the real time was spent away (the tab hidden, the game frozen), so the night was hardly
+- "paused": the tab was hidden for more than half of the real time of the night (at least ten seconds), so it was hardly
   played. The same holds.
 - "left": the night never finished.
 After an idle, paused or left night, never ease: a player who stayed around, or went away, must not be rewarded with an

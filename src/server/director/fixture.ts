@@ -35,8 +35,8 @@ export interface FixtureOverrides {
   director?: Director;
   /** What the warden did: "engaged" (the default: moving most of the night, a strike or shot every few seconds) or "idle" (nothing). */
   hands?: "engaged" | "idle";
-  /** Real seconds the night took, when the recording keeps them. */
-  wallSeconds?: number;
+  /** Seconds the tab was hidden during the night, when the recording keeps them. */
+  hiddenSeconds?: number;
 }
 
 // [step, moveX, moveY, strike, shot, aimX, aimY] every half second: walking, with a strike every third change and a shot every fourth
@@ -77,7 +77,7 @@ export function lostNightTwo(overrides: FixtureOverrides = {}) {
     steps: 1102,
     outcome: overrides.outcome === undefined ? "dark" : overrides.outcome,
     stats: { kills: 2, lampsLost: 5, hpLost: 62, time: 18.37, oilEarned: 0, hp: 38, maxHp: 100, lit: 0 },
-    ...(overrides.wallSeconds === undefined ? {} : { wallSeconds: overrides.wallSeconds }),
+    ...(overrides.hiddenSeconds === undefined ? {} : { hiddenSeconds: overrides.hiddenSeconds }),
     receivedAt: "2026-10-24T16:12:12.000Z",
   };
 }

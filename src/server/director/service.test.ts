@@ -377,14 +377,14 @@ describe("a night nobody played", () => {
   });
 
   test("so is a loss in a night most of whose real time was spent away", async () => {
-    const decision = await decideWith(lostNightTwo({ wallSeconds: 120 }));
+    const decision = await decideWith(lostNightTwo({ hiddenSeconds: 100 }));
     expect(decision).toMatchObject({
       tide: 1.1,
       mix: { satyr: 1, cyclops: 1, harpy: 1 },
       creatureShare: 0.25,
       engagement: "paused",
     });
-    expect((await decideWith(lostNightTwo({ wallSeconds: 22 }))).engagement).toBe("engaged"); // 4 s away is not paused
+    expect((await decideWith(lostNightTwo({ hiddenSeconds: 4 }))).engagement).toBe("engaged"); // 4 s away is not paused
   });
 
   test("and a night left before the end", async () => {
@@ -408,11 +408,12 @@ describe("a night nobody played", () => {
   });
 
   test("the model is told, in the summary, that the night was not engaged", async () => {
-    await decideWith(lostNightTwo({ hands: "idle", wallSeconds: 120 }));
+    await decideWith(lostNightTwo({ hands: "idle", hiddenSeconds: 100 }));
     const text = JSON.stringify(world.sent[0]?.body.messages);
     expect(text).toContain('\\"kind\\":\\"paused\\"');
     expect(text).toContain("afterThisNightNothingGetsEasier");
-    expect(text).toContain('\\"pausedSeconds\\":101.6');
+    expect(text).toContain('\\"pausedSeconds\\":100');
+    expect(text).toContain('\\"allowedTideRange\\":[1.1,1.25]'); // the range the model is told is the one the game keeps
   });
 
   test("a play from before the real time was kept loads, judged on its inputs alone", async () => {

@@ -40,8 +40,8 @@ src/
                      drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Replayer and headless verification of recorded plays (replay.test.ts:
                      determinism); covered by the sim fingerprint (see Sim fingerprint)
-    recording.ts     the Play record, Recorder and upload; not part of the sim fingerprint; keeps `wallSeconds`, the real
-                     time a night took (a monotonic clock), which with the sim's time says how long the player was away
+    recording.ts     the Play record, Recorder and upload; not part of the sim fingerprint; keeps `hiddenSeconds`, the time the tab was hidden
+                     during the night (it stops the sim), which says how long the player was away
     engagement.ts    was the player there? from a recorded play: the share of the night spent moving, strikes, shots, and
                      time away, classed engaged, idle, paused or left; a night that is not engaged is never eased after
                      (the rules' director and the live one both; see docs/DIRECTOR.md)

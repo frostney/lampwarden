@@ -12,7 +12,7 @@ import {
 const RENDERERS: Record<RendererName, Renderer> = {
   local: async (request) => (await import("./render-local")).renderLocally(request),
   shotcup: async (request) => (await import("./render-shotcup")).renderOnShotcup(request),
-  vercel: async (request) => (await import("./render-vercel-sandbox")).renderInVercelSandbox(request),
+  vercel: async (request) => (await import("./render-vercel-cli")).renderInVercelSandbox(request),
   boat: async (request) => (await import("./render-boat")).renderInBoatSandbox(request),
 };
 

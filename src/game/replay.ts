@@ -2,7 +2,8 @@
 // warden's inputs at a fixed 60 Hz step, so a recording is just those inputs (only when they change) plus a per-second
 // timeline that the balance analysis can read without replaying anything.
 import { type Legacy, levelsOf } from "./legacy";
-import { type Input, litCount, newNight, type State, step } from "./sim";
+import { type RecordedCreature, recordedCreatureSchema } from "./plays";
+import { type Input, litCount, type NightCreature, newNight, nightCreature, type State, step } from "./sim";
 
 export const STEP = 1 / 60;
 
@@ -20,6 +21,8 @@ export interface Play {
   seed: number;
   // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf)
   legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & { levels: Partial<Legacy["levels"]> };
+  // the creature from the sea that joined the night, when one did; a play from before creatures has none
+  creature?: RecordedCreature;
   inputs: InputRow[];
   timeline: TimelineRow[];
   steps: number;
@@ -51,7 +54,7 @@ export function quantise(input: Input): Input {
 export class Recorder {
   play: Play;
   private last: InputRow | null = null;
-  constructor(legacy: Legacy, seed: number, build: string) {
+  constructor(legacy: Legacy, seed: number, build: string, creature: RecordedCreature | null = null) {
     const { night, generation, tide, levels, heir } = legacy;
     this.play = {
       v: 1,
@@ -61,6 +64,7 @@ export class Recorder {
       startedAt: new Date().toISOString(),
       seed,
       legacy: structuredClone({ night, generation, tide, levels, heir }),
+      ...(creature ? { creature: structuredClone(creature) } : {}),
       inputs: [],
       timeline: [],
       steps: 0,
@@ -139,6 +143,7 @@ export function legacyOf(play: Play): Legacy {
   return {
     ...play.legacy,
     levels: levelsOf(play.legacy.levels),
+    bestiary: [],
     offerSeed: 0,
     offers: [],
     bestNight: 0,
@@ -147,9 +152,16 @@ export function legacyOf(play: Play): Legacy {
   };
 }
 
+// The night's creature as a recording names it; a recording from before creatures (or one the API would not have
+// stored) has none, and its night has no creature.
+export function creatureOf(play: Play): NightCreature | null {
+  const parsed = recordedCreatureSchema.safeParse(play.creature);
+  return parsed.success ? nightCreature(parsed.data) : null;
+}
+
 // Replays a recording headlessly and reports whether it ends where the live play ended.
 export function verifyPlay(play: Play): { state: State; endsMatch: boolean } {
-  const state = newNight(legacyOf(play), play.seed);
+  const state = newNight(legacyOf(play), play.seed, creatureOf(play));
   const replayer = new Replayer(play);
   for (let stepIndex = 0; stepIndex < play.steps && !state.outcome; stepIndex++)
     step(state, STEP, replayer.input(stepIndex));

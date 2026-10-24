@@ -41,8 +41,9 @@ import {
   HURT_TIME,
   type Input,
   type Lamp,
-  MONSTER,
   type Monster,
+  type MonsterKind,
+  monsterStats,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
@@ -51,6 +52,7 @@ import {
 import { heroKey, type Sex } from "@/scene/assets";
 import {
   anchor,
+  anchorAt,
   drawGround,
   drawMarks,
   drawSweep,
@@ -59,6 +61,7 @@ import {
   heroFrame,
   lightsAlpha,
   monsterBob,
+  monsterLook,
   nightProgress,
   nightTint,
   PROPS,
@@ -100,6 +103,7 @@ export interface Night {
   state: State;
   sex: Sex;
   driver: Driver | null;
+  creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
 }
 
 interface SceneProps {
@@ -148,8 +152,9 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
+  const sceneTextures = useMemo(() => ({ ...textures, ...night.creatureTextures }), [textures, night.creatureTextures]);
   const lighting = useMemo<Lighting>(() => new Map(), []);
-  const shared = useMemo(() => ({ textures, clock, lighting }), [textures, lighting]);
+  const shared = useMemo(() => ({ textures: sceneTextures, clock, lighting }), [sceneTextures, lighting]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
@@ -507,11 +512,12 @@ function Monsters({ state }: { state: State }) {
       setShown({ state, list: lastHandedToReact.current });
     }, [state]),
   );
-  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} />);
+  return current.list.map((monster) => <MonsterSprite key={monster.id} monster={monster} state={state} />);
 }
 
-const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monster }) {
+const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster: Monster; state: State }) {
   const { textures, lighting } = useScene();
+  const look = monsterLook(state, monster.kind);
   const ref = useRef<Sprite>(null);
   const rim = useRef<Sprite>(null);
   useFrame(
@@ -519,17 +525,17 @@ const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monste
       const sprite = ref.current;
       if (!sprite) return;
       const light = lighting.get(monster) ?? DARK_CHARACTER;
-      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(monster.kind, monster.age)));
+      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(state, monster.kind, monster.age)));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
-      showRim(rim.current, sprite, textureFor(textures, monster.kind), light.rim);
-    }, [monster, textures, lighting]),
+      showRim(rim.current, sprite, textureFor(textures, look.key), light.rim);
+    }, [monster, state, look.key, textures, lighting]),
   );
   return (
     <>
-      <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />
-      <pixiSprite ref={rim} anchor={anchor(monster.kind)} visible={false} />
+      <pixiSprite ref={ref} texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />
+      <pixiSprite ref={rim} anchor={anchorAt(look.anchorY)} visible={false} />
     </>
   );
 });
@@ -540,7 +546,7 @@ function lightCharacters(state: State, lighting: Lighting, clock: number) {
   lighting.clear();
   lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock));
   for (const monster of state.monsters)
-    lighting.set(monster, lightCharacter(state, monster.x, monster.y, MONSTER[monster.kind].fly, clock));
+    lighting.set(monster, lightCharacter(state, monster.x, monster.y, monsterStats(state, monster.kind).fly, clock));
 }
 
 // The characters' shadows on the ground: under every sprite and over the lamps' pools, so a figure stands in front of its
@@ -773,12 +779,19 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
       const container = layer.current;
       if (!container) return;
       const shown = new Set<string>();
-      const show = (key: string, texture: Texture, anchorKey: string, x: number, y: number, alpha: number) => {
+      const show = (
+        key: string,
+        texture: Texture,
+        anchorPoint: { x: number; y: number },
+        x: number,
+        y: number,
+        alpha: number,
+      ) => {
         shown.add(key);
         let sprite = sprites.current.get(key);
         if (!sprite) {
           sprite = new Sprite(texture);
-          sprite.anchor.copyFrom(anchor(anchorKey));
+          sprite.anchor.copyFrom(anchorPoint);
           sprite.scale.x = x > CENTRE_X ? -1 : 1;
           container.addChild(sprite);
           sprites.current.set(key, sprite);
@@ -788,14 +801,18 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         sprite.alpha = alpha;
         return sprite;
       };
+      // a monster's white silhouette: its own look, which is the creature's on a night that has one
+      const showMonster = (key: string, kind: MonsterKind, x: number, y: number, alpha: number) => {
+        const look = monsterLook(state, kind);
+        show(key, textureFor(textures, flashKey(look.key)), anchorAt(look.anchorY), x, y, alpha);
+      };
       for (const monster of state.monsters)
         if (monster.hurt > HURT_TIME - FLASH_TIME)
-          show(
+          showMonster(
             `monster${monster.id}`,
-            textureFor(textures, flashKey(monster.kind)),
             monster.kind,
             monster.x,
-            monster.y + monsterBob(monster.kind, monster.age),
+            monster.y + monsterBob(state, monster.kind, monster.age),
             1,
           );
       const hero = state.hero;
@@ -805,7 +822,7 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
           heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime)),
         );
         // the same place, frame and mirroring as the warden's own sprite (Hero)
-        if (white) show("hero", white, "hero", hero.x, hero.y, 1).scale.x = hero.left ? -1 : 1;
+        if (white) show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = hero.left ? -1 : 1;
       }
       for (const puff of state.puffs) {
         const ghost = puff.ghost;
@@ -813,13 +830,12 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         const progress = puff.age / GHOST_TIME;
         // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
         const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-        const travel = 30 * MONSTER[ghost.monster].recoil * (1 - (1 - flight) ** 2);
-        show(
+        const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
+        showMonster(
           `puff${puff.id}`,
-          textureFor(textures, flashKey(ghost.monster)),
           ghost.monster,
           ghost.x + puff.directionX * travel,
-          ghost.y + puff.directionY * travel * 0.5 + monsterBob(ghost.monster, ghost.monsterAge + puff.age),
+          ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
           progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
         );
       }

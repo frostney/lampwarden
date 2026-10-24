@@ -16,6 +16,7 @@
 | `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                               |
 | `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`).                                                                                                     |
 | `bun run kit`                          | Reassembles `pipeline/kit/kit.ts` from `pipeline/kit/src`.                                                                                                                   |
+| `bun run sandbox:snapshot`             | Builds the Vercel Sandbox snapshot the live creature generator renders in (Bun 1.4.4 + kit + runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID`.                                |
 
 ## Lint and format
 
@@ -33,3 +34,5 @@ Lefthook runs `biome check --write` on staged files before each commit and re-st
 `.env.local` (from `vercel env pull`) holds `BLOB_READ_WRITE_TOKEN` for recorded plays. The asset pipeline reads
 `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` from the shell environment only (the Vercel Sandbox renderer
 uses Vercel's OIDC token), and runs under `bun --no-env-file` so bun does not load `.env` files into the process.
+
+The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Live creatures").

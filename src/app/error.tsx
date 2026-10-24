@@ -10,7 +10,7 @@ export default function ErrorPage({ reset }: { error: Error & { digest?: string 
         <div className="hud">
           <FailurePanel
             title="THE LAMPS WENT OUT"
-            message="Something broke before the night could begin."
+            message="Something went wrong, and the page could not carry on."
             action="Try again"
             onAction={reset}
           />

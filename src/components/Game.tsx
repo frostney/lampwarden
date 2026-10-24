@@ -72,6 +72,7 @@ const APP = {
   autoDensity: false,
 };
 
+const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
 const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
 
 const INTRODUCTION = [
@@ -278,15 +279,22 @@ export default function Game() {
   const focusResume = useCallback((button: HTMLButtonElement | null) => button?.focus(), []);
 
   // @pixi/react has no error callback: when the renderer cannot start (the message varies: no adapter, no context, no 2D
-  // context to fall back on), its init promise rejects unhandled, before the app has ever existed
+  // context to fall back on), its init promise rejects unhandled, before the app has ever existed. A rejection counts only
+  // if the app is still not up a moment later, so an unrelated one, or the first mount of a strict-mode double mount, does not.
   useEffect(() => {
-    const rendererFailed = (event: PromiseRejectionEvent) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const rendererFailed = () => {
       if (appRef.current) return;
-      event.preventDefault();
-      setLoadFailure("graphics");
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!appRef.current) setLoadFailure("graphics");
+      }, RENDERER_GRACE);
     };
     window.addEventListener("unhandledrejection", rendererFailed);
-    return () => window.removeEventListener("unhandledrejection", rendererFailed);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("unhandledrejection", rendererFailed);
+    };
   }, []);
 
   const endNight = useCallback(

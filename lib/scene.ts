@@ -103,12 +103,12 @@ export function drawSweep(g: Graphics, s: State) {
   if (h.anim === "melee") g.ellipse(Math.round(h.x), Math.round(h.y), R.meleeReach, R.meleeReach / 2).stroke({ width: 2, color: 0xffffff, alpha: 0.35 });
 }
 
-// above the night tint, so they stay readable: shots, puffs, dark-lamp markers, relight and snuff progress, hp pips
+// above the night tint, so they stay readable: shot trails, puffs, dark-lamp markers, relight and snuff progress, hp pips
 export function drawMarks(g: Graphics, s: State, clock: number) {
   const R = s.rules;
-  for (const sh of s.shots) {
-    g.circle(Math.round(sh.x), Math.round(sh.y), 3).fill(0xfff2c0);
-    g.circle(Math.round(sh.x - sh.vx * 0.02), Math.round(sh.y - sh.vy * 0.02), 2).fill({ color: 0xf2c14e, alpha: 0.7 });
+  for (const shot of s.shots) {   // a short motion trail behind each projectile sprite (see components/Scene.tsx)
+    for (const [behind, alpha] of [[0.028, 0.55], [0.04, 0.3], [0.052, 0.15]] satisfies [number, number][])
+      g.rect(Math.round(shot.x - shot.vx * behind), Math.round(shot.y - shot.vy * behind), 1, 1).fill({ color: 0xfff2c0, alpha });
   }
   for (const pf of s.puffs) {
     const r = 6 + pf.t * 60, a = 1 - pf.t / 0.5;

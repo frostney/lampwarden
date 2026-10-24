@@ -9,3 +9,9 @@ pre-commit:
       stage_fixed: true
     varlock-scan:
       run: bunx varlock scan --staged
+
+# Scans the history for secrets before anything leaves the machine (AGENTS.md, hard rules); CI runs the same scan.
+pre-push:
+  commands:
+    gitleaks:
+      run: command -v gitleaks >/dev/null || { echo "install gitleaks (brew install gitleaks) to push"; exit 1; }; gitleaks git --redact --no-banner .

@@ -28,7 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { bindKeyboard, type Controls, consumePresses, liveInput, shootAt } from "@/game/controls";
+import { bindKeyboard, type Controls, consumePresses, liveInput, release, shootAt } from "@/game/controls";
 import { newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
 import { STEP } from "@/game/replay";
 import {
@@ -57,12 +57,14 @@ import {
   drawGroundMarks,
   drawMarks,
   drawSweep,
-  flashKey,
+  ghostTextureKey,
   heroFlashTexture,
   heroFrame,
   lightsAlpha,
   monsterBob,
+  monsterFlashTexture,
   monsterLook,
+  monsterTextureKey,
   nightProgress,
   nightTint,
   PROPS,
@@ -164,15 +166,15 @@ export const Scene = memo(function Scene({
     live.current = { paused, speed, frozenClock, onTick };
   }, [paused, speed, frozenClock, onTick]);
 
-  // a new night starts from step 0 with no keys held
+  // a new night starts from step 0 with nothing held and no press left over from the menus
   const run = useRef({ night, stepIndex: 0, accumulated: 0 });
   const gamepadMemory = useRef(newGamepadMemory());
   useLayoutEffect(() => {
     run.current = { night, stepIndex: 0, accumulated: 0 };
-    controls.keys.clear();
+    release(controls);
   }, [night, controls]);
 
-  useEffect(() => bindKeyboard(controls), [controls]);
+  useEffect(() => bindKeyboard(controls, () => !live.current.paused), [controls]);
   useEffect(() => {
     onReady();
   }, [onReady]);
@@ -577,8 +579,11 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
-      showRim(rim.current, sprite, textureFor(textures, look.key), light.rim);
-    }, [monster, state, look.key, textures, lighting]),
+      // a creature with frames shows the one its animation is at; any other monster, its one sprite
+      const texture = textureFor(textures, monsterTextureKey(state, monster, textures));
+      if (sprite.texture !== texture) sprite.texture = texture;
+      showRim(rim.current, sprite, texture, light.rim);
+    }, [monster, state, textures, lighting]),
   );
   return (
     <>
@@ -850,15 +855,17 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         return sprite;
       };
       // a monster's white silhouette: its own look, which is the creature's on a night that has one
-      const showMonster = (key: string, kind: MonsterKind, x: number, y: number, alpha: number) => {
+      // (a creature with frames flashes the frame it is on)
+      const showMonster = (key: string, kind: MonsterKind, spriteKey: string, x: number, y: number, alpha: number) => {
         const look = monsterLook(state, kind);
-        show(key, textureFor(textures, flashKey(look.key)), anchorAt(look.anchorY), x, y, alpha);
+        show(key, monsterFlashTexture(textures, spriteKey), anchorAt(look.anchorY), x, y, alpha);
       };
       for (const monster of state.monsters)
         if (monster.hurt > HURT_TIME - FLASH_TIME)
           showMonster(
             `monster${monster.id}`,
             monster.kind,
+            monsterTextureKey(state, monster, textures),
             monster.x,
             monster.y + monsterBob(state, monster.kind, monster.age),
             1,
@@ -883,6 +890,7 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         showMonster(
           `puff${puff.id}`,
           ghost.monster,
+          ghostTextureKey(state, ghost.monster, ghost.monsterAge),
           ghost.x + puff.directionX * travel,
           ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
           progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,

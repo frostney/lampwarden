@@ -15,7 +15,6 @@ function core(replies: Array<string | null>) {
   const loop: LoopCore = {
     model: model.client,
     render: renderer.render,
-    rendererName: "vercel",
     pose: "",
     generatorPrompt: "GENERATOR PROMPT",
     verifierPrompt: "VERIFIER PROMPT",
@@ -47,7 +46,7 @@ describe("runLoop with an injected store", () => {
     expect(saved).toEqual(["brine-hound.ts", "brine-hound.png"]);
     expect(outcome?.winner).toMatchObject({ which: "first", code: GOOD_CODE, stats: CLEAN_STATS });
     expect(outcome?.winner.png).toEqual(spritePng());
-    expect(outcome?.row).toMatchObject({ final: "first", passed: true, score: 8, rendered_with: "vercel" });
+    expect(outcome?.row).toMatchObject({ final: "first", passed: true, score: 8, rendered_with: "vercel-sandbox" });
   });
 
   test("a failing first attempt gets one fix, reported as the fixing stage", async () => {
@@ -92,7 +91,7 @@ describe("the sandbox snapshot's manifest", () => {
   });
   test("a bundle's digest changes with any file's content or path", () => {
     const kit = { path: "kit/kit.ts", content: new Uint8Array([1, 2, 3]) };
-    const runner = { path: "render/run_local.ts", content: new Uint8Array([4]) };
+    const runner = { path: "render/runner.ts", content: new Uint8Array([4]) };
     const digest = runnerBundleSha([kit, runner]);
     expect(runnerBundleSha([kit, runner])).toBe(digest);
     expect(runnerBundleSha([{ ...kit, content: new Uint8Array([1, 2, 4]) }, runner])).not.toBe(digest);

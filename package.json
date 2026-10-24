@@ -10,7 +10,8 @@
     "kit": "bash pipeline/kit/assemble.sh",
     "verify:visual": "node scripts/verify-visual.mjs",
     "balance": "bun scripts/balance.ts",
-    "replay-check": "bun scripts/replay-check.ts"
+    "replay-check": "bun scripts/replay-check.ts",
+    "logo": "bun tools/logo/build.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",

@@ -16,7 +16,8 @@
     "plays": "bun scripts/plays.ts",
     "assets": "python3 pipeline/run.py",
     "kit": "bash pipeline/kit/assemble.sh",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "logo": "bun tools/logo/build.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",

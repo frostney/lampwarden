@@ -8,7 +8,7 @@ const walkthrough: Walkthrough = {
   segments: [
     {
       id: "title",
-      caption: "The title screen: the logo, the setting, the warden and Light the lamps.",
+      caption: "The title screen: the logo, the introduction, the warden and Light the lamps.",
       waitFor: "canvas",
       seconds: 3,
     },

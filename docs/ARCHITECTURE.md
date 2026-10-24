@@ -22,7 +22,7 @@ src/
                      of the job still making one; on the title and the dawn and heir panels
     useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
                      blocks play (none, a network error and "still generating" all mean the night starts without it)
-    Game.tsx         React shell: title (introduction, setting selector, hero choice), night HUD, dawn upgrades, heir
+    Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
                      choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
                      window.lampwarden debug hook
@@ -185,9 +185,3 @@ social card's tagline is Tiny5 at 8 px (`src/app/fonts/tiny5/`, OFL), both raste
 Chromium through Playwright; `tools/logo/compose.ts` adds outlines, the extruded shadow and the stepped glow and lays
 everything out. `bun tools/logo/build.ts --check` writes nothing and reports whether each committed asset still
 matches a fresh build.
-
-## Add a setting (Norse, Egyptian…)
-
-1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_themes.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `bun run kit`. Add builders for setting-specific props in `kit_props.ts` and buildings (temple, house, lamp, wall, stall styles) in `kit_buildings.ts` if needed, and document them in `prompts/generator.md`.
-2. Assets: generate the sprite set with `setting:'norse'` in the briefs and write them under `public/sprites/<setting>/` (the current Greek set is at the top level; moving it is a choice for whoever builds this out).
-3. App: `SETTINGS` in `src/components/Game.tsx` has `{id, label, live}`; flip `live` once the assets exist and make `src/scene/assets.ts` take a setting id when building paths, and `drawGround` / `PROPS` in `src/scene/layers.ts` take the setting's palette and props.

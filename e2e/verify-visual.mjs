@@ -569,21 +569,15 @@ await checkPress(
   page.getByRole("button", { name: "Light the lamps" }),
 );
 await checkPress("button-press", "a hero card sinks and darkens", page.locator('.hero-card[data-sex="female"]'));
-await checkPress("button-press", "the chosen setting sinks and darkens", page.locator(".settings .btn.on"));
-await checkPress(
-  "button-press",
-  "a disabled button does not press",
-  page.locator(".settings .btn[disabled]").first(),
-  true,
-);
+// Enter on the hero card already chosen: the press shows, and letting go chooses what was chosen, changing nothing
 await checkCodePress(
   "button-press",
   "Enter on a focused button shows the press for a moment",
   async () => {
-    await page.locator(".settings .btn.on").focus();
+    await page.locator(".hero-card[aria-pressed='true']").focus();
     await page.keyboard.down("Enter");
   },
-  () => document.querySelector(".settings .btn.on")?.hasAttribute("data-pressed"),
+  () => document.querySelector(".hero-card[aria-pressed='true']")?.hasAttribute("data-pressed"),
   () => page.keyboard.up("Enter"),
 );
 const chosenCards = await page.locator(".hero-card[aria-pressed='true']").count();
@@ -1229,6 +1223,13 @@ shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
 await checkTraitIcons("heir", "each heir button shows its trait's icon", ".btn.heir", 3);
 await checkPress("button-press", "an heir button sinks and darkens", page.locator(".btn.heir").first());
+// until an heir is picked, the button that starts their night is disabled, and a disabled button does not press
+await checkPress(
+  "button-press",
+  "a disabled button does not press",
+  page.getByRole("button", { name: "Choose an heir" }),
+  true,
+);
 // the shop is for the fallen warden until an heir is picked, then for the heir (a daughter if one is offered)
 await checkWeaponShop("heir", "male");
 {
@@ -1824,6 +1825,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   );
   check("sea-title", "the sea was asked with nothing met", lastAsked() === "[]", lastAsked());
   await checkTitleScroll("sea-title", 1000, 640);
+  // with a creature announced too, the whole title still fits the desktop parchment (it overflowed by 94 px before the
+  // setting buttons went)
+  await checkScrollFits("sea-title");
   await shoot("17-sea-title");
   await startFromTitle();
   const readyNight = await night();

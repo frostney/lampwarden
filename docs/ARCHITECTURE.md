@@ -9,10 +9,12 @@ src/
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons), drawn as SVG rects
     TouchControls.tsx  on-screen stick and buttons for touch devices
+    TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
+                     reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
-    Game.tsx         React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy, the
-                     night on stage (state, warden, recording or replay driver), pause, replay speed; renders the
-                     @pixi/react <Application> and the window.lampwarden debug hook
+    Game.tsx         React shell: title (introduction, setting selector, hero choice), night HUD, dawn upgrades, heir
+                     choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
+                     replay speed; renders the @pixi/react <Application> and the window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies
@@ -20,16 +22,27 @@ src/
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
-    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits, tide; localStorage save
+    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits (and their sex), tide; localStorage save
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
-    layers.ts        textures, ground, props, night tint, per-frame strokes
+    layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
+                     tinted; the sky is not), per-frame strokes
+    sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
+                     warming to dawn with the night tint, stars, a crescent moon, a headland with a lighthouse and far
+                     islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
+    water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
+                     horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
+                     drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored
+                     boats and the dock's posts
+    paint.ts         shared by the painted pixel art: RGBA buffers to nearest-sampled textures, Bayer dither, seeded random
+    plaza.ts         the plaza's outline in pixels: its top face, its walls, and how far a point of sea lies from it
     projectiles.ts   arrow and sling-stone pixel art
+    scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
 scripts/balance.ts   headless balance check (idle and bot wardens), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage

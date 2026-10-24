@@ -10,12 +10,11 @@ import {
   PLAZA_HALF_HEIGHT,
   PLAZA_HALF_WIDTH,
   type Puff,
-  STAGE_HEIGHT,
-  STAGE_WIDTH,
   type State,
   SWING_HALF_ARC,
 } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { PLAZA_WALL } from "./plaza";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -71,10 +70,8 @@ function silhouette(texture: Texture): Texture | null {
 
 const PLAZA_TILES = 12;
 
+// the ground over the sea (water.ts): the plaza, its walls, the fountain and the planks to the galley
 export function drawGround(graphics: Graphics) {
-  graphics.rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0x1e5f8a); // sea
-  for (let band = 0; band < 12; band++)
-    graphics.rect(0, 40 + band * 52, STAGE_WIDTH, 3).fill({ color: 0x2b78a6, alpha: 0.6 });
   // plaza: 12x12 iso diamond tiles of 64x32
   for (let row = 0; row < PLAZA_TILES; row++) {
     for (let column = 0; column < PLAZA_TILES; column++) {
@@ -95,9 +92,9 @@ export function drawGround(graphics: Graphics) {
       CENTRE_X,
       CENTRE_Y + PLAZA_HALF_HEIGHT,
       CENTRE_X,
-      CENTRE_Y + PLAZA_HALF_HEIGHT + 14,
+      CENTRE_Y + PLAZA_HALF_HEIGHT + PLAZA_WALL,
       CENTRE_X - PLAZA_HALF_WIDTH,
-      CENTRE_Y + 14,
+      CENTRE_Y + PLAZA_WALL,
     ])
     .fill(0x8a7048);
   graphics
@@ -107,9 +104,9 @@ export function drawGround(graphics: Graphics) {
       CENTRE_X,
       CENTRE_Y + PLAZA_HALF_HEIGHT,
       CENTRE_X,
-      CENTRE_Y + PLAZA_HALF_HEIGHT + 14,
+      CENTRE_Y + PLAZA_HALF_HEIGHT + PLAZA_WALL,
       CENTRE_X + PLAZA_HALF_WIDTH,
-      CENTRE_Y + 14,
+      CENTRE_Y + PLAZA_WALL,
     ])
     .fill(0x6f5a3a);
   graphics.ellipse(CENTRE_X, CENTRE_Y + 8, 70, 35).stroke({ width: 3, color: 0x3d6f8c });
@@ -121,12 +118,6 @@ export function drawGround(graphics: Graphics) {
   }
 }
 
-// the white sheet the night tint is multiplied through
-export function drawSheet(graphics: Graphics) {
-  graphics.clear();
-  graphics.rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0xffffff);
-}
-
 const interpolate = (start: number, end: number, amount: number) => start + (end - start) * amount;
 function mixColours(fromColour: number, toColour: number, amount: number) {
   const red = interpolate((fromColour >> 16) & 255, (toColour >> 16) & 255, amount);
@@ -134,7 +125,7 @@ function mixColours(fromColour: number, toColour: number, amount: number) {
   const blue = interpolate(fromColour & 255, toColour & 255, amount);
   return (Math.round(red) << 16) | (Math.round(green) << 8) | Math.round(blue);
 }
-// night tint (multiplied over the scene): deep blue, warming to dawn over the last fifth of the night
+// night tint (multiplied over the world below the sky): deep blue, warming to dawn over the last fifth of the night
 export function nightTint(progress: number) {
   if (progress < 0.8) return 0x46559a;
   const dawning = (progress - 0.8) / 0.2;

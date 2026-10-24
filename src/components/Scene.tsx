@@ -4,7 +4,17 @@
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { extend, useApplication, useTick } from "@pixi/react";
-import { Container, type FederatedPointerEvent, Graphics, Sprite, type Ticker, UPDATE_PRIORITY } from "pixi.js";
+import {
+  Container,
+  type FederatedPointerEvent,
+  Graphics,
+  Rectangle,
+  Sprite,
+  Texture,
+  type Ticker,
+  TilingSprite,
+  UPDATE_PRIORITY,
+} from "pixi.js";
 import {
   createContext,
   memo,
@@ -32,6 +42,8 @@ import {
   MONSTER,
   type Monster,
   type MonsterKind,
+  STAGE_HEIGHT,
+  STAGE_WIDTH,
   type State,
   step,
 } from "@/game/sim";
@@ -40,7 +52,6 @@ import {
   anchor,
   drawGround,
   drawMarks,
-  drawSheet,
   drawSweep,
   flashKey,
   heroFrame,
@@ -53,8 +64,20 @@ import {
 } from "@/scene/layers";
 import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/scene/light";
 import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/scene/projectiles";
+import {
+  LIGHTHOUSE_LAMP,
+  lighthouseFrame,
+  MOON_GLITTER,
+  moonGlitterFrame,
+  skyTexture,
+  TWINKLES,
+  twinkleFrame,
+} from "@/scene/sky";
+import { createWater, HORIZON_Y, swellDrift, waterFrame } from "@/scene/water";
 
-extend({ Container, Graphics, Sprite });
+extend({ Container, Graphics, Sprite, TilingSprite });
+
+const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the scene takes clicks anywhere on the canvas
 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
@@ -170,28 +193,34 @@ export const Scene = memo(function Scene({
 
   return (
     <SceneContext.Provider value={shared}>
-      <pixiGraphics draw={drawGround} eventMode="static" onPointerDown={shoot} />
-      <pixiContainer sortableChildren>
-        {PROPS.map(([key, x, y]) => (
-          <pixiSprite
-            key={`${key}@${x},${y}`}
-            texture={textureFor(textures, key)}
-            anchor={anchor(key)}
-            x={x}
-            y={y}
-            zIndex={y}
-          />
-        ))}
-        <Trireme />
-        <Hero hero={state.hero} sex={night.sex} />
-        {state.lamps.map((lamp) => (
-          <LampPost key={`lamp@${lamp.x},${lamp.y}`} lamp={lamp} />
-        ))}
-        <Monsters state={state} />
+      <pixiContainer eventMode="static" hitArea={STAGE_AREA} onPointerDown={shoot}>
+        <Sky state={state} />
+        <World state={state}>
+          <Water />
+          <pixiGraphics draw={drawGround} />
+          <pixiContainer sortableChildren>
+            {PROPS.map(([key, x, y]) => (
+              <pixiSprite
+                key={`${key}@${x},${y}`}
+                texture={textureFor(textures, key)}
+                anchor={anchor(key)}
+                x={x}
+                y={y}
+                zIndex={y}
+              />
+            ))}
+            <Trireme />
+            <Hero hero={state.hero} sex={night.sex} />
+            {state.lamps.map((lamp) => (
+              <LampPost key={`lamp@${lamp.x},${lamp.y}`} lamp={lamp} />
+            ))}
+            <Monsters state={state} />
+          </pixiContainer>
+          <Strokes draw={sweep} />
+        </World>
       </pixiContainer>
-      <Strokes draw={sweep} />
-      <NightSheet state={state} />
       <Lights state={state}>
+        <MoonGlitter />
         <HeroLight hero={state.hero} />
         {state.lamps.map((lamp) => (
           <LampLight key={`light@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightRadius} />
@@ -204,6 +233,121 @@ export const Scene = memo(function Scene({
     </SceneContext.Provider>
   );
 });
+
+// The sky above the horizon, painted in src/scene/sky.ts in its final colours (it is not under the night tint): the
+// stage's sky, the twinkling stars and the lighthouse's lamp, picked from the night's progress and the clock.
+function Sky({ state }: { state: State }) {
+  const { clock } = useScene();
+  const sky = useRef<Sprite>(null);
+  const lighthouse = useRef<Sprite>(null);
+  const twinkleSprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const progress = nightProgress(state);
+      if (sky.current) sky.current.texture = skyTexture(progress);
+      TWINKLES.forEach((twinkle, index) => {
+        const sprite = twinkleSprites.current[index];
+        if (!sprite) return;
+        const piece = twinkleFrame(twinkle, clock.current, progress);
+        sprite.visible = piece !== null;
+        if (piece) place(sprite, piece, twinkle.x, twinkle.y);
+      });
+      const lamp = lighthouse.current;
+      if (lamp) {
+        const piece = lighthouseFrame(clock.current, progress);
+        lamp.visible = piece !== null;
+        if (piece) place(lamp, piece, LIGHTHOUSE_LAMP.x, LIGHTHOUSE_LAMP.y);
+      }
+    }, [state, clock]),
+  );
+  return (
+    <pixiContainer>
+      <pixiSprite ref={sky} />
+      {TWINKLES.map((twinkle, index) => (
+        <pixiSprite
+          key={`${twinkle.x},${twinkle.y}`}
+          ref={(sprite: Sprite | null) => {
+            twinkleSprites.current[index] = sprite;
+          }}
+        />
+      ))}
+      <pixiSprite ref={lighthouse} />
+    </pixiContainer>
+  );
+}
+
+// Everything below the horizon, tinted by the night: deep blue, warming to dawn. The tint multiplies every pixel of the
+// world as a multiply sheet over it would, but leaves the sky out, so its stars and moon keep their own colours.
+function World({ state, children }: { state: State; children: ReactNode }) {
+  const ref = useRef<Container>(null);
+  useFrame(
+    useCallback(() => {
+      if (ref.current) ref.current.tint = nightTint(nightProgress(state));
+    }, [state]),
+  );
+  return <pixiContainer ref={ref}>{children}</pixiContainer>;
+}
+
+// the moon's broken path on the far sea, added over the night like the lamps' light
+function MoonGlitter() {
+  const { clock } = useScene();
+  const ref = useRef<Sprite>(null);
+  useFrame(
+    useCallback(() => {
+      const texture = moonGlitterFrame(clock.current);
+      if (ref.current && texture) ref.current.texture = texture;
+    }, [clock]),
+  );
+  return <pixiSprite ref={ref} x={MOON_GLITTER.x} y={MOON_GLITTER.y} blendMode="add" />;
+}
+
+// The sea, all of it painted once in src/scene/water.ts: the still depths, the swell tiled over the canvas and drifting
+// down the grid, and the surf in patches along the plaza; each frame only picks the loop's textures from the clock.
+function Water() {
+  const { clock } = useScene();
+  const water = useMemo(createWater, []);
+  const swell = useRef<TilingSprite>(null);
+  const patchSprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      const frame = waterFrame(clock.current);
+      const swellSprite = swell.current;
+      const swellTexture = water.swell[frame];
+      if (swellSprite && swellTexture) {
+        swellSprite.texture = swellTexture;
+        const drift = swellDrift(clock.current);
+        swellSprite.tilePosition.set(drift.x, drift.y);
+      }
+      water.patches.forEach((patch, index) => {
+        const sprite = patchSprites.current[index];
+        const texture = patch.frames[frame];
+        if (sprite && texture) sprite.texture = texture;
+      });
+    }, [clock, water]),
+  );
+  return (
+    <pixiContainer>
+      <pixiSprite texture={water.base} y={HORIZON_Y} />
+      <pixiTilingSprite
+        ref={swell}
+        texture={water.swell[0] ?? Texture.EMPTY}
+        y={water.swellTop}
+        width={STAGE_WIDTH}
+        height={STAGE_HEIGHT - water.swellTop}
+      />
+      {water.patches.map((patch, index) => (
+        <pixiSprite
+          key={`${patch.x},${patch.y}`}
+          ref={(sprite: Sprite | null) => {
+            patchSprites.current[index] = sprite;
+          }}
+          x={patch.x}
+          y={patch.y}
+        />
+      ))}
+    </pixiContainer>
+  );
+}
 
 function Trireme() {
   const { textures, clock } = useScene();
@@ -317,17 +461,6 @@ function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
 }
 
 const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
-
-// the night, multiplied over everything below it: deep blue, warming to dawn
-function NightSheet({ state }: { state: State }) {
-  const ref = useRef<Graphics>(null);
-  useFrame(
-    useCallback(() => {
-      if (ref.current) ref.current.tint = nightTint(nightProgress(state));
-    }, [state]),
-  );
-  return <pixiGraphics ref={ref} draw={drawSheet} blendMode="multiply" />;
-}
 
 // additive lights over the night; they fade as dawn comes
 function Lights({ state, children }: { state: State; children: ReactNode }) {

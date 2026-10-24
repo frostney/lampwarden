@@ -6,6 +6,7 @@ import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
+import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
 import { newControls, press, release, stick } from "@/game/controls";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
@@ -13,6 +14,7 @@ import {
   buy,
   clearLegacy,
   type Heir,
+  heirAs,
   heirChoices,
   type Legacy,
   loadLegacy,
@@ -40,7 +42,7 @@ import {
   STAGE_WIDTH,
   type State,
 } from "@/game/sim";
-import type { Sex } from "@/scene/assets";
+import { SEXES, type Sex } from "@/scene/assets";
 import { loadTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -58,6 +60,13 @@ const SETTINGS = [
   { id: "greek", label: "Lychnos (Greek)", live: true },
   { id: "norse", label: "Norse", live: false },
   { id: "egyptian", label: "Egyptian", live: false },
+];
+
+const INTRODUCTION = [
+  "Lychnos is a harbour of lamps.",
+  "Every night the sea sends its creatures to put them out.",
+  "Keep one burning until dawn.",
+  "When a warden falls, an heir takes up the lamp.",
 ];
 
 // one HUD diamond per lamp, keyed by where the lamp stands
@@ -369,6 +378,19 @@ export default function Game() {
   const newLine = () => {
     clearLegacy();
     legacyRef.current = newLegacy();
+    showPreview();
+    refresh();
+  };
+  // the warden behind the title screen is the one chosen
+  const showPreview = () => {
+    if (stateRef.current) show(stateRef.current, legacyRef.current.heir.sex);
+  };
+  const chooseSex = (sex: Sex) => {
+    const legacy = legacyRef.current;
+    if (legacy.heir.sex === sex) return;
+    legacy.heir = heirAs(legacy.heir, sex);
+    saveLegacy(legacy);
+    showPreview();
     refresh();
   };
 
@@ -525,41 +547,101 @@ export default function Game() {
         )}
 
         {phase === "title" && (
-          <div className="panel">
-            <h1 className="brand">
-              <Image src="/logo/logo.png" alt="Lampwarden" width={68} height={45} unoptimized loading="eager" />
-            </h1>
-            <p>Every night the sea sends its creatures to put out the lamps of Lychnos. Keep one burning until dawn.</p>
-            <div className="settings">
-              {SETTINGS.map((setting) => (
-                <button
-                  key={setting.id}
-                  type="button"
-                  className={`btn ${setting.id === "greek" ? "on" : ""}`}
-                  disabled={!setting.live}
-                  title={setting.live ? "" : "Coming soon"}
-                >
-                  {setting.label}
-                  {setting.live ? "" : " (soon)"}
+          <TitleScroll>
+            <div className="scroll-layout">
+              <div className="scroll-intro">
+                <h1 className="brand" data-line>
+                  <Image
+                    src="/logo/logo-noglow.png"
+                    alt="Lampwarden"
+                    width={68}
+                    height={37}
+                    unoptimized
+                    loading="eager"
+                  />
+                </h1>
+                {INTRODUCTION.map((line) => (
+                  <p key={line} data-line>
+                    {line}
+                  </p>
+                ))}
+              </div>
+              <div className="settings" data-line>
+                {SETTINGS.map((setting) => (
+                  <button
+                    key={setting.id}
+                    type="button"
+                    className={`btn ${setting.id === "greek" ? "on" : ""}`}
+                    disabled={!setting.live}
+                    title={setting.live ? "" : "Coming soon"}
+                  >
+                    {setting.label}
+                    {setting.live ? "" : " (soon)"}
+                  </button>
+                ))}
+              </div>
+              <div className="scroll-hero">
+                <h2 className="scroll-heading" data-line>
+                  Who takes up the lamp?
+                </h2>
+                <div className="hero-cards" data-line>
+                  {SEXES.map((sex) => {
+                    const chosen = legacy.heir.sex === sex;
+                    return (
+                      <button
+                        key={sex}
+                        type="button"
+                        className={`hero-card ${chosen ? "chosen" : ""}`}
+                        data-sex={sex}
+                        aria-pressed={chosen}
+                        onClick={() => chooseSex(sex)}
+                      >
+                        <span className="hero-portrait">
+                          <Image
+                            src={`/sprites/hero/${sex}_idle1.png`}
+                            alt=""
+                            width={128}
+                            height={128}
+                            unoptimized
+                            className="hero-sprite"
+                          />
+                        </span>
+                        <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
+                        <span>{sex === "male" ? "sword and bow" : "spear and sling"}</span>
+                        <span className="hero-mark">
+                          {chosen ? (
+                            <>
+                              <Icon name="wick" size={16} /> chosen
+                            </>
+                          ) : (
+                            "choose"
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="warden" data-line>
+                  {heirLine}
+                </p>
+                <p className="dim" data-line>
+                  Night {legacy.night}
+                  {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
+                </p>
+                <button type="button" className="btn big" disabled={!ready} onClick={startNight} data-line>
+                  {ready ? "Light the lamps" : "Lighting the lamps…"}
                 </button>
-              ))}
+                {legacy.generation > 1 && (
+                  <button type="button" className="btn small" onClick={newLine} data-line>
+                    Start a new bloodline
+                  </button>
+                )}
+              </div>
+              <p className="privacy dim" data-line>
+                Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
+              </p>
             </div>
-            <p className="dim">
-              {heirLine} · night {legacy.night}
-              {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
-            </p>
-            <button type="button" className="btn big" disabled={!ready} onClick={startNight}>
-              {ready ? "Light the lamps" : "Lighting the lamps…"}
-            </button>
-            {legacy.generation > 1 && (
-              <button type="button" className="btn small" onClick={newLine}>
-                Start a new bloodline
-              </button>
-            )}
-            <p className="dim tiny">
-              Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
-            </p>
-          </div>
+          </TitleScroll>
         )}
 
         {phase === "dawn" && report && (
@@ -633,6 +715,12 @@ function tideNote(report: Report) {
 // Moves focus between the menu's buttons, or presses one, for a gamepad.
 function actOnMenu(action: MenuAction) {
   document.body.dataset.input = "gamepad"; // shows the focus ring on gamepad-focused buttons
+  // the first press while the title scroll unrolls completes it (TitleScroll catches the click) and does nothing else
+  const unrolling = document.querySelector<HTMLElement>(".scroll:not([data-stage='done'])");
+  if (unrolling) {
+    unrolling.click();
+    return;
+  }
   const buttons = [...document.querySelectorAll<HTMLButtonElement>(".panel button:not([disabled])")];
   const primary = document.querySelector<HTMLButtonElement>(".panel .btn.big:not([disabled])");
   const focused =

@@ -5,10 +5,12 @@
 ```
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
-                     api/plays (store and serve recorded plays)
+                     api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
+                     :id/sprite.png)
   components/        flat: one file per component
-    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons), drawn as SVG rects
-    TouchControls.tsx  on-screen stick and buttons for touch devices
+    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons, the sword and arrow beside the
+                     daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon` for the verifier
+    TouchControls.tsx  on-screen stick and buttons for touch devices; Strike and Shoot show the warden's weapons
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
@@ -17,7 +19,10 @@ src/
                      replay speed; renders the @pixi/react <Application> and the window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
-                     night starts or a monster spawns or dies
+                     night starts or a monster spawns or dies. Layers, bottom to top: sky, the tinted sea and ground, the
+                     lights that lie on the ground (pools, the warden's light, stone and sea glints), the characters'
+                     shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
+                     sorted with its lamp), the melee sweep, shots and marks
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
@@ -26,10 +31,17 @@ src/
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
                      sex), tide; localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
+    weapons.ts       what the warden carries as the UI shows it (son: sword and bow; daughter: spear and sling): the
+                     touch buttons' icons, the shop's label, text and icon per upgrade, and which warden the shop is
+                     for; presentation only, never read by the sim
     random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
+  server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
+                     stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
+                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
+                     (the only module that reads env and files and wires Mubit, the sandbox and Blob)
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
     layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
@@ -39,6 +51,13 @@ src/
                      islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
+    lighting.ts      how the lamps light a character, as numbers (pure, render-only): how lit it is (the pool's own shape,
+                     flicker and dawn fade, in whole steps), the warm tint for its sprite, which way its shadows fall and
+                     which side its rim is on
+    shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
+                     length, painted on first use
+    rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm
+                     pixels along the edge that faces a lamp
     water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
                      horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
                      drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored
@@ -54,7 +73,10 @@ tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG e
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
-  sprite-loop.ts     the loop for one brief; mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
+                     file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
+  runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
   render-local.ts    bun render subprocess with an allowlisted environment
   render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)

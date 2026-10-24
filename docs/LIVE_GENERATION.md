@@ -1,6 +1,6 @@
 # Live sprite generation
 
-How the asset loop (brief → generator → render → verifier → fix → best-of) could run as a server route, with model-written `build(k)` code executed only in a sandbox. This is a design note: no route exists yet. Three sandboxes and Mubit were measured on 24 Oct 2026, timed from a client in the UK: [Shotcup](https://shotcup.dev) (a Scale-plan account, `pipeline/render-shotcup.ts`; the numbers were taken with its Python predecessor), [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) (the team's Pro plan, `pipeline/render-vercel-sandbox.ts`) and [boat.dev](https://boat.dev) (the 7-day free trial, `pipeline/render-boat.ts`). Unless a section says otherwise, the render timings used the kit before its speed-ups (sha256 `cf66f505c9e9…`, 212,457 bytes); the kit on `main` now (sha256 `335b0f4040a7…`, 225,487 bytes) renders the same pixels 4.8-9.3x faster on Shotcup (see "Kit speed-ups"). Mubit was measured with generator calls only; a full generate → render → verify → fix round trip has not been run.
+How the asset loop (brief → generator → render → verifier → fix → best-of) runs as a server route, with model-written `build(k)` code executed only in a sandbox. The route exists (see "The route"); the comparison, timings and probes below are the measurements it was designed from. Three sandboxes and Mubit were measured on 24 Oct 2026, timed from a client in the UK: [Shotcup](https://shotcup.dev) (a Scale-plan account, `pipeline/render-shotcup.ts`; the numbers were taken with its Python predecessor), [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) (the team's Pro plan, `pipeline/render-vercel-sandbox.ts`) and [boat.dev](https://boat.dev) (the 7-day free trial, `pipeline/render-boat.ts`). Unless a section says otherwise, the render timings used the kit before its speed-ups (sha256 `cf66f505c9e9…`, 212,457 bytes); the kit on `main` now (sha256 `335b0f4040a7…`, 225,487 bytes) renders the same pixels 4.8-9.3x faster on Shotcup (see "Kit speed-ups"). Mubit was measured with generator calls only; the full generate → render → verify → fix round trip was run later, through the route (see "What was run live").
 
 ## Comparison and recommendation
 
@@ -61,30 +61,103 @@ Locally, `render-local.ts` runs model code in bun with your user's file and netw
 
 ## The route
 
+Built: each night the sea can send a new creature, made live through Mubit, drawn in a Vercel Sandbox and kept in a gallery every player draws from. The routes are `src/app/api/creatures/` (Node.js runtime, Zod at every boundary, short error strings only), their logic is `src/server/creatures/`, the loop is `pipeline/loop.ts`, and the contract with the game (the `Creature` record, archetype-derived stats, request and response shapes) is `src/game/creature.ts`.
+
+| Route                               | What                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/creatures/next` `{seen}` | The newest gallery creature not in `seen` (`{kind:"ready", creature}`). If there is none: the running job when one is running (`{kind:"generating", jobId}`, so many players share one generation); else a new job when the limits allow; else `{kind:"none", reason:"rate-limited", retryAfterSeconds}`, or `reason:"unavailable"` when generation is not configured or storage fails. |
+| `GET /api/creatures/jobs/:jobId`    | The job as `CreatureJob`: `step` (queued, writing, drawing, rendering, judging, fixing, done, failed), the `creature` when done, a short `error` when failed. A job whose status has not moved for longer than `maxDuration` reads as failed (`timed out`).                                                                                                                             |
+| `GET /api/creatures/:id/sprite.png` | The PNG from the private Blob store, `cache-control: public, max-age=31536000, immutable` (ids are unique and a sprite never changes).                                                                                                                                                                                                                                                  |
+
+### The job
+
 ```
-POST /api/sprites {brief}                       (Next.js route handler, Node.js runtime, auth + rate limit)
-  └─ start a durable job, answer {jobId}         (model calls plus renders: seconds on Vercel Sandbox, tens of seconds on Shotcup)
-job:
-  1. generator   Mubit → Opus, system prompt pipeline/prompts/generator.md            → build(k) source (text only)
-  2. tripwire    pipeline/build-code.ts: banned identifiers + "function build" check (cheap pre-filter, not a sandbox)
-  3. render      Vercel Sandbox (recommended): Sandbox.create({networkPolicy:"deny-all", persistent:false, resources:{vcpus:1}}),
-                 writeFiles(kit + runner + build), runCommand bun run_local.ts {timeoutMs}, readFileToBuffer(PNG), stop()  → PNG + stats
-                 (pipeline/render-vercel-sandbox.ts: renderWithFreshSandbox). Or boat.dev: create({noEnv, snapshots:false}),
-                 writeFile(kit + runner + build), one command that renders as a fresh locked-down account, readFile(PNG),
-                 deleteSandbox (pipeline/render-boat.ts: renderWithFreshSandbox). Or Shotcup:
-                 POST https://shotcup.dev/api/v1/runs, one candidate per run:
-                 {code: main.ts, engine:{canvas:true}, mounts:[{drive:"lampwarden", path:"/kit", mode:"ro"}],
-                  deterministic:true, timeoutMs:<budget>}, no allowedHosts          → PNG (inlineBase64) + stats (last stdout line)
-  4. engine flags  clipped/too_small/too_big/too_short → score 0, skip the verifier
-  5. verifier    Mubit → Opus with the 4x PNG                                       → {pass, score, issues, fix}
-  6. fix         one follow-up generator call with the verifier's issues → steps 2-5 again
-  7. best-of     keep the higher score; store PNG + code + manifest row (Blob or similar, not the deployment's filesystem)
-GET /api/sprites/:jobId → status / result
+POST /api/creatures/next  ── no unseen creature, nothing running, limits allow ──►  claim the global slot, answer {generating, jobId}
+  └─ after()                                                    (the same invocation keeps running after the response)
+     1. writing    brief writer: one Mubit call, prompts/creature.md → {name, lore, sprite brief, archetype, 4 modifiers in {-1,0,1}}
+                   validated with the contract's Zod schema; given the gallery's names (and the three built-in monsters) to avoid repeats;
+                   a random thread of myth is offered as inspiration, because Mubit takes no temperature and the same prompt gets the same creature
+     2. drawing    generator (prompts/generator.md) → build(k) source, text only
+     3.            tripwire (build-code.ts), then rendering: a Vercel Sandbox booted from the pinned snapshot, deny-all network
+     4.            engine flags (clipped / too small / too big / too short) → score 0, no verifier call
+     5. judging    verifier (Mubit, sees the 4x PNG); borderline scores are taken twice
+     6. fixing     one fix turn with the verifier's issues, then 3-5 again; best-of
+     7. accept     a verifier pass, or a score of at least 6 with no engine flags. Anything else: the job fails and stores nothing
+                   anchorY from the render's bbox (lowest row + 1 - 4 px of shadow, over 128); stats are derived by creatureStats(), never taken from the model
+                   store creatures/sprites/<id>.png + .ts, then creatures/records/<id>.json, then the job: done
 ```
 
-The route and the job only move text and PNG bytes between Mubit and the sandbox; they never `eval`, transpile or import model output. All three renderers exist in TypeScript behind one contract (`pipeline/render-types.ts`: a build and a name in, validated stats and PNG bytes out), and `pipeline/sprite-loop.ts` has the rest of the loop with the model and the renderer injected, so a route can reuse it.
+Model code only ever reaches the sandbox: the function holds `MUBIT_API_KEY`, so it never evals, transpiles or imports what the model wrote (`pipeline/build-code.ts` is a tripwire in front of the sandbox, not the boundary). Every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with `claude-opus-5-5`, never sends `temperature`, and marks the system prompt cacheable. The job reports to Blob at every step; a failure ends as one of a few fixed strings, and no model output, stack trace or error message is stored, returned or logged (the log has job ids, steps, Mubit request ids, status, timings, token counts and the verifier's scores).
 
-On Vercel Sandbox a render takes 1.4-2.4 s to the PNG and 2.6-4.1 s including `stop()`, so the model calls decide: about 2 s for a generator call, more for a long output. A durable job is still the safer default. On Vercel's documented limits (not tested here), a function runs 300 s by default on every plan and up to 800 s on Pro; a durable runner (Vercel Workflow, or a queue consumer) with one step per model call or render keeps each step short and survives restarts, and the client polls or streams progress. On Shotcup, one sprite takes 2-12 s of render with the current kit (10-107 s with the old one).
+### How it survives function limits (`after()`, not Vercel Workflow)
+
+`POST /api/creatures/next` starts the job with `after()` from `next/server` and declares `export const maxDuration = 300`. Under Fluid Compute (the default) a function runs 300 s by default on every plan and up to 800 s on Pro (documented limits, read 24 Oct 2026; not exercised on a deployment), and `after()` runs for "the platform's default or configured max duration of your route" (Next's `after` docs). A job took 52-78 s locally (below), so 300 s covers it with room for one slow Mubit call; the job itself gives up after 270 s (`JOB_BUDGET_SECONDS`) so it can record `failed: timed out` before the platform kills the invocation, and a job whose status has not moved for longer than `maxDuration` is read as failed by everything that looks at it (the job route, and the slot check that lets the next job start).
+
+Why not Vercel Workflow: Workflow's gain is durability, surviving a crash or deploy mid-job and running past the function limit, and this job needs neither. It is short against the limit, a lost job costs one failed nightly attempt and a retry (the slot frees itself after `maxDuration`), and every step already writes its status to Blob, so nothing is hidden state. Workflow would add a dependency, its own step and replay semantics and a second place the job's state lives, for a failure mode that is cheap here. If jobs ever need to outlive 300-800 s (several fix turns, more candidates), move the loop's stages into workflow steps; `runLoop`'s `onStage` and the store are the seams.
+
+### Storage and the one-job-at-a-time slot
+
+All in the existing private Blob store (`BLOB_READ_WRITE_TOKEN`), under `creatures/` (`CREATURE_BLOB_PREFIX`; live tests used `creatures-dev/`):
+
+| Path                                                                   | What                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `records/<id>.json`, `sprites/<id>.png`, `sprites/<id>.ts`             | The accepted creature, its sprite and the build code. Ids start with their creation time (base 36), so a sort is newest-first; the record is written last, so a creature is in the gallery only when complete. |
+| `jobs/<jobId>.json`                                                    | Job status, rewritten at every step. Read with `useCache: false`.                                                                                                                                              |
+| `state/running.json`                                                   | The global slot: which job is running. Claimed with a conditional write (create-if-absent, or `ifMatch` the version just read), so of several simultaneous starters exactly one wins; the rest follow its job. |
+| `starts/visitor/<hash>/<day>/<ms>-<jobId>`, `starts/day/<day>/<jobId>` | One tiny blob per job start, counted by listing for the rate limits.                                                                                                                                           |
+
+### Rate limits
+
+Only starting a job is limited; reading the gallery, and following a job that is already running, never is. Per visitor, 3 starts an hour (`CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`); for the whole site, 40 a UTC day (`CREATURE_MAX_STARTS_PER_DAY`). A visitor is the HMAC-SHA256 of the first `x-forwarded-for` address under the secret `CREATURE_RATE_SALT` (at least 16 characters; without it generation is off); the address itself is never stored. Changing the salt resets everyone's count.
+
+Races that remain, because the counts come from Blob listings and not from a transaction:
+- The slot is atomic, and a job's marks are written before its job starts, so two jobs never overlap and a count is complete whenever a new job is considered. What can still slip through is a listing that lags a just-written mark (Blob listings are not documented as read-after-write consistent), letting one extra start through at the limit.
+- A job that dies without finishing holds the slot until `maxDuration` has passed since its last step, so for up to 5 minutes nobody can start a new one (they follow the dead job and see it fail).
+- Marks are never deleted, so a very old visitor key or day prefix is just a few tiny blobs; the daily and hourly windows ignore them.
+- The same visitor behind many addresses (IPv6 privacy addresses, a mobile network) gets more starts; one address shared by many (an office) shares 3 an hour. The daily ceiling bounds the cost either way.
+
+### The sandbox: a snapshot with Bun 1.4.4
+
+The stock image (`vercel/sandbox/universal`, checked on 24 Oct 2026, Ubuntu 26.04.1, kernel 6.18.49) ships Bun 1.4.4 at `/usr/local/bin/bun`, which is also the latest release (`npm view bun version`). The render does not trust that to stay so: `bun run sandbox:snapshot` (`pipeline/sandbox-snapshot.ts`) boots a sandbox with a network allow-list of `github.com` and `*.githubusercontent.com` only, downloads Bun 1.4.4 from its GitHub release, checks the zip against the pinned SHA-256 (`bf8ccbfb…`, the release's `SHASUMS256.txt`), installs it at `/usr/local/bin/bun`, switches the policy to `deny-all`, checks `bun --version` is 1.4.4, copies in the kit and runner and a `SNAPSHOT.json` (kit sha256, bundle sha256, Bun version, the zip's digest), renders the committed `ex_lamp_lit.ts` and requires it to reproduce `public/sprites/lamp-lit.png` byte for byte, and snapshots with no expiry. It prints `VERCEL_SANDBOX_SNAPSHOT_ID=…`.
+
+Render sandboxes boot from that snapshot with `networkPolicy: "deny-all"`, 1 vCPU, `persistent: false`, and run `/usr/local/bin/bun`. Before the first render with a snapshot, a process reads its `SNAPSHOT.json` once and refuses the snapshot, failing the render with a fixed message, when its bundle digest differs from the one computed from the `pipeline/kit/kit.ts`, `pipeline/render/*.ts` that are deployed, or when its Bun is not the pinned one. So a change to the kit or the runner needs a new snapshot and a new `VERCEL_SANDBOX_SNAPSHOT_ID` before it deploys, and the failure is loud, not a silently different sprite. The function reads those files and the prompts at runtime (`outputFileTracingIncludes` in `next.config.ts`); the kit and runner that render sprites are in the snapshot, not read for rendering. Sandbox auth in a deployed function is the platform's OIDC token; nothing from the function's environment is passed into the VM (the render command gets only `KIT_OUT`).
+
+### Environment
+
+Set on the Vercel project (Production, and Preview if previews should generate); nothing here is needed for the game itself:
+
+| Variable                                   | Required | What                                                                                                               |
+| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `MUBIT_API_KEY`                            | yes      | Mubit, for the brief writer, generator and verifier. Server-only; model code never runs where it lives.            |
+| `VERCEL_SANDBOX_SNAPSHOT_ID`               | yes      | The id printed by `pipeline/sandbox-snapshot.ts`.                                                                  |
+| `CREATURE_RATE_SALT`                       | yes      | At least 16 random characters (`openssl rand -hex 24`). Keys the per-visitor limit; changing it resets the counts. |
+| `BLOB_READ_WRITE_TOKEN`                    | already  | The store `/api/plays` uses.                                                                                       |
+| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` | no       | Default 3.                                                                                                         |
+| `CREATURE_MAX_STARTS_PER_DAY`              | no       | Default 40, site-wide, per UTC day.                                                                                |
+| `CREATURE_BLOB_PREFIX`                     | no       | Default `creatures`. Use another prefix (`creatures-dev`) to keep test runs out of the real gallery.               |
+
+With any of the three required variables missing, `POST /api/creatures/next` still serves the gallery and answers `{kind:"none", reason:"unavailable"}` once it has nothing unseen.
+
+### What was run live (24 Oct 2026, from the UK)
+
+Three full jobs through the built app (`next start`, the real routes with `after()`), real Mubit, real Vercel Sandbox VMs from the pinned snapshot (Bun 1.4.4 seen in the sandbox with `bun --version`, network confirmed unreachable: no DNS, `curl` could not resolve), the real Blob store under `creatures-dev/`. All three were rejected by the quality gate and stored nothing: verifier scores 3 then 4 (job 2) and 4 then 4 (job 3; job 1's were not logged yet), all `failed: the sprite was not good enough`. Jobs 1 and 2 ran before the brief writer was given a random thread of myth, when three parallel brief calls all came back as a barnacled bull of Poseidon, so they were probably that bull. The wiring, not the art, is what these runs prove: a second player asking while the job ran got the same `jobId`; every step was written to Blob and read by the poller; the sandbox renders worked; the failure left the gallery empty; the slot freed itself.
+
+| Step (job 2 / job 3)                                         | Time                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------- |
+| brief writer (Mubit)                                         | 7.0 s / 7.5 s (job 1: 7.2 s after a 5 s retry delay)          |
+| generator (Mubit)                                            | 9.2 s / 2.7 s                                                 |
+| render in the sandbox, to the PNG in hand and the VM stopped | 4.0 s / 5.3 s, and 4.0 s / 3.8 s for the render after the fix |
+| verifier (Mubit, image)                                      | 13.5 s / 11.0 s; after the fix 11.3 s / 12.9 s                |
+| fix turn (Mubit)                                             | 14.0 s / 5.1 s                                                |
+| whole job                                                    | 66 s / 52 s (job 1: 78 s)                                     |
+
+A Mubit call that fails (the first brief call of job 1) is retried once after 5 s by the client; that is where the odd 12 s writing step came from.
+
+Separately, three brief → generator → local render → one verifier runs without the sandbox, storage or fix turn (diagnosis after the first three jobs failed): the same thread of myth was offered at random, so the creatures differed (a three-headed hydra, a centaur with a trident, a drowned-sailor skeleton), and the verifier scored them 5, 5 and 4. For comparison, the ten committed sprites from earlier loop runs ended at 7, 7, 5, 7, 6, 5.5, 6.5, 6, 5 and 7 with one fix, which the same acceptance rule would admit 7 of. The honest reading: with this verifier and this kit, expect many jobs to be rejected (the live jobs were 0 of 3, the partial runs 0 of 3 at the first attempt), so the gallery will fill slowly, and the levers are the acceptance bar, more candidates per job (renders are cheap and parallel: see "Parallelism"), or briefs the kit draws more plainly. None of these was changed here.
+
+Not exercised live: an accepted job's last steps (`putCreature` and `done`) against Blob, only with fakes and, for the read side, with a hand-written test record through the real store and routes (sprite bytes identical, headers as above); the routes on a Vercel deployment (OIDC inside `after()`, `maxDuration`, the traced files); Mubit failing the whole job in production.
+
+### Shotcup rules
 
 Rules for Shotcup that follow from its measurements (the Vercel Sandbox settings are under the recommendation above):
 - **One candidate per Shotcup run.** In a batch, every candidate's code shares one module scope: a probe build overwrote another candidate's `/out/victim.png` and pushed a forged stats row, and the run still succeeded. Batching also bought nothing (below).
@@ -442,12 +515,12 @@ What would have to change to use it live (none of it done):
 
 ## Not verified
 
-- A full live round trip (Mubit generator → sandbox → Mubit verifier → fix) from a server route, or `bun run assets -- --render vercel|boat|shotcup` end to end. Only generator calls were made to Mubit; the verifier, the fix turn and a verifier image going through Mubit were not.
+- `bun run assets -- --render vercel|boat|shotcup` end to end. (The full round trip, Mubit generator → sandbox → Mubit verifier → fix, was run through the creature route, not through `pipeline/run.ts`: see "What was run live".)
 - Shotcup and boat.dev through the TypeScript renderers: Shotcup's numbers come from its Python predecessor (the generated `main.ts` is byte-identical), and the TypeScript boat renderer is a port of the code that was measured. Neither was re-run. The TypeScript Vercel Sandbox renderer was run live on four sprites and one failing build (above).
 - Shotcup's wake after idle (0.7-2.3 s on its performance page) was not reproduced.
 - Whether the 4-worker limit is per account, per region or global, and whether a Platform plan or tenant keys raise it. The account's `/me` says `maxConcurrent: 50`, but the runtime refused a fifth concurrent run.
 - `artifacts: "private"` over REST, and pinning a drive version in `mounts`.
-- Vercel duration limits are quoted from Vercel's documentation, not tested; no route was deployed. All Vercel Sandbox timings are from a client in the UK; a function in `iad1` next to the VMs should save part of each SDK round trip, by an amount not measured.
+- Vercel duration limits are quoted from Vercel's documentation, not tested: the creature route has run only locally (`next start`), so `maxDuration`, `after()` on the platform, the sandbox's OIDC authentication inside `after()` (the SDK reads the token from the request context, which Next's `after()` should carry; if a deployed job fails with a credentials error, read the token in the route and pass `token`, `teamId` and `projectId` to `Sandbox.create`) and the traced files (`outputFileTracingIncludes`; the build's trace lists them) are unverified on a deployment. All Vercel Sandbox timings are from a client in the UK; a function in `iad1` next to the VMs should save part of each SDK round trip, by an amount not measured.
 - Whether `delete()` (0.18-0.27 s) ends a running Vercel session and its billing as `stop()` does: a deleted sandbox disappears from listings and its session returns 404, so I could not read its final state. The renderer uses `stop()`.
 - Root in the Vercel VM against the network policy and the init socket: the probes ran with sudo available and stayed offline, but I did not try to change the policy or talk to `/run/vercel/share/init.sock`.
 - The Vercel and boat bills for these runs: the costs above are list prices times measured usage.

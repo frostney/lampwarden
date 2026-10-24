@@ -8,7 +8,7 @@ A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea s
 bun install && bun run dev
 ```
 
-Opens at http://localhost:3000. Live at https://lampwarden.vercel.app (it may lag behind `main`). Built at the Mubit Night Shift hackathon, London, 24 October 2026.
+Opens at http://localhost:3000. Live at https://lampwarden.vercel.app (it may lag behind `main`). Built at [Night Shift](https://luma.com/nightshift-london), Mubit's hackathon in London, 24–25 October 2026.
 
 ## Play
 
@@ -63,6 +63,17 @@ This writes the PNG, its builder code and a row in `public/sprites/manifest.json
 Starting a job is rate limited, to 3 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
 Not on `main`: rendering in-process with QuickJS in WebAssembly is an open proposal ([#33](https://github.com/frostney/lampwarden/pull/33)), and drawing creatures as code in the browser is still being built.
+
+## Night Shift and Mubit
+
+Night Shift's brief: build a product that routes its LLM calls through Mubit and turns corrections into model updates for a recurring task. Lampwarden's recurring task is making game art: every sprite is written as code by a model, rendered, judged and corrected, the same way each time.
+- **Every model call goes through Mubit**: `https://api.mubit.ai/anthropic/v1/messages`, model `claude-opus-5-5`, no temperature (`pipeline/mubit.ts`). Each call carries an anonymous session in `metadata.user_id`.
+- **Three recurring tasks.** Mubit groups calls into a task when they share their system prompt, so each prompt is a fixed file and everything that changes per call (the brief, the creatures already made, the variation for each candidate) sits in the user message:
+  - the generator (`pipeline/prompts/generator.md`): a brief in, kit code out;
+  - the verifier (`pipeline/prompts/verifier.md`): the render, brief, code and stats in, a score with issues and a fix out;
+  - the creature brief writer (`pipeline/prompts/creature.md`): the creatures that exist in, the next one out.
+- **Corrections.** A sprite the verifier fails goes back to the generator with the verifier's issues and requested fix, as a follow-up turn; the better of the first and the fixed version is kept. Live creatures draw three candidates and keep the best that passes. These corrected calls are the examples Mubit trains on.
+- **Model updates.** Once a task has enough kept examples (25 by default), Mubit trains an adapter, a small model for that task, and tests each version against the provider model's answers. Tasks, adapters and their test results are in the Mubit console, where a passing version can be compared side by side with the provider model in Try models, and replies can be rated Good or Bad in Requests.
 
 ## Run it
 

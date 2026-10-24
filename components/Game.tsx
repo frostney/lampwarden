@@ -3,6 +3,7 @@
 import { Application } from "@pixi/react";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { activeGamepad, newGamepadMemory, pollGamepadForMenu, type MenuAction } from "@/lib/gamepad";
 import type { Sex } from "@/lib/assets";
 import { newControls, press, release, stick } from "@/lib/controls";
 import {
@@ -52,6 +53,7 @@ export default function Game() {
   const [hud, setHud] = useState<Hud | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [heirs, setHeirs] = useState<Heir[]>([]);
+  const [gamepadConnected, setGamepadConnected] = useState(false);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const recorder = useRef<Recorder | null>(null);
@@ -120,6 +122,27 @@ export default function Game() {
 
   // puts a night on stage
   const show = (s: State, sex: Sex, driver: Driver | null = null) => { state.current = s; setNight({ state: s, sex, driver }); };
+
+  // gamepad: note when one is connected (for the help line), and drive the menus with it outside a night
+  useEffect(() => {
+    const refreshConnection = () => setGamepadConnected(activeGamepad() !== null);
+    window.addEventListener("gamepadconnected", refreshConnection);
+    window.addEventListener("gamepaddisconnected", refreshConnection);
+    const memory = newGamepadMemory();
+    let frame = 0;
+    const poll = (now: number) => {
+      frame = requestAnimationFrame(poll);
+      if (phaseRef.current === "night" || phaseRef.current === "replay") return;
+      const action = pollGamepadForMenu(memory, now);
+      if (action) actOnMenu(action);
+    };
+    frame = requestAnimationFrame(poll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("gamepadconnected", refreshConnection);
+      window.removeEventListener("gamepaddisconnected", refreshConnection);
+    };
+  }, []);
 
   useEffect(() => {
     legacy.current = loadLegacy();
@@ -228,7 +251,9 @@ export default function Game() {
               <span className="long">Lamps </span>{Array.from({ length: hud.lamps }, (_, i) => <span key={i} className={i < hud.lit ? "lit" : ""}>◆</span>)}
             </div>
             {phase === "night"
-              ? <div className="help">WASD move · J strike · K or click shoot · stand by a dark lamp to relight it</div>
+              ? <div className="help">{gamepadConnected
+                  ? "Left stick move · A strike · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
+                  : "WASD move · J strike · K or click shoot · stand by a dark lamp to relight it"}</div>
               : <div className="help replaybar">
                   REPLAY {replay?.play.id}
                   {[1, 2, 4].map((x) => (
@@ -309,4 +334,19 @@ function tideNote(r: Report) {
   if (r.tideAfter > r.tideBefore) return `The sea noticed. It is ${tideLabel(r.tideAfter)} now.`;
   if (r.tideAfter < r.tideBefore) return `The sea draws back. It is ${tideLabel(r.tideAfter)} now.`;
   return `The sea stays ${tideLabel(r.tideAfter)}.`;
+}
+
+// Moves focus between the menu's buttons, or presses one, for a gamepad.
+function actOnMenu(action: MenuAction) {
+  document.body.dataset.input = "gamepad";   // shows the focus ring on gamepad-focused buttons
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>(".panel button:not([disabled])")];
+  const primary = document.querySelector<HTMLButtonElement>(".panel .btn.big:not([disabled])");
+  const focused = document.activeElement instanceof HTMLButtonElement && buttons.includes(document.activeElement) ? document.activeElement : null;
+  if (action === "primary") { primary?.click(); return; }
+  if (action === "confirm") { (focused ?? primary)?.click(); return; }
+  if (!buttons.length) return;
+  const index = focused ? buttons.indexOf(focused) : -1;
+  const next = action === "next" ? (index + 1) % buttons.length : (index <= 0 ? buttons.length - 1 : index - 1);
+  buttons[next]?.focus();
+  buttons[next]?.scrollIntoView({ block: "nearest" });
 }

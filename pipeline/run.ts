@@ -113,6 +113,9 @@ async function processWithCandidates(brief: Brief) {
       fixed_verify: row.fixed_verify,
     })}`,
   );
+  // a brief the live job's rule rejects wrote nothing: the run ends in failure, as when a build does not render
+  if (!run.accepted)
+    throw new Error(`${brief.id}: the best candidate (score ${row.score}) is not accepted, so nothing was written`);
 }
 
 const failures = await runPool(briefs, Number(values.concurrency ?? DEFAULT_CONCURRENCY), (brief) =>

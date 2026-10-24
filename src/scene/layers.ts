@@ -68,7 +68,8 @@ export function loadTextures(): Promise<TextureMap> {
         try {
           textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
         } catch {
-          // left out of the map
+          // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
+          console.warn(`scenery sprite ${asset.alias} did not load`);
         }
       }),
     );

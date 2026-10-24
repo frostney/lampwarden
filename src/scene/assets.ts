@@ -80,7 +80,7 @@ type SingleKey = (typeof SINGLE)[number];
 
 // The scenery: the buildings and decorations a model drew through Mubit (the manifest's rows with source "mubit"). They
 // load one by one, and one that fails to load is only missing: a building is drawn from its hand-written sprite instead
-// (`sceneryKeyFor`) and a decoration is left out.
+// (`sceneryKeyFor`) and a decoration draws nothing.
 const SCENERY = [
   "temple",
   "house",

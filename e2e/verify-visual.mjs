@@ -989,6 +989,22 @@ async function checkHeroCards() {
   );
   await reduced.context.close();
 }
+// Shows or hides the plaza's props (all but the statue, which stands where it always has). The scenes that measure the
+// ground by lamplight read boxes of bare stone beside a lamp, which a prop of the night's layout may stand on.
+const setPropsShown = (shown) =>
+  page.evaluate(
+    ([keys, visible]) => {
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        if (keys.some((name) => label.endsWith(`/sprites/${name}.png`))) node.visible = visible;
+        for (const child of node.children ?? []) visit(child);
+      };
+      const app = window.lampwarden.app();
+      if (app) visit(app.stage);
+    },
+    [PROP_KEYS.filter((key) => key !== "zeus-statue"), shown],
+  );
+
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -1138,7 +1154,8 @@ check(
 const sky = await boxDiff(shot, nightStart, [0, 60, 960, 60]);
 check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).toFixed(2)}% of the sky changed`);
 
-// 4 two dark lamps, one being relit
+// 4 two dark lamps, one being relit; the lamp-light scenes up to 5 measure bare ground, so the props are put away
+await setPropsShown(false);
 await page.evaluate(() => {
   const state = window.lampwarden.state();
   state.monsters = [];
@@ -1612,6 +1629,7 @@ const placeClawer = (heroX, heroY) =>
 }
 
 // 5 just before dawn: the tint has warmed
+await setPropsShown(true);
 await page.evaluate(() => {
   const state = window.lampwarden.state();
   for (const lamp of state.lamps) lamp.lit = true;

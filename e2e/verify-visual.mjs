@@ -164,6 +164,65 @@ const boxDiff = (first, second, [x, y, width, height]) =>
     { first, second, x, y, width, height },
   );
 const text = (selector) => page.locator(selector).allInnerTexts();
+// the title scroll: fully unrolled (both rollers on screen, the bottom one below the parchment), and every line on it
+// inside the viewport, or brought there by scrolling the parchment
+async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
+  const scroll = await page.evaluate(
+    ({ viewportWidth, viewportHeight }) => {
+      const element = document.querySelector(".scroll");
+      const body = document.querySelector(".scroll-body");
+      const windowElement = document.querySelector(".scroll-window");
+      const [top, bottom] = [...document.querySelectorAll(".scroll .roller")].map((roller) =>
+        roller.getBoundingClientRect(),
+      );
+      if (!element || !body || !windowElement || !top || !bottom)
+        return { unrolled: false, unreachable: ["no scroll"] };
+      const onScreen = (box) =>
+        box.left >= -1 && box.top >= -1 && box.right <= viewportWidth + 1 && box.bottom <= viewportHeight + 1;
+      const parchment = windowElement.getBoundingClientRect();
+      const unrolled =
+        element.dataset.stage === "done" &&
+        onScreen(top) &&
+        onScreen(bottom) &&
+        bottom.top >= parchment.bottom - bottom.height &&
+        parchment.height > 100;
+      const unreachable = [];
+      for (const line of document.querySelectorAll(".scroll-content [data-line]")) {
+        line.scrollIntoView({ block: "nearest" });
+        const box = line.getBoundingClientRect();
+        const shown = body.getBoundingClientRect();
+        if (!onScreen(box) || box.top < shown.top - 1 || box.bottom > shown.bottom + 1)
+          unreachable.push(line.textContent.trim().slice(0, 24) || line.className);
+      }
+      body.scrollTop = 0;
+      return {
+        unrolled,
+        unreachable,
+        detail: `parchment ${Math.round(parchment.width)}x${Math.round(parchment.height)}, content ${body.scrollHeight}px`,
+      };
+    },
+    { viewportWidth, viewportHeight },
+  );
+  check(tag, "title scroll fully unrolled", scroll.unrolled, scroll.detail);
+  check(
+    tag,
+    "every line on the scroll on screen or scrollable to",
+    scroll.unreachable.length === 0,
+    scroll.unreachable.join(", "),
+  );
+}
+const heroTextures = () =>
+  page.evaluate(() => {
+    const found = [];
+    const visit = (node) => {
+      const source = node.texture?.source?.label ?? "";
+      if (source.includes("/hero/")) found.push(source.slice(source.indexOf("/hero/") + 6));
+      for (const child of node.children ?? []) visit(child);
+    };
+    const app = window.lampwarden.app();
+    if (app) visit(app.stage);
+    return found;
+  });
 
 // --- scenarios ----------------------------------------------------------------------------------------------
 await page.goto(`${BASE_URL}/?verify=1`);
@@ -202,6 +261,13 @@ check(
   logo && `${logo.width}px wide`,
 );
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
+await checkTitleScroll("title", 1000, 640);
+const chosenCards = await page.locator(".hero-card[aria-pressed='true']").count();
+check(
+  "title",
+  "hero choice: two cards, one chosen",
+  (await page.locator(".hero-card").count()) === 2 && chosenCards === 1,
+);
 
 // 2 night start: all five lamps lit
 await page.getByRole("button", { name: "Light the lamps" }).click();
@@ -405,6 +471,29 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
   await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
+  // the d-pad walks the title's buttons to a hero card and A chooses it: the daughter, then the son again
+  const focusHeroCard = async (sex, direction) => {
+    for (let move = 0; move < 8; move++) {
+      if (await page.evaluate((sex) => document.activeElement?.dataset?.sex === sex, sex)) return true;
+      await tapButton(direction);
+    }
+    return page.evaluate((sex) => document.activeElement?.dataset?.sex === sex, sex);
+  };
+  const padChoices = [];
+  for (const [sex, direction] of [
+    ["female", 13],
+    ["male", 12],
+  ]) {
+    const focused = await focusHeroCard(sex, direction);
+    await tapButton(0);
+    padChoices.push({ sex, focused, chosen: await page.evaluate(() => window.lampwarden.legacy().heir.sex) });
+  }
+  check(
+    "gamepad",
+    "d-pad focuses the hero cards and A chooses one",
+    padChoices.every((choice) => choice.focused && choice.chosen === choice.sex),
+    padChoices.map((choice) => `${choice.sex}: focused ${choice.focused}, chosen ${choice.chosen}`).join("; "),
+  );
   await tapButton(9); // Start presses the title's primary button
   const started = await page.waitForSelector('[data-phase="night"]', { timeout: 3000 }).then(
     () => true,
@@ -481,6 +570,149 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await padPage.close();
 }
 
+// 11 hero choice: the daughter, the son again, then the daughter takes up the lamp and the night shows her
+{
+  const heroPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  heroPage.on("pageerror", (error) => errors.push(`hero choice: ${error}`));
+  const mainPage = page;
+  page = heroPage;
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  const heir = () => page.evaluate(() => window.lampwarden.legacy().heir);
+  const saved = () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:legacy:v1") ?? "null")?.heir ?? null);
+  const first = await heir();
+  await page.click('.hero-card[data-sex="female"]');
+  await settle();
+  const daughter = await heir();
+  const savedDaughter = await saved();
+  check(
+    "hero-choice",
+    "choosing the daughter makes the warden female with a new name, saved",
+    daughter.sex === "female" &&
+      daughter.name !== first.name &&
+      daughter.trait === first.trait &&
+      savedDaughter?.sex === "female" &&
+      (await page.locator('.hero-card[data-sex="female"]').getAttribute("aria-pressed")) === "true",
+    `${first.name} (${first.sex}) → ${daughter.name} (${daughter.sex}), saved ${savedDaughter?.name}`,
+  );
+  const wardenLine = (await text(".scroll .warden")).join("");
+  check("hero-choice", "the warden line names her", wardenLine.includes(daughter.name), wardenLine);
+  await shoot("11-hero-choice");
+  await page.click('.hero-card[data-sex="male"]');
+  const son = await heir();
+  check(
+    "hero-choice",
+    "choosing the son sets it back",
+    son.sex === "male" && son.name === first.name && (await saved())?.sex === "male",
+    `${son.name} (${son.sex})`,
+  );
+  await page.click('.hero-card[data-sex="female"]');
+  await page.getByRole("button", { name: "Light the lamps" }).click();
+  await page.waitForSelector('[data-phase="night"]');
+  await freeze();
+  const textures = await heroTextures();
+  check(
+    "hero-choice",
+    "the night shows the female warden",
+    (await heir()).sex === "female" && textures.length > 0 && textures.every((key) => key.startsWith("female_")),
+    textures.join(" "),
+  );
+  await shoot("12-hero-choice-night");
+  page = mainPage;
+  await heroPage.close();
+}
+
+// 13 the unroll: without ?verify=1 it starts rolled up; a click, Enter or the pad's A completes it and does nothing
+// else; with reduced motion it starts unrolled
+{
+  const unrollContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await unrollContext.addInitScript(() => {
+    const pad = {
+      id: "Verifier pad",
+      index: 0,
+      connected: true,
+      mapping: "standard",
+      timestamp: 0,
+      axes: [0, 0, 0, 0],
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+      vibrationActuator: null,
+    };
+    window.verifierPad = pad;
+    navigator.getGamepads = () => [pad, null, null, null];
+    localStorage.clear();
+  });
+  const unrollPage = await unrollContext.newPage();
+  unrollPage.on("pageerror", (error) => errors.push(`unroll: ${error}`));
+  const stageOf = () => unrollPage.evaluate(() => document.querySelector(".scroll")?.dataset.stage);
+  const untouched = () =>
+    unrollPage.evaluate(
+      () =>
+        document.querySelector(".stage")?.dataset.phase === "title" && window.lampwarden?.legacy().heir.sex === "male",
+    );
+  await unrollPage.goto(BASE_URL);
+  await unrollPage.waitForSelector(".scroll:not([hidden])");
+  const opening = await stageOf();
+  await unrollPage.waitForSelector('.scroll[data-stage="writing"]', { timeout: 6000 });
+  // a click on the daughter's card while the lines are being written completes the scroll and chooses nothing
+  const card = await unrollPage.locator('.hero-card[data-sex="female"]').boundingBox();
+  await unrollPage.mouse.click(card.x + card.width / 2, card.y + card.height / 2);
+  const afterClick = { stage: await stageOf(), untouched: await untouched() };
+  check(
+    "unroll",
+    "starts rolled; a click while it unrolls completes it and presses nothing",
+    opening === "unrolling" && afterClick.stage === "done" && afterClick.untouched,
+    `${opening} → ${afterClick.stage}, title and son kept: ${afterClick.untouched}`,
+  );
+  await unrollPage.reload();
+  await unrollPage.waitForSelector('.scroll[data-stage="unrolling"]');
+  await unrollPage.keyboard.press("Enter");
+  const afterEnter = { stage: await stageOf(), untouched: await untouched() };
+  check(
+    "unroll",
+    "Enter completes it and presses nothing",
+    afterEnter.stage === "done" && afterEnter.untouched,
+    `${afterEnter.stage}, untouched ${afterEnter.untouched}`,
+  );
+  await unrollPage.reload();
+  await unrollPage.waitForSelector('.scroll[data-stage="unrolling"]');
+  await unrollPage.evaluate(() => {
+    window.verifierPad.buttons[0].pressed = true;
+  });
+  await unrollPage.waitForTimeout(150);
+  await unrollPage.evaluate(() => {
+    window.verifierPad.buttons[0].pressed = false;
+  });
+  await unrollPage.waitForTimeout(150);
+  const afterPad = { stage: await stageOf(), untouched: await untouched() };
+  check(
+    "unroll",
+    "the pad's A completes it and presses nothing",
+    afterPad.stage === "done" && afterPad.untouched,
+    `${afterPad.stage}, untouched ${afterPad.untouched}`,
+  );
+  await unrollContext.close();
+
+  const reducedContext = await browser.newContext({
+    viewport: { width: 1000, height: 640 },
+    deviceScaleFactor: 1,
+    reducedMotion: "reduce",
+  });
+  const reducedPage = await reducedContext.newPage();
+  await reducedPage.goto(BASE_URL);
+  await reducedPage.waitForSelector(".scroll:not([hidden])");
+  const reducedStage = await reducedPage.evaluate(() => document.querySelector(".scroll")?.dataset.stage);
+  check("reduced-motion", "the scroll starts unrolled", reducedStage === "done", reducedStage);
+  const mainPage = page;
+  page = reducedPage;
+  await checkTitleScroll("reduced-motion", 1000, 640);
+  page = mainPage;
+  await reducedContext.close();
+}
+
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
 // --- mobile: WebKit (Safari's engine) on phone profiles, with touch ------------------------------------------
@@ -522,9 +754,11 @@ for (const [tag, device] of [
     inView(stage, viewportWidth, viewportHeight),
     `${Math.round(stage.width)}x${Math.round(stage.height)} in ${viewportWidth}x${viewportHeight}`,
   );
-  const [startButton] = await boxes(".btn.big");
-  check(tag, "start button on screen", inView(startButton, viewportWidth, viewportHeight));
   await shoot(`${tag}-1-title`, true);
+  await checkTitleScroll(tag, viewportWidth, viewportHeight);
+  await page.getByRole("button", { name: "Light the lamps" }).scrollIntoViewIfNeeded();
+  const [startButton] = await boxes(".btn.big");
+  check(tag, "start button on screen (scrolled to)", inView(startButton, viewportWidth, viewportHeight));
   await page.getByRole("button", { name: "Light the lamps" }).tap();
   await page.waitForSelector('[data-phase="night"]');
   await page.waitForTimeout(200);

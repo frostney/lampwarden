@@ -63,6 +63,14 @@ export function heirChoices(random = Math.random): Heir[] {
   return choices;
 }
 
+// The same warden as the other sex: a name from that sex's list (the one at the same place, so choosing back restores
+// the name), the trait kept.
+export function heirAs(heir: Heir, sex: Sex): Heir {
+  if (heir.sex === sex) return heir;
+  const place = NAMES[heir.sex].indexOf(heir.name);
+  return { ...heir, sex, name: NAMES[sex][Math.max(0, place)] ?? NAMES[sex][0] };
+}
+
 export function newLegacy(): Legacy {
   return {
     generation: 1,

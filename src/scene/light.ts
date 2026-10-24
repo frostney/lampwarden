@@ -2,11 +2,11 @@
 // a sparkle on each brass lantern and broken reflections on the sea. Every texture is painted here pixel by pixel,
 // once, and cached; a frame only picks which precomputed texture each sprite shows, from the scene clock (frozen by the
 // visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint.
-import { BufferImageSource, Rectangle, Texture } from "pixi.js";
-import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH } from "../game/sim";
+import { Rectangle, Texture } from "pixi.js";
+import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT } from "../game/sim";
 import { ANCHOR_Y } from "./assets";
-
-type Rgb = readonly [number, number, number];
+import { bayerThreshold, bufferTexture, type Rgb, seededRandom, shuffle } from "./paint";
+import { frontRimY, onPlaza, onPlazaRim, onSea, PLAZA_WALL } from "./plaza";
 
 // a texture and where its top-left pixel sits relative to the point it lights
 export interface LightPiece {
@@ -15,11 +15,8 @@ export interface LightPiece {
   offsetY: number;
 }
 
-// --- ordered dithering and flicker ---------------------------------------------------------------------------
+// --- flicker ---------------------------------------------------------------------------------------------------
 
-// 4x4 Bayer thresholds, anchored to the canvas so a moving light never makes the pattern swim
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const bayerThreshold = (x: number, y: number) => ((BAYER[(y & 3) * 4 + (x & 3)] ?? 0) + 0.5) / 16;
 // how much of a band the dither reaches into across each boundary (1 would dither the whole band)
 const DITHER_SPREAD = 0.4;
 
@@ -43,19 +40,6 @@ const flickerIndex = (clock: number, seed: number) =>
 
 // --- painting --------------------------------------------------------------------------------------------------
 
-function bufferTexture(pixels: Uint8Array, width: number, height: number): Texture {
-  return new Texture({
-    source: new BufferImageSource({
-      resource: pixels,
-      width,
-      height,
-      format: "rgba8unorm",
-      alphaMode: "premultiplied-alpha",
-      scaleMode: "nearest",
-    }),
-  });
-}
-
 interface LightShape {
   centerX: number;
   centerY: number;
@@ -65,17 +49,6 @@ interface LightShape {
   falloff: number; // above 1 widens the bright bands
   groundOnly: boolean; // only the plaza's top catches it, its rim and its tiles' lit bevels one level brighter
 }
-
-// the plaza's top face, tested at the pixel centre
-const onPlaza = (x: number, y: number) =>
-  Math.abs(x + 0.5 - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y + 0.5 - CENTRE_Y) / PLAZA_HALF_HEIGHT <= 1;
-// a plaza pixel on its rim, where the stone meets the wall or the sea
-const onPlazaRim = (x: number, y: number) => onPlaza(x, y) && (!onPlaza(x, y + 1) || !onPlaza(x, y - 1));
-const PLAZA_WALL = 14; // the plaza's side walls, drawn under its front edges by drawGround
-const frontRimY = (x: number) => CENTRE_Y + PLAZA_HALF_HEIGHT * (1 - Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH);
-const onWall = (x: number, y: number) =>
-  Math.abs(x - CENTRE_X) <= PLAZA_HALF_WIDTH && y > frontRimY(x) && y <= frontRimY(x) + PLAZA_WALL;
-const onSea = (x: number, y: number) => !onPlaza(x, y) && !onWall(x, y);
 
 // plaza coordinates: tile vertices sit where both are whole numbers (0 to 12), tile edges where either is
 const plazaU = (x: number, y: number) => ((x - CENTRE_X) / 32 + (y - (CENTRE_Y - PLAZA_HALF_HEIGHT)) / 16) / 2;
@@ -279,27 +252,6 @@ function shimmer(length: number, bright: boolean): GlintFrame[] {
 }
 
 // --- the lights in the scene -----------------------------------------------------------------------------------
-
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffle<Item>(list: Item[], random: () => number) {
-  for (let index = list.length - 1; index > 0; index--) {
-    const other = Math.floor(random() * (index + 1));
-    const current = list[index];
-    const swapped = list[other];
-    if (current === undefined || swapped === undefined) continue;
-    list[index] = swapped;
-    list[other] = current;
-  }
-}
 
 export interface LampLight {
   seed: number;

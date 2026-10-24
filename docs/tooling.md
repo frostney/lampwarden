@@ -12,7 +12,7 @@
 | `bun run scan`                         | `varlock scan`: fails when the value of a secret declared in `.env.schema` that this machine can resolve sits in plaintext in a tracked or unignored file (Environment).     |
 | `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`.               |
 | `bun run walkthrough -- <script.ts>`   | Records a pull request's narrated, subtitled walkthrough, `e2e/walkthrough.ts`, from a script of segments (example: `e2e/walkthroughs/title.ts`); writes `walkthrough-out/`. |
-| `bun run balance`                      | Plays nights headlessly with an idle and a bot warden (`-- --director`: under stub director decisions).                                                                      |
+| `bun run balance`                      | Plays nights headlessly with an idle warden, a perfect bot and a human-paced bot (`[runs] [only]`; `-- --director`: under stub director decisions).                          |
 | `bun run plays`                        | Balance report from recorded plays in Blob storage.                                                                                                                          |
 | `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                               |
 | `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`); renders in Vercel Sandbox.                                                                          |

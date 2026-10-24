@@ -170,7 +170,15 @@ describe("nothing gets easier after a night nobody played", () => {
   });
 
   test("the rules' director does not ease after such a night either", () => {
-    const loss = { outcome: "dark" as const, kills: 2, seconds: 18, lampsLost: 5, health: 38, maxHealth: 100 };
+    const loss = {
+      night: 3,
+      outcome: "dark" as const,
+      kills: 2,
+      seconds: 18,
+      lampsLost: 5,
+      health: 38,
+      maxHealth: 100,
+    };
     const eased = rulesTide(1.1, loss);
     expect(eased).toBe(0.94);
     for (const kind of away) expect(heldTide(1.1, eased, kind)).toBe(1.1); // an idle, paused or left loss holds the tide

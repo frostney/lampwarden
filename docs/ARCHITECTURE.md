@@ -29,7 +29,8 @@ src/
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
     water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths, a swell tile of
-                     2:1 crests and sparkles (a TilingSprite drifting down the grid), surf lapping at the plaza's edges
+                     2:1 crests and sparkles (a TilingSprite drifting down the grid), surf lapping at the plaza's edges,
+                     ripples spreading from the moored boats and the dock's posts
     paint.ts         shared by the painted pixel art: RGBA buffers to nearest-sampled textures, Bayer dither, seeded random
     plaza.ts         the plaza's outline in pixels: its top face, its walls, and how far a point of sea lies from it
     projectiles.ts   arrow and sling-stone pixel art

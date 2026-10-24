@@ -1,5 +1,5 @@
 // The sea as pixel art: a still base of stepped depths, an open swell of short 2:1 crests and sparkles that tiles over
-// the whole canvas, and surf along the plaza's cliffs. Everything is painted here pixel by pixel, once, into a
+// the whole canvas, surf along the plaza's cliffs and ripples around the boats. Everything is painted here pixel by pixel, once, into a
 // WATER_FRAMES-long loop; a frame only picks textures from the scene clock (frozen by the visual verifier, so its
 // frames are deterministic). The night tint multiplies over all of it, as over the rest of the ground.
 import { Rectangle, Texture } from "pixi.js";
@@ -160,6 +160,67 @@ function surfPixel(x: number, y: number, frame: number): Rgb | null {
   return null;
 }
 
+// --- ripples around what floats: rings that spread from the trireme, the galley and the dock's posts -----------
+
+interface Ripple {
+  x: number;
+  y: number;
+  radiusX: number; // 2:1, like the ground
+  radiusY: number;
+  growth: number; // how much wider a ring is when it fades than when it starts
+  dashes: number; // breaks around a ring
+  phase: number;
+}
+
+// Placed by eye on the moored boats (their sprites are anchored in layers.ts PROPS and Scene's Trireme) and the posts
+// under the dock; the rings' backs are hidden under the hulls, so only their fronts show.
+const RIPPLES: readonly Ripple[] = [
+  // the trireme's hull, its bow and the tips of its oars
+  { x: 140, y: 437, radiusX: 40, radiusY: 12, growth: 0.25, dashes: 11, phase: 0 },
+  { x: 170, y: 444, radiusX: 6, radiusY: 3, growth: 0.8, dashes: 3, phase: 4 },
+  { x: 86, y: 430, radiusX: 4, radiusY: 2, growth: 0.8, dashes: 2, phase: 2 },
+  { x: 95, y: 435, radiusX: 4, radiusY: 2, growth: 0.8, dashes: 2, phase: 7 },
+  { x: 104, y: 439, radiusX: 4, radiusY: 2, growth: 0.8, dashes: 2, phase: 10 },
+  // the galley at the dock and the dock's posts
+  { x: 840, y: 422, radiusX: 22, radiusY: 8, growth: 0.35, dashes: 7, phase: 3 },
+  { x: 776, y: 406, radiusX: 6, radiusY: 3, growth: 0.8, dashes: 2, phase: 1 },
+  { x: 790, y: 420, radiusX: 6, radiusY: 3, growth: 0.8, dashes: 2, phase: 6 },
+  { x: 804, y: 428, radiusX: 6, radiusY: 3, growth: 0.8, dashes: 2, phase: 9 },
+  { x: 817, y: 437, radiusX: 6, radiusY: 3, growth: 0.8, dashes: 2, phase: 4 },
+];
+
+// Two rings per ripple, half a loop apart, each spreading and fading: teal while fresh, then the shelf's tone, then
+// gone. Broken into dashes that turn a little as the ring spreads.
+function paintRipples(plot: (x: number, y: number, colour: Rgb) => void, frame: number) {
+  for (const ripple of RIPPLES)
+    for (let ring = 0; ring < 2; ring++) {
+      const age = (frame + ripple.phase + ring * (WATER_FRAMES / 2)) % WATER_FRAMES;
+      if (age >= WATER_FRAMES - 2) continue;
+      const scale = 1 + (ripple.growth * age) / WATER_FRAMES;
+      const radiusX = ripple.radiusX * scale;
+      const radiusY = ripple.radiusY * scale;
+      const colour = age < 4 ? FOAM : age < 8 ? CREST : SHALLOW;
+      const samples = Math.ceil(radiusX * 8);
+      for (let sample = 0; sample < samples; sample++) {
+        const turn = sample / samples;
+        const angle = 2 * Math.PI * turn;
+        if (Math.sin(angle) < -0.3) continue; // the back of the ring, under the hull
+        if (Math.floor(turn * ripple.dashes * 2 + age / 4) % 2 === 1) continue;
+        plot(
+          Math.round(ripple.x + Math.cos(angle) * radiusX),
+          Math.round(ripple.y + Math.sin(angle) * radiusY),
+          colour,
+        );
+      }
+    }
+}
+const nearRipple = (x: number, y: number) =>
+  RIPPLES.some(
+    (ripple) =>
+      Math.abs(x - ripple.x) <= ripple.radiusX * (1 + ripple.growth) + 1 &&
+      Math.abs(y - ripple.y) <= ripple.radiusY * (1 + ripple.growth) + 1,
+  );
+
 // --- animated patches: only the parts of the canvas that move, cut into tiles and packed per frame ------------
 
 const PATCH_WIDTH = 64;
@@ -172,10 +233,14 @@ interface WaterPatch {
   frames: readonly Texture[];
 }
 
-function animatedPixel(x: number, y: number, frame: number): Rgb | null {
-  return surfPixel(x, y, frame);
+// one frame's ripples, by canvas pixel
+function rippleMarks(frame: number): Map<number, Rgb> {
+  const marks = new Map<number, Rgb>();
+  paintRipples((x, y, colour) => marks.set(y * STAGE_WIDTH + x, colour), frame);
+  return marks;
 }
-const mayMove = (x: number, y: number) => Math.abs(shoreDistance(x + 0.5, y + 0.5)) <= SURF_REACH + 1;
+const mayMove = (x: number, y: number) =>
+  Math.abs(shoreDistance(x + 0.5, y + 0.5)) <= SURF_REACH + 1 || nearRipple(x, y);
 
 function paintPatches(): WaterPatch[] {
   const origins: { x: number; y: number }[] = [];
@@ -190,12 +255,15 @@ function paintPatches(): WaterPatch[] {
   const atlasHeight = PATCH_HEIGHT * Math.ceil(origins.length / ATLAS_COLUMNS);
   const frames = Array.from({ length: WATER_FRAMES }, (_, frame) => {
     const pixels = new Uint8Array(atlasWidth * atlasHeight * 4);
+    const marks = rippleMarks(frame);
     origins.forEach((origin, index) => {
       const atlasX = (index % ATLAS_COLUMNS) * PATCH_WIDTH;
       const atlasY = Math.floor(index / ATLAS_COLUMNS) * PATCH_HEIGHT;
       for (let row = 0; row < PATCH_HEIGHT; row++)
         for (let column = 0; column < PATCH_WIDTH; column++) {
-          const colour = animatedPixel(origin.x + column, origin.y + row, frame);
+          const x = origin.x + column;
+          const y = origin.y + row;
+          const colour = marks.get(y * STAGE_WIDTH + x) ?? surfPixel(x, y, frame);
           if (colour) putPixel(pixels, atlasWidth, atlasX + column, atlasY + row, colour);
         }
     });

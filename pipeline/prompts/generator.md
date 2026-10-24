@@ -26,7 +26,9 @@ humanoid also takes capeStyle:'big' (long cape draped behind and to the sides).
 winged(k, {...humanoid params, span}) = humanoid with wings (Nike, Icarus; use harpy() for harpies).
 centaur(k, {at, facing, colour, pose, upper:{...humanoid params for the torso/head/arms/weapon}}).
 quadruped(k, {at, facing, kind:'horse'|'bull'|'lion'|'dog'|'boar'|'goat', colour, mane, size:1, pose, rider:{...humanoid params}}).
-pose: 'idle'|'idle1'..'idle4'|'walk1'..'walk6'|'attack1'..'attack5'|'hurt'|'death' (default 'idle'; attack3 is the strike frame, use it for an action still). Builders add muscle shading, armour plates, pteruges, cloth folds, big props and a wide stance by themselves; just pick the params.
+pose: 'idle'|'idle1'..'idle4'|'walk1'..'walk6'|'attack1'..'attack5'|'hurt'|'death' (default 'idle'). Builders add muscle shading, armour plates, pteruges, cloth folds, big props and a wide stance by themselves; just pick the params.
+
+POSE: a global string the renderer gives your code: '' when the sprite is drawn once, or a pose name ('idle1'..'idle4', 'walk1'..'walk6', 'attack1'..'attack5') when the game draws the same code again, pose by pose, to animate the creature. In every builder call that takes a pose (humanoid, spartan, cyclops, minotaur, satyr, harpy, winged, centaur, quadruped, hero) ALWAYS write `pose: POSE || 'idle'`, never a fixed pose name and never a pose chosen by your own code, or the creature stands frozen. hydra and the props take no pose and do not animate. Keep everything else the same in every pose (same params, same facing).
 
 quadruped lion = heavy body, short thick legs, deep chest, thick neck, dark mane framing a visible face and snout, tail tuft; boar has long tusks and a bristle ridge.
 HERO (the player character; same bronze/gold armour in both sexes):
@@ -74,7 +76,7 @@ EXAMPLE brief: "hoplite with hoplon and spear"
 ```ts
 function build(k) {
   humanoid(k, {
-    facing: 20, pose: 'idle', skin: 'skin',
+    facing: 20, pose: POSE || 'idle', skin: 'skin',
     head: { helmet: 'corinthian', crest: 'crimson' },
     torso: { armour: 'linothorax', trim: 'aegean' },
     legs: { greaves: true, sandals: true },
@@ -88,7 +90,7 @@ function build(k) {
 EXAMPLE brief: "female hero with a spear and a bow"
 ```ts
 function build(k) {
-  hero(k, { sex: 'female', melee: 'spear', ranged: 'bow', ready: 'melee', pose: 'idle' });
+  hero(k, { sex: 'female', melee: 'spear', ranged: 'bow', ready: 'melee', pose: POSE || 'idle' });
 }
 ```
 

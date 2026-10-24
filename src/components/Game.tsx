@@ -435,12 +435,13 @@ export default function Game() {
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
+  const announcedFrames = tonight.kind === "ready" ? tonight.creature.frames : undefined;
   useEffect(() => {
     if (!announced) return;
-    void loadCreatureTextures(announced).then((loaded) => {
+    void loadCreatureTextures(announced, announcedFrames ?? null).then((loaded) => {
       if (!loaded) withdraw(announced);
     });
-  }, [announced, withdraw]);
+  }, [announced, announcedFrames, withdraw]);
 
   const startNight = async () => {
     if (starting.current) return;
@@ -453,7 +454,7 @@ export default function Game() {
     stop();
     const loaded = announcedCreature
       ? await Promise.race([
-          loadCreatureTextures(announcedCreature.id),
+          loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
         ])
       : null;

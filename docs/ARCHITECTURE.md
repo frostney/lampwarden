@@ -31,6 +31,6 @@ docs/ARCHITECTURE.md this file
 
 ## Add a setting (Norse, Egyptian…)
 
-1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_v6.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `npm run kit`. Add builders for setting-specific props (column/temple styles etc.) in `kit_props.ts` if needed, and document them in `prompts/generator.md`.
+1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_themes.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `npm run kit`. Add builders for setting-specific props (column/temple styles etc.) in `kit_props.ts` if needed, and document them in `prompts/generator.md`.
 2. Assets: generate the sprite set with `setting:'norse'` in the briefs and write them under `public/sprites/<setting>/` (the current Greek set is at the top level; moving it is a choice for whoever builds this out).
 3. App: `SETTINGS` in `components/Game.tsx` has `{id, label, live}`; flip `live` once the assets exist and make `lib/assets.ts` take a setting id when building paths and the ground palette in `drawGround`.

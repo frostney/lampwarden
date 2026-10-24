@@ -50,8 +50,8 @@ The kit is the renderer plus every builder the model may call. It lives in `pipe
 | `src/kit_anat.ts` | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy` |
 | `src/kit_beasts.ts` | `quadruped`, `centaur` |
 | `src/kit_props.ts` | `column`, `amphora`, `brazier`, `altar`, `statueBase` |
-| `src/kit_v5.ts` | `humanoid`, `tree`, `hydra` |
-| `src/kit_v6.ts` | `THEMES`/`theme()`, `hero`, `ship` |
+| `src/kit_figures.ts` | `humanoid`, `tree`, `hydra` |
+| `src/kit_themes.ts` | `THEMES`/`theme()`, `hero`, `ship` |
 | `assemble.sh` | `npm run kit`: concatenates the 8 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `0fadc77d9a7e…`) |
 | `kit.ts` | the assembled single file the renderers import (163,785 bytes) |
 | `exports.json` | the 53 names destructured into model code |
@@ -70,7 +70,7 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 - `ship` `{at, facing, kind:'trireme'|'galley', sail, oars, dock, setting}`; `tree` `{at, kind:'olive'|'cypress'|'laurel', height, leaf}`.
 - Props: `column` `{at, order:'doric'|'ionic', height, mat, broken}`; `amphora` `{at, height, style:'black-figure'|'red-figure'|'plain', mat, figure:'warriors'|'horses'|'rider', border:'meander'|'palmette'}`; `brazier` `{at, height, mat, fire}`; `altar` `{at, w, h, mat, fire}`; `statueBase` `{at, w, h, mat}` returns its top z.
 - Low level (`k.*`): `sphere`, `ellipsoid`, `capsule`, `box`, `cyl`, `lathe`, `plate`, `ring` (each `(…, material, {shift, glow, tex})`), and the shape algebra `S.sphere/ellipsoid/capsule/box/obox/cyl/lathe/plate/ring/half/limb/tube/fold/drape/union/smooth/sub/inter` for `k.solid(shape, mat)`.
-- Themes: only `greek` exists in `THEMES` (`kit_v6.ts`).
+- Themes: only `greek` exists in `THEMES` (`kit_themes.ts`).
 
 **There are no house, temple, wall or stall builders in the kit** (`ship` has a `dock` option, and that is the only building-like thing). Buildings are composed by hand from the `S.*` shapes and `column`. `examples/ex_temple.ts` and `examples/ex_house.ts` do that, and render to `public/sprites/temple.png` and `house.png` (used in the scene). They were hand-written for this repo: they are **not** Mubit output and were never scored by the verifier (their manifest rows say so). Nothing from the earlier v2/v3 prop kit was dropped in the port; the export names were compared.
 

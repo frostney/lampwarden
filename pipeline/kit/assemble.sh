@@ -1,6 +1,6 @@
 #!/bin/bash
 # usage: bash pipeline/kit/assemble.sh : src/*.ts -> kit.ts (rewrites `** 2` to sq(...), asserts no **, ==, != remain)
-cd "$(dirname "$0")" && cat src/kit_core.ts src/kit_render.ts src/kit_build.ts src/kit_anat.ts src/kit_beasts.ts src/kit_props.ts src/kit_v5.ts src/kit_v6.ts > kit.ts && python3 - <<'PY'
+cd "$(dirname "$0")" && cat src/kit_core.ts src/kit_render.ts src/kit_build.ts src/kit_anat.ts src/kit_beasts.ts src/kit_props.ts src/kit_figures.ts src/kit_themes.ts > kit.ts && python3 - <<'PY'
 s=open('kit.ts').read()
 out=[];i=0
 while True:

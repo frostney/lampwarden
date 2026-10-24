@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { newLegacy } from "../game/legacy";
 import { type Lamp, newNight, type State } from "../game/sim";
+import { sceneryAssetList } from "./assets";
 import { isLitProp, nightTint, PROPS } from "./layers";
 import {
   illuminate,
@@ -291,10 +292,18 @@ describe("lightProp", () => {
 });
 
 describe("which props are lit", () => {
-  test("the statue, the stall and the olive trees are; the buildings and the boats keep the night's tint", () => {
-    const lit = PROPS.filter(([key]) => isLitProp(key)).map(([key]) => key);
-    expect(lit.sort()).toEqual(["olive", "olive", "stall", "zeus-statue"]);
-    for (const building of ["temple", "house", "wall", "galley-dock", "trireme"])
-      expect(isLitProp(building)).toBe(false);
+  // the buildings and boats, which keep the night's tint; everything else the scene draws as a prop is small and is lit
+  const BUILDINGS_AND_BOATS = ["temple", "house", "house-ochre", "wall", "galley-dock", "trireme"];
+  const SMALL = ["zeus-statue", "stall", "olive", "olive-young", "broken-column", "votive-altar", "amphora-stack"];
+
+  test("the statue, the stall, the trees and the decorations are; the buildings and the boats keep the night's tint", () => {
+    for (const key of SMALL) expect(isLitProp(key)).toBe(true);
+    for (const key of BUILDINGS_AND_BOATS) expect(isLitProp(key)).toBe(false);
+  });
+
+  test("every prop the scene places and every scenery sprite is one or the other", () => {
+    const known = new Set([...SMALL, ...BUILDINGS_AND_BOATS]);
+    for (const [key] of PROPS) expect(known.has(key)).toBe(true);
+    for (const asset of sceneryAssetList()) expect(known.has(asset.alias)).toBe(true);
   });
 });

@@ -107,7 +107,7 @@ src/
                      tint for its sprite, which way its shadows fall and which side its rim is on. The warden's light
                      (the ellipse he lights the ground with) tints him a step, and tints and rims the monsters in it
                      scaled by distance, without a shadow of its own. The small props (the statue, the stall, the olive
-                     trees, the lamps' posts) are lit by both where their bases stand; the buildings (temple, house, wall)
+                     trees, the decorations, the lamps' posts) are lit by both where their bases stand; the buildings (temple, house, wall)
                      and the boats are not, as one tint across so large a sprite would light its whole face at once
     shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
                      length, painted on first use

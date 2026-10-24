@@ -1,4 +1,5 @@
-// Local stand-in for Shotcup's 'shotcup:canvas' (only what the kit uses). /out/* maps to $KIT_OUT.
+// The canvas module the kit imports as 'shotcup:canvas' (a name from the kit's first home; only what the kit uses).
+// /out/* maps to $KIT_OUT.
 import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 const OUT = process.env.KIT_OUT || './out';

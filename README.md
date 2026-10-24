@@ -41,7 +41,7 @@ A pad rumbles when the warden is wounded. Without the right stick held, a pad's 
 brief → generator → build(k) code → render → verifier → one fix → best-of
 ```
 
-The kit in `pipeline/kit/` is a small isometric renderer and a set of builders (humanoids, beasts, props, buildings). A model, Opus through [Mubit](https://mubit.ai), is given the kit's API and a brief and writes one function, `build(k)`. That code is run only by a renderer: a subprocess with an allowlisted environment, or a sandbox (Vercel Sandbox, Shotcup or boat.dev). Four engine checks (clipped at the edge, too small, too big, too short) score a sprite 0 without a model call. Otherwise a second model call sees the sprite magnified 4 times and returns a score, issues and a fix; 7 passes, and a score of 6 or 7 is judged twice and averaged. If it did not pass, one fix call sends the issues back, and the higher-scoring attempt is kept.
+The kit in `pipeline/kit/` is a small isometric renderer and a set of builders (humanoids, beasts, props, buildings). A model, Opus through [Mubit](https://mubit.ai), is given the kit's API and a brief and writes one function, `build(k)`. That code is run only in a Vercel Sandbox microVM with no network. Four engine checks (clipped at the edge, too small, too big, too short) score a sprite 0 without a model call. Otherwise a second model call sees the sprite magnified 4 times and returns a score, issues and a fix; 7 passes, and a score of 6 or 7 is judged twice and averaged. If it did not pass, one fix call sends the issues back, and the higher-scoring attempt is kept.
 
 Hard rules: every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5` and never sends `temperature`. Pixel art is made by code in this repository. The Mubit console's Good/Bad button rates one output and does not feed this loop; the verifier does.
 
@@ -50,19 +50,32 @@ export MUBIT_API_KEY=...   # or resolve it in .env.local (docs/tooling.md); neve
 bun run assets -- "Ionic marble column"
 ```
 
+Every render runs in Vercel Sandbox, so the pipeline commands (`assets`, `check:pixels`, `assets:hero`, `render`, `calibrate:verifier`) need Vercel auth and a sandbox snapshot. One-time setup:
+
+```bash
+bunx vercel login                       # once per machine
+bunx vercel link                        # once per checkout: the project whose sandbox quota renders (git-ignored .vercel/)
+bun run sandbox:snapshot                # prints VERCEL_SANDBOX_SNAPSHOT_ID=snap_...
+echo "VERCEL_SANDBOX_SNAPSHOT_ID=snap_..." >> .env.local   # or export it in your shell
+```
+
+Rebuild the snapshot after any change to `pipeline/kit/kit.ts` or `pipeline/render/`; a stale one fails the render with the command to run. Details: [`docs/tooling.md`](docs/tooling.md), "Rendering needs Vercel auth".
+
 This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the temple, house, lamp, wall and stall, which are hand-written calls to the building builders, and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
 
 ### Live creatures
 
-`POST /api/creatures/next` (`src/app/api/creatures/`) returns the newest gallery creature the player has not met. If there is none, it starts a job, or joins the one already running, and the game follows it at `GET /api/creatures/jobs/:jobId`; `GET /api/creatures/:id/sprite.png` serves a sprite. A job runs the loop above after the response has gone out:
+`POST /api/creatures/next` (`src/app/api/creatures/`) returns the newest gallery creature the player has not met. If there is none, it starts a job, or joins the one already running, and the game follows it at `GET /api/creatures/jobs/:jobId`; `GET /api/creatures/:id/sprite.png` serves a sprite and `GET /api/creatures/:id/atlas.png` its animation atlas. A job runs the loop above after the response has gone out:
 - one Mubit call writes the creature (name, lore, sprite brief, archetype, modifiers), validated by the contract in `src/game/creature.ts`;
 - three candidates are drawn from that brief (`CREATURE_CANDIDATES`, at most 5), each rendered in its own Vercel Sandbox booted from a pinned snapshot, with no network;
 - the verifier judges each; a fix turn runs only if the best is not already accepted;
-- a creature is accepted on a verifier pass, or on a score of at least 6 with no engine flag, and is then stored in a private Vercel Blob store, so every player draws from one gallery. Anything else fails and stores nothing.
+- a creature is accepted on a verifier pass, or on a score of at least 6 with no engine flag;
+- the accepted code is rendered again in every pose of its animations (idle 4, walk 6, attack 5) in one sandbox batch and packed into an atlas, so the game animates the creature: it walks while it travels, claws with the attack frames and flips left and right. A candidate whose frames do not render, or whose walk frames are all one picture (a builder that ignores `POSE`), is refused and the next best accepted candidate is animated instead; a creature from before this, without an atlas, keeps its single sprite;
+- the record, the sprite, the atlas and the code are stored in a private Vercel Blob store, so every player draws from one gallery. Anything else fails and stores nothing.
 
 Starting a job is rate limited, to 3 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
-Not on `main`: rendering in-process with QuickJS in WebAssembly is an open proposal ([#33](https://github.com/frostney/lampwarden/pull/33)), and drawing creatures as code in the browser is still being built.
+Creatures are drawn from frames rendered in the sandbox and shipped as an image. Running the model's code in process (QuickJS in WebAssembly, [#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) or in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)) was measured and not adopted: `docs/LIVE_GENERATION.md`, "Why only the sandbox".
 
 ## Night Shift and Mubit
 
@@ -77,18 +90,18 @@ Night Shift's brief: build a product that routes its LLM calls through Mubit and
 
 ## Run it
 
-| Command                                | What it does                                                                                                                                |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                            |
-| `bun run dev`                          | Dev server on port 3000.                                                                                                                    |
-| `bun run build`, `bun run start`       | Production build and server.                                                                                                                |
-| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                |
-| `bun run balance`                      | Plays nights headlessly with an idle warden and a bot (200 runs a night, seeded); `-- --director` plays them under stub director decisions. |
-| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                             |
-| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`.                             |
-| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame locally and compares pixels.                                                               |
-| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                                                           |
-| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                                                          |
+| Command                                | What it does                                                                                                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                                               |
+| `bun run dev`                          | Dev server on port 3000.                                                                                                                                       |
+| `bun run build`, `bun run start`       | Production build and server.                                                                                                                                   |
+| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                                   |
+| `bun run balance`                      | Plays nights headlessly with an idle warden, a perfect bot and a human-paced bot (200 runs, seeded); `-- --director` plays them under stub director decisions. |
+| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                                                |
+| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`.                                                |
+| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame in Vercel Sandbox (a few batches) and compares pixels; needs Vercel auth.                                     |
+| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                                                                              |
+| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                                                                             |
 
 All commands, including `kit`, `logo` and `sandbox:snapshot`, are in [`docs/tooling.md`](docs/tooling.md).
 
@@ -110,7 +123,7 @@ Playing needs no keys: the sprites are static files. Recorded plays and the crea
 | `DIRECTOR_RATE_SALT` (else `CREATURE_RATE_SALT`)                                                                         | Live director: at least 16 characters; without a salt, or without `MUBIT_API_KEY`, every answer is the rules'.                                    |
 | `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX`, `DIRECTOR_PLAYS_PREFIX` | Optional: defaults 40, 2000, `director` (where decisions are logged) and `plays` (where it reads recorded plays; a test run points it elsewhere). |
 
-A build for `preview` or `production` fails when `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` or `BLOB_READ_WRITE_TOKEN` is missing, so a deployment never ships with generation silently off. Locally, without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment. Varlock writes the project's resolved values into the build output, encrypted with `_VARLOCK_ENV_KEY`, and a build without that key fails ("Vercel" in [`docs/tooling.md`](docs/tooling.md)).
+A build for `preview` or `production` fails when `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` or `BLOB_READ_WRITE_TOKEN` is missing, so a deployment never ships with generation silently off. Locally, without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. Varlock writes the project's resolved values into the build output, encrypted with `_VARLOCK_ENV_KEY`, and a build without that key fails ("Vercel" in [`docs/tooling.md`](docs/tooling.md)).
 
 ## Recorded plays and replays
 

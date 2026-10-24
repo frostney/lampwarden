@@ -3,10 +3,14 @@
 // ids the line has met and follows a job that is still making one. It never blocks play: while it is asking, when
 // nothing is coming and when the network fails, the answer is "none" and the night simply has no new creature.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Creature, JobStep } from "@/game/creature";
+import type { JobStep } from "@/game/creature";
 import { askForCreature, waitForJob } from "@/game/creature-api";
+import type { CreatureRecord } from "@/game/creature-frames";
 
-export type Tonight = { kind: "none" } | { kind: "ready"; creature: Creature } | { kind: "generating"; step: JobStep };
+export type Tonight =
+  | { kind: "none" }
+  | { kind: "ready"; creature: CreatureRecord }
+  | { kind: "generating"; step: JobStep };
 
 const NONE: Tonight = { kind: "none" };
 

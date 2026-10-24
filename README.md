@@ -61,13 +61,14 @@ The kit is the renderer plus every builder the model may call. It lives in `pipe
 | `src/kit_anat.ts` | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy` |
 | `src/kit_beasts.ts` | `quadruped`, `centaur` |
 | `src/kit_props.ts` | `column`, `amphora`, `brazier`, `altar`, `statueBase` |
-| `src/kit_v5.ts` | `humanoid`, `tree`, `hydra` |
-| `src/kit_v6.ts` | `THEMES`/`theme()`, `hero`, `ship` |
-| `assemble.sh` | `npm run kit`: concatenates the 8 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `0fadc77d9a7e…`) |
-| `kit.ts` | the assembled single file the renderers import (163,785 bytes) |
-| `exports.json` | the 53 names destructured into model code |
+| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof) |
+| `src/kit_figures.ts` | `humanoid`, `tree`, `hydra` |
+| `src/kit_themes.ts` | `THEMES`/`theme()`, `hero`, `ship` |
+| `assemble.sh` | `npm run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
+| `kit.ts` | the assembled single file the renderers import (212,457 bytes) |
+| `exports.json` | the 58 names destructured into model code |
 | `palette.json` | material ramps (identical to the kit's `PALETTE`; checked) |
-| `examples/` | `ex_column.ts`, `ex_hoplite.ts` (ported), `ex_temple.ts`, `ex_house.ts` (hand-written, see below) |
+| `examples/` | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below) |
 
 Related: `pipeline/prompts/generator.md` (the API doc given to the model) and `verifier.md`, and `pipeline/render/` (local bun runner and the `shotcup:canvas` shim).
 
@@ -80,17 +81,18 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 - `quadruped` `{at, facing, kind:'horse'|'bull'|'lion'|'dog'|'boar'|'goat', colour, mane, size, pose, rider}`; `centaur` `{at, facing, colour, pose, upper}`; `hydra` `{at, facing, heads, colour}`.
 - `ship` `{at, facing, kind:'trireme'|'galley', sail, oars, dock, setting}`; `tree` `{at, kind:'olive'|'cypress'|'laurel', height, leaf}`.
 - Props: `column` `{at, order:'doric'|'ionic', height, mat, broken}`; `amphora` `{at, height, style:'black-figure'|'red-figure'|'plain', mat, figure:'warriors'|'horses'|'rider', border:'meander'|'palmette'}`; `brazier` `{at, height, mat, fire}`; `altar` `{at, w, h, mat, fire}`; `statueBase` `{at, w, h, mat}` returns its top z.
+- Buildings: `temple` `{at, order:'doric'|'ionic', cols, depth, mat, roof:'terracotta'|'marble', ruined, front:'u'|'v', setting}`; `house` `{at, w, d, storeys:1|2, wall:'whitewash'|'ochre'|'sand'|'stone'|'rose', roof:'flat'|'tiled', door:'u'|'v'|'none', doorColour, windows, shutters, extras:['pots','amphora','chimney','awning','stair','bougainvillea']}`; `lampstand` `{at, height, mat, lit, base:'tripod'|'column', head:'lantern'|'bowl'}`; `wall` `{at, len, height, thick, mat, crenels, gate, sea, axis:'u'|'v'}`; `stall` `{at, w, d, awning, stripe, goods:'fruit'|'fish'|'amphorae'}`. Unlike the other builders they scale themselves down to fit the 128 px frame.
 - Low level (`k.*`): `sphere`, `ellipsoid`, `capsule`, `box`, `cyl`, `lathe`, `plate`, `ring` (each `(…, material, {shift, glow, tex})`), and the shape algebra `S.sphere/ellipsoid/capsule/box/obox/cyl/lathe/plate/ring/half/limb/tube/fold/drape/union/smooth/sub/inter` for `k.solid(shape, mat)`.
-- Themes: only `greek` exists in `THEMES` (`kit_v6.ts`).
+- Themes: only `greek` exists in `THEMES` (`kit_themes.ts`).
 
-**There are no house, temple, wall or stall builders in the kit** (`ship` has a `dock` option, and that is the only building-like thing). Buildings are composed by hand from the `S.*` shapes and `column`. `examples/ex_temple.ts` and `examples/ex_house.ts` do that, and render to `public/sprites/temple.png` and `house.png` (used in the scene). They were hand-written for this repo: they are **not** Mubit output and were never scored by the verifier (their manifest rows say so). Nothing from the earlier v2/v3 prop kit was dropped in the port; the export names were compared.
+**Buildings come from `kit_buildings.ts`.** `temple`, `house`, `lampstand`, `wall` and `stall` build detailed, parametric structures (stylobate, peristyle of `column()` builders, triglyph or sculpted frieze, sculpted pediment and tiled roof; recessed framed doors and shuttered windows; ashlar masonry; striped awnings; a lit or unlit lantern), and they are documented for the model in `generator.md`. The six examples `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts` call them and render to `public/sprites/temple.png`, `house.png`, `lamp-lit.png`, `lamp-unlit.png`, `wall.png` and `stall.png`. Only `temple` and `house` are placed in the scene so far. These examples were hand-written for this repo: they are **not** Mubit output and were never scored by the verifier (their manifest rows say so). No Mubit run has used the building builders yet. Nothing from the earlier v2/v3 prop kit was dropped in the port; the export names were compared.
 
 ## What's built, what isn't
 
 Built and run:
 - Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn, additive lamp light), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
 - Balance from `bun scripts/balance.ts` (150 runs each): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, no upgrades) holds nights 1-3 every time, night 5 about 85-90% and night 7 about 20%. Human play-testing has not been done.
-- Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 2 hand-written buildings.
+- Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 
 Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).

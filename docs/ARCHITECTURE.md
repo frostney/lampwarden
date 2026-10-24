@@ -28,13 +28,13 @@ docs/ARCHITECTURE.md this file
 ## Sprite flow
 
 1. `npm run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how `temple` and `house` were made; re-running it for `ex_house.ts` reproduces the committed `house.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
+   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `lib/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `lib/scene.ts` (`PROPS`, static and depth-sorted by ground y) or in `lib/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `lib/sim.ts`.
 
 ## Add a setting (Norse, Egyptian…)
 
-1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_v6.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `npm run kit`. Add builders for setting-specific props (column/temple styles etc.) in `kit_props.ts` if needed, and document them in `prompts/generator.md`.
+1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_themes.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `npm run kit`. Add builders for setting-specific props in `kit_props.ts` and buildings (temple, house, lamp, wall, stall styles) in `kit_buildings.ts` if needed, and document them in `prompts/generator.md`.
 2. Assets: generate the sprite set with `setting:'norse'` in the briefs and write them under `public/sprites/<setting>/` (the current Greek set is at the top level; moving it is a choice for whoever builds this out).
 3. App: `SETTINGS` in `components/Game.tsx` has `{id, label, live}`; flip `live` once the assets exist and make `lib/assets.ts` take a setting id when building paths, and `drawGround` / `PROPS` in `lib/scene.ts` take the setting's palette and props.

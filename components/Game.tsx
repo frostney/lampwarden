@@ -26,18 +26,18 @@ import {
   upgradeCost,
 } from "@/lib/legacy";
 import { legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/lib/replay";
-import { loadTextures, type Tex } from "@/lib/scene";
+import { loadTextures, type TextureMap } from "@/lib/scene";
 import {
   dawnBonus,
-  H,
   LAMP_SPOTS,
   litCount,
   newNight,
   newSeed,
   nextTide,
   type Outcome,
+  STAGE_HEIGHT,
+  STAGE_WIDTH,
   type State,
-  W,
 } from "@/lib/sim";
 import { Icon } from "./Icons";
 import { type Driver, type Night, Scene } from "./Scene";
@@ -45,8 +45,8 @@ import { TouchControls } from "./TouchControls";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
-  width: W,
-  height: H,
+  width: STAGE_WIDTH,
+  height: STAGE_HEIGHT,
   background: 0x1e5f8a,
   antialias: false,
   roundPixels: true,
@@ -65,8 +65,8 @@ const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
 
 type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd";
 interface Hud {
-  hp: number;
-  maxHp: number;
+  health: number;
+  maxHealth: number;
   lit: number;
   lamps: number;
   kills: number;
@@ -105,8 +105,8 @@ declare global {
 }
 
 const hudOf = (state: State, legacy: Legacy): Hud => ({
-  hp: Math.ceil(state.hero.hp),
-  maxHp: state.hero.maxHp,
+  health: Math.ceil(state.hero.health),
+  maxHealth: state.hero.maxHealth,
   lit: litCount(state),
   lamps: state.lamps.length,
   kills: state.stats.kills,
@@ -114,7 +114,7 @@ const hudOf = (state: State, legacy: Legacy): Hud => ({
   dawn: Math.min(1, state.elapsed / state.length),
 });
 const sameHud = (first: Hud, second: Hud) =>
-  first.hp === second.hp &&
+  first.health === second.health &&
   first.lit === second.lit &&
   first.kills === second.kills &&
   first.oil === second.oil &&
@@ -123,7 +123,7 @@ const sameHud = (first: Hud, second: Hud) =>
 export default function Game() {
   const appRef = useRef<PixiApp | null>(null);
   const stateRef = useRef<State | null>(null); // the night on screen, also read outside React (debug hook, pagehide)
-  const [tex, setTex] = useState<Tex | null>(null);
+  const [textures, setTextures] = useState<TextureMap | null>(null);
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
   const [frozenClock, freezeClock] = useState<number | null>(null);
@@ -307,9 +307,9 @@ export default function Game() {
     legacyRef.current = loadLegacy();
     refresh();
     let dead = false;
-    void loadTextures().then((textures) => {
+    void loadTextures().then((loaded) => {
       if (dead) return;
-      setTex(textures);
+      setTextures(loaded);
       // preview: a quiet plaza behind the title screen
       show(newNight(legacyRef.current), legacyRef.current.heir.sex);
       const id = new URLSearchParams(location.search).get("replay");
@@ -408,16 +408,16 @@ export default function Game() {
       className="stage"
       data-phase={phase}
       data-ready={ready ? 1 : 0}
-      data-hp={hud?.hp}
+      data-hp={hud?.health}
       data-lit={hud?.lit}
       data-kills={hud?.kills}
     >
       <div className="canvas">
         <Application {...APP} onInit={onInit}>
-          {tex && night && (
+          {textures && night && (
             <Scene
               night={night}
-              tex={tex}
+              textures={textures}
               controls={controls}
               paused={paused}
               speed={speed}
@@ -439,7 +439,7 @@ export default function Game() {
                 </span>
               </div>
               <div className="bar">
-                <i style={{ width: `${(hud.hp / hud.maxHp) * 100}%` }} />
+                <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
               <div className="oilline">
                 Slain {hud.kills} · <Icon name="oil" size={16} /> {hud.oil}

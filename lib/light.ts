@@ -4,7 +4,7 @@
 // visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint.
 import { BufferImageSource, Rectangle, Texture } from "pixi.js";
 import { ANCHOR_Y } from "./assets";
-import { CX, CY, HALF_H, HALF_W } from "./sim";
+import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH } from "./sim";
 
 type Rgb = readonly [number, number, number];
 
@@ -66,21 +66,22 @@ interface LightShape {
 }
 
 // the plaza's top face, tested at the pixel centre
-const onPlaza = (x: number, y: number) => Math.abs(x + 0.5 - CX) / HALF_W + Math.abs(y + 0.5 - CY) / HALF_H <= 1;
+const onPlaza = (x: number, y: number) =>
+  Math.abs(x + 0.5 - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y + 0.5 - CENTRE_Y) / PLAZA_HALF_HEIGHT <= 1;
 // a plaza pixel on its rim, where the stone meets the wall or the sea
 const onPlazaRim = (x: number, y: number) => onPlaza(x, y) && (!onPlaza(x, y + 1) || !onPlaza(x, y - 1));
 const PLAZA_WALL = 14; // the plaza's side walls, drawn under its front edges by drawGround
-const frontRimY = (x: number) => CY + HALF_H * (1 - Math.abs(x - CX) / HALF_W);
+const frontRimY = (x: number) => CENTRE_Y + PLAZA_HALF_HEIGHT * (1 - Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH);
 const onWall = (x: number, y: number) =>
-  Math.abs(x - CX) <= HALF_W && y > frontRimY(x) && y <= frontRimY(x) + PLAZA_WALL;
+  Math.abs(x - CENTRE_X) <= PLAZA_HALF_WIDTH && y > frontRimY(x) && y <= frontRimY(x) + PLAZA_WALL;
 const onSea = (x: number, y: number) => !onPlaza(x, y) && !onWall(x, y);
 
 // plaza coordinates: tile vertices sit where both are whole numbers (0 to 12), tile edges where either is
-const plazaU = (x: number, y: number) => ((x - CX) / 32 + (y - (CY - HALF_H)) / 16) / 2;
-const plazaV = (x: number, y: number) => ((y - (CY - HALF_H)) / 16 - (x - CX) / 32) / 2;
+const plazaU = (x: number, y: number) => ((x - CENTRE_X) / 32 + (y - (CENTRE_Y - PLAZA_HALF_HEIGHT)) / 16) / 2;
+const plazaV = (x: number, y: number) => ((y - (CENTRE_Y - PLAZA_HALF_HEIGHT)) / 16 - (x - CENTRE_X) / 32) / 2;
 const plazaPoint = (tileColumn: number, tileRow: number) => ({
-  x: Math.round(CX + 32 * (tileColumn - tileRow)),
-  y: Math.round(CY - HALF_H + 16 * (tileColumn + tileRow)),
+  x: Math.round(CENTRE_X + 32 * (tileColumn - tileRow)),
+  y: Math.round(CENTRE_Y - PLAZA_HALF_HEIGHT + 16 * (tileColumn + tileRow)),
 });
 const distanceToWhole = (value: number) => Math.abs(value - Math.round(value));
 

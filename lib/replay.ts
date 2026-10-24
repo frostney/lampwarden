@@ -6,9 +6,9 @@ import { type Input, litCount, newNight, type State, step } from "./sim";
 
 export const STEP = 1 / 60;
 
-// [step, dx, dy, melee, ranged, aimX, aimY]   (aim -1,-1 = no aim)
+// [step, moveX, moveY, melee, ranged, aimX, aimY]   (aim -1,-1 = no aim)
 type InputRow = [number, number, number, number, number, number, number];
-// [second, kills, lampsLit, hp, monsters, lampsLost]
+// [second, kills, lampsLit, health, monsters, lampsLost]
 type TimelineRow = [number, number, number, number, number, number];
 
 export interface Play {
@@ -23,6 +23,7 @@ export interface Play {
   timeline: TimelineRow[];
   steps: number;
   outcome: string | null; // dawn | dark | fallen | null when abandoned
+  // hp and maxHp are the warden's health and maxHealth; the keys stay as recorded so stored plays still read
   stats: State["stats"] & { oilEarned: number; hp: number; maxHp: number; lit: number };
   replay?: { endsMatch: boolean }; // filled in when a recording is verified by replay
 }
@@ -74,14 +75,14 @@ export class Recorder {
         stepIndex / 60,
         state.stats.kills,
         litCount(state),
-        Math.ceil(state.hero.hp),
+        Math.ceil(state.hero.health),
         state.monsters.length,
         state.stats.lampsLost,
       ]);
     const row: InputRow = [
       stepIndex,
-      input.dx,
-      input.dy,
+      input.moveX,
+      input.moveY,
       input.melee ? 1 : 0,
       input.ranged ? 1 : 0,
       input.aim ? input.aim.x : -1,
@@ -99,8 +100,8 @@ export class Recorder {
     play.stats = {
       ...state.stats,
       oilEarned: state.oilEarned,
-      hp: Math.ceil(state.hero.hp),
-      maxHp: state.hero.maxHp,
+      hp: Math.ceil(state.hero.health),
+      maxHp: state.hero.maxHealth,
       lit: litCount(state),
     };
     return play;
@@ -110,7 +111,7 @@ export class Recorder {
 // Feeds a recording's inputs back step by step.
 export class Replayer {
   private nextRow = 0;
-  private current: Input = { dx: 0, dy: 0, melee: false, ranged: false, aim: null };
+  private current: Input = { moveX: 0, moveY: 0, melee: false, ranged: false, aim: null };
   constructor(public play: Play) {}
   input(stepIndex: number): Input {
     const rows = this.play.inputs;
@@ -119,8 +120,8 @@ export class Replayer {
     while (row && row[0] <= stepIndex) {
       const [rowStep, moveX, moveY, melee, ranged, aimX, aimY] = row;
       this.current = {
-        dx: moveX,
-        dy: moveY,
+        moveX,
+        moveY,
         melee: melee === 1,
         ranged: ranged === 1,
         aim: aimX >= 0 ? { x: aimX, y: aimY } : null,

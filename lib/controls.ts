@@ -33,10 +33,10 @@ const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 // the input for the next sim step, quantised so live play and replay see identical numbers
 export function liveInput(controls: Controls): Input {
   return quantise({
-    dx: clampUnit(
+    moveX: clampUnit(
       held(controls, "d", "arrowright") - held(controls, "a", "arrowleft") + controls.stickX + controls.gamepadX,
     ),
-    dy: clampUnit(
+    moveY: clampUnit(
       held(controls, "s", "arrowdown") - held(controls, "w", "arrowup") + controls.stickY + controls.gamepadY,
     ),
     melee: controls.melee,

@@ -17,13 +17,13 @@ function botInput(state: State): Input {
   }
   if (!nearest) return NO_INPUT;
   if (nearestDistance < state.rules.meleeReach - 8) return { ...NO_INPUT, melee: true };
-  if (hero.shotCd <= 0 && nearestDistance > 180)
+  if (hero.shotCooldown <= 0 && nearestDistance > 180)
     return {
       ...NO_INPUT,
       ranged: true,
       aim: { x: nearest.x + 0.37, y: nearest.y - (MONSTER[nearest.kind].fly ? 56 : 32) },
     };
-  return { ...NO_INPUT, dx: Math.sign(nearest.x - hero.x), dy: Math.sign(nearest.y - hero.y) };
+  return { ...NO_INPUT, moveX: Math.sign(nearest.x - hero.x), moveY: Math.sign(nearest.y - hero.y) };
 }
 
 // Plays one night with the bot through the Recorder, as the scene does, and returns the recording as it travels (JSON).

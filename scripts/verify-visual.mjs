@@ -232,18 +232,18 @@ await page.evaluate(() => {
       kind,
       x,
       y,
-      hp: kind === "cyclops" ? 2 : 1,
-      t: 0,
-      wob: 0,
+      health: kind === "cyclops" ? 2 : 1,
+      age: 0,
+      wobble: 0,
       snuff: 0,
-      cd: 0,
+      attackCooldown: 0,
       hurt: 0,
       ...extra,
     });
   add("satyr", state.lamps[2].x + 4, state.lamps[2].y + 6, { snuff: 1.2 });
   add("harpy", 300, 260);
   add("cyclops", 650, 450);
-  state.shots.push({ id: state.nextId++, x: 420, y: 300, vx: 300, vy: -100, life: 1, hit: [] });
+  state.shots.push({ id: state.nextId++, x: 420, y: 300, velocityX: 300, velocityY: -100, life: 1, hit: [] });
   state.hero.x = 560;
   state.hero.y = 360;
 });
@@ -420,20 +420,20 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     const movedX = await page.evaluate(() => window.lampwarden.state().hero.x);
     check("gamepad", "left stick moves the warden", movedX - startX > 30, `Δx ${(movedX - startX).toFixed(0)}`);
     await tapButton(0);
-    check("gamepad", "A strikes", (await page.evaluate(() => window.lampwarden.state().hero.anim)) === "melee");
+    check("gamepad", "A strikes", (await page.evaluate(() => window.lampwarden.state().hero.animation)) === "melee");
     await page.waitForTimeout(500);
     await setAxes([0, 0, -1, 0]); // right stick left, then the right trigger shoots that way
     await tapButton(7);
     await page.waitForTimeout(250);
     const firstShot = await page.evaluate(() => {
       const [inFlight] = window.lampwarden.state().shots;
-      return inFlight ? { vx: inFlight.vx, x: inFlight.x, y: inFlight.y } : null;
+      return inFlight ? { velocityX: inFlight.velocityX, x: inFlight.x, y: inFlight.y } : null;
     });
     check(
       "gamepad",
       "right trigger shoots along the right stick",
-      firstShot !== null && firstShot.vx < 0,
-      firstShot ? `vx ${firstShot.vx.toFixed(0)}` : "no shot",
+      firstShot !== null && firstShot.velocityX < 0,
+      firstShot ? `velocityX ${firstShot.velocityX.toFixed(0)}` : "no shot",
     );
     await setAxes([0, 0, 0, 0]);
     if (firstShot) {
@@ -565,7 +565,7 @@ for (const [tag, device] of [
   check(tag, "stick moves the warden", movedX - startX > 30, `Δx ${(movedX - startX).toFixed(0)}`);
   await page.dispatchEvent(".tbtn.melee", "pointerdown", { pointerId: 8, pointerType: "touch", isPrimary: true });
   await page.waitForTimeout(60);
-  const animation = await page.evaluate(() => window.lampwarden.state().hero.anim);
+  const animation = await page.evaluate(() => window.lampwarden.state().hero.animation);
   check(tag, "Strike button strikes", animation === "melee", animation);
   await page.evaluate(() => {
     window.lampwarden.state().monsters = [];

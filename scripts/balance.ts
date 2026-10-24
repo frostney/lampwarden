@@ -31,15 +31,15 @@ function bot(state: State): Input {
         }
       }
   const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
-  if (threat && hero.shotCd <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
+  if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
     return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - (MONSTER[threat.kind].fly ? 56 : 32) } };
   if (!goal) return NO_INPUT;
   const towardX = goal.x - hero.x;
   const towardY = goal.y - hero.y;
   return {
     ...NO_INPUT,
-    dx: Math.abs(towardX) > 10 ? Math.sign(towardX) : 0,
-    dy: Math.abs(towardY) > 5 ? Math.sign(towardY) : 0,
+    moveX: Math.abs(towardX) > 10 ? Math.sign(towardX) : 0,
+    moveY: Math.abs(towardY) > 5 ? Math.sign(towardY) : 0,
   };
 }
 

@@ -1,24 +1,24 @@
 // Pixel-identity gate for kit changes: renders every committed sprite (public/sprites/*.ts) and the 40 hero frames with
 // the local bun renderer and the current pipeline/kit/kit.ts, and compares the decoded RGBA with the committed PNGs.
-// usage: bun pipeline/check-pixels.ts [--out DIR]   (one line per sprite; exits 1 if any pixel differs or a render fails)
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+// usage: bun pipeline/check-pixels.ts [--out DIR]   (one line per sprite; exits 1 if any pixel differs or a render fails;
+// --out also keeps the rendered PNGs in DIR)
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { HERO_ANIMATIONS, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
 import { heroFrameBuilds } from "./hero-animation";
-import { renderFileLocally } from "./render-local";
+import { renderLocally } from "./render-local";
 
 interface Job {
   name: string;
-  sourcePath: string;
+  code: string;
   committedPng: string;
 }
 
 const { values } = parseArgs({ options: { out: { type: "string" } } });
-const outputDirectory = values.out ? resolve(values.out) : mkdtempSync(join(tmpdir(), "kit-pixels-"));
-mkdirSync(outputDirectory, { recursive: true });
+const outputDirectory = values.out ? resolve(values.out) : null;
+if (outputDirectory) mkdirSync(outputDirectory, { recursive: true });
 const spritesDirectory = join(import.meta.dir, "..", "public", "sprites");
 
 const jobs: Job[] = readdirSync(spritesDirectory)
@@ -26,15 +26,20 @@ const jobs: Job[] = readdirSync(spritesDirectory)
   .sort()
   .map((file) => {
     const name = file.slice(0, -3);
-    return { name, sourcePath: join(spritesDirectory, file), committedPng: join(spritesDirectory, `${name}.png`) };
+    return {
+      name,
+      code: readFileSync(join(spritesDirectory, file), "utf8"),
+      committedPng: join(spritesDirectory, `${name}.png`),
+    };
   });
 for (const sex of SEXES)
   for (const animation of HERO_ANIMATIONS)
-    for (const frame of heroFrameBuilds(sex, animation)) {
-      const sourcePath = join(outputDirectory, `_${frame.name}.ts`);
-      writeFileSync(sourcePath, frame.code);
-      jobs.push({ name: frame.name, sourcePath, committedPng: join(spritesDirectory, "hero", `${frame.name}.png`) });
-    }
+    for (const frame of heroFrameBuilds(sex, animation))
+      jobs.push({
+        name: frame.name,
+        code: frame.code,
+        committedPng: join(spritesDirectory, "hero", `${frame.name}.png`),
+      });
 
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
   if (first.length !== second.length) return Math.max(first.length, second.length) / 4;
@@ -53,16 +58,14 @@ function differingPixels(first: Uint8Array, second: Uint8Array): number {
 let failures = 0;
 let totalDiffering = 0;
 for (const job of jobs) {
-  const result = renderFileLocally(job.sourcePath, job.name, outputDirectory, {
-    keepMagnifiedView: false,
-    timeoutMilliseconds: 120_000,
-  });
+  const result = await renderLocally({ code: job.code, name: job.name, pose: "" }, { timeoutMilliseconds: 120_000 });
   if (!result.ok) {
     console.log(`${job.name.padEnd(22)} ERROR ${result.error}`);
     failures++;
     continue;
   }
-  const rendered = decodePng(readFileSync(join(outputDirectory, `${job.name}.png`))).data;
+  if (outputDirectory) writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
+  const rendered = decodePng(Buffer.from(result.png)).data;
   const committed = decodePng(readFileSync(job.committedPng)).data;
   const differing = differingPixels(rendered, committed);
   totalDiffering += differing;

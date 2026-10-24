@@ -22,9 +22,14 @@ src/
                      shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
                      sorted with its lamp), the melee sweep, shots and marks
   game/              the game itself, no Pixi
-    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director
+    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
+                     blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
-    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits (and their sex), tide; localStorage save
+    legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
+                     (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
+                     sex), tide; localStorage save, validated with Zod on load (a save or recorded play from before an
+                     upgrade existed has it at level 0)
+    random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
@@ -53,24 +58,28 @@ src/
     projectiles.ts   arrow and sling-stone pixel art
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
-scripts/balance.ts   headless balance check (idle and bot wardens), run with bun
+scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, and a campaign that spends it in the shop), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
-  run.py             brief → generator → render → verifier → fix → best-of → public/sprites
-  local_render.py    bun render subprocess with an allowlisted environment (shared by run.py and hero_frames.py)
+  run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
+  sprite-loop.ts     the loop for one brief; mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
+  render-local.ts    bun render subprocess with an allowlisted environment
+  render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
+  hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity gate
+  assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
-  kit/               building kit: src/*.ts → assemble.sh → kit.ts; exports.json, palette.json, examples/
-  render/            local bun renderer + canvas shim
-  shotcup_*.py       Shotcup renderer (REST client untested)
-  hero_frames.py     regenerate hero animation frames
+  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
+  render/            local bun runner + canvas shim (also copied into the sandboxes)
 docs/ARCHITECTURE.md this file
+docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared, with parallelism and Mubit numbers
 ```
 
 ## Sprite flow
 
-1. `bun run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
+1. `bun run assets -- "your brief"` (`--render local|shotcup|vercel|boat`), or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
    `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { newLegacy } from "./legacy";
-import { type Play, quantise, Recorder, STEP, verifyPlay } from "./replay";
+import { emptyLevels, newLegacy } from "./legacy";
+import { legacyOf, type Play, quantise, Recorder, STEP, verifyPlay } from "./replay";
 import { ground, type Input, MONSTER, NO_INPUT, newNight, type State, step } from "./sim";
 
-// A simple warden: strike what is close, shoot what is far, walk towards the nearest monster.
+// A simple warden: strike what is close (turned towards it), shoot what is far, walk towards the nearest monster.
 function botInput(state: State): Input {
   const hero = state.hero;
   let nearest: State["monsters"][number] | null = null;
@@ -16,7 +16,13 @@ function botInput(state: State): Input {
     }
   }
   if (!nearest) return NO_INPUT;
-  if (nearestDistance < state.rules.meleeReach - 8) return { ...NO_INPUT, melee: true };
+  if (nearestDistance < state.rules.meleeReach - 8)
+    return {
+      ...NO_INPUT,
+      melee: true,
+      moveX: (nearest.x - hero.x) / nearestDistance,
+      moveY: ((nearest.y - hero.y) * 2) / nearestDistance,
+    };
   if (hero.shotCooldown <= 0 && nearestDistance > 180)
     return {
       ...NO_INPUT,
@@ -49,6 +55,15 @@ describe("recorded nights", () => {
   );
   test.each(cases)("night $night at tide $tide replays to the same end", ({ night, tide, seed }) => {
     const { live, play } = recordNight(night, tide, seed);
+    const replayed = verifyPlay(play);
+    expect(replayed.endsMatch).toBe(true);
+    expect(replayed.state.stats).toEqual(live.stats);
+  });
+
+  test("a recording from before the newer upgrades replays with those at level 0", () => {
+    const { live, play } = recordNight(3, 1.1, 777);
+    play.legacy.levels = { wick: 0, blade: 0, quiver: 0, heart: 0 }; // the four upgrades of the first build
+    expect(legacyOf(play).levels).toEqual(emptyLevels());
     const replayed = verifyPlay(play);
     expect(replayed.endsMatch).toBe(true);
     expect(replayed.state.stats).toEqual(live.stats);

@@ -2,7 +2,17 @@
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Texture } from "pixi.js";
-import { CENTRE_X, CENTRE_Y, MONSTER, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH, type State } from "../game/sim";
+import {
+  CENTRE_X,
+  CENTRE_Y,
+  MONSTER,
+  type MonsterKind,
+  PLAZA_HALF_HEIGHT,
+  PLAZA_HALF_WIDTH,
+  type Puff,
+  type State,
+  SWING_HALF_ARC,
+} from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 import { PLAZA_WALL } from "./plaza";
 import { isCharacterKey, withoutPaintedShadow } from "./rim";
@@ -24,9 +34,40 @@ export function loadTextures(): Promise<TextureMap> {
       // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
       textures[asset.alias] = isCharacterKey(asset.alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
     }
+    for (const kind of Object.keys(MONSTER)) {
+      const base = textures[kind];
+      const white = base && silhouette(base);
+      if (white) textures[flashKey(kind)] = white;
+    }
     return textures;
   })();
   return textureCache;
+}
+
+// the white copy of a monster's sprite that shows for the first frames after a blow
+export const flashKey = (kind: MonsterKind | string) => `flash/${kind}`;
+
+// A texture with the same alpha as `texture` and every pixel white. Made at load by drawing the sprite to a canvas, so
+// the flash stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
+function silhouette(texture: Texture): Texture | null {
+  const resource = texture.source.resource;
+  if (!(resource instanceof HTMLImageElement || resource instanceof ImageBitmap)) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = resource.width;
+  canvas.height = resource.height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.drawImage(resource, 0, 0);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    pixels.data[index] = 255;
+    pixels.data[index + 1] = 255;
+    pixels.data[index + 2] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+  const white = Texture.from(canvas);
+  white.source.scaleMode = "nearest";
+  return white;
 }
 
 const PLAZA_TILES = 12;
@@ -122,6 +163,10 @@ export function anchor(key: string) {
   return spriteAnchor;
 }
 
+// how far a monster's sprite bobs off its ground position (the harpy hovers higher and flaps more)
+export const monsterBob = (kind: MonsterKind, age: number) =>
+  Math.sin(age * (MONSTER[kind].fly ? 7 : 5)) * (MONSTER[kind].fly ? 6 : 2) - (MONSTER[kind].fly ? 22 : 0);
+
 export const heroFrame = (animation: HeroAnimation, frameTime: number) =>
   Math.min(
     Math.floor(frameTime * FRAMES_PER_SECOND[animation]) % Math.max(1, FRAMES[animation]),
@@ -138,14 +183,25 @@ function progressRing(graphics: Graphics, x: number, y: number, radius: number, 
     .stroke({ width: 3, color });
 }
 
-// below the night tint: the melee sweep
+// below the night tint: the melee sweep, the wedge in front of the warden that a blow can land in
 export function drawSweep(graphics: Graphics, state: State) {
   const hero = state.hero;
+  if (hero.animation !== "melee") return;
   const reach = state.rules.meleeReach;
-  if (hero.animation === "melee")
-    graphics
-      .ellipse(Math.round(hero.x), Math.round(hero.y), reach, reach / 2)
-      .stroke({ width: 2, color: 0xffffff, alpha: 0.35 });
+  const centreX = Math.round(hero.x);
+  const centreY = Math.round(hero.y);
+  const facing = Math.atan2(hero.directionY, hero.directionX);
+  const segments = 12;
+  // ground angles, drawn on the 2:1 ground ellipse
+  graphics.moveTo(centreX, centreY);
+  for (let segment = 0; segment <= segments; segment++) {
+    const angle = facing - SWING_HALF_ARC + (2 * SWING_HALF_ARC * segment) / segments;
+    graphics.lineTo(centreX + Math.cos(angle) * reach, centreY + (Math.sin(angle) * reach) / 2);
+  }
+  graphics
+    .lineTo(centreX, centreY)
+    .fill({ color: 0xffffff, alpha: 0.1 })
+    .stroke({ width: 2, color: 0xffffff, alpha: 0.5 });
 }
 
 const TRAIL: [number, number][] = [
@@ -154,6 +210,45 @@ const TRAIL: [number, number][] = [
   [0.052, 0.15],
 ];
 const PUFF_COLOURS = { snuff: 0x9aa0b0, hurt: 0xff5050, light: 0xffe6a0, kill: 0xf2c14e };
+
+// sparks thrown from the point of contact: angle off the blow (radians) and speed (px/s)
+const SPARKS: [number, number][] = [
+  [-1.1, 190],
+  [-0.65, 270],
+  [-0.2, 160],
+  [0.2, 300],
+  [0.65, 215],
+  [1.1, 250],
+  [2.6, 120],
+  [-2.6, 145],
+];
+const SPARK_COLOURS = [0xffffff, 0xfff2c0, 0xf2c14e];
+const IMPACT_TIME = 0.24;
+
+// The impact burst of a blow, pixel squares only: a white four-armed flash for the first three frames, then sparks
+// that fly along the blow, shrink and cool from white to gold.
+function drawImpact(graphics: Graphics, puff: Puff) {
+  if (puff.age > IMPACT_TIME) return;
+  const centreX = Math.round(puff.x);
+  const centreY = Math.round(puff.y);
+  if (puff.age < 0.05) {
+    const arm = puff.age < 0.025 ? 8 : 5;
+    graphics.rect(centreX - arm, centreY - 1, arm * 2 + 1, 3).fill(0xffffff);
+    graphics.rect(centreX - 1, centreY - arm, 3, arm * 2 + 1).fill(0xffffff);
+  }
+  const progress = puff.age / IMPACT_TIME;
+  const size = progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2;
+  const colour =
+    SPARK_COLOURS[Math.min(SPARK_COLOURS.length - 1, Math.floor(progress * SPARK_COLOURS.length))] ?? 0xffffff;
+  const base = Math.atan2(puff.directionY / 2, puff.directionX);
+  for (const [offset, speed] of SPARKS) {
+    const angle = base + offset;
+    const travel = speed * puff.age;
+    graphics
+      .rect(Math.round(centreX + Math.cos(angle) * travel), Math.round(centreY + Math.sin(angle) * travel), size, size)
+      .fill(colour);
+  }
+}
 
 // above the night tint, so they stay readable: shot trails, puffs, dark-lamp markers, relight and snuff progress,
 // health pips
@@ -167,6 +262,10 @@ export function drawMarks(graphics: Graphics, state: State, clock: number) {
         .fill({ color: 0xfff2c0, alpha });
   }
   for (const puff of state.puffs) {
+    if (puff.kind === "hit") {
+      drawImpact(graphics, puff);
+      continue;
+    }
     const radius = 6 + puff.age * 60;
     graphics
       .circle(Math.round(puff.x), Math.round(puff.y), radius)

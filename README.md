@@ -8,7 +8,7 @@ The sprites are generated, verified and corrected through [Mubit](https://mubit.
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is TypeScript run with [bun](https://bun.sh).
 
 ## Run
 
@@ -32,13 +32,13 @@ Every night is recorded and sent to `/api/plays`, which stores it as a private b
 - `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
 - The visual verifier opens the game with `?verify=1`, and those nights are not uploaded.
 
-Controls: **WASD / arrows** move, **J / Space** melee, **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
+Controls: **WASD / arrows** move, **J / Space** melee (hits the arc in front of you: hold a direction while striking to turn), **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
 
 ## The loop
 
 1. **Night.** Five lamps ring the plaza. Satyrs, harpies and (from night 2) cyclops come out of the sea and go for the nearest lit lamp; a monster at a lamp claws it out over a second or two (a red ring shows how far it has got). Lit lamps slow anything in their light. Monsters that get close to the warden turn on them instead.
 2. **Relight.** Standing by a dark lamp relights it (gold ring). The night is lost when every lamp is out or the warden falls.
-3. **Dawn.** Survive the night timer and the sun burns the stragglers away. Kills and lamps still burning pay out **oil**, which buys upgrades that last for the whole bloodline: brighter wicks, a keener blade, a deeper quiver, a warden's heart.
+3. **Dawn.** Survive the night timer and the sun burns the stragglers away. Slain monsters sometimes leave **oil**, and the lamps still burning pay a little more. At the end of every night the shop offers three upgrades drawn from a pool of nine (brighter wicks, a keener blade, a deeper quiver, a warden's heart, thick hide, heavy blows, an oil seeker, quick tinder, light sandals); all but thick hide last for the whole bloodline.
 4. **Heirs.** When a night is lost, the warden is gone and the line starts again from night 1 with the oil and upgrades kept. You pick one of three heirs (male: sword and bow, female: spear and sling), each with a trait (swift, stout, lamplighter, long-armed, keen-eyed).
 5. **The tide.** A director reads each night as implicit feedback (kill rate, lamps lost, health kept) and makes the next night's sea calmer or rougher. Nothing is asked of the player.
 
@@ -50,7 +50,7 @@ Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`. Th
 brief → Opus via Mubit → build(k) code → render → verifier (Opus via Mubit, sees the image) → one fix → best-of → PNG + code + manifest
 ```
 
-Details, options and the Shotcup renderer are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
+Details, options and the four renderers (local, Shotcup, Vercel Sandbox, boat.dev) are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
 
 ### Regenerate assets
 
@@ -60,7 +60,7 @@ bun run assets -- "Ionic marble column"
 # or: MUBIT_API_KEY=... bun run assets -- "brief one" "brief two"
 ```
 
-This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs `python3` with Pillow and `bun` on PATH.
+This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs only `bun`.
 
 ## Building kit
 
@@ -77,8 +77,8 @@ The kit is the renderer plus every builder the model may call. It lives in `pipe
 | `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof)                                                   |
 | `src/kit_figures.ts`   | `humanoid`, `tree`, `hydra`                                                                                                                                                                                           |
 | `src/kit_themes.ts`    | `THEMES`/`theme()`, `hero`, `ship`                                                                                                                                                                                    |
-| `assemble.sh`          | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
-| `kit.ts`               | the assembled single file the renderers import (212,457 bytes)                                                                                                                                                        |
+| `../assemble-kit.ts`   | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `335b0f4040a7…`) |
+| `kit.ts`               | the assembled single file the renderers import (225,487 bytes)                                                                                                                                                        |
 | `exports.json`         | the 58 names destructured into model code                                                                                                                                                                             |
 | `palette.json`         | material ramps (identical to the kit's `PALETTE`; checked)                                                                                                                                                            |
 | `examples/`            | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below)                   |
@@ -103,18 +103,18 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 
 Built and run:
 - Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `src/scene/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
-- Balance from `bun scripts/balance.ts` (150 runs each): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, no upgrades) holds nights 1-3 every time, night 5 about 85-90% and night 7 about 20%. Human play-testing has not been done.
+- Balance from `bun run balance` (seeded, 1000 runs per night): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, aims every swing, no upgrades) holds nights 1-3 every time, night 5 about 40% and night 7 never. Playing nights 1-8 in a row and buying the cheapest level it can afford, it earns about 12 oil on night 1 and buys about 1.2 levels a night over nights 1-3, with no upgrade at its top level before night 6. Human play-testing has not been done.
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 
 Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
-- Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `run.py`.
-- `pipeline/run.py` was ported and its local render path was exercised (render, flags, no-key shotcup error), but no full Mubit round trip was run from this repo.
-- **Shotcup:** the kit was rendered on Shotcup 11 times through its MCP server with pixel-identical output to local, but it was much slower than local (see `pipeline/README.md`), and the Python REST client (`pipeline/shotcup_render.py`) has never been run against the API.
+- Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
+- `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip (generate, render, verify, fix) has been run through it.
+- **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`; [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md) compares them for a live generation route, with measured timings, parallelism limits and Mubit latency.
 
 ## Deploy on Vercel
 
-Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY` and `SHOTCUP_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
+Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
 
 ## More
 

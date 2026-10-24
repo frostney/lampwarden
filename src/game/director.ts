@@ -5,7 +5,6 @@
 // A decision applies to one night. The rules (the tide `nextTide` picks, an even mix, the old creature share) are the
 // default the game falls back to whenever there is no answer, so nothing here is needed for a night to be played.
 import { z } from "zod";
-import { PLAY_ID } from "./plays";
 
 /** The director may move the tide this far from the one the rules would pick. */
 export const TIDE_SPAN = 0.15;
@@ -82,7 +81,10 @@ export const directorSchema = z
     creatureShare: z.number().min(CREATURE_SHARE_MIN).max(CREATURE_SHARE_MAX),
     line: z.string().max(LINE_MAX).regex(LINE_CHARACTERS),
     decidedAfterNight: z.number().int().min(0),
-    playId: z.string().regex(PLAY_ID).optional(),
+    playId: z
+      .string()
+      .regex(/^[0-9a-z-]{1,40}$/)
+      .optional(),
   })
   .refine((director) => Math.abs(director.tide - director.rulesTide) <= TIDE_SPAN + 1e-9, {
     message: "the tide strays too far from the rules' tide",

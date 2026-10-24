@@ -84,10 +84,13 @@ function randomHeir(random: () => number): Heir {
   return { name: pick(NAMES[sex], random()), sex, trait: pick(TRAIT_IDS, random()) };
 }
 
-export function heirChoices(random = Math.random): Heir[] {
+// Three heirs with different names and traits. None takes the fallen warden's name: the heir screen knows an heir is
+// chosen when the line's warden is one of them, so a namesake would count as chosen before the player picks anyone.
+export function heirChoices(random = Math.random, fallenName?: string): Heir[] {
   const choices: Heir[] = [];
   while (choices.length < 3) {
     const heir = randomHeir(random);
+    if (heir.name === fallenName) continue;
     if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) choices.push(heir);
   }
   return choices;

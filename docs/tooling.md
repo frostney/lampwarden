@@ -35,4 +35,15 @@ Lefthook runs `biome check --write` on staged files before each commit and re-st
 `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` from the shell environment only (the Vercel Sandbox renderer
 uses Vercel's OIDC token), and runs under `bun --no-env-file` so bun does not load `.env` files into the process.
 
-The deployed director route reads `MUBIT_API_KEY`, `DIRECTOR_RATE_SALT` (or `CREATURE_RATE_SALT`) and the optional `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX` and `DIRECTOR_PLAYS_PREFIX` (README, "Live director"). The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Live creatures").
+The deployed director route reads `MUBIT_API_KEY`, `DIRECTOR_RATE_SALT` (or `CREATURE_RATE_SALT`) and the optional `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX` and `DIRECTOR_PLAYS_PREFIX` (README, "Deploying"). The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Deploying").
+
+## Visual verifier
+
+`bun run verify:visual -- --url <url>` (`e2e/verify-visual.mjs`) drives the real game in a headed Chromium, plus iPhone
+profiles in WebKit and a mocked gamepad, into fixed scenarios with the sim paused and the clock frozen, and screenshots
+each. It checks pixels and the DOM (lit lanterns glow, dark lamps have no light pool, monsters are drawn where they stand,
+the scene brightens towards dawn, each upgrade has its icon, no console errors) and diffs every pass against the last
+approved one. Run it against `bun run build && bun run start`, then look at `verify-out/sheet.png` (git-ignored) after
+every change that can show on screen. `--update` approves the pass as the new baseline; `--headless` exists, but the
+report then says the pass was not visual. The creature, recording and director APIs are stubbed, so it never reaches Mubit. The game opened with
+`?verify=1` does not upload its nights.

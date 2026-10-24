@@ -2,9 +2,10 @@
 // client's claim), in a compact JSON object. The play has no positions, so "where the warden was when a lamp went dark"
 // is not here; what the timeline does give is when each lamp went dark, how the crowd grew and how health fell.
 import { z } from "zod";
+import { recordedCreatureSchema } from "@/game/creature";
 import { directorFrom, tideRange } from "@/game/director";
 import { levelsOf, UPGRADE_IDS } from "@/game/legacy";
-import { PLAY_ID, recordedCreatureSchema } from "@/game/plays";
+import { PLAY_ID } from "@/game/plays";
 import { LAMP_SPOTS, nightLength, rulesTide } from "@/game/sim";
 
 const finite = z.number().finite();

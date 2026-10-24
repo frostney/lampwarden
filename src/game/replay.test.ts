@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { type RecordedCreature, recordedCreatureSchema } from "./creature";
 import { emptyLevels, newLegacy } from "./legacy";
-import { type RecordedCreature, recordedCreatureSchema } from "./plays";
-import { legacyOf, type Play, quantise, Recorder, STEP, verifyPlay } from "./replay";
+import { type Play, Recorder } from "./recording";
+import { legacyOf, quantise, STEP, verifyPlay } from "./replay";
 import { bodyHeight, ground, type Input, NO_INPUT, newNight, nightCreature, type State, step } from "./sim";
 
 // A simple warden: strike what is close (turned towards it), shoot what is far, walk towards the nearest monster.

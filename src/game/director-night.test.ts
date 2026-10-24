@@ -2,7 +2,8 @@
 import { describe, expect, test } from "bun:test";
 import { clampProposal, type Director, EVEN_MIX } from "./director";
 import { applyDirector, type Legacy, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
-import { legacyOf, type Play, quantise, Recorder, STEP, verifyPlay } from "./replay";
+import { type Play, Recorder } from "./recording";
+import { legacyOf, quantise, STEP, verifyPlay } from "./replay";
 import {
   bodyHeight,
   ground,

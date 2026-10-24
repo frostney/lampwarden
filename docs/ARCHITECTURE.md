@@ -38,7 +38,9 @@ src/
                      a monster's blow on the warden (his hit-stop, knockback and mercy frames); the night's creature from
                      the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from 8 s in,
                      drawn from rand(state) only when it can come)
-    replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
+    replay.ts        fixed step, input quantisation, Replayer and headless verification of recorded plays (replay.test.ts:
+                     determinism); covered by the sim fingerprint (see Sim fingerprint)
+    recording.ts     the Play record, Recorder and upload; not part of the sim fingerprint
     director.ts      the live director's contract, shared by the game and the server: what it may change (tide within 0.15 of
                      the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character plain line), and
                      the code that enforces it (clampProposal, checkedDecision, directorFrom); a decision applies to one night
@@ -60,7 +62,8 @@ src/
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
                      the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
-                     recorder (the creature a night met is an optional field)
+                     recorder (the creature a night met and the sim fingerprint it was played on are optional fields), the
+                     running build's fingerprint (RUNNING_SIM) and replaysExactlyOn
   server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
                      stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
                      starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
@@ -99,11 +102,12 @@ src/
     vignette.ts      the red vignette that pulses at the screen's edges when the warden is wounded: a dithered ring of hard pixels
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
-e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
+e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
+tools/sim-fingerprint/  the sim fingerprint: a hash of the sources that decide a night (see Sim fingerprint)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
@@ -131,6 +135,33 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route; Sho
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+
+## Sim fingerprint
+
+A recorded night replays exactly only on the sim it was played on: each recording replays to the same end with the code
+of the build that recorded it (checked on all nine plays in the store), but a later change to the rules shows a different
+night. So the build carries a **sim fingerprint** and every play records the one it was played on.
+- **What it is:** the first 12 hex digits of a SHA-256 over the contents (line endings normalised) of the sim's sources,
+  `SIM_SOURCES` in `tools/sim-fingerprint/sim-fingerprint.ts`: `src/game/sim.ts`, `random.ts`, `legacy.ts`,
+  `director.ts` (the decision a night is played under), `creature.ts`, `replay.ts` and `src/scene/assets.ts`. That is the value-import closure of `step()`, `newNight()` and
+  the replay driver (`STEP`, `quantise`, `Replayer`, `legacyOf`, `creatureOf`); a test derives the closure from the
+  imports and fails when the list drifts from it. The Recorder and `upload` live in `recording.ts`, outside it.
+- **Why a content hash at build time, not the git sha:** it changes only when one of those files changes, so a
+  README-only or UI-only commit keeps it and old plays stay replayable. Any edit to those files changes it, a comment
+  included: that errs towards refusing an exact replay, never towards showing a wrong night.
+- **How it reaches the app:** `next.config.ts` computes it with `simFingerprint(process.cwd())` and inlines it as
+  `NEXT_PUBLIC_SIM_FINGERPRINT`; `RUNNING_SIM` in `src/game/plays.ts` reads it. The Recorder stores it as the play's
+  optional `sim` field, validated at `/api/plays` (12 lowercase hex digits). `scripts/plays.ts` computes the same hash
+  from the checkout. The value is read when Next starts, so under `next dev` restart the server after editing one of
+  the sources, or nights recorded afterwards carry the old fingerprint.
+- **What it does not cover:** the JavaScript engine's own maths (`Math.sin`, `Math.hypot` and the like), which a
+  different engine or version could round differently. The recorded human nights replay exactly across engines (recorded
+  in browsers, replayed in Bun). A replay is a pure function of the play (seed, legacy, inputs) and the sim, so the step
+  loop and controls, which only shape what is recorded, can't change an old replay.
+- **Replay:** `/?replay=<id>` plays a night whose `sim` equals `RUNNING_SIM`. A play with another `sim`, or none (before
+  fingerprints), shows the "earlier version" panel with its recorded summary and a way back to the title, and no night
+  runs. `bun scripts/plays.ts --verify` replays only the plays on the current fingerprint and counts the rest as
+  "recorded on another sim version"; it also prints the plays per build and per sim version.
 
 ## Pixel scaling
 

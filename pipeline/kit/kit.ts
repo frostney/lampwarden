@@ -560,40 +560,53 @@ export class Kit {
         for (const pt of [g, [q[0], q[1], 0] as V]) { const sp = this.pj(pt); gx0 = Math.min(gx0, sp[0]); gx1 = Math.max(gx1, sp[0]); gy0 = Math.min(gy0, sp[1]); gy1 = Math.max(gy1, sp[1]); }
       }
       const X0 = Math.max(0, Math.floor(gx0)), X1 = Math.min(W - 1, Math.ceil(gx1)), Y0 = Math.max(0, Math.floor(gy0)), Y1 = Math.min(H - 1, Math.ceil(gy1));
-      // The march toward the light visits the parts in their usual order and skips a part whose bounding sphere is farther than the
-      // nearest distance found so far, as before. Per pixel, each sphere's distance from the whole ray (t from 0.15 to 60) is a lower
-      // bound of that test, so the march skips on it without the per-step distance, and a pixel whose ray passes every sphere farther
-      // than the 0.03 hit distance is skipped outright. Both skips only drop parts or pixels the old test dropped: same steps, same pixels.
+      // Exact speed-ups of the march toward the light (same steps, same shadow pixels as visiting every part at every step):
+      // - per pixel, each part's bounding-sphere distance from the whole ray (t from 0.15 to 60) is a lower bound of the per-step sphere
+      //   distance, so a part whose bound exceeds the nearest distance found so far is skipped, as the per-step test would have skipped it;
+      // - the parts are split into a near list (bound within shadowNearSlack of the smallest bound) and a far list, which can only matter at
+      //   steps whose nearest distance is beyond every near bound; the nearest part of the previous step goes first. The nearest distance
+      //   is a minimum, so the order changes nothing, but starting low lets the bounds skip most parts;
+      // - a pixel whose ray never comes within the 0.03 hit distance of any sphere is not marched, and the march stops once the ray has
+      //   left every sphere grown by the hit distance, because no later step can come closer than 0.03.
       const parts = this.parts; const partCount = parts.length;
       const centreX = new Float64Array(partCount), centreY = new Float64Array(partCount), centreZ = new Float64Array(partCount);
       const radius = new Float64Array(partCount); const rayBound = new Float64Array(partCount);
+      const nearParts = new Int32Array(partCount), farParts = new Int32Array(partCount);
       for (let partIndex = 0; partIndex < partCount; partIndex++) {
         const centre = parts[partIndex].c; centreX[partIndex] = centre[0]; centreY[partIndex] = centre[1]; centreZ[partIndex] = centre[2]; radius[partIndex] = parts[partIndex].R;
       }
       const lightX = LIGHT[0], lightY = LIGHT[1], lightZ = LIGHT[2];
-      const boundMargin = 1e-6;   // covers rounding: a bound may only ever be below the distance the march computes
+      const boundMargin = 1e-6;   // covers rounding: a bound may only ever be below the distance the march computes, an exit only beyond it
+      const hitDistance = 0.03; const shadowNearSlack = 2;
       for (let py = Y0; py <= Y1; py++) for (let px = X0; px <= X1; px++) {
         const i = py * W + px; if (part[i] >= 0) continue;
         const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const groundX = (sg + d) / 2, groundY = (sg - d) / 2;
-        let nearestBound = BIG;
+        let nearestBound = BIG; let rayExit = -BIG;
         for (let partIndex = 0; partIndex < partCount; partIndex++) {
           const offsetX = centreX[partIndex] - groundX, offsetY = centreY[partIndex] - groundY, offsetZ = centreZ[partIndex];
-          let along = offsetX * lightX + offsetY * lightY + offsetZ * lightZ;
-          if (along < 0.15) along = 0.15; else if (along > 60) along = 60;
+          const alongLine = offsetX * lightX + offsetY * lightY + offsetZ * lightZ;
+          const lineX = offsetX - lightX * alongLine, lineY = offsetY - lightY * alongLine, lineZ = offsetZ - lightZ * alongLine;
+          const lineDistanceSquared = lineX * lineX + lineY * lineY + lineZ * lineZ;
+          const grownRadius = radius[partIndex] + hitDistance + boundMargin;
+          if (lineDistanceSquared < grownRadius * grownRadius) { const leaves = alongLine + Math.sqrt(grownRadius * grownRadius - lineDistanceSquared); if (leaves > rayExit) rayExit = leaves; }
+          const along = alongLine < 0.15 ? 0.15 : alongLine > 60 ? 60 : alongLine;
           const awayX = offsetX - lightX * along, awayY = offsetY - lightY * along, awayZ = offsetZ - lightZ * along;
           const bound = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - radius[partIndex] - boundMargin;
           rayBound[partIndex] = bound; if (bound < nearestBound) nearestBound = bound;
         }
-        if (nearestBound >= 0.03) continue;
+        if (nearestBound >= hitDistance) continue;
+        const nearLimit = nearestBound + shadowNearSlack; let nearCount = 0, farCount = 0;
+        for (let partIndex = 0; partIndex < partCount; partIndex++) { if (rayBound[partIndex] <= nearLimit) nearParts[nearCount++] = partIndex; else farParts[farCount++] = partIndex; }
         let t = 0.15; let inShadow = false; let previousNearestPart = -1;
         for (let step = 0; step < 90 && t < 60; step++) {
+          if (t > rayExit) break;
           const pointX = groundX + lightX * t, pointY = groundY + lightY * t, pointZ = 0 + lightZ * t;
-          // the part nearest at the previous step goes first: the nearest distance is a minimum, so the order doesn't change it,
-          // but starting low lets the skips drop most of the other parts
           let nearest = BIG; let nearestPart = -1;
-          for (let order = -1; order < partCount; order++) {
-            const partIndex = order < 0 ? previousNearestPart : order;
-            if (partIndex < 0 || (order >= 0 && partIndex === previousNearestPart)) continue;
+          for (let order = -1; order < nearCount + farCount; order++) {
+            let partIndex: number;
+            if (order < 0) { partIndex = previousNearestPart; if (partIndex < 0) continue; }
+            else if (order < nearCount) { partIndex = nearParts[order]; if (partIndex === previousNearestPart) continue; }
+            else { if (nearest <= nearLimit) break; partIndex = farParts[order - nearCount]; if (partIndex === previousNearestPart) continue; }
             if (rayBound[partIndex] > nearest) continue;
             const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
             const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
@@ -602,7 +615,7 @@ export class Kit {
             nearest = Math.min(nearest, partDistance);
           }
           previousNearestPart = nearestPart;
-          if (nearest < 0.03) { inShadow = true; break; }
+          if (nearest < hitDistance) { inShadow = true; break; }
           t += Math.max(nearest * 0.8, 0.05);
         }
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }

@@ -10,7 +10,8 @@ const walkthrough: Walkthrough = {
       id: "title",
       caption: "The title screen: the logo, the introduction, the warden and Light the lamps.",
       waitFor: "canvas",
-      seconds: 3,
+      // the scroll unrolls and inks its lines for about 4.5 s, and a press before then only completes it
+      seconds: 5,
     },
     {
       id: "night",

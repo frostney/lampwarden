@@ -28,7 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { bindKeyboard, type Controls, consumePresses, liveInput, shootAt } from "@/game/controls";
+import { bindKeyboard, type Controls, consumePresses, liveInput, release, shootAt } from "@/game/controls";
 import { newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
 import { STEP } from "@/game/replay";
 import {
@@ -166,15 +166,15 @@ export const Scene = memo(function Scene({
     live.current = { paused, speed, frozenClock, onTick };
   }, [paused, speed, frozenClock, onTick]);
 
-  // a new night starts from step 0 with no keys held
+  // a new night starts from step 0 with nothing held and no press left over from the menus
   const run = useRef({ night, stepIndex: 0, accumulated: 0 });
   const gamepadMemory = useRef(newGamepadMemory());
   useLayoutEffect(() => {
     run.current = { night, stepIndex: 0, accumulated: 0 };
-    controls.keys.clear();
+    release(controls);
   }, [night, controls]);
 
-  useEffect(() => bindKeyboard(controls), [controls]);
+  useEffect(() => bindKeyboard(controls, () => !live.current.paused), [controls]);
   useEffect(() => {
     onReady();
   }, [onReady]);

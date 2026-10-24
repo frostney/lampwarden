@@ -24,6 +24,7 @@ import {
   batchResultsSchema,
   interpretOutcome,
   invalidRequestReason,
+  RENDER_ABORTED,
   type RenderRequest,
   type RenderResult,
   withDeadline,
@@ -63,10 +64,15 @@ export class SnapshotMismatchError extends Error {
 const verifiedSnapshots = new Set<string>();
 
 /** Throws a `SnapshotMismatchError` when the snapshot's manifest is missing, unreadable, or does not fit the bundle. */
-async function verifySnapshot(sandbox: Sandbox, snapshotId: string, expectedBundleSha: string): Promise<void> {
+async function verifySnapshot(
+  sandbox: Sandbox,
+  snapshotId: string,
+  expectedBundleSha: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const key = `${snapshotId}:${expectedBundleSha}`;
   if (verifiedSnapshots.has(key)) return;
-  const manifestBytes = await sandbox.readFileToBuffer({ path: SNAPSHOT_MANIFEST_PATH });
+  const manifestBytes = await sandbox.readFileToBuffer({ path: SNAPSHOT_MANIFEST_PATH }, signalOptions(signal));
   if (manifestBytes === null) throw new SnapshotMismatchError("the sandbox snapshot has no manifest");
   let manifestJson: unknown = null;
   try {
@@ -81,6 +87,11 @@ async function verifySnapshot(sandbox: Sandbox, snapshotId: string, expectedBund
   verifiedSnapshots.add(key);
 }
 
+/** The SDK's per-call options for a signal, or nothing (the SDK's types take no explicit `undefined`). */
+function signalOptions(signal: AbortSignal | undefined): { signal?: AbortSignal } {
+  return signal ? { signal } : {};
+}
+
 /** The time one batch may take: its items spread over the VM's CPUs, each at its deadline at worst, plus boot. */
 function batchDeadlineMilliseconds(itemCount: number, vcpus: number, itemDeadlineMilliseconds: number): number {
   return Math.ceil(itemCount / vcpus) * itemDeadlineMilliseconds + BOOT_AND_TRANSFER_MARGIN_MILLISECONDS;
@@ -90,10 +101,15 @@ function batchDeadlineMilliseconds(itemCount: number, vcpus: number, itemDeadlin
  * Renders every request in one sandbox, in the order given. Resolves with one result per request: an invalid request or
  * a failed build is that item's error. Rejects when the batch as a whole cannot run: the sandbox does not start, the
  * snapshot does not fit (`SnapshotMismatchError`), the batch driver fails or its results are unreadable.
+ *
+ * `signal` cancels the batch: nothing starts once it has fired, a sandbox that is being created or is running is stopped,
+ * and the batch rejects. A creation that the abort interrupts after the platform accepted it has no handle to stop; its
+ * own `timeout` (a few minutes) ends it.
  */
 export async function renderBatchInSandbox(
   requests: readonly RenderRequest[],
   options: RenderSandboxOptions,
+  signal?: AbortSignal,
 ): Promise<RenderResult[]> {
   const results: RenderResult[] = requests.map(() => ({ ok: false, error: "not rendered" }));
   const runnable: Array<{ index: number; request: RenderRequest }> = [];
@@ -103,6 +119,7 @@ export async function renderBatchInSandbox(
     else runnable.push({ index, request });
   });
   if (runnable.length === 0) return results;
+  if (signal?.aborted) throw new Error(RENDER_ABORTED);
 
   const vcpus = options.vcpus ?? DEFAULT_VCPUS;
   const itemDeadline = options.itemDeadlineMilliseconds ?? DEFAULT_ITEM_DEADLINE_MILLISECONDS;
@@ -113,28 +130,42 @@ export async function renderBatchInSandbox(
     persistent: false,
     networkPolicy: NO_NETWORK,
     source: { type: "snapshot", snapshotId: options.snapshotId },
+    ...signalOptions(signal),
   });
+  // an abort stops the VM at once, whatever the batch is doing in it (a command is killed with it)
+  const stopOnAbort = () => {
+    sandbox.stop().catch(() => {});
+  };
+  signal?.addEventListener("abort", stopOnAbort, { once: true });
   try {
-    await verifySnapshot(sandbox, options.snapshotId, options.expectedBundleSha);
+    if (signal?.aborted) throw new Error(RENDER_ABORTED);
+    await verifySnapshot(sandbox, options.snapshotId, options.expectedBundleSha, signal);
     const manifest: BatchManifest = {
       itemDeadlineMilliseconds: itemDeadline,
       items: runnable.map(({ request }) => ({ name: request.name, pose: request.pose })),
     };
-    await sandbox.writeFiles([
-      { path: `${SANDBOX_JOB_DIRECTORY}/batch.json`, content: Buffer.from(JSON.stringify(manifest)) },
-      ...runnable.map(({ request }, position) => ({
-        path: `${SANDBOX_JOB_DIRECTORY}/${position}.ts`,
-        content: Buffer.from(request.code),
-      })),
-    ]);
+    await sandbox.writeFiles(
+      [
+        { path: `${SANDBOX_JOB_DIRECTORY}/batch.json`, content: Buffer.from(JSON.stringify(manifest)) },
+        ...runnable.map(({ request }, position) => ({
+          path: `${SANDBOX_JOB_DIRECTORY}/${position}.ts`,
+          content: Buffer.from(request.code),
+        })),
+      ],
+      signalOptions(signal),
+    );
     const command = await sandbox.runCommand({
       cmd: SANDBOX_BUN_PATH,
       args: ["batch.ts", SANDBOX_JOB_DIRECTORY],
       cwd: SANDBOX_RENDER_DIRECTORY,
       timeoutMs: batchDeadline,
+      ...signalOptions(signal),
     });
     if (command.exitCode !== 0) throw new Error(`the batch driver exited ${command.exitCode}`);
-    const resultsFile = await sandbox.readFileToBuffer({ path: `${SANDBOX_JOB_DIRECTORY}/results.json` });
+    const resultsFile = await sandbox.readFileToBuffer(
+      { path: `${SANDBOX_JOB_DIRECTORY}/results.json` },
+      signalOptions(signal),
+    );
     if (resultsFile === null) throw new Error("the batch wrote no results");
     const outcomes = batchResultsSchema.parse(JSON.parse(resultsFile.toString("utf8"))).items;
     if (outcomes.length !== runnable.length) throw new Error("the batch returned the wrong number of results");
@@ -144,19 +175,31 @@ export async function renderBatchInSandbox(
     });
     return results;
   } finally {
+    signal?.removeEventListener("abort", stopOnAbort);
     await sandbox.stop().catch(() => {});
   }
 }
 
-/** `renderBatchInSandbox` that never rejects: if the batch as a whole fails, every item carries that reason. */
+/**
+ * `renderBatchInSandbox` that never rejects: if the batch as a whole fails, every item carries that reason. Its own
+ * deadline cancels the batch too, so a timed-out batch does not leave its VM running.
+ */
 export async function renderBatchSafely(
   requests: readonly RenderRequest[],
   options: RenderSandboxOptions,
+  signal?: AbortSignal,
 ): Promise<RenderResult[]> {
   const itemDeadline = options.itemDeadlineMilliseconds ?? DEFAULT_ITEM_DEADLINE_MILLISECONDS;
   const deadline = batchDeadlineMilliseconds(requests.length, options.vcpus ?? DEFAULT_VCPUS, itemDeadline);
+  const deadlineController = new AbortController();
+  const batchSignal = signal ? AbortSignal.any([signal, deadlineController.signal]) : deadlineController.signal;
   try {
-    return await withDeadline(renderBatchInSandbox(requests, options), deadline + 30_000, "timed out");
+    return await withDeadline(
+      renderBatchInSandbox(requests, options, batchSignal),
+      deadline + 30_000,
+      "timed out",
+      deadlineController,
+    );
   } catch (error) {
     const reason = `vercel sandbox: ${error instanceof Error ? error.message : String(error)}`.slice(0, 400);
     return requests.map(() => ({ ok: false, error: reason }));
@@ -164,7 +207,11 @@ export async function renderBatchSafely(
 }
 
 /** One build, one VM (a batch of one): the render the loop and the creature job use. Never rejects. */
-export async function renderSafely(request: RenderRequest, options: RenderSandboxOptions): Promise<RenderResult> {
-  const [result] = await renderBatchSafely([request], options);
+export async function renderSafely(
+  request: RenderRequest,
+  options: RenderSandboxOptions,
+  signal?: AbortSignal,
+): Promise<RenderResult> {
+  const [result] = await renderBatchSafely([request], options, signal);
   return result ?? { ok: false, error: "vercel sandbox: no result" };
 }

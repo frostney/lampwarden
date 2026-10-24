@@ -12,10 +12,21 @@ import {
 } from "../src/game/creature-frames";
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
-import type { RenderRequest, RenderResult } from "./render-types";
+import { RENDER_ABORTED, type RenderRequest, type RenderResult } from "./render-types";
 
-/** Renders the requests in one sandbox batch, one result each, in order; it never throws. */
-export type BatchRenderer = (requests: readonly RenderRequest[]) => Promise<RenderResult[]>;
+/**
+ * Renders the requests in one sandbox batch, one result each, in order; it never throws. `signal` cancels the batch:
+ * its sandbox is stopped and every item fails.
+ */
+export type BatchRenderer = (requests: readonly RenderRequest[], signal?: AbortSignal) => Promise<RenderResult[]>;
+
+/** The same batch renderer tied to `signal`: once it has fired nothing more is rendered, and a batch in flight is cancelled. */
+export function bindBatchRenderSignal(renderBatch: BatchRenderer, signal: AbortSignal): BatchRenderer {
+  return async (requests, callSignal) =>
+    signal.aborted
+      ? requests.map(() => ({ ok: false, error: RENDER_ABORTED }))
+      : renderBatch(requests, callSignal ? AbortSignal.any([signal, callSignal]) : signal);
+}
 
 export interface FrameSet {
   frames: CreatureFrames;

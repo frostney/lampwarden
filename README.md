@@ -50,7 +50,7 @@ export MUBIT_API_KEY=...   # or resolve it in .env.local (docs/tooling.md); neve
 bun run assets -- "Ionic marble column"
 ```
 
-This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the temple, house, lamp, wall and stall, which are hand-written calls to the building builders, and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
+This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the temple, house, lamp, wall and stall, which are hand-written calls to the building builders, and the hero's frames, which are deterministic builder code with no model call. Each manifest row carries a `verified` block: the committed sprite scored on 24 Oct 2026 with that day's verifier and the live acceptance rule (a verifier pass, or 6 or more with no engine flag), with the Mubit request ids (`bun run reverify:sprites`). Today every sprite in the game is accepted (the Mubit ones scored 7 for cyclops, harpy, galley-dock and trireme, and 6 for satyr and olive; the hand-written buildings 8 or 9) except the zeus-statue at 5.5, which three regeneration runs did not beat in the scene. Details: [`pipeline/README.md`](pipeline/README.md).
 
 ### Live creatures
 

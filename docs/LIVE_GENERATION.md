@@ -147,7 +147,7 @@ With any of the three required variables missing, `POST /api/creatures/next` sti
 
 ### The acceptance bar, calibrated against our own art
 
-`bun run calibrate:verifier` (`pipeline/calibrate-verifier.ts`) scores every committed sprite and three hero frames exactly as a job does (same verifier prompt and message, the borderline double-take), twice each, 41 scores in all (24 Oct 2026). The strictness of this verifier shows in our own art: buildings and heroes score 7-9, our creatures 5-6.5.
+`bun run calibrate:verifier` (`pipeline/calibrate-verifier.ts`) scores every committed sprite and three hero frames exactly as a job does (same verifier prompt and message, the borderline double-take), twice each, 41 scores in all (24 Oct 2026, over the 21 sprites then committed; the lion, hydra, Hephaestus and the two hero stills have since been removed, and the in-game sprites re-scored on `bun run reverify:sprites`, whose results are the manifest's `verified` blocks). The strictness of this verifier shows in our own art: buildings and heroes score 7-9, our creatures 5-6.5.
 
 | Score or better     | All 21 sprites | The 12 characters (heroes, Hephaestus, Zeus, lion, cyclops, satyr, harpy, hydra) | The 5 hand-made monsters |
 | ------------------- | -------------- | -------------------------------------------------------------------------------- | ------------------------ |
@@ -229,15 +229,15 @@ What the changes did (local GocciaScript, 1 sample, ms: lamp-lit / house / satyr
 
 Six existing sprite scripts from `public/sprites/`, three repetitions each, with the kit before the speed-ups. Shotcup "client wall" is the client's own time for a run (request to PNG); "engine" is `run.metrics.engineMs`. Local is the bun subprocess of `render-local.ts` (process start included).
 
-| sprite          | local bun, wall ms      | Shotcup, client wall s   | Shotcup, engine s     | engine instructions | Shotcup / local |
-| --------------- | ----------------------- | ------------------------ | --------------------- | ------------------- | --------------- |
-| temple          | 344 / 339 / 337         | 106.9 / 106.5 / 106.5    | 106.7 / 106.1 / 106.4 | 1.58 G              | ~314x           |
-| house           | 112 / 114 / 114         | 25.1 / 25.2 / 25.5       | 24.8 / 24.8 / 24.7    | 0.35 G              | ~221x           |
-| lamp-lit        | 87 / 84 / 86            | 10.1 / 10.1 / 10.3       | 10.0 / 10.0 / 10.1    | 0.14 G              | ~118x           |
-| olive           | 242 / 273 / 190         | 52.2 / 52.1 / 52.4       | 52.0 / 51.9 / 52.2    | 0.73 G              | ~216x           |
-| satyr           | 141 / 143 / 143         | 21.5 / 21.4 / 21.5       | 21.3 / 21.2 / 21.4    | 0.31 G              | ~150x           |
-| hero-male-still | 140 / 141 / 139         | 19.9 / 19.9 / 19.7       | 19.7 / 19.7 / 19.5    | 0.29 G              | ~142x           |
-| **all six**     | 1.06 s (sum of medians) | 235.3 s (sum of medians) |                       | 3.39 G              |                 |
+| sprite                          | local bun, wall ms      | Shotcup, client wall s   | Shotcup, engine s     | engine instructions | Shotcup / local |
+| ------------------------------- | ----------------------- | ------------------------ | --------------------- | ------------------- | --------------- |
+| temple                          | 344 / 339 / 337         | 106.9 / 106.5 / 106.5    | 106.7 / 106.1 / 106.4 | 1.58 G              | ~314x           |
+| house                           | 112 / 114 / 114         | 25.1 / 25.2 / 25.5       | 24.8 / 24.8 / 24.7    | 0.35 G              | ~221x           |
+| lamp-lit                        | 87 / 84 / 86            | 10.1 / 10.1 / 10.3       | 10.0 / 10.0 / 10.1    | 0.14 G              | ~118x           |
+| olive                           | 242 / 273 / 190         | 52.2 / 52.1 / 52.4       | 52.0 / 51.9 / 52.2    | 0.73 G              | ~216x           |
+| satyr                           | 141 / 143 / 143         | 21.5 / 21.4 / 21.5       | 21.3 / 21.2 / 21.4    | 0.31 G              | ~150x           |
+| hero-male-still (since removed) | 140 / 141 / 139         | 19.9 / 19.9 / 19.7       | 19.7 / 19.7 / 19.5    | 0.29 G              | ~142x           |
+| **all six**                     | 1.06 s (sum of medians) | 235.3 s (sum of medians) |                       | 3.39 G              |                 |
 - **Batch of six in one run:** 234.8 / 234.9 / 231.4 s client wall, the same as six single runs. Close to the 300 s ceiling: seven old-kit temples would not fit.
 - **Six single runs started at once:** in every repetition 3 ran and 3 failed busy after about 30 s. The three that ran took 1.6-3x their single time (temple 184-188 s, olive 85-133 s, lamp-lit 31 s).
 - **Fixed costs:** a `console.log(1)` run took 0.35 s client wall (0.22 s server; 1 sample). Importing the kit from the drive: 0.26 s engine, 0.41-0.99 s client wall. Seeding the drive (create + write 212 KB): 425-645 ms, once per process.

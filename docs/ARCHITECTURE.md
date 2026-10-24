@@ -57,6 +57,8 @@ src/
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
                      bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
+    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5), the atlas layout and the
+                     paces; kept out of creature.ts so the sim fingerprint does not move (frames are drawn, never played)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
@@ -76,7 +78,8 @@ src/
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
                      warden's eight directions (octants), the five of them drawn and the three mirrored
-    layers.ts        textures (and the creature's, loaded at runtime from its sprite path; a sprite that fails means a
+    creature-animation.ts  which frame a creature from the sea shows (walk, attack, idle) from what the sim says about it; drawing only
+    layers.ts        textures (and the creature's, loaded at runtime from its sprite path and, with frames, its atlas; a sprite that fails means a
                      night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
                      is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
                      and anchor
@@ -113,6 +116,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  creature-frames.ts the frame set of a creature: its code rendered in every pose in one batch, checked (every frame renders, the walk moves) and packed into the atlas
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the renderer's contract (RenderStats, RenderResult) and the validation of what a sandbox sends back

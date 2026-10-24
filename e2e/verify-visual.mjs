@@ -8,7 +8,11 @@
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
+import { CREATURE_FRAME_COUNTS, CREATURE_FRAME_SIZE, creatureAtlasLayout } from "../src/game/creature-frames.ts";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
+import { heroAtlasCell } from "../src/scene/assets.ts";
+import { PixelImage } from "../tools/logo/image.ts";
+import { decodePng, encodePng } from "../tools/logo/png.ts";
 
 const argument = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -37,16 +41,59 @@ const SEA_CREATURE = {
   createdAt: "2026-10-24T01:00:00.000Z",
 };
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+
+// An animated creature, for sea.mode "animated": its record carries frame counts and the gallery serves an atlas. The
+// atlas is made in code from the committed hero atlas (the male warden seen from the south-east: idle, walk and the
+// melee swing as attack), never from an outside picture, and its sprite.png is the idle frame, as a real job stores.
+const SEA_ANIMATED = {
+  ...SEA_CREATURE,
+  id: "tide-warden-fixture",
+  name: "Drowned tide warden",
+  anchorY: 0.82,
+  frames: { ...CREATURE_FRAME_COUNTS },
+};
+const ANIMATED_FIXTURE = (() => {
+  const hero = decodePng(readFileSync("public/sprites/hero/male.png"));
+  const layout = creatureAtlasLayout(CREATURE_FRAME_COUNTS);
+  const atlas = new PixelImage(layout.width, layout.height);
+  const heroAnimation = { idle: "idle", walk: "walk", attack: "melee" };
+  for (const cell of layout.cells) {
+    const from = heroAtlasCell(heroAnimation[cell.animation], cell.frame, "se");
+    for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
+      const start = ((from.y + row) * hero.width + from.x) * 4;
+      atlas.data.set(
+        hero.data.subarray(start, start + CREATURE_FRAME_SIZE * 4),
+        ((cell.y + row) * atlas.width + cell.x) * 4,
+      );
+    }
+  }
+  const idle = new PixelImage(CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE);
+  for (let row = 0; row < CREATURE_FRAME_SIZE; row++)
+    idle.data.set(
+      atlas.data.subarray(row * atlas.width * 4, row * atlas.width * 4 + CREATURE_FRAME_SIZE * 4),
+      row * CREATURE_FRAME_SIZE * 4,
+    );
+  return { atlas: encodePng(atlas), sprite: encodePng(idle) };
+})();
 const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [] };
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
+  if (pathname.endsWith("/atlas.png"))
+    return sea.mode === "animated"
+      ? route.fulfill({ status: 200, contentType: "image/png", body: ANIMATED_FIXTURE.atlas })
+      : route.fulfill({ status: 404, json: { error: "not found" } });
   if (pathname.endsWith("/sprite.png"))
     return sea.mode === "broken"
       ? route.abort()
-      : route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
+      : route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          body: sea.mode === "animated" ? ANIMATED_FIXTURE.sprite : SEA_SPRITE,
+        });
   if (pathname.endsWith("/next")) {
     sea.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    if (sea.mode === "animated") return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
     if (sea.mode === "ready" || sea.mode === "broken")
       return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
     if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
@@ -2095,6 +2142,154 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "sea-broken",
     "the night goes without it, and does not count it as met",
     brokenNight.creature === null && brokenNight.bestiary.length === 0,
+  );
+
+  // 21b an animated creature: its record has frame counts, the gallery serves its atlas, and the night draws the frame
+  // its animation is at (walk while it travels, attack while it claws a lamp or has just struck the warden, idle at
+  // rest), flipped as the other monsters are, with the flash, the hurt tint and the lamps' light on every frame
+  sea.mode = "animated";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await startFromTitle();
+  const animatedNight = await night();
+  check("sea-animated", "the animated creature joins the night", animatedNight.creature?.id === SEA_ANIMATED.id);
+  let animatedSent = false;
+  for (let attempt = 0; attempt < 80 && !animatedSent; attempt++) {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature");
+      state.spawnTimer = 0;
+      state.elapsed = Math.max(state.elapsed, 9);
+      state.hero.health = state.hero.maxHealth;
+      for (const lamp of state.lamps) lamp.lit = true;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForTimeout(100);
+    animatedSent = await page.evaluate(() =>
+      window.lampwarden.state().monsters.some((monster) => monster.kind === "creature"),
+    );
+  }
+  check("sea-animated", "the spawner sends the animated creature", animatedSent);
+  // stands it somewhere clear, as the sim would hold it, and sets what the animation reads (all of it render-only state)
+  const stand = (patch) =>
+    page.evaluate((patch) => {
+      const state = window.lampwarden.state();
+      window.lampwarden.scene().setPaused(true);
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature").slice(0, 1);
+      for (const monster of state.monsters)
+        Object.assign(monster, { x: 600, y: 400, hurt: 0, stun: 0, snuff: 0, attackCooldown: 0, age: 0 }, patch);
+      state.hero.x = 300;
+      state.hero.y = 330;
+      state.puffs = [];
+    }, patch);
+  // the frames the stage shows for the creature: the pose each sprite's texture came from, and how it is drawn
+  const creatureFrames = () =>
+    page.evaluate((id) => {
+      const found = [];
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        if (label.startsWith(`/api/creatures/${id}/`) && node.visible && !node.destroyed)
+          found.push({
+            pose: label.split("/").pop(),
+            flipped: node.scale.x < 0,
+            // the painted shadow is cut out and the pixels kept, which is what the lamps' rim light needs
+            shadowless: node.texture.source.resource instanceof Uint8Array,
+          });
+        for (const child of node.children ?? []) visit(child);
+      };
+      const app = window.lampwarden.app();
+      if (app) visit(app.stage);
+      return found;
+    }, SEA_ANIMATED.id);
+  const poseNow = async () => (await creatureFrames()).map((frame) => frame.pose).join();
+  const poseShot = async (name, patch) => {
+    await stand(patch);
+    await freeze();
+    await page.waitForTimeout(60);
+    return { shot: await shoot(name), pose: await poseNow() };
+  };
+  const walkFirst = await poseShot("21-sea-animated-walk1", { age: 0 });
+  const walkLater = await poseShot("22-sea-animated-walk4", { age: 0.31 });
+  check(
+    "sea-animated",
+    "it walks: a different frame a third of a second on",
+    walkFirst.pose === "walk1" && walkLater.pose === "walk4",
+    `${walkFirst.pose} then ${walkLater.pose}`,
+  );
+  const walkChange = await boxDiff(walkLater.shot, walkFirst.shot, creatureBox);
+  check(
+    "sea-animated",
+    "the picture changes between the two walk frames",
+    walkChange > 0.02,
+    `${(walkChange * 100).toFixed(1)}%`,
+  );
+  const walkingPoses = new Set();
+  for (const age of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) {
+    await stand({ age });
+    await settle();
+    walkingPoses.add(await poseNow());
+  }
+  check("sea-animated", "its walk goes through all six frames", walkingPoses.size === 6, [...walkingPoses].join(" "));
+  const claw = await poseShot("23-sea-animated-attack", { snuff: 0.1 });
+  check("sea-animated", "it claws a lamp with the attack frames", claw.pose.startsWith("attack"), claw.pose);
+  const strike = await poseShot("24-sea-animated-strike", { attackCooldown: 0.95 });
+  check("sea-animated", "it strikes the warden with the attack frames", strike.pose.startsWith("attack"), strike.pose);
+  const rest = await poseShot("25-sea-animated-idle", { stun: 0.05 });
+  check("sea-animated", "it stands in the idle frames when a hit holds it", rest.pose.startsWith("idle"), rest.pose);
+  const frame = (await creatureFrames())[0];
+  check(
+    "sea-animated",
+    "a frame has its painted shadow cut out, ready for the lamps' rim light",
+    frame?.shadowless === true,
+  );
+  const rightSide = (await creatureFrames())[0]?.flipped;
+  await stand({ x: 200, age: 0 });
+  await settle();
+  const leftSide = (await creatureFrames())[0]?.flipped;
+  check("sea-animated", "it faces the middle of the plaza from either side", rightSide === true && leftSide === false);
+  // the flash and the red tint follow the frame
+  await stand({ age: 0.31 });
+  await freeze();
+  const animatedPlain = await shoot("26-sea-animated-plain");
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+  });
+  await settle();
+  const animatedFlash = await shoot("27-sea-animated-flash");
+  const [animatedPlainLight, animatedFlashLight] = await Promise.all([
+    luminance(animatedPlain, [creatureBox]),
+    luminance(animatedFlash, [creatureBox]),
+  ]);
+  check(
+    "sea-animated",
+    "a blow flashes the frame it is on white",
+    animatedFlashLight[0] > animatedPlainLight[0] + 25,
+    `${animatedPlainLight[0].toFixed(0)} → ${animatedFlashLight[0].toFixed(0)}`,
+  );
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.1;
+  });
+  await settle();
+  const animatedTint = await shoot("28-sea-animated-hurt");
+  const [animatedPlainRed, animatedTintRed] = [await redOverBlue(animatedPlain), await redOverBlue(animatedTint)];
+  check(
+    "sea-animated",
+    "the hurt frame is tinted red",
+    animatedTintRed > animatedPlainRed * 1.03,
+    `red/blue ${animatedPlainRed.toFixed(2)} → ${animatedTintRed.toFixed(2)}`,
+  );
+  // the sprite the title and the dawn show is the idle picture the job judged
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  const animatedPanel = await page.evaluate(() => {
+    const portrait = document.querySelector(".sea canvas.sea-sprite");
+    return { loaded: portrait?.dataset.loaded === "1", source: portrait?.dataset.src ?? "" };
+  });
+  check(
+    "sea-animated",
+    "the title shows the creature's idle sprite",
+    animatedPanel.loaded && animatedPanel.source.includes(`/api/creatures/${SEA_ANIMATED.id}/sprite.png`),
   );
 
   page = mainPage;

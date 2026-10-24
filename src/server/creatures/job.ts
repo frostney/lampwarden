@@ -1,13 +1,16 @@
 // One creature generation job: brief writer -> generator -> tripwire -> render in the sandbox -> engine flags ->
-// verifier -> one fix -> best-of (pipeline/sprite-loop.ts, reused), then accept or fail. Model output is text and a PNG
+// verifier -> one fix -> best-of (pipeline/loop.ts, reused), accept or fail, then the accepted sprite's code is rendered
+// again in every pose of its animations in one sandbox batch and packed into an atlas. Model output is text and a PNG
 // here: the code it wrote reaches only the renderer (a Vercel Sandbox in production), never this process.
 //
 // The job reports to the store at every step, and every failure ends as a short fixed reason; no model output and no
 // stack trace is ever stored, returned or logged.
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { type Creature, type CreatureJob, creatureSchema, type JobStep } from "@/game/creature";
+import type { CreatureJob, JobStep } from "@/game/creature";
+import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
+import { type BatchRenderer, renderFrameSet } from "../../../pipeline/creature-frames";
 import { type CandidateOutcome, type LoopStage, type LoopWinner, runCandidateLoop } from "../../../pipeline/loop";
 import type { CallRecord, MubitClient } from "../../../pipeline/mubit";
 import { type Renderer, withDeadline } from "../../../pipeline/render-types";
@@ -25,11 +28,15 @@ type JobFailure =
   | "no creature was written"
   | "no sprite could be drawn"
   | "the sprite was not good enough"
+  | "it could not be animated"
   | "timed out"
   | "something went wrong";
 
 /** Accept a verifier pass, or a score of at least 6 with no engine flags. Anything else fails and stores nothing. */
-export function isAccepted(winner: Pick<LoopWinner, "verdict" | "stats">): boolean {
+export function isAccepted(winner: {
+  verdict: Pick<LoopWinner["verdict"], "pass" | "score">;
+  stats: LoopWinner["stats"];
+}): boolean {
   if (winner.verdict.pass) return true;
   const score = winner.verdict.score;
   return winner.stats.flags === "ok" && score !== null && score >= MINIMUM_UNPASSED_SCORE;
@@ -85,6 +92,8 @@ export interface JobDeps {
   now: () => Date;
   model: MubitClient;
   render: Renderer;
+  /** Renders a creature's frames, all of them in one sandbox batch. */
+  renderBatch: BatchRenderer;
   prompts: { creature: string; generator: string; verifier: string };
   /** Random hex for ids. */
   entropy: () => string;
@@ -176,8 +185,24 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     });
     if (!accepted) return fail("the sprite was not good enough");
 
-    const creature = buildCreature(id, written.brief, outcome.winner, deps.now());
-    await deps.store.putCreature(creature, outcome.winner.png, outcome.winner.code);
+    // The judged sprite is one still. Its code is drawn again in every pose; if that fails (a pose that does not render,
+    // a builder that ignores its pose), the next best accepted candidate gets the same chance.
+    await report("rendering");
+    let animated: Animated | null = null;
+    const tried: string[] = [];
+    for (const candidate of acceptedCandidates(outcome)) {
+      const frameSet = await renderFrameSet(deps.renderBatch, candidate.code);
+      if (frameSet.ok) {
+        animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
+        break;
+      }
+      tried.push(frameSet.kind);
+    }
+    log({ event: "creature-job-frames", jobId, animated: animated !== null, refused: tried });
+    if (!animated) return fail("it could not be animated");
+
+    const creature = buildCreature(id, written.brief, animated.candidate, animated.frames, deps.now());
+    await deps.store.putCreature(creature, animated.candidate.png, animated.candidate.code, animated.atlas);
     await conclude("done", { creature });
   }
 
@@ -195,12 +220,53 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
   return latest;
 }
 
-function buildCreature(id: string, brief: CreatureBrief, winner: LoopWinner, now: Date): Creature {
-  return creatureSchema.parse({
+/** An accepted sprite with the code that drew it. */
+interface Candidate {
+  code: string;
+  png: Uint8Array;
+  stats: LoopWinner["stats"];
+  score: number | null;
+}
+
+interface Animated {
+  candidate: Candidate;
+  frames: CreatureFrames;
+  atlas: Uint8Array;
+}
+
+/** The winner first, then the other accepted candidates and fix, best score first (earlier ones first among equals). */
+function acceptedCandidates(outcome: CandidateOutcome): Candidate[] {
+  const { winner } = outcome;
+  const others = outcome.candidates
+    .filter(
+      (record) =>
+        record.name !== winner.name &&
+        record.png !== null &&
+        record.stats !== null &&
+        isAccepted({ verdict: { pass: record.pass, score: record.score }, stats: record.stats }),
+    )
+    .sort((first, second) => (second.score ?? 0) - (first.score ?? 0));
+  const alternatives = others.flatMap((record) =>
+    record.png && record.stats
+      ? [{ code: record.code, png: record.png, stats: record.stats, score: record.score }]
+      : [],
+  );
+  return [{ code: winner.code, png: winner.png, stats: winner.stats, score: winner.verdict.score }, ...alternatives];
+}
+
+function buildCreature(
+  id: string,
+  brief: CreatureBrief,
+  candidate: Candidate,
+  frames: CreatureFrames,
+  now: Date,
+): CreatureRecord {
+  return creatureRecordSchema.parse({
     id,
     ...brief,
-    anchorY: anchorYFromBbox(winner.stats.bbox),
-    score: winner.verdict.score,
+    anchorY: anchorYFromBbox(candidate.stats.bbox),
+    score: candidate.score,
+    frames,
     createdAt: now.toISOString(),
   });
 }

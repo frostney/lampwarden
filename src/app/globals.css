@@ -291,6 +291,17 @@ h1 {
   border-color: var(--ink-faded);
   background: #e6cd99;
 }
+/* the scroll's column is narrow: a smaller name, and the lore held to two lines (the dawn panel shows all of it) */
+.scroll .sea-name {
+  font-size: 22px;
+}
+.scroll .sea-lore:not(.dim) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
 .scroll .sea-label,
 .scroll .sea-lore.dim {
   color: var(--ink-faded);

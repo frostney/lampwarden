@@ -26,8 +26,9 @@ for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(dir
 // job then walks through sea.steps) or "broken" (ready, but its sprite never arrives). sea.asked logs the `seen` lists.
 const SEA_CREATURE = {
   id: "brine-hound-satyr",
-  name: "Brine hound",
-  lore: "It follows the smell of lamp oil up the quay.",
+  name: "Drowned sponge diver", // a real generated name
+  // lore as long as the contract allows (160), so a panel that only fits short lore fails here
+  lore: "He dove too deep for the sponge beds and never rose. Now he climbs the quay dripping and blows our flames out with his last held breath, one by one, till dawn.",
   brief: "a hound of grey sea foam with a lantern jaw, the verifier's fixture",
   archetype: "skulker",
   modifiers: { speed: 1, toughness: 0, bite: 0, snuffing: 0 },
@@ -1204,7 +1205,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   check(
     "sea-generating",
     "the finished creature is announced at dawn",
-    (await text(".panel .sea")).join(" ").includes("Brine hound"),
+    (await text(".panel .sea")).join(" ").includes(SEA_CREATURE.name),
   );
   await shoot("16-sea-dawn");
   await page.getByRole("button", { name: /Into night/ }).click();

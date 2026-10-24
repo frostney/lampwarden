@@ -79,7 +79,10 @@ export function loadTextures(): Promise<TextureMap> {
       if (white) textures[flashKey(kind)] = white;
     }
     return textures;
-  })();
+  })().catch((error: unknown) => {
+    textureCache = null; // a failed load is not kept, so the next call tries again
+    throw error;
+  });
   return textureCache;
 }
 

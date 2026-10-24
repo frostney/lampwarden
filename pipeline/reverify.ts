@@ -3,16 +3,16 @@
 //
 // usage (MUBIT_API_KEY in the environment; resolve it from a file with MUBIT_API_KEY="$(cat ~/.config/mubit/api_key)"):
 //   bun --no-env-file pipeline/reverify.ts score [--only satyr,olive] [--write]
-//   bun --no-env-file pipeline/reverify.ts regenerate <id> [--brief "text"] [--candidates 3] [--render vercel]
+//   bun --no-env-file pipeline/reverify.ts regenerate <id> [--brief "text"] [--candidates 3]
 //   bun --no-env-file pipeline/reverify.ts install <id>
 //   bun --no-env-file pipeline/reverify.ts record
 //
 // - score: the verifier over each sprite's committed PNG, brief and build code, exactly as the live creature job calls it
 //   (pipeline/loop.ts `verify`: same system prompt, same message, the borderline double-take), then the live acceptance
-//   rule (`isAccepted`, src/server/creatures/job.ts). The engine stats come from a local re-render of the committed code,
+//   rule (`isAccepted`, src/server/creatures/job.ts). The engine stats come from a re-render of the committed code in the Vercel Sandbox (one batch),
 //   which `bun run check:pixels` holds to the committed PNG. `--write` stores the result as the manifest's `verified` block.
 // - regenerate: the full candidate loop of the live job (`runCandidateLoop`: candidates, best-of, one fix turn when the
-//   best is not accepted), rendered in the chosen renderer, for one sprite. Nothing in public/sprites changes: every
+//   best is not accepted), rendered in the Vercel Sandbox, for one sprite. Nothing in public/sprites changes: every
 //   candidate and the winner are kept under pipeline/runs/reverify/ (git-ignored).
 // - record: stores the last score run (pipeline/runs/reverify/scores.json) as `verified` blocks, for rows without one.
 // - install: copies a regenerated winner into public/sprites and writes its manifest row.
@@ -26,8 +26,8 @@ import { isAccepted } from "../src/server/creatures/job";
 import { createFileStore } from "./file-store";
 import { type LoopCore, type LoopWinner, runCandidateLoop, verify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
-import { RENDERER_NAMES, type RenderStats } from "./render-types";
-import { renderBuild } from "./renderers";
+import { renderBatchFromCheckout, renderFromCheckout } from "./render-checkout";
+import type { RenderStats } from "./render-types";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
@@ -94,7 +94,6 @@ const { positionals, values } = parseArgs({
     write: { type: "boolean", default: false },
     brief: { type: "string" },
     candidates: { type: "string", default: "3" },
-    render: { type: "string", default: "vercel" },
   },
 });
 const [command, ...targets] = positionals;
@@ -102,13 +101,12 @@ const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifie
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
 const today = new Date().toISOString().slice(0, 10);
 
-function createLoop(rendererName: (typeof RENDERER_NAMES)[number]): LoopCore {
+function createLoop(): LoopCore {
   const apiKey = process.env.MUBIT_API_KEY;
   if (!apiKey) throw new Error("MUBIT_API_KEY is not set");
   return {
     model: createMubitClient({ apiKey }),
-    render: (request) => renderBuild(rendererName, request),
-    rendererName,
+    render: renderFromCheckout,
     pose: "",
     generatorPrompt,
     verifierPrompt,
@@ -145,18 +143,26 @@ async function scoreSprites(): Promise<void> {
   const manifest = readManifest();
   const used = Object.keys(ANCHOR_Y).filter((key) => key !== "hero");
   const ids = values.only ? values.only.split(",") : used;
-  const loop = createLoop("local");
+  const loop = createLoop();
+  const codes = ids.map((id) => {
+    const row = manifest.sprites[id];
+    if (!row) throw new Error(`${id} is not in the manifest`);
+    return readFileSync(join(SPRITES_DIRECTORY, row.code), "utf8");
+  });
+  const renders = await renderBatchFromCheckout(
+    ids.map((id, position) => ({ code: codes[position] ?? "", name: id, pose: "" })),
+  );
   const results: Record<string, Verified & { fix: string }> = {};
-  const queue = ids[Symbol.iterator]();
+  const queue = ids.entries();
   const worker = async () => {
     for (let step = queue.next(); !step.done; step = queue.next()) {
-      const id = step.value;
+      const [position, id] = step.value;
       const row = manifest.sprites[id];
-      if (!row) throw new Error(`${id} is not in the manifest`);
-      const code = readFileSync(join(SPRITES_DIRECTORY, row.code), "utf8");
+      const code = codes[position];
+      if (!row || code === undefined) throw new Error(`${id} is not in the manifest`);
       const png = new Uint8Array(readFileSync(join(SPRITES_DIRECTORY, `${id}.png`)));
-      const rendered = await renderBuild("local", { code, name: id, pose: "" });
-      if (!rendered.ok) throw new Error(`${id} did not render: ${rendered.error}`);
+      const rendered = renders[position];
+      if (!rendered?.ok) throw new Error(`${id} did not render: ${rendered?.error}`);
       const { verdict, requestIds } = await verify(
         loop,
         png,
@@ -194,9 +200,7 @@ async function regenerateSprite(id: string): Promise<void> {
   const manifest = readManifest();
   const brief = values.brief ?? manifest.sprites[id]?.brief;
   if (!brief) throw new Error(`${id} is not in the manifest; give --brief`);
-  const rendererName = RENDERER_NAMES.find((candidate) => candidate === values.render);
-  if (!rendererName) throw new Error(`--render must be one of ${RENDERER_NAMES.join(", ")}`);
-  const loop = createLoop(rendererName);
+  const loop = createLoop();
   const outcome = await runCandidateLoop(
     loop,
     { id, category: "sprite", text: brief },

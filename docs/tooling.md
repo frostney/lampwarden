@@ -1,24 +1,26 @@
 # Tooling
 
-| Command                                | What it does                                                                                                                                                                                               |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install`                          | Installs dependencies from `bun.lock` and installs the Lefthook hooks (`prepare`).                                                                                                                         |
-| `bun run dev` / `build` / `start`      | Next.js dev server, production build, production server.                                                                                                                                                   |
-| `bun run check`                        | The gate: `lint`, `typecheck`, `bun test`, `knip`, `scan`, `build`, in that order.                                                                                                                         |
-| `bun run lint` / `format`              | Biome check, and Biome check with fixes (format, lint fixes, import order).                                                                                                                                |
-| `bun run typecheck`                    | Generates `env.d.ts` from `.env.schema` (`varlock codegen`), then `tsc --noEmit` with the strict flags from `typescript-stack`.                                                                            |
-| `bun test`                             | Unit tests, co-located with source under `src/` (`*.test.ts`).                                                                                                                                             |
-| `bun run knip`                         | Unused files, exports and dependencies (run under `varlock run`, because Knip loads `next.config.ts`).                                                                                                     |
-| `bun run scan`                         | `varlock scan`: fails when the value of a secret declared in `.env.schema` that this machine can resolve sits in plaintext in a tracked or unignored file (Environment).                                   |
-| `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`.                                             |
-| `bun run walkthrough -- <script.ts>`   | Records a pull request's narrated, subtitled walkthrough, `e2e/walkthrough.ts`, from a script of segments (example: `e2e/walkthroughs/title.ts`); writes `walkthrough-out/`.                               |
-| `bun run balance`                      | Plays nights headlessly with an idle and a bot warden (`-- --director`: under stub director decisions).                                                                                                    |
-| `bun run plays`                        | Balance report from recorded plays in Blob storage.                                                                                                                                                        |
-| `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                                                             |
-| `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`).                                                                                                                                   |
-| `bun run kit`                          | Reassembles `pipeline/kit/kit.ts` from `pipeline/kit/src`.                                                                                                                                                 |
-| `bun run reverify:sprites -- score`    | Scores the committed sprites with today's verifier and acceptance rule; `regenerate <id>` runs the full candidate loop in the Vercel Sandbox and `install <id>` keeps the winner (`pipeline/reverify.ts`). |
-| `bun run sandbox:snapshot`             | Builds the Vercel Sandbox snapshot the live creature generator renders in (Bun 1.4.4 + kit + runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID`.                                                              |
+| Command                                | What it does                                                                                                                                                                                        |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                          | Installs dependencies from `bun.lock` and installs the Lefthook hooks (`prepare`).                                                                                                                  |
+| `bun run dev` / `build` / `start`      | Next.js dev server, production build, production server.                                                                                                                                            |
+| `bun run check`                        | The gate: `lint`, `typecheck`, `bun test`, `knip`, `scan`, `build`, in that order.                                                                                                                  |
+| `bun run lint` / `format`              | Biome check, and Biome check with fixes (format, lint fixes, import order).                                                                                                                         |
+| `bun run typecheck`                    | Generates `env.d.ts` from `.env.schema` (`varlock codegen`), then `tsc --noEmit` with the strict flags from `typescript-stack`.                                                                     |
+| `bun test`                             | Unit tests, co-located with source under `src/` (`*.test.ts`).                                                                                                                                      |
+| `bun run knip`                         | Unused files, exports and dependencies (run under `varlock run`, because Knip loads `next.config.ts`).                                                                                              |
+| `bun run scan`                         | `varlock scan`: fails when the value of a secret declared in `.env.schema` that this machine can resolve sits in plaintext in a tracked or unignored file (Environment).                            |
+| `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`.                                      |
+| `bun run walkthrough -- <script.ts>`   | Records a pull request's narrated, subtitled walkthrough, `e2e/walkthrough.ts`, from a script of segments (example: `e2e/walkthroughs/title.ts`); writes `walkthrough-out/`.                        |
+| `bun run balance`                      | Plays nights headlessly with an idle warden, a perfect bot and a human-paced bot (`[runs] [only]`; `-- --director`: under stub director decisions).                                                 |
+| `bun run plays`                        | Balance report from recorded plays in Blob storage.                                                                                                                                                 |
+| `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                                                      |
+| `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`); renders in Vercel Sandbox.                                                                                                 |
+| `bun run kit`                          | Reassembles `pipeline/kit/kit.ts` from `pipeline/kit/src`.                                                                                                                                          |
+| `bun run reverify:sprites -- score`    | Scores the committed sprites with today's verifier and acceptance rule; `regenerate <id>` runs the full candidate loop in the sandbox and `install <id>` keeps the winner (`pipeline/reverify.ts`). |
+| `bun run sandbox:snapshot`             | Builds the Vercel Sandbox snapshot every render boots from (Bun 1.4.4 + kit + runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID`.                                                                      |
+| `bun run check:pixels`                 | Renders every committed sprite and hero frame in Vercel Sandbox (4 batches of 4 vCPUs) and compares pixels with the committed PNGs; exits 1 on any difference.                                      |
+| `bun run assets:hero`                  | Regenerates the hero atlases from the builder code, rendered in Vercel Sandbox.                                                                                                                     |
 
 ## Lint and format
 
@@ -27,7 +29,7 @@ assertions, no explicit `any`, no unsafe type assertions, and a GritQL plugin (`
 rejects one- and two-letter bindings (`x`, `y` and `id` are allowed). Excluded: `pipeline/kit` and `public/sprites`
 (the model-facing kit and model-written sprite code), `pipeline/prompts` (the model's instructions; formatting would
 change what it reads), `public/logo` (generated by `tools/logo`, which `bun tools/logo/build.ts --check` guards), and
-`pipeline/render`, the local renderer's runner and canvas shim, which have not been swept to these rules yet.
+`pipeline/render`, the runner, batch driver and canvas shim a sandbox VM runs, which have not been swept to these rules yet.
 
 Lefthook runs `biome check --write` on staged files before each commit and re-stages the fixes.
 
@@ -62,22 +64,44 @@ the script only the variables it needs, removes every other schema variable from
 your shell) and does not resolve the rest at all, so `bun run plays` never asks for the Mubit key. `--inject vars`
 leaves out the `__VARLOCK_ENV` blob, which holds every resolved value.
 
-| Command                      | Receives                                                                                                                                                                           |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run assets`             | The variables tagged `pipeline` in `.env.schema`: `MUBIT_API_KEY`, `LAMPWARDEN_RENDERER`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `VERCEL_OIDC_TOKEN` and the Shotcup and boat.dev settings. |
-| `bun run reverify:sprites`   | The variables tagged `pipeline`, like `assets` (the Vercel Sandbox renders with the CLI login of a `vercel link`ed project).                                                       |
-| `bun run calibrate:verifier` | `MUBIT_API_KEY`.                                                                                                                                                                   |
-| `bun run sandbox:snapshot`   | `VERCEL_OIDC_TOKEN` (or the Vercel CLI login of a `vercel link`ed project).                                                                                                        |
-| `bun run plays`              | `BLOB_READ_WRITE_TOKEN`.                                                                                                                                                           |
+| Command                                         | Receives                                                                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `bun run assets`                                | The variables tagged `pipeline` in `.env.schema`: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`. |
+| `bun run reverify:sprites`                      | The variables tagged `pipeline`, like `assets` (the Mubit key, the snapshot id and the Vercel auth).                     |
+| `bun run calibrate:verifier`                    | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (it renders the committed art in the sandbox).     |
+| `bun run check:pixels`, `assets:hero`, `render` | `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`.                                                                    |
+| `bun run sandbox:snapshot`                      | `VERCEL_OIDC_TOKEN` (or the Vercel CLI login of a `vercel link`ed project).                                              |
+| `bun run plays`                                 | `BLOB_READ_WRITE_TOKEN`.                                                                                                 |
 
-`assets:hero`, `render`, `kit`, `logo`, `balance` and `check:pixels` need no variable and get none.
+`kit`, `logo` and `balance` need no variable and get none.
 
-Model-written build code never sees any of it. The local renderer starts bun with `PATH`, `HOME`, `TMPDIR` and `LANG`
-plus `KIT_OUT`, and the Vercel Sandbox gets `KIT_OUT` only. Checked under `varlock run --inject all`, the widest
-setting, with a throwaway key in the parent: the build code saw exactly `HOME`, `KIT_OUT`, `LANG`, `PATH` and
-`TMPDIR`. The Vercel Sandbox SDK authenticates with the platform's OIDC token on Vercel (it arrives with the request)
-and locally with `VERCEL_OIDC_TOKEN` from `vercel env pull .env.local` or the CLI login of a linked project; it reads
-no `VERCEL_TOKEN`.
+## Rendering needs Vercel auth
+
+Vercel Sandbox is the only way to render and the source of truth for every pixel, so `assets`, `check:pixels`,
+`assets:hero`, `render` and `calibrate:verifier` all need three things:
+1. **A Vercel login and a linked project.** `bunx vercel login`, then `bunx vercel link` in the checkout (pick the
+   `lampwarden` project; non-interactively: `vercel link --yes --project lampwarden --scope <team>`). That writes the
+   git-ignored `.vercel/project.json`, and the sandbox SDK then refreshes an OIDC token from the CLI login by itself.
+   Alternatively `vercel env pull .env.local` writes `VERCEL_OIDC_TOKEN` (it expires after 12 hours). The SDK reads no
+   `VERCEL_TOKEN`. The token never enters the VM and is never printed.
+2. **A snapshot.** `bun run sandbox:snapshot` boots a VM, installs the pinned Bun 1.4.4 (checked against a SHA-256), cuts
+   the network, copies in the kit and runner with a `SNAPSHOT.json` manifest, renders `lamp-lit` and requires it to match
+   the committed PNG byte for byte, and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Put that in `.env.local` (or
+   export it in your shell).
+3. **A snapshot that matches the checkout.** A change to `pipeline/kit/kit.ts` or anything in `pipeline/render/` needs a
+   new snapshot. Every render reads the manifest first; `check:pixels` exits 3 with "the sandbox snapshot holds a
+   different kit or runner than this checkout ... run `bun run sandbox:snapshot`" when it does not match, and a render
+   from `run.ts` fails with the same message.
+
+Renders go out as batches (`pipeline/render-vercel-sandbox.ts`): one VM renders many builds, one process each with its
+own deadline, so one build that throws or hangs fails only itself. Items in a batch share a VM, so a batch holds builds
+from one trust domain (one creature's frames, or this repository's own sprites). Deployed, the function authenticates
+with the deployment's OIDC token and needs only `VERCEL_SANDBOX_SNAPSHOT_ID` (README, "Deploying"). Snapshots are
+created without an expiry; delete old ones with `vercel sandbox snapshots` when they pile up.
+
+Model-written build code never sees any of the environment: the sandbox runs it with `KIT_OUT` only. The Vercel Sandbox
+SDK authenticates with the platform's OIDC token on Vercel (it arrives with the request) and locally with
+`VERCEL_OIDC_TOKEN` or the CLI login of a linked project.
 
 **Keys on your machine** go in `.env.local` (git-ignored), resolved from a store instead of written as plaintext.
 A key kept in a file, such as `~/.config/mubit/api_key`:

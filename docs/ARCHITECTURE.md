@@ -40,7 +40,11 @@ src/
                      drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Replayer and headless verification of recorded plays (replay.test.ts:
                      determinism); covered by the sim fingerprint (see Sim fingerprint)
-    recording.ts     the Play record, Recorder and upload; not part of the sim fingerprint
+    recording.ts     the Play record, Recorder and upload; not part of the sim fingerprint; keeps `hiddenSeconds`, the time the tab was hidden
+                     during the night (it stops the sim), which says how long the player was away
+    engagement.ts    was the player there? from a recorded play: the share of the night spent moving, strikes, shots, and
+                     time away, classed engaged, idle, paused or left; a night that is not engaged is never eased after
+                     (the rules' director and the live one both; see docs/DIRECTOR.md)
     director.ts      the live director's contract, shared by the game and the server: what it may change (tide within 0.15 of
                      the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character plain line), and
                      the code that enforces it (clampProposal, checkedDecision, directorFrom); a decision applies to one night
@@ -103,7 +107,8 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
@@ -115,23 +120,23 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
-  render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
-  render-local.ts    bun render subprocess with an allowlisted environment
-  render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
-  hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity gate
+  render-types.ts    the renderer's contract (RenderStats, RenderResult) and the validation of what a sandbox sends back
+  render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
+                     render-checkout.ts is its entry for the command line (runner files from this checkout, snapshot from the environment)
+  hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
-  render/            local bun runner + canvas shim (also copied into the sandboxes)
+  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and the canvas shim
 docs/ARCHITECTURE.md this file
 docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
-docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared, with parallelism and Mubit numbers
+docs/LIVE_GENERATION.md  design note: live generation behind a server route, why only Vercel Sandbox renders, with parallelism and Mubit numbers
 ```
 
 ## Sprite flow
 
-1. `bun run assets -- "your brief"` (`--render local|shotcup|vercel|boat`), or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
+1. `bun run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it in the sandbox:
+   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.

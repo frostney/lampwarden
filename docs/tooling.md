@@ -108,10 +108,10 @@ they have nothing to look for and say so. gitleaks looks for key-shaped strings 
 run `gitleaks git --redact .` before every push (AGENTS.md).
 
 **Vercel.** Varlock reads the project's environment variables during the build and writes the resolved values into the
-server output, which is how the functions get them. Without `_VARLOCK_ENV_KEY` that is plaintext JSON in the build
-artifact, and the build warns about it. To encrypt it (AES-256-GCM), set a key for each of `preview` and `production`,
-then add `# @encryptInjectedEnv=forEnv(preview, production)` to the header of `.env.schema` so a build without a key
-fails:
+server output, which is how the functions get them. That output is encrypted (AES-256-GCM) with `_VARLOCK_ENV_KEY`, a
+sensitive variable set for `preview` and `production`; `# @encryptInjectedEnv=forEnv(preview, production)` in the
+header of `.env.schema` makes a build without the key fail instead of shipping the values as plaintext JSON. To set up
+a new project, or replace a key:
 
 ```
 bunx varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY preview --sensitive

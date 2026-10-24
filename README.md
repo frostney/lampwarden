@@ -46,7 +46,7 @@ The kit in `pipeline/kit/` is a small isometric renderer and a set of builders (
 Hard rules: every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5` and never sends `temperature`. Pixel art is made by code in this repository. The Mubit console's Good/Bad button rates one output and does not feed this loop; the verifier does.
 
 ```bash
-export MUBIT_API_KEY=...   # from the environment only
+export MUBIT_API_KEY=...   # or resolve it in .env.local (docs/tooling.md); never in a committed file
 bun run assets -- "Ionic marble column"
 ```
 
@@ -77,34 +77,40 @@ Night Shift's brief: build a product that routes its LLM calls through Mubit and
 
 ## Run it
 
-| Command                                | What it does                                                                                                    |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                |
-| `bun run dev`                          | Dev server on port 3000.                                                                                        |
-| `bun run build`, `bun run start`       | Production build and server.                                                                                    |
-| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                    |
-| `bun run balance`                      | Plays nights headlessly with an idle warden and a bot (200 runs a night, seeded).                               |
-| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                 |
-| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`. |
-| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame locally and compares pixels.                                   |
-| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                               |
-| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                              |
+| Command                                | What it does                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                            |
+| `bun run dev`                          | Dev server on port 3000.                                                                                                                    |
+| `bun run build`, `bun run start`       | Production build and server.                                                                                                                |
+| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                |
+| `bun run balance`                      | Plays nights headlessly with an idle warden and a bot (200 runs a night, seeded); `-- --director` plays them under stub director decisions. |
+| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                             |
+| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`.                             |
+| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame locally and compares pixels.                                                               |
+| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                                                           |
+| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                                                          |
 
 All commands, including `kit`, `logo` and `sandbox:snapshot`, are in [`docs/tooling.md`](docs/tooling.md).
 
+### Live director
+
+After each night, `POST /api/director` (`src/app/api/director/`) sends that night's recorded play, as the server holds it, to Mubit and answers with bounded balance tweaks for the same player's next night: the tide within 0.15 of the rules', a weight from 0.5 to 2 on each kind of monster, the creature's share of the spawns (0.1 to 0.4) and a line the sea says on the dawn and heir panels. The next night's recording says which decision it was played under, and the model sees how its last decision played out, so each night corrects the next. It never blocks play: a timeout (8 s), an error, invalid JSON, a rate limit or an answer that comes after the next night began leaves the rules' decision. Each decision is logged to Blob with the model's reasoning and the Mubit request id. Design, bounds, limits, a live run and balance numbers with stub decisions: [`docs/DIRECTOR.md`](docs/DIRECTOR.md).
+
 ## Deploying
 
-Playing needs no keys: the sprites are static files. Recorded plays and the creature gallery need a Blob token, and live creatures need the Mubit and sandbox settings below. Keys come from the environment only and are never committed; the pipeline commands run under `bun --no-env-file`.
+Playing needs no keys: the sprites are static files. Recorded plays and the creature gallery need a Blob token, and live creatures need the Mubit and sandbox settings below. Every variable is declared in [`.env.schema`](.env.schema) (type, where it is required, which are secret), which [Varlock](https://varlock.dev) validates and loads for `next dev` and `next build`; keys come from the environment only and are never committed. The table lists what to set on the Vercel project (Production and Preview). The pipeline commands run under `varlock run` and `bun --no-env-file`, so each gets only the variables it needs ([`docs/tooling.md`](docs/tooling.md), "Environment").
 
-| Variable                                                                                                                 | For                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BLOB_READ_WRITE_TOKEN`                                                                                                  | Recorded plays and the creature gallery (a private Vercel Blob store).                                                                          |
-| `MUBIT_API_KEY`                                                                                                          | Live creatures: the brief writer, generator and verifier.                                                                                       |
-| `VERCEL_SANDBOX_SNAPSHOT_ID`                                                                                             | Live creatures: printed by `bun run sandbox:snapshot` after `vercel link`; rebuild it when `pipeline/kit/kit.ts` or `pipeline/render/` changes. |
-| `CREATURE_RATE_SALT`                                                                                                     | Live creatures: at least 16 random characters, for example `openssl rand -hex 24`. Changing it resets the per-visitor counts.                   |
-| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY`, `CREATURE_CANDIDATES`, `CREATURE_BLOB_PREFIX` | Optional: defaults 3, 40, 3 (at most 5) and `creatures`.                                                                                        |
+| Variable                                                                                                                 | For                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BLOB_READ_WRITE_TOKEN`                                                                                                  | Recorded plays and the creature gallery (a private Vercel Blob store).                                                                            |
+| `MUBIT_API_KEY`                                                                                                          | Live creatures: the brief writer, generator and verifier.                                                                                         |
+| `VERCEL_SANDBOX_SNAPSHOT_ID`                                                                                             | Live creatures: printed by `bun run sandbox:snapshot` after `vercel link`; rebuild it when `pipeline/kit/kit.ts` or `pipeline/render/` changes.   |
+| `CREATURE_RATE_SALT`                                                                                                     | Live creatures: at least 16 random characters, for example `openssl rand -hex 24`. Changing it resets the per-visitor counts.                     |
+| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY`, `CREATURE_CANDIDATES`, `CREATURE_BLOB_PREFIX` | Optional: defaults 3, 40, 3 (at most 5) and `creatures`.                                                                                          |
+| `DIRECTOR_RATE_SALT` (else `CREATURE_RATE_SALT`)                                                                         | Live director: at least 16 characters; without a salt, or without `MUBIT_API_KEY`, every answer is the rules'.                                    |
+| `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX`, `DIRECTOR_PLAYS_PREFIX` | Optional: defaults 40, 2000, `director` (where decisions are logged) and `plays` (where it reads recorded plays; a test run points it elsewhere). |
 
-Without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment.
+A build for `preview` or `production` fails when `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` or `BLOB_READ_WRITE_TOKEN` is missing, so a deployment never ships with generation silently off. Locally, without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment. Varlock writes the project's resolved values into the build output, encrypted with `_VARLOCK_ENV_KEY`, and a build without that key fails ("Vercel" in [`docs/tooling.md`](docs/tooling.md)).
 
 ## Recorded plays and replays
 

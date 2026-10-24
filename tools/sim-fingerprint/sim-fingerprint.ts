@@ -13,6 +13,7 @@
 //   sim.ts       the rules, the monsters, the step
 //   random.ts    the seeded generator behind rand(state)
 //   legacy.ts    levels, upgrades and traits, which newNight reads (replay.ts calls levelsOf)
+//   director.ts  the live director's decision a night is played under (legacy.ts and replay.ts read it: directorFrom)
 //   creature.ts  a creature's stats from its archetype and modifiers, and the recorded subset the replay builds from
 //   replay.ts    STEP, quantise, Replayer and the headless verification
 //   assets.ts    FRAMES and FRAMES_PER_SECOND, which time the warden's animations inside the sim
@@ -24,6 +25,7 @@ export const SIM_SOURCES = [
   "src/game/sim.ts",
   "src/game/random.ts",
   "src/game/legacy.ts",
+  "src/game/director.ts",
   "src/game/creature.ts",
   "src/game/replay.ts",
   "src/scene/assets.ts",

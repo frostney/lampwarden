@@ -1,5 +1,11 @@
+import { varlockNextConfigPlugin } from "@varlock/nextjs-integration/plugin";
 import type { NextConfig } from "next";
 import { simFingerprint } from "./tools/sim-fingerprint/sim-fingerprint";
+
+// Varlock loads .env.schema (instead of @next/env, see the override in package.json): it validates the environment before
+// the build or the dev server starts, redacts sensitive values from logs, and fails a build that would put one into a
+// client bundle or a response.
+const withVarlock = varlockNextConfigPlugin();
 
 const nextConfig: NextConfig = {
   reactStrictMode: false, // the Pixi application is created once; strict-mode double mount just churns the GL context
@@ -12,7 +18,9 @@ const nextConfig: NextConfig = {
   // that render sprites live in the sandbox snapshot.
   outputFileTracingIncludes: {
     "/api/creatures/next": ["./pipeline/prompts/*.md", "./pipeline/kit/kit.ts", "./pipeline/render/*.ts"],
+    // the live director reads its system prompt (src/server/director/deps.ts)
+    "/api/director": ["./pipeline/prompts/director.md"],
   },
 };
 
-export default nextConfig;
+export default withVarlock(nextConfig);

@@ -12,8 +12,10 @@ import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
 import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
+import { askDirector } from "@/game/director-api";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
+  applyDirector,
   buy,
   clearLegacy,
   endWarden,
@@ -28,6 +30,7 @@ import {
   openShop,
   ordinal,
   saveLegacy,
+  setRulesDirector,
   TRAITS,
   type TraitId,
   tideLabel,
@@ -123,6 +126,13 @@ interface Report {
   name: string;
   tideBefore: number;
   tideAfter: number;
+  line: string; // the live director's answer, the sea's own words; empty while the rules' decision stands
+}
+
+// A recorded night on its way to the server: its id, and whether the upload went through.
+interface SentPlay {
+  id: string;
+  uploaded: Promise<boolean>;
 }
 
 // the visual verifier and recordings drive the game through window.lampwarden
@@ -188,19 +198,40 @@ export default function Game() {
   const [speed, setSpeed] = useState(1);
   const { tonight, ask, stop, withdraw } = useTonight();
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
+  const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
 
   // every night is recorded (inputs + timeline) and sent to /api/plays; the last one is also kept locally (?replay=last)
-  const sendPlay = useCallback((state: State | null) => {
+  const sendPlay = useCallback((state: State | null): SentPlay | null => {
     const recorder = recorderRef.current;
     recorderRef.current = null;
-    if (!recorder || !state) return;
+    if (!recorder || !state) return null;
     const play = recorder.finish(state);
     try {
       localStorage.setItem("lampwarden:lastPlay", JSON.stringify(play));
     } catch {
       /* full */
     }
-    if (!new URLSearchParams(location.search).has("verify")) void upload(play); // the visual verifier's nights are not real plays
+    // the visual verifier's nights are not real plays, so they are not uploaded (a stubbed server answers for them)
+    const verifying = new URLSearchParams(location.search).has("verify");
+    return { id: play.id, uploaded: verifying ? Promise.resolve(true) : upload(play) };
+  }, []);
+
+  // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
+  // while the dawn or heir panel is still up: starting the next night calls it off (startNight), and the rules' decision,
+  // which is already in place, plays instead. The panel never waits for it.
+  const consultDirector = useCallback((sent: SentPlay) => {
+    directorAsk.current?.abort();
+    const asking = new AbortController();
+    directorAsk.current = asking;
+    void sent.uploaded.then(async (uploaded) => {
+      if (!uploaded || asking.signal.aborted) return;
+      const answer = await askDirector(sent.id, asking.signal);
+      if (!answer || asking.signal.aborted) return;
+      const legacy = legacyRef.current;
+      if (!applyDirector(legacy, answer.decision)) return;
+      saveLegacy(legacy);
+      setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
+    });
   }, []);
 
   // pausing also lets go of held keys and the stick
@@ -214,12 +245,12 @@ export default function Game() {
 
   const endNight = useCallback(
     (state: State, outcome: Outcome) => {
-      sendPlay(state);
+      const sent = sendPlay(state);
       const legacy = legacyRef.current;
       const bonus = outcome === "dawn" ? dawnBonus(state) : 0;
       const tideBefore = legacy.tide;
       legacy.oil += state.oilEarned + bonus;
-      legacy.tide = nextTide(legacy.tide, state);
+      setRulesDirector(legacy, nextTide(legacy.tide, state), state.night, sent?.id); // the live director may replace it
       const nightReport: Report = {
         outcome,
         night: state.night,
@@ -230,6 +261,7 @@ export default function Game() {
         name: legacy.heir.name,
         tideBefore,
         tideAfter: legacy.tide,
+        line: "",
       };
       if (outcome === "dawn") {
         legacy.bestNight = Math.max(legacy.bestNight, legacy.night);
@@ -255,8 +287,9 @@ export default function Game() {
       pause(true);
       setReport(nightReport);
       ask(legacy.bestiary); // what the sea sends next
+      if (sent) consultDirector(sent);
     },
-    [sendPlay, pause, ask],
+    [sendPlay, consultDirector, pause, ask],
   );
 
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
@@ -414,6 +447,8 @@ export default function Game() {
   const startNight = async () => {
     if (starting.current) return;
     starting.current = true;
+    directorAsk.current?.abort(); // an answer that comes now is too late for this night
+    directorAsk.current = null;
     // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
     // not load, the night has none (a finished one is met on a later night).
     const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
@@ -461,6 +496,7 @@ export default function Game() {
     }
   };
   const newLine = () => {
+    directorAsk.current?.abort();
     clearLegacy();
     legacyRef.current = newLegacy();
     showPreview();
@@ -729,7 +765,7 @@ export default function Game() {
             <p>
               +{report.oil} oil from the slain, +{report.bonus} for the lamps still burning.
             </p>
-            <p className="dim">{tideNote(report)}</p>
+            <SeaAnswer report={report} />
             {shop}
             <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
             <button type="button" className="btn big" onClick={startNight}>
@@ -747,7 +783,7 @@ export default function Game() {
                 : `${report.name} fell on night ${report.night}.`}{" "}
               Their oil passes to the next warden.
             </p>
-            <p className="dim">{tideNote(report)}</p>
+            <SeaAnswer report={report} />
             <div className="heirs">
               {heirs.map((heir) => (
                 <button
@@ -794,6 +830,17 @@ function TraitMark({ trait }: { trait: TraitId }) {
       {TRAITS[trait].label}
     </span>
   );
+}
+
+// The sea's answer on the dawn and heir panels: the live director's own line when it came in time, else the rules' note.
+function SeaAnswer({ report }: { report: Report }) {
+  if (report.line)
+    return (
+      <p className="sea-answer" data-director-line aria-live="polite">
+        {report.line}
+      </p>
+    );
+  return <p className="dim">{tideNote(report)}</p>;
 }
 
 function tideNote(report: Report) {

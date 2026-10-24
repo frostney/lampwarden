@@ -11,7 +11,7 @@
 | `bun run knip`                         | Unused files, exports and dependencies.                                                                                                                                      |
 | `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`.               |
 | `bun run walkthrough -- <script.ts>`   | Records a pull request's narrated, subtitled walkthrough, `e2e/walkthrough.ts`, from a script of segments (example: `e2e/walkthroughs/title.ts`); writes `walkthrough-out/`. |
-| `bun run balance`                      | Plays nights headlessly with an idle and a bot warden.                                                                                                                       |
+| `bun run balance`                      | Plays nights headlessly with an idle and a bot warden (`-- --director`: under stub director decisions).                                                                      |
 | `bun run plays`                        | Balance report from recorded plays in Blob storage.                                                                                                                          |
 | `bun run logo`                         | Regenerates the logo, icons and share image from `tools/logo`.                                                                                                               |
 | `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`).                                                                                                     |
@@ -35,4 +35,4 @@ Lefthook runs `biome check --write` on staged files before each commit and re-st
 `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` from the shell environment only (the Vercel Sandbox renderer
 uses Vercel's OIDC token), and runs under `bun --no-env-file` so bun does not load `.env` files into the process.
 
-The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Live creatures").
+The deployed director route reads `MUBIT_API_KEY`, `DIRECTOR_RATE_SALT` (or `CREATURE_RATE_SALT`) and the optional `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX` and `DIRECTOR_PLAYS_PREFIX` (README, "Live director"). The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Live creatures").

@@ -6,7 +6,7 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png)
+                     :id/sprite.png), api/director (the live director: one POST per finished night)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
                      arrow beside the daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon`
@@ -33,15 +33,19 @@ src/
                      shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
                      sorted with its lamp), the melee sweep, shots, white blow flashes, marks and the wound vignette
   game/              the game itself, no Pixi
-    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
+    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide the rules pick (rulesTide) and the live director's mix and creature share; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
                      a monster's blow on the warden (his hit-stop, knockback and mercy frames); the night's creature from
                      the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from 8 s in,
                      drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
+    director.ts      the live director's contract, shared by the game and the server: what it may change (tide within 0.15 of
+                     the rules', a 0.5 to 2 weight per kind, the creature's share 0.1 to 0.4, a 90-character plain line), and
+                     the code that enforces it (clampProposal, checkedDecision, directorFrom); a decision applies to one night
+    director-api.ts  the game's side of POST /api/director: the request and answer shapes, and asking (any failure is null)
     legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
-                     sex), tide, the bestiary (ids of the creatures the line has met); localStorage save, validated with Zod on load (a save or recorded play from before an
+                     sex), tide and the live director's decision for the coming night, the bestiary (ids of the creatures the line has met); localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
     weapons.ts       what the warden carries as the UI shows it (son: sword and bow; daughter: spear and sling): the
                      touch buttons' icons, the shop's label, text and icon per upgrade, and which warden the shop is
@@ -61,6 +65,11 @@ src/
                      stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
                      starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
                      (the only module that reads env and files and wires Mubit, the sandbox and Blob)
+  server/director/   what the director route does, with store, clock, model and log injected: service (the play, the limits,
+                     the model call, the fallbacks, the log), summary (the night as the model is told it, from the stored play),
+                     log (the decision record), config (env, limits), store (the interface) with store.blob and store.memory,
+                     deps (the only module that reads env and the prompt and wires Mubit and Blob); the prompt is
+                     pipeline/prompts/director.md
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
                      warden's eight directions (octants), the five of them drawn and the three mirrored
@@ -91,7 +100,7 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
+scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
@@ -111,6 +120,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
   render/            local bun runner + canvas shim (also copied into the sandboxes)
 docs/ARCHITECTURE.md this file
+docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
 docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared, with parallelism and Mubit numbers
 ```
 

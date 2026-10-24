@@ -16,7 +16,7 @@ Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react
 bun install
 bun run dev        # http://localhost:3000
 bun run build      # production build
-bun run balance    # headless balance check: an idle and a bot warden play nights 1-7
+bun run balance    # headless balance check: an idle and a bot warden play nights 1-7 (--director: with stub director decisions)
 bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs `bun run start` running), see below
 ```
 
@@ -122,6 +122,10 @@ Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework p
 1. `vercel link`, then `bun run sandbox:snapshot`: builds the sandbox snapshot (Bun 1.4.4, the kit and the runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Rebuild it whenever `pipeline/kit/kit.ts` or `pipeline/render/` changes; a render refuses a snapshot that does not match the deployed kit.
 2. Set on the Vercel project: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, and `CREATURE_RATE_SALT` (at least 16 random characters, e.g. `openssl rand -hex 24`; it keys the per-visitor limit and changing it resets the counts). Optional: `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` (default 3), `CREATURE_MAX_STARTS_PER_DAY` (default 40, site-wide per UTC day), `CREATURE_CANDIDATES` (default 3 candidate sprites per job, at most 5), `CREATURE_BLOB_PREFIX` (default `creatures`).
 3. Without these the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` when a player has met everything.
+
+### Live director
+
+`POST /api/director` asks Mubit, after each night, for bounded balance tweaks for the same player's next night (design, bounds, limits, the live run and the stub-director balance numbers: [`docs/DIRECTOR.md`](docs/DIRECTOR.md)). The game plays without it: any failure leaves the rules' decision. To turn it on, set on the Vercel project `MUBIT_API_KEY` and a salt of at least 16 characters, `DIRECTOR_RATE_SALT` (or `CREATURE_RATE_SALT`, which it falls back to). Optional: `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR` (default 40), `DIRECTOR_MAX_CALLS_PER_DAY` (default 2000), `DIRECTOR_BLOB_PREFIX` (default `director`, where each decision is logged), `DIRECTOR_PLAYS_PREFIX` (default `plays`, a test run points it elsewhere). `bun scripts/balance.ts 100 --director` shows what fixed "eased" and "pushed" decisions do to the same seeded nights.
 
 ## More
 

@@ -1,6 +1,7 @@
 // Play recording for testing and balancing. A night is fully determined by its seed, the legacy it started from and the
 // warden's inputs at a fixed 60 Hz step, so a recording is just those inputs (only when they change) plus a per-second
 // timeline that the balance analysis can read without replaying anything.
+import { directorFrom } from "./director";
 import { type Legacy, levelsOf } from "./legacy";
 import { type RecordedCreature, recordedCreatureSchema } from "./plays";
 import { type Input, litCount, type NightCreature, newNight, nightCreature, type State, step } from "./sim";
@@ -19,8 +20,12 @@ export interface Play {
   build: string; // git sha of the deployment, when known
   startedAt: string;
   seed: number;
-  // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf)
-  legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & { levels: Partial<Legacy["levels"]> };
+  // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf). The director
+  // is the decision the night was played under (mix and creature share); a play from before it has none (the rules').
+  legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & {
+    levels: Partial<Legacy["levels"]>;
+    director?: unknown;
+  };
   // the creature from the sea that joined the night, when one did; a play from before creatures has none
   creature?: RecordedCreature;
   inputs: InputRow[];
@@ -55,7 +60,7 @@ export class Recorder {
   play: Play;
   private last: InputRow | null = null;
   constructor(legacy: Legacy, seed: number, build: string, creature: RecordedCreature | null = null) {
-    const { night, generation, tide, levels, heir } = legacy;
+    const { night, generation, tide, levels, heir, director } = legacy;
     this.play = {
       v: 1,
       id: `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${randomId()}`,
@@ -63,7 +68,7 @@ export class Recorder {
       build,
       startedAt: new Date().toISOString(),
       seed,
-      legacy: structuredClone({ night, generation, tide, levels, heir }),
+      legacy: structuredClone({ night, generation, tide, levels, heir, director }),
       ...(creature ? { creature: structuredClone(creature) } : {}),
       inputs: [],
       timeline: [],
@@ -143,6 +148,7 @@ export function legacyOf(play: Play): Legacy {
   return {
     ...play.legacy,
     levels: levelsOf(play.legacy.levels),
+    director: directorFrom(play.legacy.director, play.legacy.tide, play.legacy.night),
     bestiary: [],
     offerSeed: 0,
     offers: [],

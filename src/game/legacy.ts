@@ -2,6 +2,7 @@
 // Saved to localStorage, so a reload keeps the line going.
 import { z } from "zod";
 import { SEXES, type Sex } from "../scene/assets";
+import { checkedDecision, type Director, directorFrom, rulesDirector } from "./director";
 import { nextRandom } from "./random";
 
 export const UPGRADE_IDS = [
@@ -62,7 +63,8 @@ export interface Legacy {
   levels: Levels;
   offerSeed: number; // advanced each time the shop opens: the offers come from it, so a reload does not reroll them
   offers: UpgradeId[]; // the upgrades on sale in the current shop
-  tide: number; // director difficulty multiplier, read from how the player did (0.6..2)
+  tide: number; // director difficulty multiplier, read from how the player did (0.6..2); the sim reads this one
+  director: Director; // the coming night's decision: the live director's answer if it came in time, else the rules'
   bestiary: string[]; // ids of the creatures from the sea this line has met, oldest first (sent to the gallery as `seen`)
   fallen: { name: string; night: number; cause: string }[];
 }
@@ -163,9 +165,31 @@ export function newLegacy(offerSeed = Math.floor(Math.random() * 4294967296)): L
     offerSeed,
     offers: drawOffers(offerSeed, levels),
     tide: 1,
+    director: rulesDirector(1, 0),
     bestiary: [],
     fallen: [],
   };
+}
+
+// A night ended and the rules chose its tide: that is the coming night's director until the live one answers. `playId` is
+// the recording the live director will be asked about.
+export function setRulesDirector(legacy: Legacy, rulesTide: number, endedNight: number, playId?: string) {
+  legacy.tide = rulesTide;
+  legacy.director = rulesDirector(rulesTide, endedNight, playId);
+}
+
+// The live director's answer for the night that just ended, if it is still the one the coming night waits for: it must
+// answer the same recording, arrive while the rules' decision is still in place (once a night has started it is too late:
+// that night's recording has already replaced it), and it is brought inside the bounds again. True when it was applied.
+export function applyDirector(legacy: Legacy, received: unknown): boolean {
+  const waiting = legacy.director;
+  if (waiting.source !== "rules" || waiting.playId === undefined) return false;
+  const decision = checkedDecision(received, waiting.rulesTide);
+  if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight)
+    return false;
+  legacy.tide = decision.tide;
+  legacy.director = decision;
+  return true;
 }
 
 // The line meets a creature from the sea: its id joins the bestiary (once), and the oldest drop off past the limit.
@@ -201,6 +225,7 @@ const storedLegacy = z.object({
   offerSeed: field(z.number().int()),
   offers: field(z.array(z.enum(UPGRADE_IDS))),
   tide: field(z.number().min(0.6).max(2)),
+  director: field(z.unknown()),
   bestiary: field(z.array(z.string())),
   fallen: field(z.array(z.object({ name: z.string(), night: z.number(), cause: z.string() }))),
 });
@@ -209,16 +234,19 @@ export function parseLegacy(stored: unknown): Legacy {
   const parsed = storedLegacy.parse(stored);
   const levels = levelsOf(parsed.levels);
   const offerSeed = parsed.offerSeed ?? fresh.offerSeed;
+  const tide = parsed.tide ?? fresh.tide;
+  const night = parsed.night ?? fresh.night;
   return {
     generation: parsed.generation ?? fresh.generation,
     heir: parsed.heir ?? fresh.heir,
-    night: parsed.night ?? fresh.night,
+    night,
     bestNight: parsed.bestNight ?? fresh.bestNight,
     oil: parsed.oil ?? fresh.oil,
     levels,
     offerSeed,
     offers: parsed.offers ? [...new Set(parsed.offers)].slice(0, OFFER_COUNT) : drawOffers(offerSeed, levels),
-    tide: parsed.tide ?? fresh.tide,
+    tide,
+    director: directorFrom(parsed.director, tide, night),
     bestiary: [...new Set(parsed.bestiary)].slice(-BESTIARY_LIMIT),
     fallen: parsed.fallen ?? fresh.fallen,
   };

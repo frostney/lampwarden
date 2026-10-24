@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { nextCreatureRequestSchema } from "./creature";
 import {
+  applyDirector,
   buy,
   drawOffers,
   emptyLevels,
@@ -13,6 +14,7 @@ import {
   OFFER_COUNT,
   openShop,
   parseLegacy,
+  setRulesDirector,
   UPGRADE_IDS,
   type UpgradeId,
 } from "./legacy";
@@ -210,5 +212,87 @@ describe("the bestiary", () => {
     for (let count = 0; count < 520; count++) meet(legacy, `creature-${count}`);
     expect(nextCreatureRequestSchema.safeParse({ seen: legacy.bestiary }).success).toBe(true);
     expect(legacy.bestiary.at(-1)).toBe("creature-519"); // the oldest dropped, not the newest
+  });
+});
+
+describe("the director in the legacy", () => {
+  const PLAY_ID = "2026-10-24-16-11-46-juith2u0";
+  const answer = (legacy: ReturnType<typeof newLegacy>, overrides: Record<string, unknown> = {}) => ({
+    ...legacy.director,
+    source: "mubit",
+    tide: 0.9,
+    mix: { satyr: 1, cyclops: 0.6, harpy: 1.4 },
+    creatureShare: 0.3,
+    line: "The sea draws back.",
+    ...overrides,
+  });
+  const afterNight = () => {
+    const legacy = newLegacy(3);
+    legacy.night = 3;
+    setRulesDirector(legacy, 1, 2, PLAY_ID);
+    return legacy;
+  };
+
+  test("an old save has the rules' director for the coming night", () => {
+    const legacy = parseLegacy(OLD_SAVE);
+    expect(legacy.director).toEqual({
+      source: "rules",
+      tide: 1.3,
+      rulesTide: 1.3,
+      mix: { satyr: 1, cyclops: 1, harpy: 1 },
+      creatureShare: 0.25,
+      line: "",
+      decidedAfterNight: 3,
+    });
+    expect(newLegacy().director.source).toBe("rules");
+  });
+
+  test("a saved director comes back, and a damaged one is the rules'", () => {
+    const legacy = afterNight();
+    expect(applyDirector(legacy, answer(legacy))).toBe(true);
+    expect(parseLegacy(JSON.parse(JSON.stringify(legacy))).director).toEqual(legacy.director);
+    const damaged = JSON.parse(JSON.stringify(legacy));
+    damaged.director.mix.cyclops = 12;
+    expect(parseLegacy(damaged).director.source).toBe("rules");
+    damaged.director = "mubit";
+    expect(parseLegacy(damaged).director.source).toBe("rules");
+  });
+
+  test("the live director's answer replaces the rules' decision, tide included", () => {
+    const legacy = afterNight();
+    expect(applyDirector(legacy, answer(legacy))).toBe(true);
+    expect(legacy.tide).toBe(0.9);
+    expect(legacy.director).toMatchObject({ source: "mubit", creatureShare: 0.3, playId: PLAY_ID });
+  });
+
+  test("an answer is brought inside the bounds again, whatever the server said", () => {
+    const legacy = afterNight();
+    // the server claimed the rules' tide was 1.4; the game knows it is 1, so 1.4 - 0.1 = 1.3 is pulled in to 1.15
+    expect(applyDirector(legacy, answer(legacy, { rulesTide: 1.4, tide: 1.3 }))).toBe(true);
+    expect(legacy.tide).toBe(1.15);
+  });
+
+  test("an answer that is late, for another play, twice, or not an answer, changes nothing", () => {
+    const legacy = afterNight();
+    const before = structuredClone(legacy);
+    expect(applyDirector(legacy, answer(legacy, { playId: "2026-10-24-16-11-47-aaaaaaaa" }))).toBe(false);
+    expect(applyDirector(legacy, answer(legacy, { decidedAfterNight: 1 }))).toBe(false);
+    expect(applyDirector(legacy, answer(legacy, { source: "rules" }))).toBe(false);
+    expect(applyDirector(legacy, answer(legacy, { line: "" }))).toBe(false);
+    expect(applyDirector(legacy, null)).toBe(false);
+    expect(legacy).toEqual(before);
+    expect(applyDirector(legacy, answer(legacy))).toBe(true);
+    expect(applyDirector(legacy, answer(legacy, { tide: 0.85 }))).toBe(false); // already answered
+    // the next night's end puts the rules' decision back, and the earlier answer cannot apply to it
+    const earlier = answer(legacy);
+    setRulesDirector(legacy, 1, 3, "2026-10-24-16-20-00-bbbbbbbb");
+    expect(applyDirector(legacy, earlier)).toBe(false);
+    expect(legacy.director.source).toBe("rules");
+  });
+
+  test("a night that left no recording has nothing to ask about", () => {
+    const legacy = newLegacy();
+    setRulesDirector(legacy, 0.85, 1);
+    expect(applyDirector(legacy, answer(legacy))).toBe(false);
   });
 });

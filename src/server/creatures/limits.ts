@@ -22,8 +22,11 @@ export function clientAddress(headers: Headers): string | null {
 
 export type StartDecision = { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
+/** What the limits read of a store: the marks of past starts (the creature jobs', or the director's calls). */
+export type StartLedger = Pick<CreatureStore, "visitorStartsBetween" | "startsOnDay">;
+
 export async function checkStartLimits(
-  store: CreatureStore,
+  store: StartLedger,
   now: Date,
   visitor: string,
   limits: StartLimits,

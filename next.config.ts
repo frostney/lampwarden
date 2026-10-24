@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   // that render sprites live in the sandbox snapshot.
   outputFileTracingIncludes: {
     "/api/creatures/next": ["./pipeline/prompts/*.md", "./pipeline/kit/kit.ts", "./pipeline/render/*.ts"],
+    // the live director reads its system prompt (src/server/director/deps.ts)
+    "/api/director": ["./pipeline/prompts/director.md"],
   },
 };
 

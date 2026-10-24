@@ -73,7 +73,7 @@ This writes the PNG, its builder code and a row in `public/sprites/manifest.json
 
 Starting a job is rate limited, to 3 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
-Not on `main`: rendering in-process with QuickJS in WebAssembly is an open proposal ([#33](https://github.com/frostney/lampwarden/pull/33)), and drawing creatures as code in the browser is still being built.
+Running the model's code anywhere but the sandbox was measured and not adopted: in process with QuickJS in WebAssembly ([#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) and in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)). `docs/LIVE_GENERATION.md`, "Why only the sandbox", has the numbers.
 
 ## Night Shift and Mubit
 

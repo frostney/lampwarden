@@ -7,7 +7,10 @@ export const JOB_MAX_DURATION_SECONDS = 300;
 /** A job gives up this long before the function would be killed, so it can still record that it failed. */
 export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - 30;
 
-const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 3;
+// A normal session starts a job per night (the game asks for the next night's creature as a night begins), and a night
+// with the dawn after it is a minute or two: 12 an hour covers a long evening's play, while the site's daily ceiling
+// stays the cost control (one visitor can use at most 12 of its 40). Past it a visitor still meets what the gallery has.
+const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 12;
 const DEFAULT_STARTS_PER_DAY = 40;
 const DEFAULT_BLOB_PREFIX = "creatures";
 const DEFAULT_CANDIDATES = 3;

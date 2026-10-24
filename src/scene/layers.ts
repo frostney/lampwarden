@@ -28,6 +28,7 @@ import {
   octantVector,
   SEXES,
 } from "./assets";
+import type { Point } from "./extent";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { cutCharacterFrames, isCharacterKey, withoutPaintedShadow } from "./rim";
@@ -188,7 +189,7 @@ function silhouette(texture: Texture): Texture | null {
 
 const PLAZA_TILES = 12;
 
-// the ground over the sea (water.ts): the plaza, its walls, the fountain and the planks to the galley
+// the ground over the sea (water.ts): the plaza, its walls and the fountain
 export function drawGround(graphics: Graphics) {
   // plaza: 12x12 iso diamond tiles of 64x32
   for (let row = 0; row < PLAZA_TILES; row++) {
@@ -229,11 +230,17 @@ export function drawGround(graphics: Graphics) {
     .fill(0x6f5a3a);
   graphics.ellipse(CENTRE_X, CENTRE_Y + 8, 70, 35).stroke({ width: 3, color: 0x3d6f8c });
   graphics.ellipse(CENTRE_X, CENTRE_Y + 8, 46, 23).fill({ color: 0x3d6f8c, alpha: 0.35 });
-  for (let plank = 0; plank < 6; plank++) {
-    const x = CENTRE_X + 270 + plank * 14;
-    const y = CENTRE_Y + 108 - plank * 7;
-    graphics.poly([x, y, x + 34, y + 17, x + 34, y + 23, x, y + 6]).fill(plank % 2 ? 0x8a6a3a : 0x9b7843);
-  }
+}
+
+const PLANK_COUNT = 6; // planks in a jetty
+// the planks of a night's jetties (decor.ts: a galley's dock brings its own), over the ground and under the sprites
+export function drawPlanks(graphics: Graphics, planks: readonly Point[]) {
+  for (const [startX, startY] of planks)
+    for (let plank = 0; plank < PLANK_COUNT; plank++) {
+      const x = startX + plank * 14;
+      const y = startY - plank * 7;
+      graphics.poly([x, y, x + 34, y + 17, x + 34, y + 23, x, y + 6]).fill(plank % 2 ? 0x8a6a3a : 0x9b7843);
+    }
 }
 
 const interpolate = (start: number, end: number, amount: number) => start + (end - start) * amount;
@@ -256,17 +263,6 @@ export function nightTint(progress: number) {
 export const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);
 // the lights fade out over the last 15% of the night
 export const lightsAlpha = (progress: number) => (progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15);
-
-export const PROPS: [string, number, number][] = [
-  ["temple", 372, 236],
-  ["house", 620, 240],
-  ["zeus-statue", CENTRE_X, CENTRE_Y + 14],
-  ["galley-dock", CENTRE_X + 345, CENTRE_Y + 112],
-  ["olive", 160, 300],
-  ["olive", 800, 300],
-  ["stall", 610, 330],
-  ["wall", 250, 228],
-];
 
 // where a sprite's base touches the ground, as a Pixi anchor (one object per height, so React props stay equal)
 const anchors = new Map<number, { x: number; y: number }>();

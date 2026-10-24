@@ -57,6 +57,7 @@ import {
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
+import { decorFor } from "@/scene/decor";
 import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -329,11 +330,13 @@ export default function Game() {
     appRef.current = app;
   }, []);
 
-  // puts a night on stage
+  // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
+  // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
+  // same plaza.
   const show = useCallback(
     (state: State, sex: Sex, driver: Driver | null = null, creatureTextures: TextureMap | null = null) => {
       stateRef.current = state;
-      setNight({ state, sex, driver, creatureTextures });
+      setNight({ state, sex, driver, creatureTextures, decor: decorFor(state.randomState) });
     },
     [],
   );

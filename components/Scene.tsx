@@ -4,15 +4,16 @@
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { extend, useTick } from "@pixi/react";
-import { Container, Graphics, Sprite, UPDATE_PRIORITY, type FederatedPointerEvent, type Texture, type Ticker } from "pixi.js";
+import { Container, Graphics, Sprite, UPDATE_PRIORITY, type FederatedPointerEvent, type Ticker } from "pixi.js";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { heroKey, type Sex } from "@/lib/assets";
 import { bindKeyboard, consumePresses, liveInput, shootAt, type Controls } from "@/lib/controls";
+import { glintFrame, heroLight, lampFlicker, lampLight, lanternGlow, type LightPiece } from "@/lib/light";
 import { STEP } from "@/lib/replay";
 import {
-  PROPS, anchor, drawGround, drawMarks, drawSheet, drawSweep, flicker, glowTexture, heroFrame, lightsAlpha, nightTint, type Tex,
+  PROPS, anchor, drawGround, drawMarks, drawSheet, drawSweep, heroFrame, lightsAlpha, nightTint, type Tex,
 } from "@/lib/scene";
-import { CX, MONSTER, step, type Hero as HeroState, type Input, type Lamp, type Monster, type Rules, type State } from "@/lib/sim";
+import { CX, MONSTER, step, type Hero as HeroState, type Input, type Lamp, type Monster, type State } from "@/lib/sim";
 
 extend({ Container, Graphics, Sprite });
 
@@ -32,9 +33,9 @@ interface SceneProps {
   onReady: () => void;          // the scene is on the stage
 }
 
-// Shared by every entity for the life of the scene: textures, the glow disc and the clock (seconds; the boat's bob and
-// the dark lamps' pulse). The clock is a ref so it can move every frame without a render.
-const SceneContext = createContext<{ tex: Tex; glow: Texture; clock: RefObject<number> } | null>(null);
+// Shared by every entity for the life of the scene: textures and the clock (seconds; the boat's bob, the dark lamps'
+// pulse, the lights' flicker and glints). The clock is a ref so it can move every frame without a render.
+const SceneContext = createContext<{ tex: Tex; clock: RefObject<number> } | null>(null);
 const useScene = () => useContext(SceneContext)!;
 
 // Keeps a Pixi object in step with the sim: once when it mounts (before it is first drawn), then every frame.
@@ -46,9 +47,8 @@ function useFrame(update: () => void) {
 const noDraw = () => {};   // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
 
 export const Scene = memo(function Scene({ night, tex, controls, paused, speed, frozenClock, onTick, onReady }: SceneProps) {
-  const glow = useMemo(glowTexture, []);
   const clock = useRef(0);
-  const ctx = useMemo(() => ({ tex, glow, clock }), [tex, glow]);
+  const ctx = useMemo(() => ({ tex, clock }), [tex]);
 
   // per-frame settings, read by the sim tick without re-registering it
   const live = useRef({ paused, speed, frozenClock, onTick });
@@ -101,8 +101,8 @@ export const Scene = memo(function Scene({ night, tex, controls, paused, speed, 
       <Strokes draw={sweep} />
       <NightSheet state={s} />
       <Lights state={s}>
-        <HeroGlow hero={s.hero} />
-        {s.lamps.map((l, i) => <LampGlow key={i} lamp={l} rules={s.rules} />)}
+        <HeroLight hero={s.hero} />
+        {s.lamps.map((lamp, index) => <LampLight key={index} lamp={lamp} radius={s.rules.lightR} />)}
       </Lights>
       <Strokes draw={marks} />
     </SceneContext.Provider>
@@ -189,27 +189,57 @@ function Lights({ state, children }: { state: State; children: ReactNode }) {
   return <pixiContainer ref={ref}>{children}</pixiContainer>;
 }
 
-const HeroGlow = memo(function HeroGlow({ hero: h }: { hero: HeroState }) {
-  const { glow } = useScene();
+// a light piece drawn at a point: its texture, placed by its top-left offset
+function place(sprite: Sprite, piece: LightPiece, x: number, y: number) {
+  sprite.texture = piece.texture;
+  sprite.position.set(x + piece.offsetX, y + piece.offsetY);
+}
+
+// the warden's own small light, in the same stepped bands as the lamps
+const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
+  const { clock } = useScene();
   const ref = useRef<Sprite>(null);
-  useFrame(useCallback(() => { ref.current!.position.set(h.x, h.y - 4); }, [h]));
-  return <pixiSprite ref={ref} texture={glow} anchor={0.5} blendMode="add" width={120} height={60} alpha={0.5} />;
+  useFrame(useCallback(() => {
+    const sprite = ref.current;
+    if (!sprite) return;
+    const centerX = Math.round(hero.x), centerY = Math.round(hero.y) - 4;
+    place(sprite, heroLight(centerX, centerY, clock.current), centerX, centerY);
+  }, [hero, clock]));
+  return <pixiSprite ref={ref} blendMode="add" />;
 });
 
-// a lit lamp's pool of light on the ground and the glow of the lantern itself
-const LampGlow = memo(function LampGlow({ lamp: l, rules }: { lamp: Lamp; rules: Rules }) {
-  const { glow } = useScene();
-  const pool = useRef<Sprite>(null), head = useRef<Sprite>(null);
+// A lit lamp's light, all of it precomputed in lib/light.ts: the pool on the ground, the lantern glowing in its own
+// colours inside a halo, and the glints on the stone, the brass and the sea. A dark lamp shows none of it.
+const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius: number }) {
+  const { tex, clock } = useScene();
+  const lantern = lanternGlow(tex["lamp-lit"]);
+  const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
+  const group = useRef<Container>(null), pool = useRef<Sprite>(null), halo = useRef<Sprite>(null);
+  const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(useCallback(() => {
-    const f = flicker(l), g = pool.current!, hd = head.current!;
-    g.visible = hd.visible = l.lit;
-    g.width = rules.lightR * 2.2 * f; g.height = rules.lightR * 1.1 * f;
-    hd.width = hd.height = 46 * f;
-  }, [l, rules]));
+    const groupContainer = group.current, poolSprite = pool.current, haloSprite = halo.current;
+    if (!groupContainer || !poolSprite || !haloSprite) return;
+    groupContainer.visible = lamp.lit;
+    if (!lamp.lit) return;
+    const variant = lampFlicker(light, clock.current);
+    place(poolSprite, light.pools[variant], light.poolX, light.poolY);
+    place(haloSprite, light.halos[variant], light.haloX, light.haloY);
+    light.glints.forEach((glint, index) => {
+      const sprite = glintSprites.current[index];
+      if (!sprite) return;
+      const frame = glintFrame(glint, clock.current);
+      sprite.visible = frame !== null;
+      if (frame) place(sprite, frame, glint.x, glint.y);
+    });
+  }, [lamp, light, clock]));
   return (
-    <>
-      <pixiSprite ref={pool} texture={glow} anchor={0.5} blendMode="add" x={l.x} y={l.y - 6} />
-      <pixiSprite ref={head} texture={glow} anchor={0.5} blendMode="add" alpha={0.8} x={l.x} y={l.y - 78} />
-    </>
+    <pixiContainer ref={group}>
+      <pixiSprite ref={pool} blendMode="add" />
+      <pixiSprite ref={halo} blendMode="add" />
+      <pixiSprite texture={lantern.texture} x={lamp.x + lantern.offsetX} y={lamp.y + lantern.offsetY} blendMode="add" alpha={0.45} />
+      {light.glints.map((glint, index) => (
+        <pixiSprite key={index} ref={(sprite: Sprite | null) => { glintSprites.current[index] = sprite; }} blendMode="add" />
+      ))}
+    </pixiContainer>
   );
 });

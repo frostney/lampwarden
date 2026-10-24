@@ -1,8 +1,9 @@
-// What the scene looks like, in plain Pixi: textures, the ground, props, the night tint, the lights and the strokes
-// redrawn every frame. components/Scene.tsx puts these on screen with @pixi/react and keeps them in step with the sim.
+// What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
+// frame (the lights are in light.ts). components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
+// with the sim.
 import { Assets, Graphics, Texture } from "pixi.js";
 import { ANCHOR_Y, FPS, FRAMES, assetList, type Anim } from "./assets";
-import { CX, CY, H, HALF_H, HALF_W, MONSTER, W, type Lamp, type State } from "./sim";
+import { CX, CY, H, HALF_H, HALF_W, MONSTER, W, type State } from "./sim";
 
 export type Tex = Record<string, Texture>;
 
@@ -42,20 +43,6 @@ export function drawGround(g: Graphics) {
   }
 }
 
-// a soft warm disc, drawn once and stretched into iso ellipses for every light
-export function glowTexture(): Texture {
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const ctx = c.getContext("2d")!;
-  const gr = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gr.addColorStop(0, "rgba(255,190,110,0.85)");
-  gr.addColorStop(0.45, "rgba(255,150,70,0.35)");
-  gr.addColorStop(1, "rgba(255,120,40,0)");
-  ctx.fillStyle = gr;
-  ctx.fillRect(0, 0, 128, 128);
-  return Texture.from(c);
-}
-
 // the white sheet the night tint is multiplied through
 export function drawSheet(g: Graphics) { g.clear(); g.rect(0, 0, W, H).fill(0xffffff); }
 
@@ -88,8 +75,6 @@ export function anchor(key: keyof typeof ANCHOR_Y | string) {
 
 export const heroFrame = (anim: Anim, frameT: number) =>
   Math.min(Math.floor(frameT * FPS[anim]) % Math.max(1, FRAMES[anim]), FRAMES[anim] - 1);
-
-export const flicker = (l: Lamp) => 1 + Math.sin(l.flicker * 9) * 0.03 + Math.sin(l.flicker * 23) * 0.02;
 
 // a progress ring; moveTo first, or the arc is joined to wherever the previous shape ended
 function ring(g: Graphics, x: number, y: number, r: number, k: number, color: number) {

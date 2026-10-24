@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check": "bun run lint && bun run typecheck && bun test && bun run knip && bun run build",
+    "check": "bun run lint && bun run typecheck && bun test && bun run knip && bun run check:generated && bun run build",
+    "check:generated": "bun pipeline/assemble-kit.ts --check && bun tools/logo/build.ts --check",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit -p .",
@@ -47,5 +48,5 @@
     "playwright": "^1.64.1",
     "typescript": "^7.0.2"
   },
-  "packageManager": "bun@1.4.3"
+  "packageManager": "bun@1.4.4"
 }

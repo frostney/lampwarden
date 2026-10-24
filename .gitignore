@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+.env
+.env*
+!.env.example
+pipeline/runs/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/

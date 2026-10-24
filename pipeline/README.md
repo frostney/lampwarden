@@ -63,15 +63,17 @@ Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames i
 
 Run body: `{"code": <main.ts>, "engine": {"canvas": true}, "mounts": [{"drive": "lampwarden", "path": "/kit", "mode": "ro"}], "deterministic": true}`; PNGs come back as `/out/*.png` artifacts.
 
-`shotcup_render.py` implements this over the REST API (`POST /api/v1/drives`, `PUT /api/v1/drives/lampwarden/files`, `POST /api/v1/runs`) and needs `SHOTCUP_API_KEY`. `python3 pipeline/shotcup_main.py build.ts > main.ts` and `--hero male walk` print the generated main for inspection.
+`shotcup_render.py` implements this over the REST API (`POST /api/v1/drives`, `PUT /api/v1/drives/lampwarden/files`, `POST /api/v1/runs`, `Authorization: Bearer`) and needs `SHOTCUP_API_KEY`. `python3 pipeline/shotcup_main.py build.ts > main.ts` and `--hero male walk` print the generated main for inspection.
 
-### What was actually run, and what was not
+### What was measured (24 Oct 2026, Scale plan, kit sha256 `cf66f505c9e9…`)
 
-- The same run body was executed 11 times through the Shotcup **MCP** server (not through `shotcup_render.py`): hero frames and key sprites. All 11 outputs were pixel-identical to the local bun renderer.
-- **`shotcup_render.py` itself has not been executed against the API** (no API key on the box at the time). It compiles, and the no-key path returns a clean error to the loop (checked). Treat the first real run as a test.
-- **Shotcup was slower than local, not faster, for this workload.** Local bun renders a sprite in about 0.4 s including process start. On Shotcup, per-run engine time was about 18 s per hero frame (unscaled 128 px frames) and about 41–61 s per auto-scaled sprite (roughly 0.1–0.9 G engine instructions each). Batching several sprites into one run did not amortise anything meaningful, because the cost is render compute, not setup.
-- **Shrinking the kit would not help.** Loading `/kit/kit.ts` (164 KB, 53 exports at the time; it is now 212 KB and 58 exports with the building builders, not re-measured on Shotcup) took about 0.23 s in the engine; the time is in the rasteriser.
-- So the value of `--render shotcup` here is sandboxed, deterministic remote execution of model-written code (no local bun, nothing runs on your machine), not speed. Plan on the local renderer for iteration.
-- A Mubit-driven run through `run.py --render shotcup` end to end has not been done.
+- **The REST client works against the live API.** The drive endpoints, the auth header and the run response shape were as the client expected. Two fixes came out of the first runs: `timeoutMs` 600000 was above the plan's 300 s ceiling and got clamped with a warning (now 300000), and when all workers were taken the run failed as `daemon-error` "the runtime is busy; retry shortly" after about 30 s, which `run.py` would have scored as broken code. That failure is now retried (checked: a busy first attempt, then success on the retry).
+- **Pixel-identical to local.** 47 Shotcup renders of 6 sprites (temple, house, lamp-lit, olive, satyr, hero-male-still) decode to exactly the local bun pixels. The PNG bytes differ because the encoders compress differently.
+- **Much slower than local.** Three repetitions each, client wall clock per single-sprite run (local bun subprocess in brackets): temple 106.5-106.9 s (337-344 ms), house 25.1-25.5 s (112-114 ms), lamp-lit 10.1-10.3 s (84-87 ms), olive 52.1-52.4 s (190-273 ms), satyr 21.4-21.5 s (141-143 ms), hero-male-still 19.7-19.9 s (139-141 ms). That is 118-314x local. Engine time (`metrics.engineMs`) is within 0.8 s of wall clock, and repetitions vary by under 2%.
+- **Batching doesn't help.** All six in one run took 231.4-234.9 s, the same as the six single runs together (235.3 s). Starting six single runs at once was worse: the runtime had 4 workers, only 3 runs were admitted each time, the others failed busy, and the admitted runs slowed down 1.6-3x.
+- **The time is the rasteriser.** Kit import is 0.26 s; for lamp-lit, `k.render()` is 9.2 s of 10.1 s. No run option changed the time (deterministic off, large memory, no retention, kit inline instead of a drive, pre-transpiled or minified kit, a saved sandbox, the `run.shotcup.dev` endpoint): all within 10.0-10.6 s for lamp-lit.
+- **Sandbox:** model code saw no environment (`process` undefined), no `Function`/`eval`, a virtual filesystem holding only `/kit` (read-only) and `/main.ts`, and no network (`fetch` throws `PermissionDenied`). An endless loop ended at its `timeoutMs`. Inside a batch, one build can overwrite another's PNG, so live generation should render one candidate per run.
 
-The timings above are the ranges noted while the runs were done (hero walk/idle frames, olive, satyr, trireme, zeus-statue); no exact per-sprite table was kept, so don't quote them as benchmarks.
+Details, the full tables and a design for live generation behind a server route: [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md). Plan on the local renderer for iteration. Use Shotcup when model code must not run on your machine or server.
+
+Not done: a Mubit-driven `run.py --render shotcup` end to end, and Shotcup's wake time after idle.

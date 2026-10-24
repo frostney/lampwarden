@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p .",
     "knip": "knip",
     "verify:visual": "bun e2e/verify-visual.mjs",
+    "walkthrough": "bun e2e/walkthrough.ts",
     "balance": "bun scripts/balance.ts",
     "plays": "bun scripts/plays.ts",
     "assets": "bun --no-env-file pipeline/run.ts",

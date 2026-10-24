@@ -13,7 +13,7 @@ brief ──► generator (Opus via Mubit) ──► build(k) code ──► ren
 
 ## The loop (what `run.ts` does)
 
-1. **Generate.** The system prompt is `prompts/generator.md` (the kit API doc); the user message is `Brief: <your brief>`. The model returns one function `build(k)` that calls the kit builders (see "Building kit" in the top-level README).
+1. **Generate.** The system prompt is `prompts/generator.md` (the kit API doc); the user message is `Brief: <your brief>`. The model returns one function `build(k)` that calls the kit builders (see "Building kit" below).
 2. **Render.** The code is run against the kit (`kit/kit.ts`) by a renderer (`--render local|shotcup|vercel|boat`) and produces a 128×128 PNG plus stats. Deterministic engine checks (`clipped_at_edge`, `too_small`, `too_big`, `too_short`) score 0 and skip the verifier.
 3. **Verify.** `prompts/verifier.md` is the system prompt; the model gets the brief, the code, the render stats and the sprite magnified 4× on a flat backdrop, and returns JSON `{pass, score, issues, fix, lesson}`. `pass` means score ≥ 7. A score between 6 and 7 is verified twice and averaged.
 4. **Fix.** If not passed, one fix call goes back to the generator (same Mubit session) with the verifier's issues and fix text. The fixed code is rendered and verified the same way.
@@ -78,7 +78,7 @@ Other scripts:
 | `render-vercel-sandbox.ts`, `render-vercel-cli.ts`                                                       | Vercel Sandbox renderer (below); the second is the `--render vercel` entry that reads the runner files from this checkout                       |
 | `render-boat.ts`                                                                                         | boat.dev renderer (below)                                                                                                                       |
 | `render-file.ts`, `hero-animation.ts`, `hero-frames.ts`, `check-pixels.ts`                               | render one file; the hero frame builds; regenerate them; the pixel-identity gate                                                                |
-| `assemble-kit.ts`, `kit/src/*.ts`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README)                                                                                                         |
+| `assemble-kit.ts`, `kit/src/*.ts`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see "Building kit" below)                                                                                                     |
 | `prompts/generator.md`, `prompts/verifier.md`, `prompts/creature.md`                                     | the three system prompts                                                                                                                        |
 
 Every renderer returns the same thing, so the loop does not care which one ran: a `RenderResult` is `{ ok: true, stats, png }` or `{ ok: false, error }`, and a renderer never throws. The stats line a runner prints is validated with Zod once, in `render-types.ts`. Build names and poses may only contain letters, digits, `_` and `-`, because they end up in file paths, generated Shotcup source and a boat shell command.
@@ -114,6 +114,31 @@ On 24 Oct 2026, on a Scale-plan account, the earlier Python client was run again
 - **Sandbox:** model code saw no environment (`process` undefined), no `Function`/`eval`, a virtual filesystem holding only `/kit` (read-only) and `/main.ts`, and no network. An endless loop ended at its `timeoutMs`.
 
 The TypeScript client in this repository is a port of that Python client: the `/main.ts` it generates is byte-identical to what `shotcup_main.py` printed (checked for a hero animation and for two sprites with a pose), and the request and response handling follows the Python code line by line. It has **not** been run against the live API (no key was available); treat the first real run as a test. A Mubit-driven run through `--render shotcup` end to end has not been done.
+
+## Building kit
+
+The kit is the renderer plus every builder the model may call. It lives in `kit/`:
+
+| File                   | Purpose                                                                                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/kit_core.ts`      | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame`                                                                    |
+| `src/kit_render.ts`    | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`)                                                                 |
+| `src/kit_build.ts`     | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged`                                                                                                                                                    |
+| `src/kit_anat.ts`      | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy`                                                                                                                                                  |
+| `src/kit_beasts.ts`    | `quadruped`, `centaur`                                                                                                                                                                              |
+| `src/kit_props.ts`     | `column`, `amphora`, `brazier`, `altar`, `statueBase`                                                                                                                                               |
+| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof)                                 |
+| `src/kit_figures.ts`   | `humanoid`, `tree`, `hydra`                                                                                                                                                                         |
+| `src/kit_themes.ts`    | `THEMES`/`theme()`, `hero`, `ship`                                                                                                                                                                  |
+| `../assemble-kit.ts`   | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly                 |
+| `kit.ts`               | the assembled single file the renderers import                                                                                                                                                      |
+| `exports.json`         | the names destructured into model code                                                                                                                                                              |
+| `palette.json`         | material ramps (identical to the kit's `PALETTE`; checked)                                                                                                                                          |
+| `examples/`            | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below) |
+
+A build script is `export function build(k) { ... }`. Space is u/v ground, z up, origin `[0,0]` at the tile centre; sprites are 128×128 and auto-scaled to fit. The builders, their parameters and the low-level `k.*` calls are documented for the model in `prompts/generator.md`, which is the one place they are described; `kit/exports.json` lists the names destructured into model code. Only `greek` exists in `THEMES` (`kit_themes.ts`).
+
+The six building sprites (`temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall`, `stall`) come from `kit/examples/ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts` and render to `public/sprites/<name>.png`; the scene places all six. They were hand-written for this repo: they are not Mubit output and were never scored by the verifier (their manifest rows say so).
 
 ## Tests
 

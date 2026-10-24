@@ -1,8 +1,13 @@
 // Balance report from recorded plays (the private Blob store behind /api/plays).
 // usage: bun scripts/plays.ts [--since 2026-10-24] [--build abc1234] [--verify]
-//   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); --verify replays every finished night and checks it ends the same.
+//   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); --verify replays the finished nights recorded on this checkout's sim
+//   (tools/sim-fingerprint) and checks each ends the same; nights from another sim version are counted, not replayed.
+import { join } from "node:path";
 import { get, list } from "@vercel/blob";
-import { type Play, verifyPlay } from "../src/game/replay";
+import { replaysExactlyOn } from "../src/game/plays";
+import type { Play } from "../src/game/recording";
+import { verifyPlay } from "../src/game/replay";
+import { simFingerprint } from "../tools/sim-fingerprint/sim-fingerprint";
 
 const argument = (name: string) => {
   const index = process.argv.indexOf(name);
@@ -11,6 +16,7 @@ const argument = (name: string) => {
 const since = argument("--since");
 const build = argument("--build");
 const shouldVerify = process.argv.includes("--verify");
+const runningSim = simFingerprint(join(import.meta.dir, ".."));
 const token = process.env.BLOB_READ_WRITE_TOKEN;
 if (!token) {
   console.error("BLOB_READ_WRITE_TOKEN is not set (vercel env pull .env.local)");
@@ -45,7 +51,16 @@ const seconds = (play: Play) => play.steps / 60;
 console.log(
   `${plays.length} nights from ${new Set(plays.map((play) => play.session)).size} players, ${(plays.reduce((total, play) => total + seconds(play), 0) / 60).toFixed(1)} min played`,
 );
-console.log(`builds: ${[...new Set(plays.map((play) => play.build))].join(", ")}\n`);
+const countBy = (key: (play: Play) => string) => {
+  const counts = new Map<string, number>();
+  for (const play of plays) {
+    const name = key(play);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts].map(([name, count]) => `${name} (${count})`).join(", ");
+};
+console.log(`builds: ${countBy((play) => play.build)}`);
+console.log(`sim versions (this checkout: ${runningSim}): ${countBy((play) => play.sim ?? "unknown")}\n`);
 console.log("night  plays  dawn   dark   fallen  quit   avg len  kills/min  lamps lost  hp lost  tide");
 const nights = [...new Set(plays.map((play) => play.legacy.night))].sort((first, second) => first - second);
 for (const night of nights) {
@@ -128,9 +143,14 @@ if (dark.length) {
 }
 
 if (shouldVerify) {
+  // A night replays to the same end only on the sim it was played on, so only those are checked: the others are not
+  // mismatches, they were recorded on another version of the sim (or before versions were noted).
   const finished = plays.filter((play) => play.outcome);
-  const matching = finished.filter((play) => verifyPlay(play).endsMatch).length;
-  console.log(`\nreplay check: ${matching}/${finished.length} finished nights replay to the same end`);
+  const comparable = finished.filter((play) => replaysExactlyOn(play, runningSim));
+  const matching = comparable.filter((play) => verifyPlay(play).endsMatch).length;
+  console.log(
+    `\nreplay check on sim ${runningSim}: ${matching}/${comparable.length} finished nights replay to the same end; recorded on another sim version (${finished.length - comparable.length})`,
+  );
 }
 
 console.log("\nlatest nights (watch with /?replay=<id>):");

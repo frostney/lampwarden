@@ -1,10 +1,14 @@
-# Runs Biome's fixes on staged files and re-stages them; unfixable findings block the commit.
+# Biome fixes staged files and re-stages them; unfixable findings block the commit. Varlock then scans the staged files
+# for the values of the secrets declared in .env.schema (the ones this machine can resolve), which gitleaks's patterns
+# cannot know; a match blocks the commit. gitleaks still runs before every push (AGENTS.md).
 pre-commit:
   commands:
     biome:
       glob: "*.{js,jsx,mjs,ts,tsx,json,jsonc,css}"
       run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
+    varlock-scan:
+      run: bunx varlock scan --staged
 
 # Scans the history for secrets before anything leaves the machine (AGENTS.md, hard rules); CI runs the same scan.
 pre-push:

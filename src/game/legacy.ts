@@ -63,6 +63,7 @@ export interface Legacy {
   offerSeed: number; // advanced each time the shop opens: the offers come from it, so a reload does not reroll them
   offers: UpgradeId[]; // the upgrades on sale in the current shop
   tide: number; // director difficulty multiplier, read from how the player did (0.6..2)
+  bestiary: string[]; // ids of the creatures from the sea this line has met, oldest first (sent to the gallery as `seen`)
   fallen: { name: string; night: number; cause: string }[];
 }
 
@@ -162,8 +163,16 @@ export function newLegacy(offerSeed = Math.floor(Math.random() * 4294967296)): L
     offerSeed,
     offers: drawOffers(offerSeed, levels),
     tide: 1,
+    bestiary: [],
     fallen: [],
   };
+}
+
+// The line meets a creature from the sea: its id joins the bestiary (once), and the oldest drop off past the limit.
+const BESTIARY_LIMIT = 500; // the most `seen` ids the gallery takes (nextCreatureRequestSchema)
+export function meet(legacy: Legacy, creatureId: string) {
+  if (legacy.bestiary.includes(creatureId)) return;
+  legacy.bestiary = [...legacy.bestiary, creatureId].slice(-BESTIARY_LIMIT);
 }
 
 export function upgradeCost(legacy: Legacy, id: UpgradeId): number | null {
@@ -192,6 +201,7 @@ const storedLegacy = z.object({
   offerSeed: field(z.number().int()),
   offers: field(z.array(z.enum(UPGRADE_IDS))),
   tide: field(z.number().min(0.6).max(2)),
+  bestiary: field(z.array(z.string())),
   fallen: field(z.array(z.object({ name: z.string(), night: z.number(), cause: z.string() }))),
 });
 export function parseLegacy(stored: unknown): Legacy {
@@ -209,6 +219,7 @@ export function parseLegacy(stored: unknown): Legacy {
     offerSeed,
     offers: parsed.offers ? [...new Set(parsed.offers)].slice(0, OFFER_COUNT) : drawOffers(offerSeed, levels),
     tide: parsed.tide ?? fresh.tide,
+    bestiary: [...new Set(parsed.bestiary)].slice(-BESTIARY_LIMIT),
     fallen: parsed.fallen ?? fresh.fallen,
   };
 }

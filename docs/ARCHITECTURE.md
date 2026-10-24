@@ -9,17 +9,19 @@ src/
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons), drawn as SVG rects
     TouchControls.tsx  on-screen stick and buttons for touch devices
+    TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
+                     reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
-    Game.tsx         React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy, the
-                     night on stage (state, warden, recording or replay driver), pause, replay speed; renders the
-                     @pixi/react <Application> and the window.lampwarden debug hook
+    Game.tsx         React shell: title (introduction, setting selector, hero choice), night HUD, dawn upgrades, heir
+                     choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
+                     replay speed; renders the @pixi/react <Application> and the window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
-    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits, tide; localStorage save
+    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits (and their sex), tide; localStorage save
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
@@ -29,6 +31,7 @@ src/
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
     projectiles.ts   arrow and sling-stone pixel art
+    scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
 scripts/balance.ts   headless balance check (idle and bot wardens), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage

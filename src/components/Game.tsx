@@ -4,6 +4,7 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HeroPortrait } from "@/components/HeroPortrait";
 import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
@@ -53,7 +54,7 @@ import {
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
-import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
+import { SEXES, type Sex } from "@/scene/assets";
 import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -75,31 +76,6 @@ const INTRODUCTION = [
   "Keep one burning until dawn.",
   "When a warden falls, an heir takes up the lamp.",
 ];
-
-// The hero choice card's warden: his idle frame facing the player, drawn from the atlas the scene has already loaded
-// (the same picture, so it is downloaded once), a pixel for a pixel, scaled with the card by CSS.
-function HeroPortrait({ sex, textures }: { sex: Sex; textures: TextureMap | null }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const context = canvas.current?.getContext("2d");
-    const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
-    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
-    const cell = heroAtlasCell("idle", 0, "s");
-    context.clearRect(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
-    context.drawImage(
-      picture,
-      cell.x,
-      cell.y,
-      HERO_FRAME_SIZE,
-      HERO_FRAME_SIZE,
-      0,
-      0,
-      HERO_FRAME_SIZE,
-      HERO_FRAME_SIZE,
-    );
-  }, [sex, textures]);
-  return <canvas ref={canvas} width={HERO_FRAME_SIZE} height={HERO_FRAME_SIZE} className="hero-sprite" />;
-}
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
@@ -178,6 +154,7 @@ export default function Game() {
   const refresh = useCallback(() => rerender((count) => count + 1), []);
   const [phase, setPhase] = useState<Phase>("title");
   const [ready, setReady] = useState(false);
+  const [strike, setStrike] = useState<{ sex: Sex; count: number } | null>(null); // the hero card last chosen
   const [hud, setHud] = useState<Hud | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [heirs, setHeirs] = useState<Heir[]>([]);
@@ -491,6 +468,8 @@ export default function Game() {
   };
   const chooseSex = (sex: Sex) => {
     const legacy = legacyRef.current;
+    // every choice, the chosen card's again too, has that warden swing once (HeroPortrait)
+    setStrike((previous) => ({ sex, count: (previous?.count ?? 0) + 1 }));
     if (legacy.heir.sex === sex) return;
     legacy.heir = heirAs(legacy.heir, sex);
     saveLegacy(legacy);
@@ -702,7 +681,11 @@ export default function Game() {
                         onClick={() => chooseSex(sex)}
                       >
                         <span className="hero-portrait">
-                          <HeroPortrait sex={sex} textures={textures} />
+                          <HeroPortrait
+                            sex={sex}
+                            textures={textures}
+                            strike={strike?.sex === sex ? strike.count : null}
+                          />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
                         <span>{ARMS[sex].loadout}</span>

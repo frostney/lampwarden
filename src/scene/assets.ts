@@ -101,20 +101,46 @@ export function anchorYFor(key: string): number {
   return 0.85;
 }
 
-// the key (and file name, under /sprites/) of one frame of a warden's animation, seen from one of the drawn directions
+// the key of one frame of a warden's animation, seen from one of the drawn directions
 export function heroKey(sex: Sex, animation: HeroAnimation, frame: number, direction: DrawnDirection) {
   return `hero/${sex}_${animation}${frame + 1}_${direction}`;
+}
+
+// A warden's frames come as one picture, an atlas of 128 px cells: a column for each drawn direction and a row for each
+// frame of each animation in turn (idle, walk, melee, ranged), so the game asks for two files and not two hundred.
+// pipeline/hero-frames.ts paints it from the kit; the scene cuts it into one texture per frame when it loads.
+export const HERO_FRAME_SIZE = 128;
+export const heroAtlasPath = (sex: Sex) => `/sprites/hero/${sex}.png`;
+export const heroAtlasKey = (sex: Sex) => `hero-atlas/${sex}`;
+export const HERO_ATLAS_SIZE = {
+  width: DRAWN_DIRECTIONS.length * HERO_FRAME_SIZE,
+  height: HERO_ANIMATIONS.reduce((total, animation) => total + FRAMES[animation], 0) * HERO_FRAME_SIZE,
+};
+// where a frame's cell is in the atlas, in pixels
+export function heroAtlasCell(animation: HeroAnimation, frame: number, direction: DrawnDirection) {
+  let row = frame;
+  for (const earlier of HERO_ANIMATIONS) {
+    if (earlier === animation) break;
+    row += FRAMES[earlier];
+  }
+  return { x: DRAWN_DIRECTIONS.indexOf(direction) * HERO_FRAME_SIZE, y: row * HERO_FRAME_SIZE };
+}
+// every frame of a sex with its key and its cell
+export function heroFrames(sex: Sex) {
+  return HERO_ANIMATIONS.flatMap((animation) =>
+    Array.from({ length: FRAMES[animation] }, (_, frame) =>
+      DRAWN_DIRECTIONS.map((direction) => ({
+        key: heroKey(sex, animation, frame, direction),
+        ...heroAtlasCell(animation, frame, direction),
+      })),
+    ).flat(),
+  );
 }
 
 export function assetList(): { alias: string; src: string; data: { scaleMode: "nearest" } }[] {
   const list: { alias: string; src: string; data: { scaleMode: "nearest" } }[] = [];
   for (const key of SINGLE) list.push({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } });
   for (const sex of SEXES)
-    for (const animation of HERO_ANIMATIONS)
-      for (let frame = 0; frame < FRAMES[animation]; frame++)
-        for (const direction of DRAWN_DIRECTIONS) {
-          const alias = heroKey(sex, animation, frame, direction);
-          list.push({ alias, src: `/sprites/${alias}.png`, data: { scaleMode: "nearest" } });
-        }
+    list.push({ alias: heroAtlasKey(sex), src: heroAtlasPath(sex), data: { scaleMode: "nearest" } });
   return list;
 }

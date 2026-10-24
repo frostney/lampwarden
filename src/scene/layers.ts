@@ -13,10 +13,21 @@ import {
   type State,
   SWING_HALF_ARC,
 } from "../game/sim";
-import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation, octantVector } from "./assets";
+import {
+  anchorYFor,
+  assetList,
+  FRAMES,
+  FRAMES_PER_SECOND,
+  HERO_FRAME_SIZE,
+  type HeroAnimation,
+  heroAtlasKey,
+  heroFrames,
+  octantVector,
+  SEXES,
+} from "./assets";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
-import { isCharacterKey, withoutPaintedShadow } from "./rim";
+import { cutCharacterFrames, isCharacterKey, withoutPaintedShadow } from "./rim";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -34,6 +45,13 @@ export function loadTextures(): Promise<TextureMap> {
       texture.source.scaleMode = "nearest";
       // the sprites' own painted shadows fall one way whatever the light; the scene casts the shadows now (shadow.ts)
       textures[asset.alias] = isCharacterKey(asset.alias) ? (withoutPaintedShadow(texture) ?? texture) : texture;
+    }
+    // the wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been
+    for (const sex of SEXES) {
+      const atlas = textures[heroAtlasKey(sex)];
+      if (!atlas) continue;
+      const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
+      for (const [key, frame] of cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells) ?? []) textures[key] = frame;
     }
     for (const kind of Object.keys(MONSTER)) {
       const base = textures[kind];

@@ -1,19 +1,21 @@
-// Pixel-identity gate for kit changes: renders every committed sprite (public/sprites/*.ts) and the hero frames of every drawn direction with
-// the local bun renderer and the current pipeline/kit/kit.ts, and compares the decoded RGBA with the committed PNGs.
+// Pixel-identity gate for kit changes: renders every committed sprite (public/sprites/*.ts) and every hero frame (each
+// sex's atlas, public/sprites/hero/<sex>.png, holds them) with the local bun renderer and the current pipeline/kit/kit.ts,
+// and compares the decoded RGBA with the committed PNGs and atlas cells.
 // usage: bun pipeline/check-pixels.ts [--out DIR]   (one line per sprite; exits 1 if any pixel differs or a render fails;
 // --out also keeps the rendered PNGs in DIR)
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { HERO_ANIMATIONS, SEXES } from "../src/scene/assets";
+import { HERO_ANIMATIONS, heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
 import { heroFrameBuilds } from "./hero-animation";
+import { atlasCellPixels } from "./hero-atlas";
 import { renderLocally } from "./render-local";
 
 interface Job {
   name: string;
   code: string;
-  committedPng: string;
+  committed: () => Uint8Array; // the committed pixels
 }
 
 const { values } = parseArgs({ options: { out: { type: "string" } } });
@@ -29,17 +31,19 @@ const jobs: Job[] = readdirSync(spritesDirectory)
     return {
       name,
       code: readFileSync(join(spritesDirectory, file), "utf8"),
-      committedPng: join(spritesDirectory, `${name}.png`),
+      committed: () => decodePng(readFileSync(join(spritesDirectory, `${name}.png`))).data,
     };
   });
-for (const sex of SEXES)
+for (const sex of SEXES) {
+  const atlas = decodePng(readFileSync(join(import.meta.dir, "..", "public", heroAtlasPath(sex))));
+  const cells = new Map(heroFrames(sex).map((frame) => [frame.key, frame]));
   for (const animation of HERO_ANIMATIONS)
-    for (const frame of heroFrameBuilds(sex, animation))
-      jobs.push({
-        name: frame.name,
-        code: frame.code,
-        committedPng: join(spritesDirectory, "hero", `${frame.name}.png`),
-      });
+    for (const frame of heroFrameBuilds(sex, animation)) {
+      const cell = cells.get(`hero/${frame.name}`);
+      if (!cell) throw new Error(`${frame.name} has no cell in the ${sex} atlas`);
+      jobs.push({ name: frame.name, code: frame.code, committed: () => atlasCellPixels(atlas, cell.x, cell.y) });
+    }
+}
 
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
   if (first.length !== second.length) return Math.max(first.length, second.length) / 4;
@@ -66,8 +70,7 @@ for (const job of jobs) {
   }
   if (outputDirectory) writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
   const rendered = decodePng(Buffer.from(result.png)).data;
-  const committed = decodePng(readFileSync(job.committedPng)).data;
-  const differing = differingPixels(rendered, committed);
+  const differing = differingPixels(rendered, job.committed());
   totalDiffering += differing;
   if (differing) failures++;
   console.log(`${job.name.padEnd(22)} ${differing ? "DIFF" : "ok  "} differing_pixels=${differing}`);

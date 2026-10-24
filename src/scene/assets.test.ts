@@ -1,8 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { heroFrameBuilds, kitFacing } from "../../pipeline/hero-animation";
-import { assetList, DIRECTIONS, DRAWN_DIRECTIONS, FRAMES, HERO_ANIMATIONS, heroView, octantOf, SEXES } from "./assets";
+import { atlasCellPixels } from "../../pipeline/hero-atlas";
+import { decodePng } from "../../tools/logo/png";
+import {
+  DIRECTIONS,
+  DRAWN_DIRECTIONS,
+  FRAMES,
+  HERO_ANIMATIONS,
+  HERO_ATLAS_SIZE,
+  HERO_FRAME_SIZE,
+  heroAtlasPath,
+  heroFrames,
+  heroView,
+  octantOf,
+  SEXES,
+} from "./assets";
 
 describe("the warden's eight directions", () => {
   test("three are the mirror images of drawn ones, and the other five are drawn as they are", () => {
@@ -27,16 +41,26 @@ describe("the warden's eight directions", () => {
     expect(DRAWN_DIRECTIONS.map(kitFacing)).toEqual([-45, 0, 45, 270, 225]);
   });
 
-  test("every frame the scene loads is a committed picture, and the pipeline builds exactly those", () => {
-    const frames = assetList().filter((asset) => asset.alias.startsWith("hero/"));
-    const framesPerSex = HERO_ANIMATIONS.reduce((total, animation) => total + FRAMES[animation], 0);
-    expect(frames.length).toBe(SEXES.length * framesPerSex * DRAWN_DIRECTIONS.length);
-    for (const frame of frames) expect(existsSync(join(import.meta.dir, "../../public", frame.src))).toBe(true);
-    const built = new Set(
-      SEXES.flatMap((sex) =>
-        HERO_ANIMATIONS.flatMap((animation) => heroFrameBuilds(sex, animation).map((build) => `hero/${build.name}`)),
-      ),
-    );
-    expect(built).toEqual(new Set(frames.map((frame) => frame.alias)));
+  test("every frame the scene cuts out has a cell in a committed atlas, and the pipeline builds exactly those", () => {
+    for (const sex of SEXES) {
+      const atlas = decodePng(readFileSync(join(import.meta.dir, "../../public", heroAtlasPath(sex))));
+      expect([atlas.width, atlas.height]).toEqual([HERO_ATLAS_SIZE.width, HERO_ATLAS_SIZE.height]);
+      const frames = heroFrames(sex);
+      const framesPerSex = HERO_ANIMATIONS.reduce((total, animation) => total + FRAMES[animation], 0);
+      expect(frames.length).toBe(framesPerSex * DRAWN_DIRECTIONS.length);
+      // no two frames share a cell, every cell lies inside the atlas and holds a drawn figure
+      expect(new Set(frames.map((frame) => `${frame.x},${frame.y}`)).size).toBe(frames.length);
+      for (const frame of frames) {
+        expect(frame.x + HERO_FRAME_SIZE).toBeLessThanOrEqual(atlas.width);
+        expect(frame.y + HERO_FRAME_SIZE).toBeLessThanOrEqual(atlas.height);
+        expect(atlasCellPixels(atlas, frame.x, frame.y).some((value, index) => index % 4 === 3 && value > 0)).toBe(
+          true,
+        );
+      }
+      const built = HERO_ANIMATIONS.flatMap((animation) =>
+        heroFrameBuilds(sex, animation).map((build) => `hero/${build.name}`),
+      );
+      expect(new Set(built)).toEqual(new Set(frames.map((frame) => frame.key)));
+    }
   });
 });

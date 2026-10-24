@@ -3,7 +3,7 @@
 import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
 import { TitleScroll } from "@/components/TitleScroll";
@@ -43,7 +43,7 @@ import {
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
-import { SEXES, type Sex } from "@/scene/assets";
+import { HERO_ATLAS_SIZE, heroAtlasCell, heroAtlasPath, SEXES, type Sex } from "@/scene/assets";
 import { loadTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -69,6 +69,17 @@ const INTRODUCTION = [
   "Keep one burning until dawn.",
   "When a warden falls, an heir takes up the lamp.",
 ];
+
+// the hero choice card's warden: his idle frame facing the player, cut out of his atlas by CSS (everything in 128 px
+// cells, scaled with the card by --portrait)
+function portraitFrame(sex: Sex): CSSProperties {
+  const cell = heroAtlasCell("idle", 0, "s");
+  return {
+    backgroundImage: `url(${heroAtlasPath(sex)})`,
+    backgroundSize: `calc(${HERO_ATLAS_SIZE.width}px * var(--portrait)) calc(${HERO_ATLAS_SIZE.height}px * var(--portrait))`,
+    backgroundPosition: `calc(${-cell.x}px * var(--portrait)) calc(${-cell.y}px * var(--portrait))`,
+  };
+}
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
@@ -608,14 +619,7 @@ export default function Game() {
                         onClick={() => chooseSex(sex)}
                       >
                         <span className="hero-portrait">
-                          <Image
-                            src={`/sprites/hero/${sex}_idle1_s.png`}
-                            alt=""
-                            width={128}
-                            height={128}
-                            unoptimized
-                            className="hero-sprite"
-                          />
+                          <span className="hero-sprite" style={portraitFrame(sex)} />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
                         <span>{ARMS[sex].loadout}</span>

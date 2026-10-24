@@ -7,6 +7,7 @@
       "!pipeline/kit",
       "!pipeline/prompts",
       "!pipeline/render",
+      "!pipeline/direct_worker_eval/probes",
       "!public/sprites",
       "!public/logo",
       "!.agents",

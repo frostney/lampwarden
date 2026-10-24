@@ -1,7 +1,7 @@
-// Local stand-in for Shotcup's 'shotcup:canvas' (only what the rig uses). /out/* maps to $RIG_OUT.
+// Local stand-in for Shotcup's 'shotcup:canvas' (only what the kit uses). /out/* maps to $KIT_OUT.
 import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
-const OUT = process.env.RIG_OUT || './out';
+const OUT = process.env.KIT_OUT || './out';
 const map = (p: string) => { const q = p.startsWith('/out/') ? OUT + '/' + p.slice(5) : p; mkdirSync(q.slice(0, q.lastIndexOf('/')) || '.', { recursive: true }); return q; };
 function crc32(b: Uint8Array) { let c = ~0; for (let i = 0; i < b.length; i++) { c ^= b[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; }
 function png(w: number, h: number, data: Uint8Array): Uint8Array {

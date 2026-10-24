@@ -1,6 +1,6 @@
 {
  "setting": "greek",
- "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. temple and house are hand-written examples, not Mubit output (see their 'source' field).",
+ "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. temple, house, lamp-lit, lamp-unlit, wall and stall are hand-written examples calling the kit's building builders, not Mubit output (see their 'source' field).",
  "sprites": {
   "hero-male-still": {
    "brief": "male hero warrior with a xiphos in hand and a bow slung on his back",
@@ -260,20 +260,58 @@
    "bbox": "48,43,105,107"
   },
   "temple": {
-   "brief": "small Doric temple (hand-written from kit primitives)",
+   "brief": "Doric temple, 4x5 peristyle, terracotta roof (pipeline/kit/examples/ex_temple.ts, temple() builder)",
    "file": "temple.png",
    "code": "temple.ts",
-   "source": "hand-written build script (pipeline/kit/examples/ex_temple.ts); NOT generated or verified through Mubit",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
-   "passed": null
+   "passed": null,
+   "bbox": "1,12,126,125"
   },
   "house": {
-   "brief": "whitewashed Greek house (hand-written from kit primitives)",
+   "brief": "whitewashed Greek island house with blue door and shutters (pipeline/kit/examples/ex_house.ts, house() builder)",
    "file": "house.png",
    "code": "house.ts",
-   "source": "hand-written build script (pipeline/kit/examples/ex_house.ts); NOT generated or verified through Mubit",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
-   "passed": null
+   "passed": null,
+   "bbox": "17,38,111,121"
+  },
+  "lamp-lit": {
+   "brief": "bronze town lampstand, lantern lit (pipeline/kit/examples/ex_lamp_lit.ts, lampstand() builder)",
+   "file": "lamp-lit.png",
+   "code": "lamp-lit.ts",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
+   "score": null,
+   "passed": null,
+   "bbox": "49,5,78,106"
+  },
+  "lamp-unlit": {
+   "brief": "bronze town lampstand, lantern unlit (pipeline/kit/examples/ex_lamp_unlit.ts, lampstand() builder)",
+   "file": "lamp-unlit.png",
+   "code": "lamp-unlit.ts",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
+   "score": null,
+   "passed": null,
+   "bbox": "49,11,78,106"
+  },
+  "wall": {
+   "brief": "stone sea wall segment with merlons and an arched gate (pipeline/kit/examples/ex_wall.ts, wall() builder)",
+   "file": "wall.png",
+   "code": "wall.ts",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
+   "score": null,
+   "passed": null,
+   "bbox": "14,35,113,124"
+  },
+  "stall": {
+   "brief": "market stall with a crimson striped awning and fruit (pipeline/kit/examples/ex_stall.ts, stall() builder)",
+   "file": "stall.png",
+   "code": "stall.ts",
+   "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
+   "score": null,
+   "passed": null,
+   "bbox": "31,40,96,116"
   }
  },
  "hero_frames": {

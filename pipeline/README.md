@@ -19,7 +19,7 @@ brief ──► generator (Opus via Mubit) ──► build(k) code ──► ren
 4. **Fix.** If not passed, one fix call goes back to the generator (same Mubit session) with the verifier's issues and fix text. The fixed code is rendered and verified the same way.
 5. **Best-of.** The higher-scoring attempt is kept (ties go to the first attempt). Its PNG, builder code and manifest row (brief, score, issues, request ids) are written to `public/sprites/`.
 
-Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. The generated code is rendered in a subprocess that does not get `MUBIT_API_KEY`.
+Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. That regex is a tripwire, not a sandbox (string-built names get past it), so the generated code is rendered in a subprocess whose environment is an allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `KIT_OUT`; see `local_render.py`): no API key or other secret from your shell reaches it. It still runs with your user's file and network access; use the Shotcup renderer when that matters.
 
 ### Mubit
 
@@ -70,7 +70,7 @@ Run body: `{"code": <main.ts>, "engine": {"canvas": true}, "mounts": [{"drive": 
 - The same run body was executed 11 times through the Shotcup **MCP** server (not through `shotcup_render.py`): hero frames and key sprites. All 11 outputs were pixel-identical to the local bun renderer.
 - **`shotcup_render.py` itself has not been executed against the API** (no API key on the box at the time). It compiles, and the no-key path returns a clean error to the loop (checked). Treat the first real run as a test.
 - **Shotcup was slower than local, not faster, for this workload.** Local bun renders a sprite in about 0.4 s including process start. On Shotcup, per-run engine time was about 18 s per hero frame (unscaled 128 px frames) and about 41–61 s per auto-scaled sprite (roughly 0.1–0.9 G engine instructions each). Batching several sprites into one run did not amortise anything meaningful, because the cost is render compute, not setup.
-- **Shrinking the kit would not help.** Loading `/kit/kit.ts` (164 KB, 53 exports) took about 0.23 s in the engine; the time is in the rasteriser.
+- **Shrinking the kit would not help.** Loading `/kit/kit.ts` (164 KB, 53 exports at the time; it is now 212 KB and 58 exports with the building builders, not re-measured on Shotcup) took about 0.23 s in the engine; the time is in the rasteriser.
 - So the value of `--render shotcup` here is sandboxed, deterministic remote execution of model-written code (no local bun, nothing runs on your machine), not speed. Plan on the local renderer for iteration.
 - A Mubit-driven run through `run.py --render shotcup` end to end has not been done.
 

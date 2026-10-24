@@ -1,6 +1,6 @@
 You write ONE short TypeScript function `build(k)` that composes a single isometric pixel-art sprite for an ancient-Greek-myth action RPG (Titan Quest style). A fixed renderer (iso projection, z-buffer, banded Lambert light, auto outline, cast shadow, 128x128) draws whatever you add to `k`. You only choose and parameterise builders. Reply with only a ```ts code block, ideally under 30 lines, no imports, no comments needed.
 
-WORLD: units ~= pixels. Ground z=0, origin [0,0] is the tile centre (sprite stands there). +u points screen down-right, +v screen down-left, +z up. facing (degrees): 0 faces +u (viewer sees front + its left side), 90 faces +v. Prefer facing 10-40 for upright figures; centaurs and quadrupeds must be turned near side-on, facing -35 (the builder clamps them to -50..-15). Keep everything within ~|u|,|v| <= 14 and z <= 40 or it clips.
+WORLD: units ~= pixels. Ground z=0, origin [0,0] is the tile centre (sprite stands there). +u points screen down-right, +v screen down-left, +z up. facing (degrees): 0 faces +u (viewer sees front + its left side), 90 faces +v. Prefer facing 10-40 for upright figures; centaurs and quadrupeds must be turned near side-on, facing -35 (the builder clamps them to -50..-15). Keep everything within ~|u|,|v| <= 14 and z <= 40 or it clips (the building builders below scale themselves to fit).
 
 MATERIALS (strings; 9-shade ramps): marble limestone bronze gold iron terracotta black olive laurel aegean crimson purple linen leather skin skin_olive skin_dark skin_pale skin_green skin_grey fur fur_dark feather bone wood snake sky fire. Aliases: red wine->crimson, blue->aegean, green->laurel, white->marble, stone->limestone, brown->leather, silver steel->iron, hair->fur_dark, scales->snake. Unknown names throw.
 
@@ -45,6 +45,24 @@ brazier(k, {at, height:11, mat:'bronze', fire:true})
 altar(k, {at, w:9, h:7, mat:'marble', fire:false})
 statueBase(k, {at, w:8, h:4, mat}) -> returns top z (stand a humanoid on it with at:[u,v,top] with skin 'marble' or 'bronze' for a statue).
 
+BUILDING BUILDERS (whole buildings and street furniture, all params optional; each one scales itself to fit the frame, so call it bare at the origin, one per sprite, and do not wrap raw shapes round it):
+temple(k, {at, order:'doric'|'ionic', cols:4 (front columns, 2-8), depth:cols+1 (side columns, 2-12), mat:'marble', roof:'terracotta'|'marble', ruined:false, front:'u'|'v', setting})
+  - stepped stylobate, peristyle of column() builders, shaded cella with a framed bronze door, architrave, doric triglyph frieze or ionic sculpted frieze with dentils, cornice, a pediment with statues on the front (+u, or +v with front:'v'), tiled roof with cover-tile ribs, antefixes and akroteria. roof:'marble' gives a marble roof with gold akroteria. ruined:true = no roof, broken columns, a surviving architrave fragment, fallen drums, moss and weeds.
+  - e.g. temple(k, { order: 'ionic', cols: 4, depth: 5, roof: 'marble' })
+house(k, {at, w:24, d:18, storeys:1|2, wall:'whitewash'|'ochre'|'sand'|'stone'|'rose', roof:'flat'|'tiled', door:'u'|'v'|'none', doorColour, windows:2, shutters:'aegean', extras:['pots','amphora','chimney']})
+  - Greek island house: rounded limewashed mass, recessed plank door with lintel, fanlight and marble step, windows with sills, lintels and open louvred shutters on both visible faces (windows = per face per storey), flat roof with parapet, drain spout and a roof plant, or roof:'tiled' = terracotta gable. storeys:2 adds a floor line and a second row of windows.
+  - extras (any of): 'pots' (flowering plant pots), 'amphora' (beside the door), 'chimney', 'awning' (striped cloth on poles over the door, shutter colour), 'stair' (outside stair up the +v face to a flat roof), 'bougainvillea' (purple creeper over the door).
+  - e.g. house(k, { storeys: 2, wall: 'ochre', roof: 'tiled', shutters: 'laurel', extras: ['pots', 'awning', 'chimney'] })
+lampstand(k, {at, height:34, mat:'bronze', lit:true, base:'tripod'|'column', head:'lantern'|'bowl'})
+  - the town's street lamp: lion-paw tripod (or marble pedestal), fluted shaft with knops, flared capital with hooks, and a lantern with horn panels and a lattice (or an open oil bowl). lit:true = glowing fire panels (or a big flame in the bowl), sparks, warmed metal; lit:false = dark panels or a cold sooty bowl and duller metal.
+  - e.g. lampstand(k, { lit: false, head: 'bowl', base: 'column' })
+wall(k, {at, len:40, height:14, thick:6, mat:'limestone', crenels:false, gate:false, sea:false, axis:'u'|'v'})
+  - stone town or sea wall segment: stepped footing, ashlar courses with staggered joints, coping; crenels = merlons on the outer edge; gate = arched opening with voussoirs, keystone and studded plank doors; sea = wet weedy foot, scuppers and bronze mooring rings. axis = the direction the wall runs (the long face toward the viewer is lit).
+  - e.g. wall(k, { len: 36, height: 12, sea: true, gate: true })
+stall(k, {at, w:18, d:10, awning:'crimson', stripe:'linen', goods:'fruit'|'fish'|'amphorae'})
+  - market stall: plank counter, corner posts, sloping striped awning with a scalloped valance, back shelf, bronze balance, and goods: 'fruit' (baskets of pomegranates, lemons and olives, a melon crate), 'fish' (a tray of fish, fish hanging from the beam, a basket), 'amphorae' (painted amphorae and jars).
+  - e.g. stall(k, { awning: 'aegean', goods: 'fish' })
+
 RAW SHAPES (only for small extras the builders lack; world coords [u,v,z]):
 k.sphere(c, r, mat), k.ellipsoid(c, [ru,rv,rz], mat), k.capsule(a, b, r1, r2, mat), k.box(lo, hi, mat),
 k.cyl(a, b, r1, r2, mat) (cone if r2 differs), k.lathe([u,v,z0], [[h,r],...], mat), k.plate([[u,v,z],...], thick, mat), k.ring(c, axis, R, r, mat).
@@ -78,5 +96,12 @@ EXAMPLE brief: "Ionic marble column"
 ```ts
 function build(k) {
   column(k, { order: 'ionic', height: 30, mat: 'marble' });
+}
+```
+
+EXAMPLE brief: "lit bronze street lamp"
+```ts
+function build(k) {
+  lampstand(k, { lit: true });
 }
 ```

@@ -2,82 +2,171 @@
 // scenarios with a frozen clock, screenshots each, runs pixel and DOM checks, diffs against the last approved pass,
 // and writes a labelled contact sheet to look at.
 //
-// usage: npm run build && npm start &   then   node scripts/verify-visual.mjs [--url http://localhost:3000] [--update] [--headless]
+// usage: bun run build && bun run start &   then   bun run verify:visual -- [--url http://localhost:3000] [--update] [--headless]
 //   verify-out/latest/*.png   this pass        verify-out/baseline/*.png   last approved pass (--update copies latest there)
 //   verify-out/sheet.png      contact sheet    verify-out/report.json      checks and diffs
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
-import { chromium, devices, webkit } from "playwright";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chromium, devices, webkit } from "playwright";
 
-const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
-const URL_ = arg("--url", "http://localhost:3000");
+const argument = (name, fallback) => {
+  const index = process.argv.indexOf(name);
+  return index > 0 ? process.argv[index + 1] : fallback;
+};
+const BASE_URL = argument("--url", "http://localhost:3000");
 const UPDATE = process.argv.includes("--update");
 const HEADLESS = process.argv.includes("--headless");
 const OUT = "verify-out";
-for (const d of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(d, { recursive: true });
+for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(directory, { recursive: true });
 
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
 let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
-const lab = await browser.newPage();   // blank page used to decode and compare PNGs
+const lab = await browser.newPage(); // blank page used to decode and compare PNGs
 const errors = [];
-page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => { if (m.type() === "error" && !m.text().startsWith("Failed to load resource")) errors.push(m.text()); });
-page.on("response", (r) => { if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`); });
+page.on("pageerror", (error) => errors.push(String(error)));
+page.on("console", (message) => {
+  if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) errors.push(message.text());
+});
+page.on("response", (response) => {
+  if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
+});
 
 const shots = [];
 const checks = [];
-const check = (scene, name, ok, detail) => checks.push({ scene, name, ok: !!ok, detail });
+const check = (scene, name, passed, detail) => checks.push({ scene, name, ok: !!passed, detail });
 
 // --- helpers ------------------------------------------------------------------------------------------------
-const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+const settle = () =>
+  page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 async function freeze() {
-  await page.evaluate(() => { const sc = window.lampwarden.scene(); sc.setPaused(true); sc.freezeClock(1.25); });
-  await page.waitForTimeout(120); await settle();
+  await page.evaluate(() => {
+    const scene = window.lampwarden.scene();
+    scene.setPaused(true);
+    scene.freezeClock(1.25);
+  });
+  await page.waitForTimeout(120);
+  await settle();
 }
 async function shoot(name, whole = false) {
   const file = `${OUT}/latest/${name}.png`;
-  if (whole) await page.screenshot({ path: file }); else await page.locator(".stage").screenshot({ path: file });
+  if (whole) await page.screenshot({ path: file });
+  else await page.locator(".stage").screenshot({ path: file });
   shots.push(name);
   return readFileSync(file).toString("base64");
 }
-// mean luminance of boxes [x, y, w, h] in canvas pixels (the stage is 960x600 at deviceScaleFactor 1)
-const lum = (b64, boxes) => lab.evaluate(async ({ b64, boxes }) => {
-  const img = new Image(); img.src = "data:image/png;base64," + b64; await img.decode();
-  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
-  const g = c.getContext("2d"); g.drawImage(img, 0, 0);
-  return boxes.map(([x, y, w, h]) => {
-    const d = g.getImageData(Math.round(x), Math.round(y), w, h).data; let t = 0;
-    for (let i = 0; i < d.length; i += 4) t += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-    return t / (d.length / 4);
-  });
-}, { b64, boxes });
-const stats = (b64) => lab.evaluate(async (b64) => {
-  const img = new Image(); img.src = "data:image/png;base64," + b64; await img.decode();
-  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
-  const g = c.getContext("2d"); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, c.width, c.height).data;
-  let s = 0, s2 = 0; const n = d.length / 4;
-  for (let i = 0; i < d.length; i += 4) { const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; s += l; s2 += l * l; }
-  const mean = s / n; return { mean, sd: Math.sqrt(s2 / n - mean * mean), w: c.width, h: c.height };
-}, b64);
+// mean luminance of boxes [x, y, width, height] in canvas pixels (the stage is 960x600 at deviceScaleFactor 1)
+const luminance = (encoded, boxes) =>
+  lab.evaluate(
+    async ({ encoded, boxes }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${encoded}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      return boxes.map(([x, y, width, height]) => {
+        const data = context.getImageData(Math.round(x), Math.round(y), width, height).data;
+        let total = 0;
+        for (let index = 0; index < data.length; index += 4)
+          total += 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
+        return total / (data.length / 4);
+      });
+    },
+    { encoded, boxes },
+  );
+const imageStats = (encoded) =>
+  lab.evaluate(async (encoded) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${encoded}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let sum = 0;
+    let sumOfSquares = 0;
+    const pixelCount = data.length / 4;
+    for (let index = 0; index < data.length; index += 4) {
+      const level = 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
+      sum += level;
+      sumOfSquares += level * level;
+    }
+    const mean = sum / pixelCount;
+    return {
+      mean,
+      deviation: Math.sqrt(sumOfSquares / pixelCount - mean * mean),
+      width: canvas.width,
+      height: canvas.height,
+    };
+  }, encoded);
 // share of pixels that differ by more than 24 levels in any channel
-const diff = (a, b) => lab.evaluate(async ({ a, b }) => {
-  const load = async (s) => { const i = new Image(); i.src = "data:image/png;base64," + s; await i.decode(); const c = document.createElement("canvas"); c.width = i.width; c.height = i.height; const g = c.getContext("2d"); g.drawImage(i, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
-  const A = await load(a), B = await load(b);
-  if (A.width !== B.width || A.height !== B.height) return 1;
-  let n = 0; for (let i = 0; i < A.data.length; i += 4) if (Math.abs(A.data[i] - B.data[i]) > 24 || Math.abs(A.data[i + 1] - B.data[i + 1]) > 24 || Math.abs(A.data[i + 2] - B.data[i + 2]) > 24) n++;
-  return n / (A.data.length / 4);
-}, { a, b });
+const diff = (first, second) =>
+  lab.evaluate(
+    async ({ first, second }) => {
+      const load = async (encoded) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, canvas.width, canvas.height);
+      };
+      const firstImage = await load(first);
+      const secondImage = await load(second);
+      if (firstImage.width !== secondImage.width || firstImage.height !== secondImage.height) return 1;
+      let changed = 0;
+      for (let index = 0; index < firstImage.data.length; index += 4)
+        if (
+          Math.abs(firstImage.data[index] - secondImage.data[index]) > 24 ||
+          Math.abs(firstImage.data[index + 1] - secondImage.data[index + 1]) > 24 ||
+          Math.abs(firstImage.data[index + 2] - secondImage.data[index + 2]) > 24
+        )
+          changed++;
+      return changed / (firstImage.data.length / 4);
+    },
+    { first, second },
+  );
 // share of pixels in a box that differ between two shots
-const boxDiff = (a, b, [x, y, w, h]) => lab.evaluate(async ({ a, b, x, y, w, h }) => {
-  const load = async (s) => { const i = new Image(); i.src = "data:image/png;base64," + s; await i.decode(); const c = document.createElement("canvas"); c.width = i.width; c.height = i.height; const g = c.getContext("2d"); g.drawImage(i, 0, 0); return g.getImageData(x, y, w, h).data; };
-  const A = await load(a), B = await load(b); let n = 0;
-  for (let i = 0; i < A.length; i += 4) if (Math.abs(A[i] - B[i]) + Math.abs(A[i + 1] - B[i + 1]) + Math.abs(A[i + 2] - B[i + 2]) > 30) n++;
-  return n / (A.length / 4);
-}, { a, b, x, y, w, h });
-const text = (sel) => page.locator(sel).allInnerTexts();
+const boxDiff = (first, second, [x, y, width, height]) =>
+  lab.evaluate(
+    async ({ first, second, x, y, width, height }) => {
+      const load = async (encoded) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(x, y, width, height).data;
+      };
+      const firstData = await load(first);
+      const secondData = await load(second);
+      let changed = 0;
+      for (let index = 0; index < firstData.length; index += 4)
+        if (
+          Math.abs(firstData[index] - secondData[index]) +
+            Math.abs(firstData[index + 1] - secondData[index + 1]) +
+            Math.abs(firstData[index + 2] - secondData[index + 2]) >
+          30
+        )
+          changed++;
+      return changed / (firstData.length / 4);
+    },
+    { first, second, x, y, width, height },
+  );
+const text = (selector) => page.locator(selector).allInnerTexts();
 
 // --- scenarios ----------------------------------------------------------------------------------------------
-await page.goto(URL_ + "/?verify=1");
+await page.goto(`${BASE_URL}/?verify=1`);
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
@@ -85,99 +174,196 @@ await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
 await settle();
 
 // 1 title
-let b = await shoot("01-title");
-let st = await stats(b);
-check("title", "canvas is not blank", st.sd > 12, `luminance sd ${st.sd.toFixed(1)}`);
-const fontsOk = () => page.evaluate(async () => {
-  await document.fonts.ready;
-  const fams = (el) => getComputedStyle(el).fontFamily.split(",").map((f) => f.trim().replace(/["']/g, ""));
-  const want = [...fams(document.querySelector(".logo")).slice(0, 1), ...fams(document.body).slice(0, 1)];
-  return want.map((f) => ({ f, ok: [...document.fonts].some((ff) => ff.family.replace(/["']/g, "") === f && ff.status === "loaded") }));
-});
+let shot = await shoot("01-title");
+const titleStats = await imageStats(shot);
+check("title", "canvas is not blank", titleStats.deviation > 12, `luminance sd ${titleStats.deviation.toFixed(1)}`);
+const fontsLoaded = () =>
+  page.evaluate(async () => {
+    await document.fonts.ready;
+    const families = (element) =>
+      getComputedStyle(element)
+        .fontFamily.split(",")
+        .map((family) => family.trim().replace(/["']/g, ""));
+    const wanted = [...families(document.querySelector(".logo")).slice(0, 1), ...families(document.body).slice(0, 1)];
+    return wanted.map((family) => ({
+      family,
+      ok: [...document.fonts].some((face) => face.family.replace(/["']/g, "") === family && face.status === "loaded"),
+    }));
+  });
 
-const logo = await page.evaluate(() => { const i = document.querySelector(".brand img"); return i && { ok: i.complete && i.naturalWidth === 68, w: i.getBoundingClientRect().width }; });
-check("title", "logo image loaded at a whole multiple", logo && logo.ok && logo.w % 68 === 0, logo && `${logo.w}px wide`);
+const logo = await page.evaluate(() => {
+  const image = document.querySelector(".brand img");
+  return image && { ok: image.complete && image.naturalWidth === 68, width: image.getBoundingClientRect().width };
+});
+check(
+  "title",
+  "logo image loaded at a whole multiple",
+  logo?.ok && logo.width % 68 === 0,
+  logo && `${logo.width}px wide`,
+);
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 
 // 2 night start: all five lamps lit
 await page.getByRole("button", { name: "Light the lamps" }).click();
 await page.waitForSelector('[data-phase="night"]');
 await freeze();
-const lamps = await page.evaluate(() => window.lampwarden.state().lamps.map((l) => [l.x, l.y]));
+const lamps = await page.evaluate(() => window.lampwarden.state().lamps.map((lamp) => [lamp.x, lamp.y]));
 const head = ([x, y]) => [x - 4, y - 82, 8, 8];
 const floor = ([x, y]) => [x + 30, y - 4, 10, 6];
-b = await shoot("02-night-start");
-const nightStats = await stats(b);
-const litHeads = await lum(b, lamps.map(head));
+shot = await shoot("02-night-start");
+const nightStats = await imageStats(shot);
+const litHeads = await luminance(shot, lamps.map(head));
 check("night-start", "five lamps in state", lamps.length === 5);
-check("night-start", "every lit lantern glows", litHeads.every((v) => v > 150), litHeads.map((v) => v.toFixed(0)).join(" "));
+check(
+  "night-start",
+  "every lit lantern glows",
+  litHeads.every((level) => level > 150),
+  litHeads.map((level) => level.toFixed(0)).join(" "),
+);
 check("night-start", "HUD shows 5 lit lamps", (await page.locator(".lamps span.lit").count()) === 5);
 check("night-start", "night is dark overall", nightStats.mean < 110, `mean ${nightStats.mean.toFixed(1)}`);
 
 // 3 combat: one of each monster near lamps, a shot in flight, a lamp being clawed
 await page.evaluate(() => {
-  const s = window.lampwarden.state();
-  const add = (kind, x, y, extra = {}) => s.monsters.push({ id: s.nextId++, kind, x, y, hp: kind === "cyclops" ? 2 : 1, t: 0, wob: 0, snuff: 0, cd: 0, hurt: 0, ...extra });
-  add("satyr", s.lamps[2].x + 4, s.lamps[2].y + 6, { snuff: 1.2 });
+  const state = window.lampwarden.state();
+  const add = (kind, x, y, extra = {}) =>
+    state.monsters.push({
+      id: state.nextId++,
+      kind,
+      x,
+      y,
+      hp: kind === "cyclops" ? 2 : 1,
+      t: 0,
+      wob: 0,
+      snuff: 0,
+      cd: 0,
+      hurt: 0,
+      ...extra,
+    });
+  add("satyr", state.lamps[2].x + 4, state.lamps[2].y + 6, { snuff: 1.2 });
   add("harpy", 300, 260);
   add("cyclops", 650, 450);
-  s.shots.push({ id: s.nextId++, x: 420, y: 300, vx: 300, vy: -100, life: 1, hit: [] });
-  s.hero.x = 560; s.hero.y = 360;
+  state.shots.push({ id: state.nextId++, x: 420, y: 300, vx: 300, vy: -100, life: 1, hit: [] });
+  state.hero.x = 560;
+  state.hero.y = 360;
 });
-await page.evaluate(() => window.lampwarden.scene().setPaused(true)); await settle();
-b = await shoot("03-combat");
-const base2 = readFileSync(`${OUT}/latest/02-night-start.png`).toString("base64");
+await page.evaluate(() => window.lampwarden.scene().setPaused(true));
+await settle();
+shot = await shoot("03-combat");
+const nightStart = readFileSync(`${OUT}/latest/02-night-start.png`).toString("base64");
 // sprite boxes: anchor is near the feet, flying monsters are drawn 22 px higher
-const box = (x, y, fly) => [x - 30, y - (fly ? 22 : 0) - 100, 60, 100];
-const dz = [await boxDiff(b, base2, box(300, 260, true)), await boxDiff(b, base2, box(650, 450, false)), await boxDiff(b, base2, box(lamps[2][0] + 4, lamps[2][1] + 6, false))];
-check("combat", "each monster drawn where it stands", dz.every((d) => d > 0.08), dz.map((d) => (d * 100).toFixed(0) + "%").join(" "));
+const spriteBox = (x, y, flying) => [x - 30, y - (flying ? 22 : 0) - 100, 60, 100];
+const drawn = [
+  await boxDiff(shot, nightStart, spriteBox(300, 260, true)),
+  await boxDiff(shot, nightStart, spriteBox(650, 450, false)),
+  await boxDiff(shot, nightStart, spriteBox(lamps[2][0] + 4, lamps[2][1] + 6, false)),
+];
+check(
+  "combat",
+  "each monster drawn where it stands",
+  drawn.every((share) => share > 0.08),
+  drawn.map((share) => `${(share * 100).toFixed(0)}%`).join(" "),
+);
 // stray strokes: the sky band above the plaza should look the same as at night start
-const sky = await boxDiff(b, base2, [0, 60, 960, 60]);
+const sky = await boxDiff(shot, nightStart, [0, 60, 960, 60]);
 check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).toFixed(2)}% of the sky changed`);
 
 // 4 two dark lamps, one being relit
-await page.evaluate(() => { const s = window.lampwarden.state(); s.monsters = []; s.shots = []; s.lamps[0].lit = false; s.lamps[1].lit = false; s.lamps[1].relight = 0.5; s.hero.x = s.lamps[1].x + 10; s.hero.y = s.lamps[1].y + 8; });
-await settle(); await page.waitForTimeout(80);
-b = await shoot("04-dark-lamps");
-const heads4 = await lum(b, lamps.map(head));
-const sky4 = await boxDiff(b, base2, [0, 60, 960, 60]);
-check("dark-lamps", "no stray strokes across the sky", sky4 < 0.001, `${(sky4 * 100).toFixed(2)}% of the sky changed`);
-check("dark-lamps", "dark lanterns are darker than lit ones", Math.max(heads4[0], heads4[1]) + 40 < Math.min(heads4[2], heads4[3], heads4[4]), heads4.map((v) => v.toFixed(0)).join(" "));
-const pool = await lum(b, lamps.map(floor));
-check("dark-lamps", "no light pool under dark lamps", Math.max(pool[0], pool[1]) + 8 < Math.min(pool[2], pool[3]), pool.map((v) => v.toFixed(0)).join(" "));
+await page.evaluate(() => {
+  const state = window.lampwarden.state();
+  state.monsters = [];
+  state.shots = [];
+  state.lamps[0].lit = false;
+  state.lamps[1].lit = false;
+  state.lamps[1].relight = 0.5;
+  state.hero.x = state.lamps[1].x + 10;
+  state.hero.y = state.lamps[1].y + 8;
+});
+await settle();
+await page.waitForTimeout(80);
+shot = await shoot("04-dark-lamps");
+const darkHeads = await luminance(shot, lamps.map(head));
+const darkSky = await boxDiff(shot, nightStart, [0, 60, 960, 60]);
+check(
+  "dark-lamps",
+  "no stray strokes across the sky",
+  darkSky < 0.001,
+  `${(darkSky * 100).toFixed(2)}% of the sky changed`,
+);
+check(
+  "dark-lamps",
+  "dark lanterns are darker than lit ones",
+  Math.max(darkHeads[0], darkHeads[1]) + 40 < Math.min(darkHeads[2], darkHeads[3], darkHeads[4]),
+  darkHeads.map((level) => level.toFixed(0)).join(" "),
+);
+const pool = await luminance(shot, lamps.map(floor));
+check(
+  "dark-lamps",
+  "no light pool under dark lamps",
+  Math.max(pool[0], pool[1]) + 8 < Math.min(pool[2], pool[3]),
+  pool.map((level) => level.toFixed(0)).join(" "),
+);
 
 // 5 just before dawn: the tint has warmed
-await page.evaluate(() => { const s = window.lampwarden.state(); s.lamps.forEach((l) => (l.lit = true)); s.elapsed = s.length * 0.97; });
-await settle(); await page.waitForTimeout(80);
-b = await shoot("05-near-dawn");
-const dawnStats = await stats(b);
-check("near-dawn", "scene brightens towards dawn", dawnStats.mean > nightStats.mean + 25, `night ${nightStats.mean.toFixed(1)} → dawn ${dawnStats.mean.toFixed(1)}`);
+await page.evaluate(() => {
+  const state = window.lampwarden.state();
+  for (const lamp of state.lamps) lamp.lit = true;
+  state.elapsed = state.length * 0.97;
+});
+await settle();
+await page.waitForTimeout(80);
+shot = await shoot("05-near-dawn");
+const dawnStats = await imageStats(shot);
+check(
+  "near-dawn",
+  "scene brightens towards dawn",
+  dawnStats.mean > nightStats.mean + 25,
+  `night ${nightStats.mean.toFixed(1)} → dawn ${dawnStats.mean.toFixed(1)}`,
+);
 
 // 6 dawn screen
-await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.length - 0.01; s.stats.kills = 12; s.oilEarned = 12; window.lampwarden.scene().setPaused(false); });
+await page.evaluate(() => {
+  const state = window.lampwarden.state();
+  state.elapsed = state.length - 0.01;
+  state.stats.kills = 12;
+  state.oilEarned = 12;
+  window.lampwarden.scene().setPaused(false);
+});
 await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
 await freeze();
-b = await shoot("06-dawn");
-const fl = await fontsOk();
-check("dawn", "pixel fonts loaded (title, UI)", fl.every((x) => x.ok), fl.map((x) => `${x.f}:${x.ok ? "loaded" : "MISSING"}`).join(" "));
-check("dawn", "dawn panel with four upgrades", (await text(".logo")).join("").includes("DAWN") && (await page.locator(".btn.up").count()) === 4);
+shot = await shoot("06-dawn");
+const dawnFonts = await fontsLoaded();
+check(
+  "dawn",
+  "pixel fonts loaded (title, UI)",
+  dawnFonts.every((font) => font.ok),
+  dawnFonts.map((font) => `${font.family}:${font.ok ? "loaded" : "MISSING"}`).join(" "),
+);
+check(
+  "dawn",
+  "dawn panel with four upgrades",
+  (await text(".logo")).join("").includes("DAWN") && (await page.locator(".btn.up").count()) === 4,
+);
 const icons = await page.locator(".btn.up .icon").count();
 check("dawn", "every upgrade has an icon", icons === 4, `${icons} icons`);
 
 // 7 heir screen after the lamps go dark
 await page.getByRole("button", { name: /Into night/ }).click();
 await page.waitForSelector('[data-phase="night"]');
-await page.evaluate(() => { const s = window.lampwarden.state(); s.lamps.forEach((l) => (l.lit = false)); });
+await page.evaluate(() => {
+  for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+});
 await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
-b = await shoot("07-heir");
+shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
 
 // 8 replay of the night just played (kept locally)
-await page.goto(URL_ + "/?replay=last");
+await page.goto(`${BASE_URL}/?replay=last`);
 await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
-await page.waitForTimeout(1200); await freeze();
-b = await shoot("08-replay");
+await page.waitForTimeout(1200);
+await freeze();
+shot = await shoot("08-replay");
 check("replay", "replay bar shown", (await text(".replaybar")).join("").includes("REPLAY"));
 
 // 9 gamepad: a mocked standard-mapping pad drives the menus and the warden
@@ -185,61 +371,109 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const padPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
   padPage.on("pageerror", (error) => errors.push(`gamepad: ${error}`));
   await padPage.addInitScript(() => {
-    const pad = { id: "Verifier pad", index: 0, connected: true, mapping: "standard", timestamp: 0, axes: [0, 0, 0, 0],
-      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), vibrationActuator: null };
+    const pad = {
+      id: "Verifier pad",
+      index: 0,
+      connected: true,
+      mapping: "standard",
+      timestamp: 0,
+      axes: [0, 0, 0, 0],
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+      vibrationActuator: null,
+    };
     window.verifierPad = pad;
     navigator.getGamepads = () => [pad, null, null, null];
   });
   const mainPage = page;
   page = padPage;
   const tapButton = async (index) => {
-    await page.evaluate((index) => { window.verifierPad.buttons[index].pressed = true; }, index);
+    await page.evaluate((index) => {
+      window.verifierPad.buttons[index].pressed = true;
+    }, index);
     await page.waitForTimeout(120);
-    await page.evaluate((index) => { window.verifierPad.buttons[index].pressed = false; }, index);
+    await page.evaluate((index) => {
+      window.verifierPad.buttons[index].pressed = false;
+    }, index);
     await page.waitForTimeout(120);
   };
-  const setAxes = (axes) => page.evaluate((axes) => { window.verifierPad.axes = axes; }, axes);
-  await page.goto(URL_ + "/?verify=1");
-  await page.evaluate(() => localStorage.clear()); await page.reload();
+  const setAxes = (axes) =>
+    page.evaluate((axes) => {
+      window.verifierPad.axes = axes;
+    }, axes);
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
   await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
-  await tapButton(9);   // Start presses the title's primary button
-  const started = await page.waitForSelector('[data-phase="night"]', { timeout: 3000 }).then(() => true, () => false);
+  await tapButton(9); // Start presses the title's primary button
+  const started = await page.waitForSelector('[data-phase="night"]', { timeout: 3000 }).then(
+    () => true,
+    () => false,
+  );
   check("gamepad", "Start lights the lamps", started);
   if (started) {
     check("gamepad", "help line shows pad controls", (await text(".help")).join("").includes("Left stick"));
     const startX = await page.evaluate(() => window.lampwarden.state().hero.x);
-    await setAxes([1, 0, 0, 0]); await page.waitForTimeout(500); await setAxes([0, 0, 0, 0]);
+    await setAxes([1, 0, 0, 0]);
+    await page.waitForTimeout(500);
+    await setAxes([0, 0, 0, 0]);
     const movedX = await page.evaluate(() => window.lampwarden.state().hero.x);
     check("gamepad", "left stick moves the warden", movedX - startX > 30, `Δx ${(movedX - startX).toFixed(0)}`);
     await tapButton(0);
     check("gamepad", "A strikes", (await page.evaluate(() => window.lampwarden.state().hero.anim)) === "melee");
     await page.waitForTimeout(500);
-    await setAxes([0, 0, -1, 0]);   // right stick left, then the right trigger shoots that way
+    await setAxes([0, 0, -1, 0]); // right stick left, then the right trigger shoots that way
     await tapButton(7);
     await page.waitForTimeout(250);
-    const shot = await page.evaluate(() => { const shots = window.lampwarden.state().shots; return shots[0] ? { vx: shots[0].vx, x: shots[0].x, y: shots[0].y } : null; });
-    check("gamepad", "right trigger shoots along the right stick", shot !== null && shot.vx < 0, shot ? `vx ${shot.vx.toFixed(0)}` : "no shot");
+    const firstShot = await page.evaluate(() => {
+      const [inFlight] = window.lampwarden.state().shots;
+      return inFlight ? { vx: inFlight.vx, x: inFlight.x, y: inFlight.y } : null;
+    });
+    check(
+      "gamepad",
+      "right trigger shoots along the right stick",
+      firstShot !== null && firstShot.vx < 0,
+      firstShot ? `vx ${firstShot.vx.toFixed(0)}` : "no shot",
+    );
     await setAxes([0, 0, 0, 0]);
-    if (shot) {
+    if (firstShot) {
       await freeze();
-      b = await shoot("09-gamepad-arrow");
-      const now = await page.evaluate(() => { const shots = window.lampwarden.state().shots; return shots[0] ? { x: shots[0].x, y: shots[0].y } : null; });
+      shot = await shoot("09-gamepad-arrow");
+      const now = await page.evaluate(() => {
+        const [inFlight] = window.lampwarden.state().shots;
+        return inFlight ? { x: inFlight.x, y: inFlight.y } : null;
+      });
       if (now) {
         const arrowBox = [Math.round(now.x) - 10, Math.round(now.y) - 10, 21, 21];
-        const [around] = await lum(b, [arrowBox]);
-        check("gamepad", "arrow sprite drawn where the shot is", around > 40, `mean luminance ${around.toFixed(0)} around (${Math.round(now.x)}, ${Math.round(now.y)})`);
+        const [around] = await luminance(shot, [arrowBox]);
+        check(
+          "gamepad",
+          "arrow sprite drawn where the shot is",
+          around > 40,
+          `mean luminance ${around.toFixed(0)} around (${Math.round(now.x)}, ${Math.round(now.y)})`,
+        );
       }
       await page.evaluate(() => window.lampwarden.scene().setPaused(false));
     }
-    await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.length - 0.01; s.oilEarned = 40; });
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.elapsed = state.length - 0.01;
+      state.oilEarned = 40;
+    });
     await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
     await page.waitForTimeout(200);
-    await setAxes([0, 1, 0, 0]); await page.waitForTimeout(80); await setAxes([0, 0, 0, 0]);   // down: focus the first button
+    await setAxes([0, 1, 0, 0]);
+    await page.waitForTimeout(80);
+    await setAxes([0, 0, 0, 0]); // down: focus the first button
     const focusedText = await page.evaluate(() => document.activeElement?.textContent ?? "");
     await tapButton(0);
     const levels = await page.evaluate(() => window.lampwarden.legacy().levels);
-    check("gamepad", "d-pad focuses and A buys an upgrade", Object.values(levels).some((level) => level > 0), `focused "${focusedText.slice(0, 20)}", levels ${JSON.stringify(levels)}`);
+    check(
+      "gamepad",
+      "d-pad focuses and A buys an upgrade",
+      Object.values(levels).some((level) => level > 0),
+      `focused "${focusedText.slice(0, 20)}", levels ${JSON.stringify(levels)}`,
+    );
     await freeze();
     await shoot("10-gamepad-dawn");
   }
@@ -250,92 +484,168 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
 // --- mobile: WebKit (Safari's engine) on phone profiles, with touch ------------------------------------------
-const wk = await webkit.launch({ headless: HEADLESS });
-const boxes = (sel) => page.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, sel: e.className }; }), sel);
-const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-const inView = (b, vw, vh) => { const w = b.w ?? b.width, h = b.h ?? b.height; return b.x >= -1 && b.y >= -1 && b.x + w <= vw + 1 && b.y + h <= vh + 1; };
-for (const [tag, dev] of [["phone-land", devices["iPhone 14 landscape"]], ["phone-port", devices["iPhone 14"]]]) {
-  const ctx = await wk.newContext({ ...dev });
-  page = await ctx.newPage();
-  page.on("pageerror", (e) => errors.push(`${tag}: ${e}`));
-  const { width: vw, height: vh } = dev.viewport;
-  await page.goto(URL_ + "/?verify=1");
-  await page.evaluate(() => localStorage.clear()); await page.reload();
+const webkitBrowser = await webkit.launch({ headless: HEADLESS });
+const boxes = (selector) =>
+  page.evaluate(
+    (selector) =>
+      [...document.querySelectorAll(selector)].map((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, className: element.className };
+      }),
+    selector,
+  );
+const overlap = (first, second) =>
+  first.x < second.x + second.width &&
+  second.x < first.x + first.width &&
+  first.y < second.y + second.height &&
+  second.y < first.y + first.height;
+const inView = (box, viewportWidth, viewportHeight) =>
+  box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
+for (const [tag, device] of [
+  ["phone-land", devices["iPhone 14 landscape"]],
+  ["phone-port", devices["iPhone 14"]],
+]) {
+  const context = await webkitBrowser.newContext({ ...device });
+  page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(`${tag}: ${error}`));
+  const { width: viewportWidth, height: viewportHeight } = device.viewport;
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
-  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await settle();
   const [stage] = await boxes(".stage");
-  check(tag, "canvas fits the screen", inView(stage, vw, vh), `${Math.round(stage.w)}x${Math.round(stage.h)} in ${vw}x${vh}`);
-  const [startBtn] = await boxes(".btn.big");
-  check(tag, "start button on screen", inView(startBtn, vw, vh));
+  check(
+    tag,
+    "canvas fits the screen",
+    inView(stage, viewportWidth, viewportHeight),
+    `${Math.round(stage.width)}x${Math.round(stage.height)} in ${viewportWidth}x${viewportHeight}`,
+  );
+  const [startButton] = await boxes(".btn.big");
+  check(tag, "start button on screen", inView(startButton, viewportWidth, viewportHeight));
   await shoot(`${tag}-1-title`, true);
   await page.getByRole("button", { name: "Light the lamps" }).tap();
   await page.waitForSelector('[data-phase="night"]');
   await page.waitForTimeout(200);
-  const hudB = await boxes(".hud .stats, .hud .nightbar, .hud .lamps");
-  const ctl = await boxes(".stick, .tbtn");
-  check(tag, "touch controls shown", ctl.length === 3 && ctl.every((b) => b.w > 40 && inView(b, vw, vh)), ctl.map((b) => `${Math.round(b.w)}px`).join(" "));
-  const hudClash = hudB.flatMap((a, i) => hudB.slice(i + 1).filter((b) => overlap(a, b)).map((b) => `${a.sel}×${b.sel}`));
+  const hudBoxes = await boxes(".hud .stats, .hud .nightbar, .hud .lamps");
+  const controlBoxes = await boxes(".stick, .tbtn");
+  check(
+    tag,
+    "touch controls shown",
+    controlBoxes.length === 3 &&
+      controlBoxes.every((box) => box.width > 40 && inView(box, viewportWidth, viewportHeight)),
+    controlBoxes.map((box) => `${Math.round(box.width)}px`).join(" "),
+  );
+  const hudClash = hudBoxes.flatMap((first, index) =>
+    hudBoxes
+      .slice(index + 1)
+      .filter((second) => overlap(first, second))
+      .map((second) => `${first.className}×${second.className}`),
+  );
   check(tag, "HUD blocks don't overlap", hudClash.length === 0, hudClash.join(" "));
-  const ctlClash = ctl.flatMap((c) => hudB.filter((h) => overlap(c, h)).map((h) => `${c.sel}×${h.sel}`));
-  check(tag, "controls clear of the HUD", ctlClash.length === 0, ctlClash.join(" "));
-  const hudPx = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".hud")).fontSize));
-  check(tag, "HUD text at least 10 px", hudPx >= 10, `${hudPx}px`);
+  const controlClash = controlBoxes.flatMap((control) =>
+    hudBoxes.filter((hudBox) => overlap(control, hudBox)).map((hudBox) => `${control.className}×${hudBox.className}`),
+  );
+  check(tag, "controls clear of the HUD", controlClash.length === 0, controlClash.join(" "));
+  const hudFontSize = await page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.querySelector(".hud")).fontSize),
+  );
+  check(tag, "HUD text at least 10 px", hudFontSize >= 10, `${hudFontSize}px`);
   // stick: hold right for half a second, the warden must move right
-  const x0 = await page.evaluate(() => window.lampwarden.state().hero.x);
-  const st = ctl.find((b) => b.sel.includes("stick"));
-  const cdp = { x: st.x + st.w / 2, y: st.y + st.h / 2 };
-  await page.dispatchEvent(".stick", "pointerdown", { pointerId: 7, clientX: cdp.x, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
-  await page.dispatchEvent(".stick", "pointermove", { pointerId: 7, clientX: cdp.x + 50, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
+  const startX = await page.evaluate(() => window.lampwarden.state().hero.x);
+  const stickBox = controlBoxes.find((box) => box.className.includes("stick"));
+  const stickCentre = { x: stickBox.x + stickBox.width / 2, y: stickBox.y + stickBox.height / 2 };
+  const touch = { pointerId: 7, isPrimary: true, pointerType: "touch" };
+  await page.dispatchEvent(".stick", "pointerdown", { ...touch, clientX: stickCentre.x, clientY: stickCentre.y });
+  await page.dispatchEvent(".stick", "pointermove", { ...touch, clientX: stickCentre.x + 50, clientY: stickCentre.y });
   await page.waitForTimeout(500);
-  await page.dispatchEvent(".stick", "pointerup", { pointerId: 7, clientX: cdp.x + 50, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
-  const x1 = await page.evaluate(() => window.lampwarden.state().hero.x);
-  check(tag, "stick moves the warden", x1 - x0 > 30, `Δx ${(x1 - x0).toFixed(0)}`);
+  await page.dispatchEvent(".stick", "pointerup", { ...touch, clientX: stickCentre.x + 50, clientY: stickCentre.y });
+  const movedX = await page.evaluate(() => window.lampwarden.state().hero.x);
+  check(tag, "stick moves the warden", movedX - startX > 30, `Δx ${(movedX - startX).toFixed(0)}`);
   await page.dispatchEvent(".tbtn.melee", "pointerdown", { pointerId: 8, pointerType: "touch", isPrimary: true });
   await page.waitForTimeout(60);
-  const anim = await page.evaluate(() => window.lampwarden.state().hero.anim);
-  check(tag, "Strike button strikes", anim === "melee", anim);
-  await page.evaluate(() => { const s = window.lampwarden.state(); s.monsters = []; window.lampwarden.scene().freezeClock(1.25); });
-  await page.waitForTimeout(400); await settle();
+  const animation = await page.evaluate(() => window.lampwarden.state().hero.anim);
+  check(tag, "Strike button strikes", animation === "melee", animation);
+  await page.evaluate(() => {
+    window.lampwarden.state().monsters = [];
+    window.lampwarden.scene().freezeClock(1.25);
+  });
+  await page.waitForTimeout(400);
+  await settle();
   await shoot(`${tag}-2-night`, true);
-  await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.length - 0.01; s.oilEarned = 40; });
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.elapsed = state.length - 0.01;
+    state.oilEarned = 40;
+  });
   await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
-  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await settle();
   await shoot(`${tag}-3-dawn`, true);
-  const ff = await fontsOk();
-  check(tag, "pixel fonts loaded", ff.every((x) => x.ok), ff.map((x) => `${x.f}:${x.ok ? "ok" : "MISSING"}`).join(" "));
+  const phoneFonts = await fontsLoaded();
+  check(
+    tag,
+    "pixel fonts loaded",
+    phoneFonts.every((font) => font.ok),
+    phoneFonts.map((font) => `${font.family}:${font.ok ? "ok" : "MISSING"}`).join(" "),
+  );
   // every shop button and the continue button can be scrolled to and tapped
-  const n = await page.locator(".btn.up").count();
-  let reach = 0;
-  for (let i = 0; i < n; i++) { const b = page.locator(".btn.up").nth(i); await b.scrollIntoViewIfNeeded(); const r = await b.boundingBox(); if (r && inView(r, vw, vh)) reach++; }
-  const cont = page.getByRole("button", { name: /Into night/ }); await cont.scrollIntoViewIfNeeded();
-  const cr = await cont.boundingBox();
-  check(tag, "shop and continue reachable", reach === 4 && cr && inView(cr, vw, vh), `${reach}/4 upgrades`);
-  await ctx.close();
+  const upgradeCount = await page.locator(".btn.up").count();
+  let reachable = 0;
+  for (let index = 0; index < upgradeCount; index++) {
+    const upgrade = page.locator(".btn.up").nth(index);
+    await upgrade.scrollIntoViewIfNeeded();
+    const bounds = await upgrade.boundingBox();
+    if (bounds && inView(bounds, viewportWidth, viewportHeight)) reachable++;
+  }
+  const continueButton = page.getByRole("button", { name: /Into night/ });
+  await continueButton.scrollIntoViewIfNeeded();
+  const continueBounds = await continueButton.boundingBox();
+  check(
+    tag,
+    "shop and continue reachable",
+    reachable === 4 && continueBounds && inView(continueBounds, viewportWidth, viewportHeight),
+    `${reachable}/4 upgrades`,
+  );
+  await context.close();
 }
-await wk.close();
+await webkitBrowser.close();
 
 // --- diffs against the last approved pass, contact sheet ----------------------------------------------------
 const diffs = {};
-for (const n of shots) {
-  const base = `${OUT}/baseline/${n}.png`;
-  if (existsSync(base)) diffs[n] = await diff(readFileSync(`${OUT}/latest/${n}.png`).toString("base64"), readFileSync(base).toString("base64"));
-  if (UPDATE || !existsSync(base)) copyFileSync(`${OUT}/latest/${n}.png`, base);
+for (const name of shots) {
+  const baseline = `${OUT}/baseline/${name}.png`;
+  if (existsSync(baseline))
+    diffs[name] = await diff(
+      readFileSync(`${OUT}/latest/${name}.png`).toString("base64"),
+      readFileSync(baseline).toString("base64"),
+    );
+  if (UPDATE || !existsSync(baseline)) copyFileSync(`${OUT}/latest/${name}.png`, baseline);
 }
 const sheet = await browser.newPage({ viewport: { width: 1940, height: 800 }, deviceScaleFactor: 1 });
-const cells = shots.map((n) => {
-  const fails = checks.filter((c) => c.scene && n.includes(c.scene) && !c.ok).length;
-  const d = diffs[n] === undefined ? "new" : `${(diffs[n] * 100).toFixed(1)}% changed`;
-  return `<figure><img src="data:image/png;base64,${readFileSync(`${OUT}/latest/${n}.png`).toString("base64")}"><figcaption>${n} · ${d}${fails ? ` · <b>${fails} FAILED</b>` : ""}</figcaption></figure>`;
-}).join("");
+const cells = shots
+  .map((name) => {
+    const fails = checks.filter((entry) => entry.scene && name.includes(entry.scene) && !entry.ok).length;
+    const change = diffs[name] === undefined ? "new" : `${(diffs[name] * 100).toFixed(1)}% changed`;
+    return `<figure><img src="data:image/png;base64,${readFileSync(`${OUT}/latest/${name}.png`).toString("base64")}"><figcaption>${name} · ${change}${fails ? ` · <b>${fails} FAILED</b>` : ""}</figcaption></figure>`;
+  })
+  .join("");
 await sheet.setContent(`<style>body{margin:0;background:#111;color:#eee;font:13px monospace;display:grid;grid-template-columns:repeat(4,480px);align-items:start;gap:4px;padding:4px}
 figure{margin:0}img{max-width:480px;max-height:520px;image-rendering:pixelated;display:block}figcaption{padding:2px 0}b{color:#ff6b5b}</style>${cells}`);
 await sheet.screenshot({ path: `${OUT}/sheet.png`, fullPage: true });
 
-const failed = checks.filter((c) => !c.ok);
-const report = { url: URL_, visual: !HEADLESS, at: new Date().toISOString(), checks, diffs, failed: failed.length };
+const failed = checks.filter((entry) => !entry.ok);
+const report = { url: BASE_URL, visual: !HEADLESS, at: new Date().toISOString(), checks, diffs, failed: failed.length };
 writeFileSync(`${OUT}/report.json`, JSON.stringify(report, null, 1));
-for (const c of checks) console.log(`${c.ok ? "ok  " : "FAIL"} ${c.scene.padEnd(12)} ${c.name}${c.detail ? `  (${c.detail})` : ""}`);
-console.log(`\n${HEADLESS ? "HEADLESS (not a visual pass)" : "headed"} · ${checks.length - failed.length}/${checks.length} checks · sheet: ${OUT}/sheet.png`);
-for (const [n, d] of Object.entries(diffs)) if (d > 0.01) console.log(`changed vs baseline: ${n} ${(d * 100).toFixed(1)}%`);
+for (const entry of checks)
+  console.log(
+    `${entry.ok ? "ok  " : "FAIL"} ${entry.scene.padEnd(12)} ${entry.name}${entry.detail ? `  (${entry.detail})` : ""}`,
+  );
+console.log(
+  `\n${HEADLESS ? "HEADLESS (not a visual pass)" : "headed"} · ${checks.length - failed.length}/${checks.length} checks · sheet: ${OUT}/sheet.png`,
+);
+for (const [name, share] of Object.entries(diffs))
+  if (share > 0.01) console.log(`changed vs baseline: ${name} ${(share * 100).toFixed(1)}%`);
 await browser.close();
 process.exit(failed.length ? 1 : 0);

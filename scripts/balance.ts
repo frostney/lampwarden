@@ -1,44 +1,92 @@
 // Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
 // usage: bun scripts/balance.ts [runs=200]
 import { newLegacy } from "../lib/legacy";
-import { MONSTER, NO_INPUT, ground, litCount, newNight, step, type Input, type State } from "../lib/sim";
+import { ground, type Input, litCount, MONSTER, type Monster, NO_INPUT, newNight, type State, step } from "../lib/sim";
 
-function bot(s: State): Input {
-  const h = s.hero, R = s.rules;
-  let near = null as State["monsters"][number] | null, nd = Infinity;
-  for (const m of s.monsters) { const d = ground(m.x, m.y, h.x, h.y); if (d < nd) { nd = d; near = m; } }
-  if (near && nd < R.meleeReach - 8) return { ...NO_INPUT, melee: true };
-  const dark = s.lamps.filter((l) => !l.lit).sort((a, b) => ground(a.x, a.y, h.x, h.y) - ground(b.x, b.y, h.x, h.y))[0];
+function bot(state: State): Input {
+  const hero = state.hero;
+  let nearest: Monster | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const monster of state.monsters) {
+    const distance = ground(monster.x, monster.y, hero.x, hero.y);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = monster;
+    }
+  }
+  if (nearest && nearestDistance < state.rules.meleeReach - 8) return { ...NO_INPUT, melee: true };
+  const dark = state.lamps
+    .filter((lamp) => !lamp.lit)
+    .sort((first, second) => ground(first.x, first.y, hero.x, hero.y) - ground(second.x, second.y, hero.x, hero.y))[0];
   // threat: the monster closest to a lit lamp
-  let threat = null as State["monsters"][number] | null, td = Infinity;
-  for (const m of s.monsters) for (const l of s.lamps) if (l.lit) { const d = ground(m.x, m.y, l.x, l.y); if (d < td) { td = d; threat = m; } }
-  const goal = dark && (nd > 120) ? { x: dark.x, y: dark.y } : threat ?? near;
-  if (threat && h.shotCd <= 0 && ground(threat.x, threat.y, h.x, h.y) > 180)
+  let threat: Monster | null = null;
+  let threatDistance = Number.POSITIVE_INFINITY;
+  for (const monster of state.monsters)
+    for (const lamp of state.lamps)
+      if (lamp.lit) {
+        const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
+        if (distance < threatDistance) {
+          threatDistance = distance;
+          threat = monster;
+        }
+      }
+  const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
+  if (threat && hero.shotCd <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
     return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - (MONSTER[threat.kind].fly ? 56 : 32) } };
   if (!goal) return NO_INPUT;
-  const dx = goal.x - h.x, dy = goal.y - h.y;
-  return { ...NO_INPUT, dx: Math.abs(dx) > 10 ? Math.sign(dx) : 0, dy: Math.abs(dy) > 5 ? Math.sign(dy) : 0 };
+  const towardX = goal.x - hero.x;
+  const towardY = goal.y - hero.y;
+  return {
+    ...NO_INPUT,
+    dx: Math.abs(towardX) > 10 ? Math.sign(towardX) : 0,
+    dy: Math.abs(towardY) > 5 ? Math.sign(towardY) : 0,
+  };
 }
 
 function play(night: number, tide: number, policy: "idle" | "bot") {
-  const l = newLegacy(); l.night = night; l.tide = tide;
-  const s = newNight(l);
-  let inp = NO_INPUT, think = 0;
-  const dt = 1 / 60;
-  while (!s.outcome) {
-    if ((think -= dt) <= 0) { inp = policy === "bot" ? bot(s) : NO_INPUT; think = 0.15; }   // ~150 ms reaction time
-    step(s, dt, inp);
-    if (inp.melee || inp.ranged) inp = { ...inp, melee: false, ranged: false };
+  const legacy = newLegacy();
+  legacy.night = night;
+  legacy.tide = tide;
+  const state = newNight(legacy);
+  let input = NO_INPUT;
+  let think = 0;
+  const stepSeconds = 1 / 60;
+  while (!state.outcome) {
+    think -= stepSeconds;
+    if (think <= 0) {
+      // ~150 ms reaction time
+      input = policy === "bot" ? bot(state) : NO_INPUT;
+      think = 0.15;
+    }
+    step(state, stepSeconds, input);
+    if (input.melee || input.ranged) input = { ...input, melee: false, ranged: false };
   }
-  return { outcome: s.outcome, t: s.elapsed, lit: litCount(s), hp: s.hero.hp, kills: s.stats.kills, oil: s.oilEarned };
+  return {
+    outcome: state.outcome,
+    time: state.elapsed,
+    lit: litCount(state),
+    kills: state.stats.kills,
+    oil: state.oilEarned,
+  };
 }
 
 const runs = Number(process.argv[2] || 200);
+const SCENARIOS = [
+  [1, 1],
+  [2, 1],
+  [3, 1.1],
+  [5, 1.2],
+  [7, 1.4],
+] as const;
 for (const policy of ["idle", "bot"] as const) {
-  for (const [night, tide] of [[1, 1], [2, 1], [3, 1.1], [5, 1.2], [7, 1.4]] as const) {
-    const res = Array.from({ length: runs }, () => play(night, tide, policy));
-    const n = (o: string) => res.filter((r) => r.outcome === o).length;
-    const avg = (f: (r: (typeof res)[number]) => number) => (res.reduce((a, r) => a + f(r), 0) / runs).toFixed(1);
-    console.log(`${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${(100 * n("dawn") / runs).toFixed(0)}%  dark ${(100 * n("dark") / runs).toFixed(0)}%  fallen ${(100 * n("fallen") / runs).toFixed(0)}%  | ends at ${avg((r) => r.t)}s, lamps ${avg((r) => r.lit)}, kills ${avg((r) => r.kills)}, oil ${avg((r) => r.oil)}`);
+  for (const [night, tide] of SCENARIOS) {
+    const results = Array.from({ length: runs }, () => play(night, tide, policy));
+    const percent = (outcome: string) =>
+      ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0);
+    const average = (measure: (result: (typeof results)[number]) => number) =>
+      (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
+    console.log(
+      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, oil ${average((result) => result.oil)}`,
+    );
   }
 }

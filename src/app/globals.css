@@ -485,6 +485,9 @@ h1 {
 .privacy {
   font-size: 12px;
 }
+.scroll-content .privacy {
+  line-height: 1.2;
+}
 .scroll {
   --scale: 3;
   --portrait: 2;
@@ -583,6 +586,9 @@ h1 {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.scroll-hero {
+  gap: 6px;
 }
 @container (min-width: 560px) {
   .scroll-layout {
@@ -693,6 +699,58 @@ h1 {
 }
 .hero-card.chosen .hero-mark {
   color: var(--ink);
+}
+/* How to play (HowToPlay.tsx): the controls as keys and buttons drawn in pixels, each over its label */
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.scroll-content .controls p {
+  line-height: 1.2;
+}
+.controls-heading {
+  margin: 0;
+  font-family: var(--font-title), serif;
+  font-weight: normal;
+  font-size: 16px;
+  line-height: 1;
+}
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 6px 16px;
+}
+.control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.glyphs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.glyph {
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+/* a touch button's weapon sits in the middle of its round backdrop */
+.touch-glyph {
+  position: relative;
+  display: flex;
+}
+.scroll .touch-glyph .icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
 }
 /* ink-in: each line is written left to right once the scroll is open */
 .scroll[data-stage="unrolling"] [data-line] {

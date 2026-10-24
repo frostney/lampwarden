@@ -338,6 +338,43 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
     scroll.unreachable.join(", "),
   );
 }
+// The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
+// glyphs (keys, mouse, pad buttons, touch buttons) in this order, with the weapon icons on the touch buttons, and saying
+// how to relight a lamp
+async function checkHowToPlay(tag, kind, glyphs, weapons = []) {
+  const blocks = await page.evaluate(() =>
+    [...document.querySelectorAll(".scroll .controls")].map((block) => ({
+      kind: block.dataset.controls,
+      glyphs: [...block.querySelectorAll("[data-glyph]")].map((glyph) => ({
+        name: glyph.dataset.glyph,
+        drawn: glyph.querySelectorAll("rect").length,
+      })),
+      icons: [...block.querySelectorAll("[data-icon]")].map((icon) => icon.dataset.icon),
+      text: block.textContent,
+      inked: block.hasAttribute("data-line"),
+      shown: block.getBoundingClientRect().height > 40,
+    })),
+  );
+  const [block] = blocks;
+  const found = block?.glyphs.map((glyph) => glyph.name).join(" ");
+  check(
+    tag,
+    `How to play shows the ${kind} controls`,
+    blocks.length === 1 &&
+      block.kind === kind &&
+      found === glyphs.join(" ") &&
+      block.glyphs.every((glyph) => glyph.drawn > 3) &&
+      block.icons.join(" ") === weapons.join(" ") &&
+      block.inked &&
+      block.shown &&
+      /How to play/.test(block.text) &&
+      /move/.test(block.text) &&
+      /strike/.test(block.text) &&
+      /shoot/.test(block.text) &&
+      /dark lamp/.test(block.text),
+    block ? `${blocks.length} block: ${block.kind}, ${found}, icons ${block.icons.join(",") || "none"}` : "no block",
+  );
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -389,6 +426,20 @@ check(
 );
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 await checkTitleScroll("title", 1000, 640);
+await checkHowToPlay("title", "keyboard", ["W", "A", "S", "D", "J", "K", "mouse"]);
+{
+  // on the desktop stage the whole title, controls included, fits the parchment without scrolling
+  const room = await page.evaluate(() => {
+    const body = document.querySelector(".scroll-body");
+    return body ? { needed: body.scrollHeight, shown: body.clientHeight } : null;
+  });
+  check(
+    "title",
+    "the scroll holds the controls and the rest without scrolling",
+    room !== null && room.needed <= room.shown + 1,
+    room && `${room.needed}px of content in ${room.shown}px`,
+  );
+}
 const chosenCards = await page.locator(".hero-card[aria-pressed='true']").count();
 check(
   "title",
@@ -775,7 +826,13 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await checkHowToPlay("gamepad", "keyboard", ["W", "A", "S", "D", "J", "K", "mouse"]); // until a pad connects
   await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
+  await page.waitForSelector('.scroll .controls[data-controls="gamepad"]', { timeout: 3000 });
+  await checkHowToPlay("gamepad", "gamepad", ["pad-left-stick", "pad-A", "pad-B", "pad-RT"]);
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await settle();
+  await shoot("09-gamepad-title");
   // the d-pad walks the title's buttons to a hero card and A chooses it: the daughter, then the son again
   const focusHeroCard = async (sex, direction) => {
     for (let move = 0; move < 8; move++) {
@@ -975,6 +1032,17 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await unrollPage.waitForSelector(".scroll:not([hidden])");
   const opening = await stageOf();
   await unrollPage.waitForSelector('.scroll[data-stage="writing"]', { timeout: 6000 });
+  // the controls ink in with the other lines
+  const inking = await unrollPage.evaluate(() => {
+    const animationOf = (selector) => getComputedStyle(document.querySelector(selector)).animationName;
+    return { controls: animationOf(".controls"), heading: animationOf(".scroll-heading") };
+  });
+  check(
+    "unroll",
+    "How to play is inked in like the other lines",
+    inking.controls === "ink-in" && inking.controls === inking.heading,
+    `${inking.controls}, the heading's ${inking.heading}`,
+  );
   // a click on the daughter's card while the lines are being written completes the scroll and chooses nothing
   const card = await unrollPage.locator('.hero-card[data-sex="female"]').boundingBox();
   await unrollPage.mouse.click(card.x + card.width / 2, card.y + card.height / 2);
@@ -1083,6 +1151,12 @@ for (const [tag, device, sex] of [
       (await page.evaluate(() => window.lampwarden.legacy().heir.sex)) === "female",
     );
   }
+  await checkHowToPlay(
+    tag,
+    "touch",
+    ["touch-stick", "touch-strike", "touch-shoot"],
+    [WEAPONS[sex].strike, WEAPONS[sex].shoot],
+  );
   await page.getByRole("button", { name: "Light the lamps" }).scrollIntoViewIfNeeded();
   const [startButton] = await boxes(".btn.big");
   check(tag, "start button on screen (scrolled to)", inView(startButton, viewportWidth, viewportHeight));

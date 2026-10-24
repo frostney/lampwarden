@@ -20,8 +20,9 @@ src/
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
                      of the job still making one; on the title and the dawn and heir panels
-    useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
-                     blocks play (none, a network error and "still generating" all mean the night starts without it)
+    useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
+                     begins, for the next night's creature, and keeps a job that is still running through the night);
+                     never blocks play (none, a network error and "still generating" all mean the night starts without it)
     Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
                      choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the

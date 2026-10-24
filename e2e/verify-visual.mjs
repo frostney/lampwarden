@@ -23,7 +23,8 @@ for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(dir
 // The creature API is stubbed on every page and context: the verifier never touches Mubit or the network. The fixture
 // creature's sprite is a committed one (the satyr), served from public/sprites. sea.mode picks the answer to
 // POST /api/creatures/next: "none" (the default, so every older scenario plays as before), "ready", "generating" (the
-// job then walks through sea.steps) or "broken" (ready, but its sprite never arrives). sea.asked logs the `seen` lists.
+// job then walks through sea.steps, and finishes with the fixture creature once sea.jobsDone is set), "broken" (ready,
+// but its sprite never arrives) or "sequence" (a small sea of its own, see SEQUENCE). sea.asked logs the `seen` lists.
 const SEA_CREATURE = {
   id: "brine-hound-satyr",
   name: "Drowned sponge diver", // a real generated name
@@ -37,7 +38,15 @@ const SEA_CREATURE = {
   createdAt: "2026-10-24T01:00:00.000Z",
 };
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
-const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [] };
+// "sequence": three creatures made one after another. sea.made of them are finished; asking with `seen` answers with a
+// finished one not yet met, else starts the job that makes the next (job-seq-<index>, done once sea.made passes it).
+const SEQUENCE = ["tide-wraith", "kelp-widow", "salt-hound"].map((id, index) => ({
+  ...SEA_CREATURE,
+  id,
+  name: ["Tide wraith", "Kelp widow", "Salt hound"][index],
+  createdAt: `2026-10-24T01:0${index + 1}:00.000Z`,
+}));
+const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [], jobsDone: false, made: 0 };
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
@@ -46,15 +55,31 @@ async function serveSea(route) {
       ? route.abort()
       : route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
   if (pathname.endsWith("/next")) {
-    sea.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    const seen = JSON.parse(request.postData() ?? "{}").seen;
+    sea.asked.push(seen);
+    if (sea.mode === "sequence") {
+      const unmet = SEQUENCE.slice(0, sea.made).find((creature) => !seen.includes(creature.id));
+      if (unmet) return route.fulfill({ json: { kind: "ready", creature: unmet } });
+      if (seen.length < SEQUENCE.length)
+        return route.fulfill({ json: { kind: "generating", jobId: `job-seq-${seen.length}` } });
+      return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+    }
     if (sea.mode === "ready" || sea.mode === "broken")
       return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
     if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
     return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
   }
   if (pathname.includes("/jobs/")) {
+    const jobId = pathname.split("/").pop();
     const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
-    return route.fulfill({ json: { jobId: "job-verify", step, updatedAt: SEA_CREATURE.createdAt } });
+    const sequenced = SEQUENCE[Number(jobId.replace("job-seq-", ""))];
+    if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced))
+      return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
+    if (sea.jobsDone)
+      return route.fulfill({
+        json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
+      });
+    return route.fulfill({ json: { jobId, step, updatedAt: SEA_CREATURE.createdAt } });
   }
   return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
 }
@@ -1876,6 +1901,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 
   // 15 still being made: its step shows, and the night can start without it
   sea.mode = "generating";
+  sea.jobsDone = false;
   sea.steps = ["queued", "drawing", "rendering"];
   await openTitle();
   await page.waitForSelector('.sea[data-state="generating"]', { timeout: 5000 });
@@ -1910,21 +1936,29 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     generatingNight.creature === null && generatingNight.bestiary.length === 0,
   );
   const pollsAtStart = sea.polls;
+  const askedAtStart = sea.asked.length;
   await page.waitForTimeout(2600);
   check(
     "sea-generating",
-    "the job is no longer followed once the night has begun",
-    sea.polls === pollsAtStart,
+    "the job is still followed once the night has begun",
+    sea.polls > pollsAtStart,
     `${pollsAtStart} → ${sea.polls}`,
   );
-  // by the dawn the creature is finished: it is announced for the next night, and met in it
-  sea.mode = "ready";
+  // the job finishes during the night (the sea would answer "generating" to a second asking, so the creature that
+  // shows at dawn can only come from the job that was followed): it is announced for the next night, and met in it
+  sea.jobsDone = true;
   await toDawn();
   await page.waitForSelector('.panel .sea[data-state="ready"]', { timeout: 5000 });
   check(
     "sea-generating",
     "the finished creature is announced at dawn",
     (await text(".panel .sea")).join(" ").includes(SEA_CREATURE.name),
+  );
+  check(
+    "sea-generating",
+    "the job was kept, not asked for again, from the title to the dawn",
+    sea.asked.length === askedAtStart,
+    `${askedAtStart} → ${sea.asked.length}`,
   );
   await shoot("16-sea-dawn");
   await page.getByRole("button", { name: /Into night/ }).click();
@@ -1945,6 +1979,44 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "the next asking names what has been met",
     lastAsked() === JSON.stringify([SEA_CREATURE.id]),
     lastAsked(),
+  );
+  sea.jobsDone = false;
+
+  // 15b a run of nights: each one's creature is asked for as the night before begins, so it is ready by dawn
+  sea.mode = "sequence";
+  sea.made = 0;
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="generating"]', { timeout: 5000 });
+  await startFromTitle();
+  const sequenceNights = [(await night()).creature?.id ?? null];
+  for (let nightNumber = 2; nightNumber <= 4; nightNumber++) {
+    sea.made = nightNumber - 1; // the job asked for as the last night began has finished by its dawn
+    await toDawn();
+    const coming = SEQUENCE[nightNumber - 2];
+    await page.waitForSelector(`.panel .sea[data-state="ready"][data-creature="${coming.id}"]`, { timeout: 6000 });
+    check(
+      "sea-nights",
+      `dawn ${nightNumber - 1} announces ${coming.name}`,
+      (await text(".panel .sea")).join(" ").includes(coming.name),
+    );
+    if (nightNumber === 3) await shoot("16b-sea-dawn-second");
+    await page.getByRole("button", { name: /Into night/ }).click();
+    await page.waitForSelector('[data-phase="night"]');
+    await freeze();
+    sequenceNights.push((await night()).creature?.id ?? null);
+  }
+  check(
+    "sea-nights",
+    "three nights in a row each meet a different creature, the first night having none",
+    JSON.stringify(sequenceNights) === JSON.stringify([null, ...SEQUENCE.map((creature) => creature.id)]),
+    JSON.stringify(sequenceNights),
+  );
+  check(
+    "sea-nights",
+    "each night asked with what the line had met, in order",
+    JSON.stringify(sea.asked.slice(-4)) ===
+      JSON.stringify([[], [SEQUENCE[0].id], [SEQUENCE[0].id, SEQUENCE[1].id], SEQUENCE.map((creature) => creature.id)]),
+    JSON.stringify(sea.asked.slice(-4)),
   );
 
   // 17 ready on the title: the panel, then the creature in the night

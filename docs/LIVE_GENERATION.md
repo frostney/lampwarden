@@ -111,13 +111,13 @@ All in the existing private Blob store (`BLOB_READ_WRITE_TOKEN`), under `creatur
 
 ### Rate limits
 
-Only starting a job is limited; reading the gallery, and following a job that is already running, never is. Per visitor, 3 starts an hour (`CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`); for the whole site, 40 a UTC day (`CREATURE_MAX_STARTS_PER_DAY`). A visitor is the HMAC-SHA256 of the first `x-forwarded-for` address under the secret `CREATURE_RATE_SALT` (at least 16 characters; without it generation is off); the address itself is never stored. Changing the salt resets everyone's count.
+Only starting a job is limited; reading the gallery, and following a job that is already running, never is. Per visitor, 12 starts an hour (`CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`; the game asks for the next night's creature as each night begins, so a night is a start, and a night with its dawn is a minute or two); for the whole site, 40 a UTC day (`CREATURE_MAX_STARTS_PER_DAY`). A visitor is the HMAC-SHA256 of the first `x-forwarded-for` address under the secret `CREATURE_RATE_SALT` (at least 16 characters; without it generation is off); the address itself is never stored. Changing the salt resets everyone's count.
 
 Races that remain, because the counts come from Blob listings and not from a transaction:
 - The slot is atomic, and a job's marks are written before its job starts, so two jobs never overlap and a count is complete whenever a new job is considered. What can still slip through is a listing that lags a just-written mark (Blob listings are not documented as read-after-write consistent), letting one extra start through at the limit.
 - A job that dies without finishing holds the slot until `maxDuration` has passed since its last step, so for up to 5 minutes nobody can start a new one (they follow the dead job and see it fail).
 - Marks are never deleted, so a very old visitor key or day prefix is just a few tiny blobs; the daily and hourly windows ignore them.
-- The same visitor behind many addresses (IPv6 privacy addresses, a mobile network) gets more starts; one address shared by many (an office) shares 3 an hour. The daily ceiling bounds the cost either way.
+- The same visitor behind many addresses (IPv6 privacy addresses, a mobile network) gets more starts; one address shared by many (an office) shares 12 an hour. The daily ceiling bounds the cost either way.
 
 ### The sandbox: a snapshot with Bun 1.4.4
 
@@ -135,7 +135,7 @@ Set on the Vercel project (Production, and Preview if previews should generate);
 | `VERCEL_SANDBOX_SNAPSHOT_ID`               | yes      | The id printed by `pipeline/sandbox-snapshot.ts`.                                                                                                                             |
 | `CREATURE_RATE_SALT`                       | yes      | At least 16 random characters (`openssl rand -hex 24`). Keys the per-visitor limit; changing it resets the counts.                                                            |
 | `BLOB_READ_WRITE_TOKEN`                    | already  | The store `/api/plays` uses.                                                                                                                                                  |
-| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` | no       | Default 3.                                                                                                                                                                    |
+| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` | no       | Default 12.                                                                                                                                                                   |
 | `CREATURE_MAX_STARTS_PER_DAY`              | no       | Default 40, site-wide, per UTC day.                                                                                                                                           |
 | `CREATURE_CANDIDATES`                      | no       | Candidate sprites drawn side by side per job; default 3, at most 5. More candidates mean more Mubit calls (about 2 more per candidate) and more sandboxes at once.            |
 | `CREATURE_DEBUG_DIR`                       | no       | Local development only, never on Vercel: a directory where each job leaves every candidate's PNG and a score summary, accepted or not. Writes model text (the brief) to disk. |

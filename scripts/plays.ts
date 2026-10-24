@@ -16,6 +16,7 @@ const argument = (name: string) => {
 const since = argument("--since");
 const build = argument("--build");
 const shouldVerify = process.argv.includes("--verify");
+const runningSim = simFingerprint(join(import.meta.dir, ".."));
 const token = process.env.BLOB_READ_WRITE_TOKEN;
 if (!token) {
   console.error("BLOB_READ_WRITE_TOKEN is not set (vercel env pull .env.local)");
@@ -52,11 +53,14 @@ console.log(
 );
 const countBy = (key: (play: Play) => string) => {
   const counts = new Map<string, number>();
-  for (const play of plays) counts.set(key(play), (counts.get(key(play)) ?? 0) + 1);
+  for (const play of plays) {
+    const name = key(play);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
   return [...counts].map(([name, count]) => `${name} (${count})`).join(", ");
 };
 console.log(`builds: ${countBy((play) => play.build)}`);
-console.log(`sim versions: ${countBy((play) => play.sim ?? "unknown")}\n`);
+console.log(`sim versions (this checkout: ${runningSim}): ${countBy((play) => play.sim ?? "unknown")}\n`);
 console.log("night  plays  dawn   dark   fallen  quit   avg len  kills/min  lamps lost  hp lost  tide");
 const nights = [...new Set(plays.map((play) => play.legacy.night))].sort((first, second) => first - second);
 for (const night of nights) {
@@ -141,7 +145,6 @@ if (dark.length) {
 if (shouldVerify) {
   // A night replays to the same end only on the sim it was played on, so only those are checked: the others are not
   // mismatches, they were recorded on another version of the sim (or before versions were noted).
-  const runningSim = simFingerprint(join(import.meta.dir, ".."));
   const finished = plays.filter((play) => play.outcome);
   const comparable = finished.filter((play) => replaysExactlyOn(play, runningSim));
   const matching = comparable.filter((play) => verifyPlay(play).endsMatch).length;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { incomingPlay, replaysExactlyOn } from "./plays";
+import { describeNight, incomingPlay, replaysExactlyOn } from "./plays";
 
 const play = { v: 1, id: "2026-10-24-12-00-00-abc123", seed: 5, inputs: [[0, 0, 0, 0, 0, -1, -1]], steps: 10 };
 const creature = {
@@ -28,6 +28,26 @@ describe("the play schema at /api/plays", () => {
       incomingPlay.safeParse({ ...play, creature: { ...creature, modifiers: { ...creature.modifiers, speed: 9 } } })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("describing a recorded night", () => {
+  const recorded = {
+    legacy: { night: 3, heir: { name: "Theodora" } },
+    outcome: "dawn",
+    stats: { kills: 17, lampsLost: 1 },
+    timeline: [[1], [2]],
+  };
+
+  test("says who, which night, how it ended and for how long", () => {
+    expect(describeNight(recorded)).toBe("Theodora, night 3: dawn, 17 slain, 1 lamps snuffed, 2 s.");
+    expect(describeNight({ ...recorded, outcome: null })).toContain("abandoned");
+  });
+
+  test("a recording too odd to describe gives nothing instead of throwing", () => {
+    expect(describeNight({ ...recorded, legacy: undefined })).toBeNull();
+    expect(describeNight({ ...recorded, stats: { kills: "many" } })).toBeNull();
+    expect(describeNight(null)).toBeNull();
   });
 });
 

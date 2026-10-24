@@ -35,7 +35,7 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
-import { RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
+import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { type Play, Recorder, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
@@ -126,10 +126,6 @@ interface Report {
   tideBefore: number;
   tideAfter: number;
 }
-
-// a recorded night in one line: who, which night, how it ended
-const nightSummary = (play: Play) =>
-  `${play.legacy.heir.name}, night ${play.legacy.night}: ${play.outcome ?? "abandoned"}, ${play.stats.kills} slain, ${play.stats.lampsLost} lamps snuffed, ${play.timeline.length} s.`;
 
 // the visual verifier and recordings drive the game through window.lampwarden
 interface DebugScene {
@@ -634,7 +630,7 @@ export default function Game() {
         {phase === "replayEnd" && replay && (
           <div className="panel">
             <div className="logo small">REPLAY OVER</div>
-            <p>{nightSummary(replay.play)}</p>
+            <p>{describeNight(replay.play)}</p>
             <p className="dim">
               {replay.endsMatch === null
                 ? "Abandoned night: no end to compare."
@@ -655,7 +651,7 @@ export default function Game() {
           <div className="panel" data-panel="replay-refused">
             <div className="logo small">AN EARLIER VERSION</div>
             <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
-            <p>{nightSummary(refusedPlay)}</p>
+            {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
             <button type="button" className="btn big" onClick={() => location.assign("/")}>
               Back to the title
             </button>

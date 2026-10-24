@@ -25,8 +25,11 @@ function withCopy(run: (root: string) => void) {
 function importedAtRuntime(file: string): string[] {
   const source = readFileSync(join(repository, file), "utf8");
   const imported: string[] = [];
+  // The closure is only as good as this reading of the imports, so a form it cannot follow fails the test.
+  expect(source, `${file}: a side-effect import of a relative module`).not.toMatch(/^import\s+"\./m);
+  expect(source, `${file}: a dynamic import of a relative module`).not.toMatch(/\bimport\(\s*["'`]\./);
   for (const [, typeOnly, clause = "", specifier = ""] of source.matchAll(
-    /^import\s+(type\s+)?(.*?)\s+from\s+"(\.[^"]+)";/gms,
+    /^(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+"(\.[^"]+)";/gm,
   )) {
     const names = clause
       .replace(/[{}]/g, "")

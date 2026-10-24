@@ -142,7 +142,11 @@ night. So the build carries a **sim fingerprint** and every play records the one
 - **How it reaches the app:** `next.config.ts` computes it with `simFingerprint(process.cwd())` and inlines it as
   `NEXT_PUBLIC_SIM_FINGERPRINT`; `RUNNING_SIM` in `src/game/plays.ts` reads it. The Recorder stores it as the play's
   optional `sim` field, validated at `/api/plays` (12 lowercase hex digits). `scripts/plays.ts` computes the same hash
-  from the checkout.
+  from the checkout. The value is read when Next starts, so under `next dev` restart the server after editing one of
+  the sources, or nights recorded afterwards carry the old fingerprint.
+- **What it does not cover:** `Scene.tsx`'s fixed-step loop and `controls.ts` (which build the live input), and the
+  dependencies (zod, the runtime). The sim is fixed at 60 Hz by rule; a change to how the scene steps it would have to
+  be added to `SIM_SOURCES`.
 - **Replay:** `/?replay=<id>` plays a night whose `sim` equals `RUNNING_SIM`. A play with another `sim`, or none (before
   fingerprints), shows the "earlier version" panel with its recorded summary and a way back to the title, and no night
   runs. `bun scripts/plays.ts --verify` replays only the plays on the current fingerprint and counts the rest as

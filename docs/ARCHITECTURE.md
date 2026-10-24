@@ -25,12 +25,17 @@ src/
     plays.ts         the recorded-play id format shared by the API routes
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
-    layers.ts        textures, ground (the plaza over the sea), props, night tint, per-frame strokes
+    layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
+                     tinted; the sky is not), per-frame strokes
+    sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
+                     warming to dawn with the night tint, stars, a crescent moon, a headland with a lighthouse and far
+                     islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
-    water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths, a swell tile of
-                     2:1 crests and sparkles (a TilingSprite drifting down the grid), surf lapping at the plaza's edges,
-                     ripples spreading from the moored boats and the dock's posts
+    water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
+                     horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
+                     drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored
+                     boats and the dock's posts
     paint.ts         shared by the painted pixel art: RGBA buffers to nearest-sampled textures, Bayer dither, seeded random
     plaza.ts         the plaza's outline in pixels: its top face, its walls, and how far a point of sea lies from it
     projectiles.ts   arrow and sling-stone pixel art

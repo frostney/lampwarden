@@ -2,16 +2,7 @@
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Texture } from "pixi.js";
-import {
-  CENTRE_X,
-  CENTRE_Y,
-  MONSTER,
-  PLAZA_HALF_HEIGHT,
-  PLAZA_HALF_WIDTH,
-  STAGE_HEIGHT,
-  STAGE_WIDTH,
-  type State,
-} from "../game/sim";
+import { CENTRE_X, CENTRE_Y, MONSTER, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH, type State } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 import { PLAZA_WALL } from "./plaza";
 
@@ -86,12 +77,6 @@ export function drawGround(graphics: Graphics) {
   }
 }
 
-// the white sheet the night tint is multiplied through
-export function drawSheet(graphics: Graphics) {
-  graphics.clear();
-  graphics.rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0xffffff);
-}
-
 const interpolate = (start: number, end: number, amount: number) => start + (end - start) * amount;
 function mixColours(fromColour: number, toColour: number, amount: number) {
   const red = interpolate((fromColour >> 16) & 255, (toColour >> 16) & 255, amount);
@@ -99,7 +84,7 @@ function mixColours(fromColour: number, toColour: number, amount: number) {
   const blue = interpolate(fromColour & 255, toColour & 255, amount);
   return (Math.round(red) << 16) | (Math.round(green) << 8) | Math.round(blue);
 }
-// night tint (multiplied over the scene): deep blue, warming to dawn over the last fifth of the night
+// night tint (multiplied over the world below the sky): deep blue, warming to dawn over the last fifth of the night
 export function nightTint(progress: number) {
   if (progress < 0.8) return 0x46559a;
   const dawning = (progress - 0.8) / 0.2;

@@ -1,7 +1,8 @@
-// The sea as pixel art: a still base of stepped depths, an open swell of short 2:1 crests and sparkles that tiles over
-// the whole canvas, surf along the plaza's cliffs and ripples around the boats. Everything is painted here pixel by pixel, once, into a
-// WATER_FRAMES-long loop; a frame only picks textures from the scene clock (frozen by the visual verifier, so its
-// frames are deterministic). The night tint multiplies over all of it, as over the rest of the ground.
+// The sea as pixel art, from the horizon down: a still base of stepped depths, darkening towards the horizon, a far sea
+// of flat glints, an open swell of short 2:1 crests and sparkles that tiles over the rest, surf along the plaza's cliffs
+// and ripples around the boats. Everything is painted here pixel by pixel, once, into a WATER_FRAMES-long loop; a frame
+// only picks textures from the scene clock (frozen by the visual verifier, so its frames are deterministic). The night
+// tint multiplies over all of it, as over the rest of the ground; the sky above the horizon is in sky.ts.
 import { Rectangle, Texture } from "pixi.js";
 import { CENTRE_Y, STAGE_HEIGHT, STAGE_WIDTH } from "../game/sim";
 import { bayerThreshold, bufferTexture, hashUnit, hexRgb, putPixel, type Rgb, seededRandom } from "./paint";
@@ -16,6 +17,9 @@ const CREST = hexRgb(0x68c0d0);
 const FOAM = hexRgb(0xeafcf6);
 const TONES: readonly Rgb[] = [DEEP, OPEN, SEA, SHALLOW];
 
+export const HORIZON_Y = 88; // the first row of sea; the sky is above it
+const FAR_SEA_END = HORIZON_Y + 40; // the flat far sea gives way to the open swell here
+
 const WATER_FRAMES = 12;
 const WATER_FPS = 8;
 export const waterFrame = (clock: number) => Math.floor(clock * WATER_FPS) % WATER_FRAMES;
@@ -27,17 +31,21 @@ function depthTone(x: number, y: number): number {
   const distance = shoreDistance(x + 0.5, y + 0.5);
   const shelf = 3.45 - distance / 16; // the pale shelf under the cliffs, gone a few pixels out
   const open = 2.45 - Math.max(0, distance - 60) / 30; // open sea, deepening away from the plaza
-  return Math.max(0.2, Math.min(3.45, Math.max(shelf, open)));
+  const far = 0.45 + (y - HORIZON_Y) / 16; // and darkest towards the horizon
+  return Math.max(0.2, Math.min(3.45, Math.max(shelf, open), far));
 }
 
+// the base from the horizon down, placed at y = HORIZON_Y; its first row is a lighter line where the sea meets the sky
 function paintBase(): Texture {
-  const pixels = new Uint8Array(STAGE_WIDTH * STAGE_HEIGHT * 4);
-  for (let y = 0; y < STAGE_HEIGHT; y++)
+  const height = STAGE_HEIGHT - HORIZON_Y;
+  const pixels = new Uint8Array(STAGE_WIDTH * height * 4);
+  for (let row = 0; row < height; row++)
     for (let x = 0; x < STAGE_WIDTH; x++) {
-      const tone = Math.floor(depthTone(x, y) + (bayerThreshold(x, y) - 0.5) * 0.6);
-      putPixel(pixels, STAGE_WIDTH, x, y, TONES[Math.max(0, Math.min(TONES.length - 1, tone))] ?? SEA);
+      const y = HORIZON_Y + row;
+      const tone = row === 0 ? 1 : Math.floor(depthTone(x, y) + (bayerThreshold(x, y) - 0.5) * 0.6);
+      putPixel(pixels, STAGE_WIDTH, x, row, TONES[Math.max(0, Math.min(TONES.length - 1, tone))] ?? SEA);
     }
-  return bufferTexture(pixels, STAGE_WIDTH, STAGE_HEIGHT);
+  return bufferTexture(pixels, STAGE_WIDTH, height);
 }
 
 // --- the open swell: a tile of crests and sparkles that grow, peak and fade in turn ----------------------------
@@ -128,6 +136,31 @@ function paintSwell(frame: number): Texture {
   for (const crest of SWELL_CRESTS) paintCrest(plot, crest, frame, 6 + 2 * Math.floor(crest.size * 5));
   for (const sparkle of SWELL_SPARKLES) paintSparkle(plot, sparkle, frame);
   return bufferTexture(pixels, SWELL_WIDTH, SWELL_HEIGHT, "repeat");
+}
+
+// --- the far sea: flat glints, shorter and dimmer towards the horizon, and a shimmer along it -------------------
+
+const FAR_GLINTS = scatter(70, STAGE_WIDTH, FAR_SEA_END - HORIZON_Y - 2, 5, 0xfa5).map((glint) => ({
+  ...glint,
+  // fewer near the horizon
+  y: HORIZON_Y + 2 + Math.floor(Math.sqrt(glint.y / (FAR_SEA_END - HORIZON_Y - 2)) * (FAR_SEA_END - HORIZON_Y - 2)),
+}));
+
+function paintFarSea(plot: (x: number, y: number, colour: Rgb) => void, frame: number) {
+  for (const glint of FAR_GLINTS) {
+    const age = (frame + glint.phase) % WATER_FRAMES;
+    const depth = (glint.y - HORIZON_Y) / (FAR_SEA_END - HORIZON_Y);
+    const length = Math.round((2 + 5 * depth * (0.6 + 0.4 * glint.size)) * (CREST_GROWTH[age] ?? 0));
+    const colour = depth < 0.3 ? OPEN : depth < 0.65 ? SEA : age >= 5 && age <= 6 ? CREST : SHALLOW;
+    const start = glint.x + Math.floor(age / 4) - Math.floor(length / 2);
+    for (let step = 0; step < length; step++) plot(start + step, glint.y, colour);
+  }
+  // the horizon row: short lighter dashes that come and go
+  for (let x = 0; x < STAGE_WIDTH; x += 4)
+    if (hashUnit(x, Math.floor(frame / 3)) < 0.18) {
+      plot(x, HORIZON_Y, SEA);
+      plot(x + 1, HORIZON_Y, SEA);
+    }
 }
 
 // The swell drifts slowly down the 2:1 grid, a whole pixel at a time; the tile repeats, so it never jumps.
@@ -233,14 +266,20 @@ interface WaterPatch {
   frames: readonly Texture[];
 }
 
-// one frame's ripples, by canvas pixel
-function rippleMarks(frame: number): Map<number, Rgb> {
+// one frame's far sea and ripples, by canvas pixel
+function frameMarks(frame: number): Map<number, Rgb> {
   const marks = new Map<number, Rgb>();
-  paintRipples((x, y, colour) => marks.set(y * STAGE_WIDTH + x, colour), frame);
+  const plot = (x: number, y: number, colour: Rgb) => {
+    if (x >= 0 && x < STAGE_WIDTH) marks.set(y * STAGE_WIDTH + x, colour);
+  };
+  paintFarSea(plot, frame);
+  paintRipples(plot, frame);
   return marks;
 }
 const mayMove = (x: number, y: number) =>
-  Math.abs(shoreDistance(x + 0.5, y + 0.5)) <= SURF_REACH + 1 || nearRipple(x, y);
+  (y >= HORIZON_Y && y < FAR_SEA_END) ||
+  Math.abs(shoreDistance(x + 0.5, y + 0.5)) <= SURF_REACH + 1 ||
+  nearRipple(x, y);
 
 function paintPatches(): WaterPatch[] {
   const origins: { x: number; y: number }[] = [];
@@ -255,7 +294,7 @@ function paintPatches(): WaterPatch[] {
   const atlasHeight = PATCH_HEIGHT * Math.ceil(origins.length / ATLAS_COLUMNS);
   const frames = Array.from({ length: WATER_FRAMES }, (_, frame) => {
     const pixels = new Uint8Array(atlasWidth * atlasHeight * 4);
-    const marks = rippleMarks(frame);
+    const marks = frameMarks(frame);
     origins.forEach((origin, index) => {
       const atlasX = (index % ATLAS_COLUMNS) * PATCH_WIDTH;
       const atlasY = Math.floor(index / ATLAS_COLUMNS) * PATCH_HEIGHT;
@@ -283,8 +322,9 @@ function paintPatches(): WaterPatch[] {
 // --- all of it, painted once -----------------------------------------------------------------------------------
 
 export interface Water {
-  base: Texture;
-  swell: readonly Texture[];
+  base: Texture; // placed at y = HORIZON_Y
+  swell: readonly Texture[]; // tiled from y = swellTop down
+  swellTop: number;
   patches: readonly WaterPatch[];
 }
 
@@ -293,6 +333,7 @@ export function createWater(): Water {
   water ??= {
     base: paintBase(),
     swell: Array.from({ length: WATER_FRAMES }, (_, frame) => paintSwell(frame)),
+    swellTop: FAR_SEA_END,
     patches: paintPatches(),
   };
   return water;

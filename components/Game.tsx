@@ -253,7 +253,7 @@ export default function Game() {
 
         {phase === "title" && (
           <div className="panel">
-            <h1 className="logo">LAMPWARDEN</h1>
+            <h1 className="brand"><img src="/logo/logo.png" alt="Lampwarden" width={68} height={45} /></h1>
             <p>Every night the sea sends its creatures to put out the lamps of Lychnos. Keep one burning until dawn.</p>
             <div className="settings">
               {SETTINGS.map((s) => (

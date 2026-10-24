@@ -49,7 +49,7 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
     const asking: Asking = { key, alive: true, creatureId: null };
     current = asking;
     show(NONE);
-    void (async () => {
+    const answering = (async () => {
       const answer = await deps.askForCreature([...seen]);
       if (!isCurrent()) return;
       if (!answer || answer.kind === "none") {
@@ -71,6 +71,12 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
       asking.alive = creature !== null;
       show(creature ? { kind: "ready", creature } : NONE);
     })();
+    // the game's own calls never throw, but whatever is injected may: the asking ends and the next one is a new one
+    answering.catch(() => {
+      if (!isCurrent()) return;
+      asking.alive = false;
+      show(NONE);
+    });
   };
 
   // The creature cannot come after all (its sprite did not load): nothing is announced, and the next asking is a new one.

@@ -121,6 +121,23 @@ describe("asking the sea", () => {
     expect(world.questions).toEqual([[], []]);
   });
 
+  test("an asking whose calls throw ends, and the next asking is a new one", async () => {
+    let calls = 0;
+    const sea = createSea({
+      askForCreature: async () => {
+        calls++;
+        throw new Error("the network is gone");
+      },
+      waitForJob: async () => null,
+    });
+    sea.ask([]);
+    await settle();
+    expect(sea.get()).toEqual({ kind: "none" });
+    sea.ask([]);
+    await settle();
+    expect(calls).toBe(2);
+  });
+
   test("a page that goes drops the job it was following", async () => {
     const world = fakeSea();
     world.answer({ kind: "generating", jobId: "job-1" });

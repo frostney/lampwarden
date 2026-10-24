@@ -1,4 +1,5 @@
 # Progress
+
 11:18 started; gh auth ok (frostney), node 20.19.2, npm 11, google-chrome present
 11:18 repo frostney/lampwarden created (public, desc set), topics set, git init done
 11:19 pipeline/ copied (kit, prompts, render shims) + run.py written (shotcup mode needs pipeline/shotcup_render.py)
@@ -25,6 +26,7 @@
 13:50 Dev series ep4 (logo + fonts, a real night 3; 7.7 s) and ep5 (phone landscape in WebKit with the touch stick; 7.1 s, captured as a window with Knips, Playwright toolbar cropped with ffmpeg). A first ep5 take captured the wrong screen region and was deleted.
 
 ## Built vs not
+
 Built: pipeline + kit + sprites, Pixi scene with the night/lamp/heir loop and persistence, settings stub, docs above. Deployed (initial version) at lampwarden.vercel.app.
 Not built: Norse/Egyptian, audio, tests. Balance checked with a bot only, not human-tested. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.
 Not verified: run.py end-to-end against Mubit from this repo; shotcup_render.py against the API.

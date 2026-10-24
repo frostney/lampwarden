@@ -2,7 +2,6 @@
 
 The TypeScript and React rules come from the `typescript-stack` and `react-stack` skills in `.agents/skills/`. What
 they mean here:
-
 - **Names say what they hold.** No one- or two-letter variables, parameters or properties (`state`, not `s`;
   `velocityX`, not `vx`; `health`, not `hp`). `x` and `y` for coordinates and `id` are fine. The lint plugin catches
   bindings; property names are on review.

@@ -27,7 +27,6 @@ bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs 
 ## Recorded plays
 
 Every night is recorded and sent to `/api/plays`, which stores it as a private blob in the `lampwarden-plays` Vercel Blob store (London). A recording holds the night's seed, the legacy it started from, the warden's input changes at the fixed 60 Hz sim step, and a per-second timeline (kills, lamps lit, health, monsters, lamps lost): about 2.5 KB for a 40 s night, no personal data, a random per-browser session id. The title screen says so.
-
 - Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did.
 - Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]`: outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
 - `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
@@ -67,29 +66,28 @@ This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.jso
 
 The kit is the renderer plus every builder the model may call. It lives in `pipeline/kit/`:
 
-| File | Purpose |
-|---|---|
-| `src/kit_core.ts` | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame` |
-| `src/kit_render.ts` | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`) |
-| `src/kit_build.ts` | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged` |
-| `src/kit_anat.ts` | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy` |
-| `src/kit_beasts.ts` | `quadruped`, `centaur` |
-| `src/kit_props.ts` | `column`, `amphora`, `brazier`, `altar`, `statueBase` |
-| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof) |
-| `src/kit_figures.ts` | `humanoid`, `tree`, `hydra` |
-| `src/kit_themes.ts` | `THEMES`/`theme()`, `hero`, `ship` |
-| `assemble.sh` | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
-| `kit.ts` | the assembled single file the renderers import (212,457 bytes) |
-| `exports.json` | the 58 names destructured into model code |
-| `palette.json` | material ramps (identical to the kit's `PALETTE`; checked) |
-| `examples/` | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below) |
+| File                   | Purpose                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/kit_core.ts`      | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame`                                                                                      |
+| `src/kit_render.ts`    | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`)                                                                                   |
+| `src/kit_build.ts`     | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged`                                                                                                                                                                      |
+| `src/kit_anat.ts`      | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy`                                                                                                                                                                    |
+| `src/kit_beasts.ts`    | `quadruped`, `centaur`                                                                                                                                                                                                |
+| `src/kit_props.ts`     | `column`, `amphora`, `brazier`, `altar`, `statueBase`                                                                                                                                                                 |
+| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof)                                                   |
+| `src/kit_figures.ts`   | `humanoid`, `tree`, `hydra`                                                                                                                                                                                           |
+| `src/kit_themes.ts`    | `THEMES`/`theme()`, `hero`, `ship`                                                                                                                                                                                    |
+| `assemble.sh`          | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
+| `kit.ts`               | the assembled single file the renderers import (212,457 bytes)                                                                                                                                                        |
+| `exports.json`         | the 58 names destructured into model code                                                                                                                                                                             |
+| `palette.json`         | material ramps (identical to the kit's `PALETTE`; checked)                                                                                                                                                            |
+| `examples/`            | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below)                   |
 
 Related: `pipeline/prompts/generator.md` (the API doc given to the model) and `verifier.md`, and `pipeline/render/` (local bun runner and the `shotcup:canvas` shim).
 
 A build script is `export function build(k) { ... }`. Space is u/v ground, z up, origin `[0,0]` at the tile centre; sprites are 128×128 and auto-scaled to fit. Options below were read from the kit source and `generator.md`; anything omitted falls back to a default.
 
 **Builders (all take `(k, params)`)**
-
 - `hero` `{sex:'male'|'female', melee:'xiphos'|'sword'|'spear'|'axe'|'club'|'hammer', ranged:'bow'|'sling'|'javelin'|'throwspear', ready:'melee'|'ranged', pose, at, facing, setting:'greek', helmet:'none'|'corinthian'|'attic', cape, height, build, palette:{cloth,accent,hair,skin,metal}}`. Poses: `idle`, `idle1-4`, `walk1-6`, `melee1-5`, `ranged1-5`, `hurt`, `death`.
 - `humanoid` `{gender, material, robe, ...}` and `humanoidCore`/`spartan`/`cyclops`/`minotaur`/`satyr`/`harpy`/`winged` share the humanoid params: `at, facing, height, build:'slim'|'average'|'heavy'|'giant', pose, skin, head:{type,hair,helmet,helmetMat,crest,beard,eyes,hairStyle}, torso:{armour,colour,trim,skirtColour}, legs:{greaves,sandals,lower,colour}, arms:{bracers,colour}, weapon, weaponMat, shield, stow, fem, skirt, cape, capeStyle, wings:{type,colour,span}`. `harpy`/`winged` also take `span`. Poses also include `attack1-5` for monsters.
 - `quadruped` `{at, facing, kind:'horse'|'bull'|'lion'|'dog'|'boar'|'goat', colour, mane, size, pose, rider}`; `centaur` `{at, facing, colour, pose, upper}`; `hydra` `{at, facing, heads, colour}`.

@@ -48,14 +48,14 @@ Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames i
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `run.py` | the loop above |
-| `prompts/generator.md`, `prompts/verifier.md` | the two system prompts |
-| `kit/src/*.ts`, `kit/assemble.sh`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README) |
-| `render/run_local.ts`, `render/shim_canvas.ts`, `render/shim_plugin.ts` | local bun renderer; the shim maps the kit's `shotcup:canvas` import to a small PNG canvas |
-| `shotcup_main.py`, `shotcup_render.py` | Shotcup renderer (below) |
-| `hero_frames.py` | hero animation frames |
+| Path                                                                                                     | What                                                                                      |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `run.py`                                                                                                 | the loop above                                                                            |
+| `prompts/generator.md`, `prompts/verifier.md`                                                            | the two system prompts                                                                    |
+| `kit/src/*.ts`, `kit/assemble.sh`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README)                                                   |
+| `render/run_local.ts`, `render/shim_canvas.ts`, `render/shim_plugin.ts`                                  | local bun renderer; the shim maps the kit's `shotcup:canvas` import to a small PNG canvas |
+| `shotcup_main.py`, `shotcup_render.py`                                                                   | Shotcup renderer (below)                                                                  |
+| `hero_frames.py`                                                                                         | hero animation frames                                                                     |
 
 ## `--render shotcup`
 

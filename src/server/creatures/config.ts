@@ -10,6 +10,8 @@ export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - 30;
 const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 3;
 const DEFAULT_STARTS_PER_DAY = 40;
 const DEFAULT_BLOB_PREFIX = "creatures";
+const DEFAULT_CANDIDATES = 3;
+const MAX_CANDIDATES = 5;
 const MIN_SALT_LENGTH = 16;
 
 export interface StartLimits {
@@ -24,6 +26,10 @@ export interface CreatureConfig {
   mubitApiKey: string | null;
   snapshotId: string | null;
   rateSalt: string | null;
+  /** How many candidate sprites a job draws side by side from one brief. */
+  candidates: number;
+  /** Dev only: where a job leaves every candidate sprite and a score summary, accepted or not. */
+  debugDirectory: string | null;
 }
 
 const positiveInteger = (fallback: number) =>
@@ -54,6 +60,8 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
     mubitApiKey: present(env.MUBIT_API_KEY),
     snapshotId: present(env.VERCEL_SANDBOX_SNAPSHOT_ID),
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,
+    candidates: Math.min(MAX_CANDIDATES, positiveInteger(DEFAULT_CANDIDATES).parse(env.CREATURE_CANDIDATES)),
+    debugDirectory: present(env.CREATURE_DEBUG_DIR),
   };
 }
 

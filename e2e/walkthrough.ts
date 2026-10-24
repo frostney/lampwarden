@@ -98,8 +98,17 @@ async function renderCaption(page: Page, text: string, directory: string, id: st
   return path;
 }
 
+// The page clock keeps running between reading it and pausing it, so on a busy machine the pause can land in the past
+// ("Cannot fast-forward to the past"); try again a little further ahead.
 async function pauseClock(page: Page) {
-  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 20);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50 * attempt);
+      return;
+    } catch (error) {
+      if (attempt >= 5 || !String(error).includes("to the past")) throw error;
+    }
+  }
 }
 
 async function captureFootage(page: Page, segment: FootageSegment, directory: string) {

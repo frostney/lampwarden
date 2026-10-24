@@ -54,6 +54,7 @@ import {
   anchor,
   anchorAt,
   drawGround,
+  drawGroundMarks,
   drawMarks,
   drawSweep,
   flashKey,
@@ -65,6 +66,7 @@ import {
   nightProgress,
   nightTint,
   PROPS,
+  paintedShadowKey,
   type TextureMap,
   textureFor,
 } from "@/scene/layers";
@@ -213,7 +215,8 @@ export const Scene = memo(function Scene({
   );
   const state = night.state;
   const sweep = useCallback((graphics: Graphics) => drawSweep(graphics, state), [state]);
-  const marks = useCallback((graphics: Graphics) => drawMarks(graphics, state, clock.current), [state]);
+  const groundMarks = useCallback((graphics: Graphics) => drawGroundMarks(graphics, state, clock.current), [state]);
+  const marks = useCallback((graphics: Graphics) => drawMarks(graphics, state), [state]);
 
   return (
     <SceneContext.Provider value={shared}>
@@ -230,26 +233,25 @@ export const Scene = memo(function Scene({
             <LampPool key={`pool@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightRadius} />
           ))}
         </GroundLights>
+        <World state={state}>
+          <LampShadows state={state} />
+          <Strokes draw={sweep} label="sweep" />
+        </World>
+        <Strokes draw={groundMarks} label="ground-marks" />
         <Shadows state={state} />
         <pixiContainer sortableChildren>
           <Props state={state} />
           <Trireme state={state} />
           <Hero state={state} sex={night.sex} />
           {state.lamps.map((lamp) => (
-            <LampPost key={`lamp@${lamp.x},${lamp.y}`} state={state} lamp={lamp} />
-          ))}
-          {state.lamps.map((lamp) => (
-            <LampGlow key={`glow@${lamp.x},${lamp.y}`} state={state} lamp={lamp} radius={state.rules.lightRadius} />
+            <StandingLamp key={`lamp@${lamp.x},${lamp.y}`} state={state} lamp={lamp} radius={state.rules.lightRadius} />
           ))}
           <Monsters state={state} />
         </pixiContainer>
-        <World state={state}>
-          <Strokes draw={sweep} />
-        </World>
       </pixiContainer>
       <Projectiles state={state} sex={night.sex} />
       <Flashes state={state} sex={night.sex} />
-      <Strokes draw={marks} />
+      <Strokes draw={marks} label="marks" />
       <ScreenShake state={state} />
       <WoundVignette state={state} />
     </SceneContext.Provider>
@@ -466,11 +468,55 @@ const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
   );
   return (
     <>
-      <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0, "s"))} anchor={anchor("hero")} />
-      <pixiSprite ref={rim} anchor={anchor("hero")} visible={false} />
+      <pixiSprite
+        ref={ref}
+        label="warden"
+        texture={textureFor(textures, heroKey(sex, "idle", 0, "s"))}
+        anchor={anchor("hero")}
+      />
+      <pixiSprite ref={rim} label="warden-rim" anchor={anchor("hero")} visible={false} />
     </>
   );
 });
+
+// A lamp with everything that is drawn at its own height, as one object sorted by the lamp's ground y: the post, its lit foot,
+// the lantern's glow, its halo and its brass glints. The whole lamp is in front of a figure whose feet are further up the
+// screen than its base, and behind one whose feet are nearer, with no layer of it sorted a hair above the rest.
+function StandingLamp({ state, lamp, radius }: { state: State; lamp: Lamp; radius: number }) {
+  return (
+    <pixiContainer label="lamp" zIndex={lamp.y}>
+      <LampPost state={state} lamp={lamp} />
+      <LampGlow state={state} lamp={lamp} radius={radius} />
+    </pixiContainer>
+  );
+}
+
+// The shadow each lamp was painted with, on the ground beside it (the lamp sprite has none), under every sprite and the
+// characters' cast shadows, dark over the lamps' pools
+function LampShadows({ state }: { state: State }) {
+  const { textures } = useScene();
+  const sprites = useRef<(Sprite | null)[]>([]);
+  useFrame(
+    useCallback(() => {
+      state.lamps.forEach((lamp, index) => {
+        const sprite = sprites.current[index];
+        if (sprite) sprite.texture = textureFor(textures, paintedShadowKey(lamp.lit ? "lamp-lit" : "lamp-unlit"));
+      });
+    }, [state, textures]),
+  );
+  return state.lamps.map((lamp, index) => (
+    <pixiSprite
+      key={`shadow@${lamp.x},${lamp.y}`}
+      ref={(sprite: Sprite | null) => {
+        sprites.current[index] = sprite;
+      }}
+      texture={textureFor(textures, paintedShadowKey("lamp-lit"))}
+      anchor={anchor("lamp-lit")}
+      x={lamp.x}
+      y={lamp.y}
+    />
+  ));
+}
 
 const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: Lamp }) {
   const { textures } = useScene();
@@ -486,11 +532,11 @@ const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: L
   return (
     <pixiSprite
       ref={ref}
+      label="lamp-post"
       texture={textureFor(textures, "lamp-lit")}
       anchor={anchor("lamp-lit")}
       x={lamp.x}
       y={lamp.y}
-      zIndex={lamp.y}
     />
   );
 });
@@ -536,8 +582,8 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
   );
   return (
     <>
-      <pixiSprite ref={ref} texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />
-      <pixiSprite ref={rim} anchor={anchorAt(look.anchorY)} visible={false} />
+      <pixiSprite ref={ref} label="monster" texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />
+      <pixiSprite ref={rim} label="monster-rim" anchor={anchorAt(look.anchorY)} visible={false} />
     </>
   );
 });
@@ -589,7 +635,7 @@ function Shadows({ state }: { state: State }) {
 }
 
 // a Graphics layer cleared and redrawn every frame (shots, puffs, rings)
-function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
+function Strokes({ draw, label }: { draw: (graphics: Graphics) => void; label: string }) {
   const ref = useRef<Graphics>(null);
   useFrame(
     useCallback(() => {
@@ -599,7 +645,7 @@ function Strokes({ draw }: { draw: (graphics: Graphics) => void }) {
       draw(graphics);
     }, [draw]),
   );
-  return <pixiGraphics ref={ref} draw={noDraw} />;
+  return <pixiGraphics ref={ref} label={label} draw={noDraw} />;
 }
 
 // The lights that lie on the ground, added over the night tint: the moon's path, the warden's own light and the lamps'
@@ -711,7 +757,7 @@ const LampGlow = memo(function LampGlow({ state, lamp, radius }: { state: State;
     }, [state, lamp, light, clock]),
   );
   return (
-    <pixiContainer ref={group} zIndex={lamp.y + 0.1}>
+    <pixiContainer ref={group} label="lamp-glow">
       <pixiSprite ref={footSprite} texture={foot.texture} x={lamp.x + foot.offsetX} y={lamp.y + foot.offsetY} />
       <pixiSprite ref={halo} blendMode="add" />
       <pixiSprite

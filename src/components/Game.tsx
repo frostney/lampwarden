@@ -183,7 +183,7 @@ export default function Game() {
   const [refusedPlay, setRefusedPlay] = useState<unknown>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
-  const { tonight, ask, stop, withdraw } = useTonight();
+  const { tonight, ask, withdraw } = useTonight();
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
   const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
 
@@ -523,9 +523,9 @@ export default function Game() {
     directorAsk.current?.abort(); // an answer that comes now is too late for this night
     directorAsk.current = null;
     // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
-    // not load, the night has none (a finished one is met on a later night).
+    // not load, the night has none; a job still being made carries on through the night and the creature is announced
+    // at dawn for the next one.
     const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
-    stop();
     const loaded = announcedCreature
       ? await Promise.race([
           loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
@@ -537,6 +537,9 @@ export default function Game() {
       meet(legacyRef.current, creature.id);
       saveLegacy(legacyRef.current);
     }
+    // Now that this night's creature is met, ask for the next night's: the ~minute a creature takes to make overlaps the
+    // night, so it is ready by dawn. Asking again with the same ids met keeps a job that is still running.
+    ask(legacyRef.current.bestiary);
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
     const recorder = new Recorder(

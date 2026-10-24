@@ -43,6 +43,7 @@ import {
   nightTint,
   PROPS,
   type TextureMap,
+  textureFor,
 } from "@/scene/layers";
 import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/scene/light";
 import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/scene/projectiles";
@@ -166,7 +167,14 @@ export const Scene = memo(function Scene({
       <pixiGraphics draw={drawGround} eventMode="static" onPointerDown={shoot} />
       <pixiContainer sortableChildren>
         {PROPS.map(([key, x, y]) => (
-          <pixiSprite key={`${key}@${x},${y}`} texture={textures[key]} anchor={anchor(key)} x={x} y={y} zIndex={y} />
+          <pixiSprite
+            key={`${key}@${x},${y}`}
+            texture={textureFor(textures, key)}
+            anchor={anchor(key)}
+            x={x}
+            y={y}
+            zIndex={y}
+          />
         ))}
         <Trireme />
         <Hero hero={state.hero} sex={night.sex} />
@@ -197,7 +205,16 @@ function Trireme() {
       if (ref.current) ref.current.y = 440 + Math.sin(clock.current * 1.5) * 4;
     }, [clock]),
   );
-  return <pixiSprite ref={ref} texture={textures.trireme} anchor={anchor("trireme")} x={130} y={440} zIndex={440} />;
+  return (
+    <pixiSprite
+      ref={ref}
+      texture={textureFor(textures, "trireme")}
+      anchor={anchor("trireme")}
+      x={130}
+      y={440}
+      zIndex={440}
+    />
+  );
 }
 
 const Hero = memo(function Hero({ hero, sex }: { hero: HeroState; sex: Sex }) {
@@ -215,7 +232,7 @@ const Hero = memo(function Hero({ hero, sex }: { hero: HeroState; sex: Sex }) {
       sprite.tint = hero.hurt > 0 ? 0xff8080 : 0xffffff;
     }, [textures, hero, sex]),
   );
-  return <pixiSprite ref={ref} texture={textures[heroKey(sex, "idle", 0)]} anchor={anchor("hero")} />;
+  return <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0))} anchor={anchor("hero")} />;
 });
 
 const LampPost = memo(function LampPost({ lamp }: { lamp: Lamp }) {
@@ -230,7 +247,7 @@ const LampPost = memo(function LampPost({ lamp }: { lamp: Lamp }) {
   return (
     <pixiSprite
       ref={ref}
-      texture={textures["lamp-lit"]}
+      texture={textureFor(textures, "lamp-lit")}
       anchor={anchor("lamp-lit")}
       x={lamp.x}
       y={lamp.y}
@@ -276,7 +293,7 @@ const MonsterSprite = memo(function MonsterSprite({ monster }: { monster: Monste
       sprite.tint = monster.hurt > 0 ? 0xff7070 : 0xffffff;
     }, [monster]),
   );
-  return <pixiSprite ref={ref} texture={textures[monster.kind]} anchor={anchor(monster.kind)} />;
+  return <pixiSprite ref={ref} texture={textureFor(textures, monster.kind)} anchor={anchor(monster.kind)} />;
 });
 
 // a Graphics layer cleared and redrawn every frame (shots, puffs, rings)
@@ -343,7 +360,7 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
 // colours inside a halo, and the glints on the stone, the brass and the sea. A dark lamp shows none of it.
 const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius: number }) {
   const { textures, clock } = useScene();
-  const lantern = lanternGlow(textures["lamp-lit"]);
+  const lantern = lanternGlow(textureFor(textures, "lamp-lit"));
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
   const group = useRef<Container>(null),
     pool = useRef<Sprite>(null),
@@ -358,8 +375,10 @@ const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius
       groupContainer.visible = lamp.lit;
       if (!lamp.lit) return;
       const variant = lampFlicker(light, clock.current);
-      place(poolSprite, light.pools[variant], light.poolX, light.poolY);
-      place(haloSprite, light.halos[variant], light.haloX, light.haloY);
+      const poolPiece = light.pools[variant];
+      const haloPiece = light.halos[variant];
+      if (poolPiece) place(poolSprite, poolPiece, light.poolX, light.poolY);
+      if (haloPiece) place(haloSprite, haloPiece, light.haloX, light.haloY);
       light.glints.forEach((glint, index) => {
         const sprite = glintSprites.current[index];
         if (!sprite) return;

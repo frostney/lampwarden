@@ -22,7 +22,7 @@ interface Asset {
 const pngAsset = (path: string, image: PixelImage): Asset => ({ path, bytes: encodePng(image), frames: [image] });
 
 async function buildAssets(): Promise<Asset[]> {
-  const [wordmark, tagline] = await rasteriseTexts([
+  const [wordmark, tagline, ...extra] = await rasteriseTexts([
     { text: "LAMPWARDEN", fontFile: join(repositoryRoot, "src/app/fonts/ithaca/Ithaca.ttf"), pixelSize: 16 },
     {
       text: "KEEP ONE BURNING UNTIL DAWN",
@@ -30,6 +30,7 @@ async function buildAssets(): Promise<Asset[]> {
       pixelSize: 8,
     },
   ]);
+  if (!wordmark || !tagline || extra.length > 0) throw new Error("expected exactly the wordmark and the tagline");
   const master = logo(wordmark, true);
   const smallFavicon = favicon16();
   const icon = favicon32();
@@ -60,7 +61,10 @@ function compare(asset: Asset): string | null {
   const committedFrames = asset.path.endsWith(".ico") ? decodeIco(committed) : [decodePng(committed)];
   const pixelsMatch =
     committedFrames.length === asset.frames.length &&
-    committedFrames.every((frame, index) => samePixels(frame, asset.frames[index]));
+    committedFrames.every((frame, index) => {
+      const fresh = asset.frames[index];
+      return fresh !== undefined && samePixels(frame, fresh);
+    });
   return pixelsMatch ? "identical pixels, different encoding" : null;
 }
 

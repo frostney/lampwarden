@@ -1,7 +1,7 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
 // frame (the lights are in light.ts). src/components/organisms/Scene/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
-import { Assets, type Graphics, type Texture } from "pixi.js";
+import { Assets, type Graphics, Texture } from "pixi.js";
 import {
   CENTRE_X,
   CENTRE_Y,
@@ -15,6 +15,8 @@ import {
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 
 export type TextureMap = Record<string, Texture>;
+// a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
+export const textureFor = (textures: TextureMap, key: string): Texture => textures[key] ?? Texture.EMPTY;
 
 let textureCache: Promise<TextureMap> | null = null;
 export function loadTextures(): Promise<TextureMap> {

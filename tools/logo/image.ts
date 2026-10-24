@@ -29,11 +29,12 @@ export class PixelImage {
   get(x: number, y: number): Rgba {
     if (!this.contains(x, y)) return transparent;
     const offset = (y * this.width + x) * 4;
-    return [this.data[offset], this.data[offset + 1], this.data[offset + 2], this.data[offset + 3]];
+    const [red = 0, green = 0, blue = 0, alpha = 0] = this.data.subarray(offset, offset + 4);
+    return [red, green, blue, alpha];
   }
 
   alpha(x: number, y: number): number {
-    return this.contains(x, y) ? this.data[(y * this.width + x) * 4 + 3] : 0;
+    return this.contains(x, y) ? (this.data[(y * this.width + x) * 4 + 3] ?? 0) : 0;
   }
 
   set(x: number, y: number, colour: Rgba): void {
@@ -48,7 +49,7 @@ export class PixelImage {
     const destinationAlpha = destination[3] / 255;
     const outputAlpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
     if (outputAlpha === 0) return;
-    const channel = (index: number): number =>
+    const channel = (index: 0 | 1 | 2): number =>
       Math.round(
         (colour[index] * sourceAlpha + destination[index] * destinationAlpha * (1 - sourceAlpha)) / outputAlpha,
       );
@@ -117,7 +118,7 @@ export function gridImage(rows: readonly string[], colours: GridColours): PixelI
 
 /** Adds a one-pixel outline (8-neighbour) around the fully opaque pixels. */
 export function outline(image: PixelImage, colour: Rgba): PixelImage {
-  const neighbours = [
+  const neighbours: readonly (readonly [number, number])[] = [
     [1, 0],
     [-1, 0],
     [0, 1],
@@ -178,10 +179,11 @@ export function glow(
 
 /** Colours a text mask ('#' = ink) row by row; rows past the end of `rowColours` take its last colour. */
 export function textImage(mask: readonly string[], rowColours: readonly Rgba[]): PixelImage {
-  const image = new PixelImage(mask[0].length, mask.length);
+  const image = new PixelImage(mask[0]?.length ?? 0, mask.length);
   mask.forEach((row, y) => {
     [...row].forEach((character, x) => {
-      if (character === "#") image.set(x, y, rowColours[Math.min(y, rowColours.length - 1)]);
+      const colour = rowColours[Math.min(y, rowColours.length - 1)];
+      if (character === "#" && colour) image.set(x, y, colour);
     });
   });
   return image;

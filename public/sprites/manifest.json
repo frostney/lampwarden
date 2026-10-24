@@ -26,9 +26,9 @@
    "file": "hero-female-still.png",
    "code": "hero-female-still.ts",
    "final": "first",
-   "first_score": 7.0,
+   "first_score": 7,
    "fixed_score": null,
-   "score": 7.0,
+   "score": 7,
    "passed": true,
    "mubit_request_ids": {
     "gen": "mreq_01a16d634c1976039f572c88c77dae51",
@@ -47,8 +47,8 @@
    "code": "trireme.ts",
    "final": "fixed",
    "first_score": 5,
-   "fixed_score": 7.0,
-   "score": 7.0,
+   "fixed_score": 7,
+   "score": 7,
    "passed": true,
    "mubit_request_ids": {
     "gen": "mreq_01a16d6372ec711195c8ec7675096598",
@@ -68,9 +68,9 @@
    "file": "galley-dock.png",
    "code": "galley-dock.ts",
    "final": "first",
-   "first_score": 7.0,
+   "first_score": 7,
    "fixed_score": null,
-   "score": 7.0,
+   "score": 7,
    "passed": true,
    "mubit_request_ids": {
     "gen": "mreq_01a16d638f3d7330a7c0eef03786d97e",
@@ -110,8 +110,8 @@
    "code": "olive.ts",
    "final": "fixed",
    "first_score": 6.5,
-   "fixed_score": 7.0,
-   "score": 7.0,
+   "fixed_score": 7,
+   "score": 7,
    "passed": true,
    "mubit_request_ids": {
     "gen": "mreq_01a16d63e14f7432a008350af9014a3f",
@@ -132,9 +132,9 @@
    "file": "zeus-statue.png",
    "code": "zeus-statue.ts",
    "final": "first",
-   "first_score": 6.0,
-   "fixed_score": 6.0,
-   "score": 6.0,
+   "first_score": 6,
+   "fixed_score": 6,
+   "score": 6,
    "passed": false,
    "mubit_request_ids": {
     "gen": "mreq_01a16d63e56476f2a4333fa43b3fac5d",
@@ -177,7 +177,7 @@
    "file": "satyr.png",
    "code": "satyr.ts",
    "final": "fixed",
-   "first_score": 6.0,
+   "first_score": 6,
    "fixed_score": 6.5,
    "score": 6.5,
    "passed": false,
@@ -200,9 +200,9 @@
    "file": "harpy.png",
    "code": "harpy.ts",
    "final": "first",
-   "first_score": 6.0,
-   "fixed_score": 6.0,
-   "score": 6.0,
+   "first_score": 6,
+   "fixed_score": 6,
+   "score": 6,
    "passed": false,
    "mubit_request_ids": {
     "gen": "mreq_01a16d648b767aa0b47a6d2df77f43c9",
@@ -244,9 +244,9 @@
    "file": "hephaestus.png",
    "code": "hephaestus.ts",
    "final": "first",
-   "first_score": 7.0,
+   "first_score": 7,
    "fixed_score": null,
-   "score": 7.0,
+   "score": 7,
    "passed": true,
    "mubit_request_ids": {
     "gen": "mreq_01a16d64a6707c9382a2c0be1fc65707",
@@ -382,6 +382,499 @@
     ]
    }
   },
-  "rendered_with": "local bun, noScale, facing 20, 128x128"
+  "rendered_with": "local bun, noScale, facing 20, 128x128",
+  "model": {
+   "male": {
+    "brief": "The player's warden, the son, a young Greek warden of a harbour town who keeps its lamps lit through the night, fighting with a xiphos in melee and a bow at range. Greek and heroic, with a readable silhouette that stands out against a dark night: distinct bronze, linen and accent colours, so his armour, cloth and cape do not melt into one colour. Write one call: hero(k, { sex: 'male', melee: 'xiphos', ranged: 'bow', pose: POSE || 'idle', facing: FACING, ...}). The game draws the warden in 20 poses (idle, walk, melee, ranged) from five directions with this same code, so FACING is a global number, in degrees, that the renderer gives your code for each direction: write facing: FACING exactly and never a fixed number. Never pass at, height, build or ready (the game sets them), and call no raw shapes (k.sphere, k.capsule and the others): they would not turn with him. Choose only what makes him look like himself: helmet ('none'|'corinthian'|'attic'), cape, and palette {cloth, accent, hair, skin, metal} with material names from the list.",
+    "code": "hero/male.ts",
+    "session": "lampwarden-hero-male",
+    "final": "fixed",
+    "score": 6.13,
+    "passed": false,
+    "current_score": 4.25,
+    "candidate_scores": [
+     5.63,
+     5.63,
+     5.25
+    ],
+    "fixed_score": 6.13,
+    "frames": [
+     {
+      "pose": "idle1",
+      "direction": "s",
+      "score": 6,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Armour, pteruges, greaves, skin and bow all render in one warm gold-brown band, so the figure melts into a single colour, which the brief explicitly forbids.",
+       "No linen or white cloth is visible: palette.cloth 'marble' does not show on the skirt or chiton, which reads brown.",
+       "The crimson accent appears only on the arrow fletching; the cape is not visible from this view, so there is no contrasting accent mass.",
+       "The silhouette is otherwise right: xiphos in hand, bow and quiver back-slung, bronze cuirass, greaves and a frontal 3/4 stance."
+      ]
+     },
+     {
+      "pose": "walk2",
+      "direction": "se",
+      "score": 6.5,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Armour, pteruges skirt and leg wraps all read as one warm gold-brown mass; no light linen layer is visible, so the colour-separation brief fails.",
+       "The cloth:'marble' choice does not show anywhere distinct; the skirt reads brown/bronze, not as a pale linen chiton.",
+       "The crimson accent and cape are only a thin sliver behind the bow, so the accent colour barely registers from this direction.",
+       "The walk2 legs merge into one gold column and the stride is hard to read at game zoom."
+      ]
+     },
+     {
+      "pose": "melee3",
+      "direction": "se",
+      "score": 6,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Armour, pteruges skirt, skin and back-slung bow all read as one gold-brown mass; no linen or white cloth is visible anywhere",
+       "The cape is almost invisible: only a thin crimson sliver shows behind the shoulder, so the accent colour does not carry the silhouette",
+       "The strike reads weakly: the xiphos hangs low and blade-down beside the leg rather than mid-swing, though it is in hand",
+       "Bare brown head and brown bow add to the monochrome look against a dark night"
+      ]
+     },
+     {
+      "pose": "ranged3",
+      "direction": "se",
+      "score": 6,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Bronze cuirass, skin, wooden bow and greaves are all warm tan/gold and melt into one mass, which the brief explicitly forbids",
+       "The marble/linen cloth is barely visible; no white chiton or pteruges read between the armour and legs",
+       "The crouched draw pose plus the large bow in front hides the torso silhouette; only the crimson cape gives contrast",
+       "The released arrow floats far from the figure and reads as a stray prop"
+      ]
+     }
+    ],
+    "mubit_request_ids": {
+     "gen": [
+      "mreq_01a16fbddd617431a2391e7ea7168c59",
+      "mreq_01a16fbddd6078108174d2deee863b3b",
+      "mreq_01a16fbddd627012a92a24e3862a9b5f"
+     ],
+     "fix": "mreq_01a16fbe668471a2a33e62fa452e6523",
+     "attempts": [
+      {
+       "name": "hero-male-c0",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbdfd057cb3ac8da703c9a78e9b",
+          "mreq_01a16fbe281974a295c31a171d829768"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe00467e73be6767b5edfbfc87"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbdfddb77d2809dfacd0793f07a",
+          "mreq_01a16fbe25f6718090b273d0242445c8"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbdffa87c908597a7660e3172ec",
+          "mreq_01a16fbe30997172a6284df9c42e87b9"
+         ]
+        }
+       ]
+      },
+      {
+       "name": "hero-male-c1",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbdfccf7ed195d1a10b0c43b59f"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbdfd267b40bbe3a8a2448753eb",
+          "mreq_01a16fbe2c247642b0567572f6a24383"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe033c72a3bfcca240076628f8",
+          "mreq_01a16fbe33cf789086787c7865310c97"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe006370f380727d69e0f7c681",
+          "mreq_01a16fbe307d78b3bb3f80bd16ca461b"
+         ]
+        }
+       ]
+      },
+      {
+       "name": "hero-male-c2",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbdfdfa70b292daa44a62a78d73"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbdfe697af1a30a9144689a3c0b"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbdfd9b70318e170239eb1fb09e"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe01cf7c32b28203387fd3eea5",
+          "mreq_01a16fbe34187f2194d42eb5b4af4c72"
+         ]
+        }
+       ]
+      },
+      {
+       "name": "hero-male-fixed",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbe890278538cc2c02b30381d7a",
+          "mreq_01a16fbeb11277d29b00b7b829d3f292"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe85e872e3836479cc0679ff58",
+          "mreq_01a16fbeb80677e18278145b26f57e2f"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe88dc7a43880866ac58e8c5f6",
+          "mreq_01a16fbeb531780294dc006afff8ba56"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbe88c071f19a5a63f78ee8f63e",
+          "mreq_01a16fbeb67370928c805fdf592e1df6"
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "current": [
+     {
+      "pose": "idle1",
+      "direction": "s",
+      "score": 5,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbdb78b7ac1a2105f8ad3137a73"
+      ]
+     },
+     {
+      "pose": "walk2",
+      "direction": "se",
+      "score": 4,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbdb760707399231de9f0187145"
+      ]
+     },
+     {
+      "pose": "melee3",
+      "direction": "se",
+      "score": 4,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbdb56a71019ff059313cdb9413"
+      ]
+     },
+     {
+      "pose": "ranged3",
+      "direction": "se",
+      "score": 4,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbdb4aa78a3a4d7ac1dcece7eeb"
+      ]
+     }
+    ],
+    "rule": "every one of four frames is accepted (a verifier pass, or a score of at least 6 with no engine flag) and the mean score beats the deterministic warden's",
+    "rendered_with": "vercel-sandbox"
+   },
+   "female": {
+    "brief": "The player's warden, the daughter, a young Greek warden of a harbour town who keeps its lamps lit through the night, fighting with a spear in melee and a sling at range. Greek and heroic, with a readable silhouette that stands out against a dark night: distinct bronze, linen and accent colours, so his armour, cloth and cape do not melt into one colour. Write one call: hero(k, { sex: 'female', melee: 'spear', ranged: 'sling', pose: POSE || 'idle', facing: FACING, ...}). The game draws the warden in 20 poses (idle, walk, melee, ranged) from five directions with this same code, so FACING is a global number, in degrees, that the renderer gives your code for each direction: write facing: FACING exactly and never a fixed number. Never pass at, height, build or ready (the game sets them), and call no raw shapes (k.sphere, k.capsule and the others): they would not turn with him. Choose only what makes him look like himself: helmet ('none'|'corinthian'|'attic'), cape, and palette {cloth, accent, hair, skin, metal} with material names from the list.",
+    "code": "hero/female.ts",
+    "session": "lampwarden-hero-female",
+    "final": "first",
+    "score": 6.5,
+    "passed": false,
+    "current_score": 5,
+    "candidate_scores": [
+     6.5,
+     6.25,
+     6.38
+    ],
+    "fixed_score": null,
+    "frames": [
+     {
+      "pose": "idle1",
+      "direction": "s",
+      "score": 6,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Bronze armour, skin_olive limbs and the brown spear blend into one gold-tan mass, against the brief's demand for distinct colours",
+       "Cape is not visible from the south; no accent-coloured cloth breaks the silhouette",
+       "Aegean accent shows only as tiny specks at the arms; the dark hair is hidden under the attic helmet",
+       "Sling is unreadable: only a pale blob at the hip"
+      ]
+     },
+     {
+      "pose": "walk2",
+      "direction": "se",
+      "score": 7,
+      "pass": true,
+      "flags": "ok",
+      "issues": [
+       "The skin_olive arms and legs come out in nearly the same golden tone as the bronze cuirass and greaves, so the figure melts toward one colour, against the brief.",
+       "The attic helmet hides the face and ponytail, so she does not read clearly as a young woman at game zoom.",
+       "The aegean cape shows only as a thin sliver behind the shoulder and adds little contrasting accent to the silhouette.",
+       "The stowed sling is just a small pale blob at the hip and is barely legible."
+      ]
+     },
+     {
+      "pose": "melee3",
+      "direction": "se",
+      "score": 7,
+      "pass": true,
+      "flags": "ok",
+      "issues": [
+       "skin_olive limbs are nearly the same tan as the bronze cuirass, greaves and helmet, so the arms and legs melt into the armour against a dark night",
+       "The aegean cape shows only as a thin blue sliver behind the back; the accent barely registers in this strike frame",
+       "Face is fully hidden by the helmet and the hair is a tiny dark tuft, so she reads as a generic bronze figure rather than the young warden"
+      ]
+     },
+     {
+      "pose": "ranged3",
+      "direction": "se",
+      "score": 6,
+      "pass": false,
+      "flags": "ok",
+      "issues": [
+       "Olive skin and bronze armour are almost the same golden tone, so arms, legs, cuirass and helmet melt into one colour against the night",
+       "The attic helmet reads as a featureless gold ball: no face or ponytail is visible, so she does not read as a young woman",
+       "Aegean cape and accents barely show from the south-east; the only strong accent is the default crimson crest",
+       "Stowed spearhead renders brown and textured rather than bright bronze, so it reads as a torch or club"
+      ]
+     }
+    ],
+    "mubit_request_ids": {
+     "gen": [
+      "mreq_01a16fbf48ca7e329a57254044c7c556",
+      "mreq_01a16fbf48cc7da3978cf397e2bed1ca",
+      "mreq_01a16fbf48ce7df2a0b4af40ae1e4386"
+     ],
+     "fix": null,
+     "attempts": [
+      {
+       "name": "hero-female-c0",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbf64817a42be53b44bc416120a",
+          "mreq_01a16fbf8feb7f00aa046abaad4142a7"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf67357f2385efeb74847911d9",
+          "mreq_01a16fbf95c87561b84a735244f5e1a6"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf616a7190ab5a8a80053e267f",
+          "mreq_01a16fbf84867022b3e5ed33a48ea71e"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf6319724183db603a4fbf6ffe",
+          "mreq_01a16fbf8fc67c6195077f52f2f77c04"
+         ]
+        }
+       ]
+      },
+      {
+       "name": "hero-female-c1",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbf641571e39ed4a48c130d49cd",
+          "mreq_01a16fbf88a777b3b4997e7b42f633f4"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf602d7912bf224f497dd02177",
+          "mreq_01a16fbf87067db18126a1fd0ac0b2a9"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf69697a93b2e0fffc2d8aafa5",
+          "mreq_01a16fbf957778c2b44544ac14dc1a79"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf61097c0288c1cdd63d018965",
+          "mreq_01a16fbf8e5b7540b9ffc85a1e1adab2"
+         ]
+        }
+       ]
+      },
+      {
+       "name": "hero-female-c2",
+       "verify": [
+        {
+         "pose": "idle1",
+         "direction": "s",
+         "ids": [
+          "mreq_01a16fbf635777d2a26b65eae35bbebd",
+          "mreq_01a16fbf916673218b72673e62911633"
+         ]
+        },
+        {
+         "pose": "walk2",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf64af703192b8bccadb73e506",
+          "mreq_01a16fbf86ef7103984118ab237968dd"
+         ]
+        },
+        {
+         "pose": "melee3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf61d37aa0a8299fb517a01053",
+          "mreq_01a16fbf8dea73739d0b84060d0754cd"
+         ]
+        },
+        {
+         "pose": "ranged3",
+         "direction": "se",
+         "ids": [
+          "mreq_01a16fbf63a679a39f908dcf3a1ae953",
+          "mreq_01a16fbf93187ce0942eee58eb25f70f"
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "current": [
+     {
+      "pose": "idle1",
+      "direction": "s",
+      "score": 5,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbf1bae7353a1f9dc1f879572d7"
+      ]
+     },
+     {
+      "pose": "walk2",
+      "direction": "se",
+      "score": 5,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbf1ccb7a42be9a52af0c13c437"
+      ]
+     },
+     {
+      "pose": "melee3",
+      "direction": "se",
+      "score": 5,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbf1cf679019e616737c87769d1"
+      ]
+     },
+     {
+      "pose": "ranged3",
+      "direction": "se",
+      "score": 5,
+      "flags": "ok",
+      "verify": [
+       "mreq_01a16fbf215479c1bf72a9e48fa3e8f9"
+      ]
+     }
+    ],
+    "rule": "every one of four frames is accepted (a verifier pass, or a score of at least 6 with no engine flag) and the mean score beats the deterministic warden's",
+    "rendered_with": "vercel-sandbox"
+   }
+  }
  }
 }

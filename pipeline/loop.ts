@@ -10,9 +10,9 @@ import { verifierImageBase64 } from "./verifier-image";
 
 const PASSING_SCORE = 7;
 const BORDERLINE_SCORES = [6, 7] as const;
-const GENERATOR_MAX_TOKENS = 1500;
+export const GENERATOR_MAX_TOKENS = 1500;
 const GENERATOR_RETRY_MAX_TOKENS = 4000;
-const FIX_MAX_TOKENS = 3000;
+export const FIX_MAX_TOKENS = 3000;
 const VERIFIER_MAX_TOKENS = 1800;
 
 export interface Brief {
@@ -219,7 +219,7 @@ function isTruncated(stop: unknown, text: string): boolean {
   );
 }
 
-async function generate(
+export async function generate(
   context: LoopCore,
   task: string,
   messages: ModelMessage[],
@@ -281,7 +281,7 @@ export function correctionMessage(brief: string, verdict: Verdict): string {
   );
 }
 
-interface Attempt {
+export interface Attempt {
   code: string;
   name: string;
   render: RenderResult;
@@ -291,7 +291,7 @@ interface Attempt {
   stage: "render" | "post" | "llm";
 }
 
-async function renderAndVerify(
+export async function renderAndVerify(
   context: LoopCore,
   code: string,
   name: string,
@@ -429,7 +429,7 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
 
 // Mubit takes no temperature, so candidates drawn from one prompt come out nearly identical. Each candidate after the
 // first gets a different nudge in its user message, which is what makes drawing several worth it.
-const CANDIDATE_HINTS = [
+export const CANDIDATE_HINTS = [
   "",
   "\n\nAim for a clear silhouette: turn the figure so its defining parts face the viewer (facing 40), and keep everything well inside the frame.",
   "\n\nTurn the figure to a three-quarter view at facing 10, with the key parts turned towards the viewer, and keep everything well inside the frame.",

@@ -104,7 +104,7 @@ All in the existing private Blob store (`BLOB_READ_WRITE_TOKEN`), under `creatur
 | `records/<id>.json`, `sprites/<id>.png`, `sprites/<id>.ts`             | The accepted creature, its sprite and the build code. Ids start with their creation time (base 36), so a sort is newest-first; the record is written last, so a creature is in the gallery only when complete. |
 | `jobs/<jobId>.json`                                                    | Job status, rewritten at every step. Read with `useCache: false`.                                                                                                                                              |
 | `state/running.json`                                                   | The global slot: which job is running. Claimed with a conditional write (create-if-absent, or `ifMatch` the version just read), so of several simultaneous starters exactly one wins; the rest follow its job. |
-| `starts/visitor/<hash>/<day>/<ms>-<jobId>`, `starts/day/<day>/<jobId>` | One tiny blob per job start, counted by listing for the rate limits.                                                                                                                                      |
+| `starts/visitor/<hash>/<day>/<ms>-<jobId>`, `starts/day/<day>/<jobId>` | One tiny blob per job start, counted by listing for the rate limits.                                                                                                                                           |
 
 ### Rate limits
 

@@ -670,8 +670,10 @@ export default function Game() {
         )}
 
         {phase === "replayEnd" && replay && (
-          <div className="panel">
-            <div className="logo small">REPLAY OVER</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              REPLAY OVER
+            </h2>
             <p>{describeNight(replay.play)}</p>
             <p className="dim">
               {replay.endsMatch === null
@@ -690,8 +692,10 @@ export default function Game() {
           </div>
         )}
         {phase === "replayRefused" && refusedPlay && (
-          <div className="panel" data-panel="replay-refused">
-            <div className="logo small">AN EARLIER VERSION</div>
+          <div className="panel" data-panel="replay-refused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              AN EARLIER VERSION
+            </h2>
             <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
             {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
             <button type="button" className="btn big" onClick={() => location.assign("/")}>
@@ -700,7 +704,10 @@ export default function Game() {
           </div>
         )}
         {replayError && (
-          <div className="panel">
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              NO REPLAY
+            </h2>
             <p>Could not load that replay: {replayError}</p>
           </div>
         )}

@@ -119,7 +119,25 @@ export interface MubitClient {
     session: string,
     logFields: Record<string, unknown>,
     maxTokens: number,
+    /** Cancels the call: an in-flight request is aborted and neither it nor a retry is started after this fires. */
+    signal?: AbortSignal,
   ): Promise<ModelCall>;
+}
+
+/** The same client with every call tied to `signal`, so a caller with a deadline stops all the model calls it started. */
+export function bindMubitSignal(client: MubitClient, signal: AbortSignal): MubitClient {
+  return {
+    call: (task, system, messages, session, logFields, maxTokens, callSignal) =>
+      client.call(
+        task,
+        system,
+        messages,
+        session,
+        logFields,
+        maxTokens,
+        callSignal ? AbortSignal.any([signal, callSignal]) : signal,
+      ),
+  };
 }
 
 export function shortSha(text: string): string {
@@ -142,6 +160,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
     messages: ModelMessage[],
     session: string,
     maxTokens: number,
+    signal: AbortSignal | undefined,
   ): Promise<SentRequest> {
     const body: MubitRequestBody = {
       model: MUBIT_MODEL,
@@ -152,6 +171,8 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
     };
     const started = performance.now();
     const elapsed = () => Math.round(performance.now() - started);
+    // an abort before the request leaves means nothing is sent
+    if (signal?.aborted) return { status: null, rid: null, ms: 0, reply: null, error: "aborted" };
     try {
       const response = await fetchImplementation(MUBIT_MESSAGES_URL, {
         method: "POST",
@@ -161,7 +182,9 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(requestTimeout),
+        signal: signal
+          ? AbortSignal.any([AbortSignal.timeout(requestTimeout), signal])
+          : AbortSignal.timeout(requestTimeout),
       });
       const rid = response.headers.get("x-middleware-request-id");
       if (!response.ok) {
@@ -177,13 +200,14 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
   }
 
   return {
-    async call(task, system, messages, session, logFields, maxTokens) {
-      let attempt = await send(system, messages, session, maxTokens);
+    async call(task, system, messages, session, logFields, maxTokens, signal) {
+      let attempt = await send(system, messages, session, maxTokens, signal);
       let firstTry: AttemptSummary | undefined;
-      if (retry && (attempt.status === null || RETRYABLE_STATUSES.has(attempt.status))) {
+      // no retry once the caller has aborted: it has given up on the call, and a retry would spend after the deadline
+      if (retry && !signal?.aborted && (attempt.status === null || RETRYABLE_STATUSES.has(attempt.status))) {
         firstTry = { status: attempt.status, rid: attempt.rid, ms: attempt.ms, error: attempt.error };
         await sleep(RETRY_DELAY_MILLISECONDS);
-        attempt = await send(system, messages, session, maxTokens);
+        attempt = await send(system, messages, session, maxTokens, signal);
       }
       const record: CallRecord = {
         ts: new Date().toTimeString().slice(0, 8),

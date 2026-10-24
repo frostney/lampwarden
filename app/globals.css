@@ -94,3 +94,5 @@ h1 { margin: 0; font-weight: normal; }
 /* the logo is 68x45 pixel art, shown at whole multiples */
 .brand img { display: block; width: 272px; height: 180px; image-rendering: pixelated; }
 @media (max-width: 760px), (max-height: 520px) { .brand img { width: 204px; height: 135px; } }
+.btn:focus-visible { outline: 3px solid #f2c14e; outline-offset: 2px; }
+[data-input="gamepad"] .btn:focus { outline: 3px solid #f2c14e; outline-offset: 2px; }

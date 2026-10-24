@@ -7,10 +7,11 @@ import { MONSTER, type Input, type State } from "./sim";
 export interface Controls {
   keys: Set<string>;
   stickX: number; stickY: number;
+  gamepadX: number; gamepadY: number;   // the gamepad's left stick or d-pad, 8-way
   melee: boolean; ranged: boolean; aim: { x: number; y: number } | null;
 }
 
-export const newControls = (): Controls => ({ keys: new Set(), stickX: 0, stickY: 0, melee: false, ranged: false, aim: null });
+export const newControls = (): Controls => ({ keys: new Set(), stickX: 0, stickY: 0, gamepadX: 0, gamepadY: 0, melee: false, ranged: false, aim: null });
 
 const held = (c: Controls, a: string, b: string) => (c.keys.has(a) || c.keys.has(b) ? 1 : 0);
 const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
@@ -18,8 +19,8 @@ const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
 // the input for the next sim step, quantised so live play and replay see identical numbers
 export function liveInput(c: Controls): Input {
   return quantise({
-    dx: clamp1(held(c, "d", "arrowright") - held(c, "a", "arrowleft") + c.stickX),
-    dy: clamp1(held(c, "s", "arrowdown") - held(c, "w", "arrowup") + c.stickY),
+    dx: clamp1(held(c, "d", "arrowright") - held(c, "a", "arrowleft") + c.stickX + c.gamepadX),
+    dy: clamp1(held(c, "s", "arrowdown") - held(c, "w", "arrowup") + c.stickY + c.gamepadY),
     melee: c.melee, ranged: c.ranged, aim: c.aim,
   });
 }
@@ -28,7 +29,7 @@ export function liveInput(c: Controls): Input {
 export function consumePresses(c: Controls) { c.melee = false; c.ranged = false; }
 
 // pausing lets go of every held key and the stick
-export function release(c: Controls) { c.keys.clear(); c.stickX = c.stickY = 0; }
+export function release(c: Controls) { c.keys.clear(); c.stickX = c.stickY = 0; c.gamepadX = c.gamepadY = 0; }
 
 export function stick(c: Controls, dx: number, dy: number) { c.stickX = dx; c.stickY = dy; }
 

@@ -44,7 +44,19 @@ export type RenderResult = ({ ok: true } & RenderedSprite) | { ok: false; error:
 /** What a manifest row and a log line record as the renderer. */
 export const RENDERED_WITH = "vercel-sandbox";
 
-export type Renderer = (request: RenderRequest) => Promise<RenderResult>;
+/** `signal` cancels the render: its sandbox is stopped and the result is a failure. */
+export type Renderer = (request: RenderRequest, signal?: AbortSignal) => Promise<RenderResult>;
+
+/** The failure of a render that was cancelled or never started because the caller's signal had fired. */
+export const RENDER_ABORTED = "render aborted";
+
+/** The same renderer tied to `signal`: once it has fired nothing more is rendered, and a render in flight is cancelled. */
+export function bindRenderSignal(render: Renderer, signal: AbortSignal): Renderer {
+  return async (request, callSignal) =>
+    signal.aborted
+      ? { ok: false, error: RENDER_ABORTED }
+      : render(request, callSignal ? AbortSignal.any([signal, callSignal]) : signal);
+}
 
 const SAFE_RENDER_ARGUMENT = /^[A-Za-z0-9_-]*$/;
 
@@ -79,18 +91,29 @@ export function lastErrorLine(standardError: string): string {
   return errorLine || "error";
 }
 
-/** Rejects with `message` when `work` has not settled after `milliseconds`; `work` itself is left to clean up after itself. */
+/**
+ * Rejects with `message` when `work` has not settled after `milliseconds`. `work` is not cancelled by the race itself:
+ * pass the `controller` that `work` listens to and it is aborted when the deadline passes (and when `work` rejects),
+ * so what `work` started stops spending instead of running on after the caller has given up.
+ */
 export async function withDeadline<Result>(
   work: Promise<Result>,
   milliseconds: number,
   message: string,
+  controller?: AbortController,
 ): Promise<Result> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    timer = setTimeout(() => {
+      controller?.abort(new Error(message));
+      reject(new Error(message));
+    }, milliseconds);
   });
   try {
     return await Promise.race([work, expiry]);
+  } catch (error) {
+    controller?.abort(error);
+    throw error;
   } finally {
     clearTimeout(timer);
   }

@@ -12,7 +12,7 @@ Nothing here is needed to play. With no key, no network, a rate limit or a slow 
 
 ## What the model may change
 
-`legacy.director` (`src/game/director.ts`), one night at a time:
+`legacy.director` (`src/game/director-decision.ts`; the code that clamps a proposal is in `director.ts`), one night at a time:
 
 | field                     | bound                                        | what it does                                                                     |
 | ------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -60,8 +60,7 @@ start, as time away. So the recorder keeps `hiddenSeconds`: the time the tab was
 visibility events and a monotonic clock (`performance.now()`), as an optional field (`incomingPlay` validates it, 0 to
 86400). The real time of the night is the sim's plus that. It is recorder-only: the sim and `replay.ts` do not read it,
 replays are exact with or without it (a test replays both), and `recording.ts` and `plays.ts` are outside the sim
-fingerprint. (`director.ts` is inside it and was edited for this, so the fingerprint changes with this branch, as it
-does with any edit to that file; `sim.ts` is not edited: the hold is applied by the callers, `heldTide`.) A play without
+fingerprint. (`sim.ts` is not edited by it: the hold is applied by the callers, `heldTide`.) A play without
 `hiddenSeconds` has no pause time and is judged on its inputs alone. The recording is the client's, so all of this is for an
 honest client: one that fabricates its inputs, or leaves the field out, is judged on what it sent.
 
@@ -95,7 +94,7 @@ The two 7 s quits are not idle: both moved and acted (45% moving and two strikes
 which holds the same way. No recorded night is idle or paused, and none can be shown paused (they have no `hiddenSeconds`;
 the timestamps, for what they are worth, put the real time within 1.5 s of the simulated on every one).
 
-**Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director.ts`):
+**Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director-decision.ts`):
 - the tide is at least the rules' tide (`tideRange(rulesTide, kind)`), and the rules' tide itself does not ease: `heldTide`
   (`engagement.ts`) keeps the tide the night was played at when the rules would have lowered it, in `endNight` and in the
   server's `rulesTideAfter`, so an idle loss no longer multiplies the tide by 0.85 (before this the rules eased after every

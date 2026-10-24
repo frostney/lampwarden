@@ -27,7 +27,7 @@ const ARCHETYPE_BASE: Record<Archetype, CreatureStats> = {
 
 // The model picks each modifier from -1 (weaker on that axis) to 1 (stronger); a step moves the stat by its share.
 export const MODIFIER_NAMES = ["speed", "toughness", "bite", "snuffing"] as const;
-export type ModifierName = (typeof MODIFIER_NAMES)[number];
+type ModifierName = (typeof MODIFIER_NAMES)[number];
 export type Modifiers = Record<ModifierName, -1 | 0 | 1>;
 
 const STEP = { speed: 0.15, bite: 0.2, snuffing: 0.2 };

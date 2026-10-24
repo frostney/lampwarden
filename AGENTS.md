@@ -36,6 +36,10 @@ Follow `.agents/skills/git-workflow` and `.agents/skills/create-pr` / `update-pr
   (the visual verifier's `verify-out/` shots are a good source) and, for behaviour, a short narrated video with burned-in
   subtitles. Upload with `gh pr create --attach` / `gh pr edit --attach`; never commit evidence media. Code-only
   changes attach the verifier contact sheet showing nothing moved.
+- Make the video with `bun run walkthrough -- <script.ts> --url <server> --out <dir>` (`e2e/walkthrough.ts`): copy
+  `e2e/walkthroughs/title.ts` to a script outside the repo, write one caption per segment, run it against a local
+  build, and look at `<dir>/check.png` before attaching `<dir>/walkthrough.mp4`. `<dir>/stills/` holds each
+  segment's last frame for the before/after shots.
 - Write PR bodies with local file references (`![alt](./shot.png)`), run the publication guard on that file, then
   upload with `--attach`. Never run the guard on a body that already holds uploaded attachment URLs: GitHub serves
   `user-attachments` only to signed-in users, so the guard reads them as private references and rewrites the images

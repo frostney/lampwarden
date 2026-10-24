@@ -441,8 +441,8 @@ export default function Game() {
               <div className="bar">
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
-              <div className="oilline">
-                Slain {hud.kills} · <Icon name="oil" size={16} /> {hud.oil}
+              <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
+                <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
               </div>
             </div>
             <div className="nightbar">

@@ -1,4 +1,5 @@
-// 16x16 pixel icons for the upgrades, drawn as crisp SVG rects. One character per pixel; '.' is transparent.
+// 16x16 pixel icons for the upgrades, the HUD and the touch controls, drawn as crisp SVG rects. One character per pixel;
+// '.' is transparent.
 import type { UpgradeId } from "@/game/legacy";
 
 const PALETTE: Record<string, string> = {
@@ -15,9 +16,68 @@ const PALETTE: Record<string, string> = {
   s: "#8e98a8", // steel shade
   L: "#9a5f34", // leather
   l: "#5e3720", // dark leather
+  e: "#e8dcc0", // bone
+  E: "#a89a80", // bone shade
 };
 
-const ART: Record<UpgradeId | "oil", string[]> = {
+// Adds the 1 px dark outline the sprites have around every drawn pixel (left, right, up and down), for icons whose
+// grids are drawn without one.
+function outlined(rows: readonly string[]): string[] {
+  const drawn = (row: number, column: number) => {
+    const symbol = rows[row]?.[column];
+    return symbol !== undefined && symbol !== ".";
+  };
+  return rows.map((line, row) =>
+    [...line]
+      .map((symbol, column) => {
+        if (symbol !== ".") return symbol;
+        const touchesDrawn =
+          drawn(row - 1, column) || drawn(row + 1, column) || drawn(row, column - 1) || drawn(row, column + 1);
+        return touchesDrawn ? "K" : ".";
+      })
+      .join(""),
+  );
+}
+
+const ART: Record<UpgradeId | "oil" | "slain" | "shoot", string[]> = {
+  // a skull: monsters slain
+  slain: outlined([
+    "................",
+    "................",
+    ".....eeeee......",
+    "....eeeeeee.....",
+    "...eeeeeeeeE....",
+    "...eKKeeeKKE....",
+    "...eKKeeeKKE....",
+    "...eeeeKeeeE....",
+    "....eeKKKeE.....",
+    ".....eeeeE......",
+    ".....eKeKe......",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+  ]),
+  // an arrow in flight, point up and to the right: shoot
+  shoot: outlined([
+    "................",
+    "............SSS.",
+    ".............SS.",
+    "............L.S.",
+    "...........L....",
+    "..........L.....",
+    ".........L......",
+    "........L.......",
+    ".......L........",
+    "......L.........",
+    "...R.L..........",
+    "..R.L...........",
+    "...L.R..........",
+    "..L.R...........",
+    "................",
+    "................",
+  ]),
   // a Greek oil lamp (lychnos) with its flame on the spout
   wick: [
     "................",

@@ -3,6 +3,7 @@
 // On-screen controls for touch devices (hidden for mouse users by CSS): an 8-way stick, Strike and Shoot.
 // The stick is quantised to 8 directions so recorded plays stay small and replay exactly.
 import { useRef } from "react";
+import { Icon } from "@/components/Icon";
 
 type Action = "melee" | "ranged";
 
@@ -39,7 +40,7 @@ export function TouchControls({
     onStick(0, 0);
   };
 
-  const actionButton = (action: Action, label: string) => (
+  const actionButton = (action: Action, label: string, icon: "blade" | "shoot") => (
     <button
       type="button"
       className={`tbtn ${action}`}
@@ -49,7 +50,7 @@ export function TouchControls({
       }}
       aria-label={label}
     >
-      {label}
+      <Icon name={icon} size={32} />
     </button>
   );
 
@@ -76,8 +77,8 @@ export function TouchControls({
         <div ref={knob} className="knob" />
       </div>
       <div className="tbtns">
-        {actionButton("ranged", "Shoot")}
-        {actionButton("melee", "Strike")}
+        {actionButton("ranged", "Shoot", "shoot")}
+        {actionButton("melee", "Strike", "blade")}
       </div>
     </div>
   );

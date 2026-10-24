@@ -421,3 +421,22 @@ h1 {
   outline: 3px solid #f2c14e;
   outline-offset: 2px;
 }
+
+/* Small screens: show the playfield closer by cropping the open sea around it. The view is the canvas rectangle
+   x 68-892, y 30-545 (824 x 515, still 1.6:1), which keeps the whole plaza, the spawn rim, every lamp, the boat and
+   the dock; the verifier checks that every lamp and plaza corner stays on screen. */
+@media (max-width: 760px), (max-height: 520px) {
+  .stage {
+    overflow: hidden;
+  }
+  .stage > .canvas {
+    position: absolute;
+    width: calc(100% * 960 / 824);
+    height: calc(100% * 600 / 515);
+    left: calc(-100% * 68 / 824);
+    top: calc(-100% * 30 / 515);
+  }
+  .hud {
+    --hu: calc(100cqw / 824);
+  }
+}

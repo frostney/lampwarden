@@ -552,6 +552,46 @@ for (const [tag, device] of [
     Number.parseFloat(getComputedStyle(document.querySelector(".hud")).fontSize),
   );
   check(tag, "HUD text at least 10 px", hudFontSize >= 10, `${hudFontSize}px`);
+  // the closer phone view must not hide gameplay: every plaza corner, every lantern and the top of the spawn rim
+  const hiddenPoints = await page.evaluate(() => {
+    const canvas = document.querySelector(".stage canvas");
+    const stageBox = document.querySelector(".stage")?.getBoundingClientRect();
+    if (!canvas || !stageBox) return ["no canvas"];
+    const canvasBox = canvas.getBoundingClientRect();
+    const toScreen = ([x, y]) => [
+      canvasBox.left + (x * canvasBox.width) / 960,
+      canvasBox.top + (y * canvasBox.height) / 600,
+    ];
+    const state = window.lampwarden.state();
+    const points = {
+      "plaza left": [96, 320],
+      "plaza right": [864, 320],
+      "plaza top": [480, 128],
+      "plaza bottom": [480, 526],
+      "spawn rim top": [480, 147 - 22 - 60],
+      ...Object.fromEntries(state.lamps.map((lamp, index) => [`lantern ${index + 1}`, [lamp.x, lamp.y - 90]])),
+    };
+    return Object.entries(points)
+      .filter(([, point]) => {
+        const [screenX, screenY] = toScreen(point);
+        return (
+          screenX < stageBox.left || screenX > stageBox.right || screenY < stageBox.top || screenY > stageBox.bottom
+        );
+      })
+      .map(([name]) => name);
+  });
+  check(tag, "plaza, lanterns and spawn rim all on screen", hiddenPoints.length === 0, hiddenPoints.join(", "));
+  const zoom = await page.evaluate(() => {
+    const canvas = document.querySelector(".stage canvas");
+    const stage = document.querySelector(".stage");
+    return canvas && stage ? canvas.getBoundingClientRect().width / stage.getBoundingClientRect().width : 0;
+  });
+  check(
+    tag,
+    "playfield shown closer than the full canvas",
+    zoom > 1.1,
+    `canvas is ${zoom.toFixed(3)}x the stage width`,
+  );
   // stick: hold right for half a second, the warden must move right
   const startX = await page.evaluate(() => window.lampwarden.state().hero.x);
   const stickBox = controlBoxes.find((box) => box.className.includes("stick"));

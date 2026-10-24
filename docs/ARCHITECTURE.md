@@ -38,7 +38,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   run.py             brief → generator → render → verifier → fix → best-of → public/sprites
   local_render.py    bun render subprocess with an allowlisted environment (shared by run.py and hero_frames.py)
   prompts/           generator.md (kit API doc), verifier.md
-  kit/               building kit: src/*.ts → assemble.sh → kit.ts; exports.json, palette.json, examples/
+  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
   render/            local bun renderer + canvas shim
   shotcup_*.py       Shotcup renderer (REST client untested)
   hero_frames.py     regenerate hero animation frames

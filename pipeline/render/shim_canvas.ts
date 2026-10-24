@@ -18,9 +18,3 @@ class Canvas { width: number; height: number; data: Uint8Array;
   save(p: string) { writeFileSync(map(p), this.toPNG()); }
 }
 export function createCanvas(w: number, h: number, o?: any) { return new Canvas(w, h, o); }
-// GIF: write frames as PNG strip + json; tools/gif.py assembles it (local only)
-export function saveAnimation(p: string, frames: Canvas[], o: any = {}) {
-  const base = map(p); frames.forEach((f, i) => writeFileSync(base + '.f' + i + '.png', f.toPNG()));
-  writeFileSync(base + '.json', JSON.stringify({ n: frames.length, delay: o.delay || 100, loop: o.loop || 0, scale: o.scale || 1 }));
-  Bun.spawnSync(['python3', import.meta.dir + '/gifasm.py', base]);
-}

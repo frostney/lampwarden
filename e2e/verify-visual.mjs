@@ -612,6 +612,214 @@ async function checkTraitIcons(tag, name, selector, expectedCount) {
     problems.join("; ") || `${found.length} shown`,
   );
 }
+// The title scroll's hero cards. The portrait canvas (80 x 94 art pixels, PORTRAIT in src/scene/portrait.ts) holds a
+// warden's frame drawn at one offset, the one that puts the middle of his solid (opaque) body in the middle of it; a
+// chosen card swings the melee frames once and is at rest again.
+const HERO_PROBE = `
+  window.heroProbe = {
+    hash(data) {
+      let hash = 2166136261;
+      for (const byte of data) hash = Math.imul(hash ^ byte, 16777619);
+      return hash >>> 0;
+    },
+    canvas(sex) {
+      return document.querySelector('.hero-card[data-sex="' + sex + '"] canvas');
+    },
+    pixels(canvas) {
+      return canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height).data;
+    },
+    signature(sex) {
+      return this.hash(this.pixels(this.canvas(sex)));
+    },
+    // the first and last column of the canvas's opaque pixels
+    body(sex) {
+      const canvas = this.canvas(sex);
+      const data = this.pixels(canvas);
+      let first = canvas.width;
+      let last = -1;
+      for (let row = 0; row < canvas.height; row++)
+        for (let column = 0; column < canvas.width; column++)
+          if (data[(row * canvas.width + column) * 4 + 3] >= 250) {
+            first = Math.min(first, column);
+            last = Math.max(last, column);
+          }
+      return { first, last, width: canvas.width };
+    },
+    // what each frame must look like, drawn here from the atlas on its own: the south-facing column, the idle frame at
+    // atlas row 0 and the melee frames at rows 10 to 14, all at the offset that centres the idle frame's body. These
+    // numbers are the atlas layout and PORTRAIT typed out again on purpose: the check compares the card with a second
+    // statement of the layout, so a change to one of them that the card does not follow fails here.
+    async expected(sex) {
+      const size = 128;
+      const image = new Image();
+      image.src = "/sprites/hero/" + sex + ".png";
+      await image.decode();
+      const target = this.canvas(sex);
+      const reader = document.createElement("canvas");
+      reader.width = size;
+      reader.height = size;
+      const readerContext = reader.getContext("2d", { willReadFrequently: true });
+      readerContext.drawImage(image, 2 * size, 0, size, size, 0, 0, size, size);
+      const data = readerContext.getImageData(0, 0, size, size).data;
+      let first = size;
+      let last = -1;
+      for (let row = 0; row < size; row++)
+        for (let column = 0; column < size; column++)
+          if (data[(row * size + column) * 4 + 3] >= 250) {
+            first = Math.min(first, column);
+            last = Math.max(last, column);
+          }
+      const shift = Math.round(target.width / 2 - (first + last + 1) / 2);
+      const top = 14; // PORTRAIT.top
+      const hashRow = (row) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = target.width;
+        canvas.height = target.height;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 2 * size, row * size, size, size, shift, -top, size, size);
+        return this.hash(this.pixels(canvas));
+      };
+      return { idle: hashRow(0), melee: [10, 11, 12, 13, 14].map(hashRow) };
+    },
+  };
+`;
+const HERO_STEP = 16; // ms of the page's clock between samples
+const HERO_SEXES = ["male", "female"];
+// the looks that follow one another, as runs: [{ hash, from }], from in ms after the start
+const runsOf = (trail, index) => {
+  const runs = [];
+  for (const sample of trail)
+    if (runs.at(-1)?.hash !== sample[index]) runs.push({ hash: sample[index], from: sample[0] });
+  return runs;
+};
+const heroSignatures = (target) =>
+  target.evaluate((sexes) => sexes.map((sex) => window.heroProbe.signature(sex)), HERO_SEXES);
+async function openHeroPage(reducedMotion) {
+  const context = await browser.newContext({
+    viewport: { width: 1000, height: 640 },
+    deviceScaleFactor: 1,
+    reducedMotion: reducedMotion ? "reduce" : "no-preference",
+  });
+  await stubSea(context);
+  const heroPage = await context.newPage();
+  await heroPage.clock.install();
+  await heroPage.goto(BASE_URL);
+  await heroPage.waitForSelector(".hero-card canvas");
+  // a press while the scroll unrolls only completes the unrolling
+  await heroPage.waitForSelector(".scroll[data-stage='done']", { timeout: 30000 });
+  await heroPage.evaluate(HERO_PROBE);
+  await heroPage.waitForFunction(
+    () => ["male", "female"].every((sex) => window.heroProbe.body(sex).last >= 0),
+    undefined,
+    {
+      polling: 100,
+    },
+  );
+  // from here the page's clock moves only when it is stepped
+  await heroPage.clock.pauseAt((await heroPage.evaluate(() => Date.now())) + 100);
+  return { context, heroPage };
+}
+async function sampleHero(heroPage, milliseconds) {
+  const trail = [];
+  for (let elapsed = HERO_STEP; elapsed <= milliseconds; elapsed += HERO_STEP) {
+    await heroPage.clock.runFor(HERO_STEP);
+    trail.push([elapsed, ...(await heroSignatures(heroPage))]);
+  }
+  return trail;
+}
+async function checkHeroCards() {
+  // the body in the middle of the card, for both sexes
+  await page.evaluate(HERO_PROBE);
+  await page.waitForTimeout(600); // the checks before this one chose a card: let its swing end, the warden is at rest
+  for (const sex of HERO_SEXES) {
+    await page.waitForFunction((sex) => window.heroProbe.body(sex).last >= 0, sex, { polling: 100 });
+    const { first, last, width } = await page.evaluate((sex) => window.heroProbe.body(sex), sex);
+    const offCentre = (first + last + 1) / 2 - width / 2;
+    check(
+      "hero-cards",
+      `${sex}: the solid body's middle is within 1 art pixel of the card's middle`,
+      Math.abs(offCentre) <= 1,
+      `body columns ${first}-${last} of ${width}, ${offCentre} px off`,
+    );
+    const scale = await page.evaluate((sex) => {
+      const canvas = window.heroProbe.canvas(sex);
+      return canvas.getBoundingClientRect().width / canvas.width;
+    }, sex);
+    check("hero-cards", `${sex}: the portrait is drawn at a whole multiple`, Number.isInteger(scale), `${scale}x`);
+  }
+
+  // the swing, with the page's clock stepped
+  const { context, heroPage } = await openHeroPage(false);
+  const expected = {};
+  for (const sex of HERO_SEXES) expected[sex] = await heroPage.evaluate((sex) => window.heroProbe.expected(sex), sex);
+  const resting = await heroSignatures(heroPage);
+  check(
+    "hero-cards",
+    "both wardens start at rest on the idle frame, drawn at the centring offset",
+    resting[0] === expected.male.idle && resting[1] === expected.female.idle,
+  );
+  const swingMilliseconds = (5 / 14) * 1000; // five melee frames at FRAMES_PER_SECOND.melee
+  const swingChecks = async (name, sex, other, choose) => {
+    await choose();
+    const trail = await sampleHero(heroPage, 700);
+    const runs = runsOf(trail, 1 + HERO_SEXES.indexOf(sex));
+    const inOrder = runs.slice(0, 5).every((run, index) => run.hash === expected[sex].melee[index]);
+    const back = runs.length === 6 && runs.at(-1).hash === expected[sex].idle;
+    const returnedAt = runs.at(-1).from;
+    check(
+      "hero-cards",
+      `${name}: ${sex} swings the five melee frames in order, then is at rest`,
+      inOrder && back,
+      `${runs.length} looks, at rest after ${returnedAt} ms`,
+    );
+    check(
+      "hero-cards",
+      `${name}: the swing takes five melee frames' time (${Math.round(swingMilliseconds)} ms)`,
+      back && Math.abs(returnedAt - swingMilliseconds) <= 100,
+      `${returnedAt} ms`,
+    );
+    const otherRuns = runsOf(trail, 1 + HERO_SEXES.indexOf(other));
+    check(
+      "hero-cards",
+      `${name}: the other card stays at rest`,
+      otherRuns.length === 1 && otherRuns[0].hash === expected[other].idle,
+      `${otherRuns.length} looks`,
+    );
+  };
+  await swingChecks("a click", "female", "male", () => heroPage.locator('.hero-card[data-sex="female"]').click());
+  await swingChecks("a second click on the chosen card", "female", "male", () =>
+    heroPage.locator('.hero-card[data-sex="female"]').click(),
+  );
+  await swingChecks("Enter on a focused card", "male", "female", async () => {
+    await heroPage.locator('.hero-card[data-sex="male"]').focus();
+    await heroPage.keyboard.press("Enter");
+  });
+  // choosing the other card in the middle of a swing puts the first at rest at once
+  await heroPage.locator('.hero-card[data-sex="female"]').click();
+  await heroPage.clock.runFor(100);
+  await heroPage.locator('.hero-card[data-sex="male"]').click();
+  await heroPage.clock.runFor(HERO_STEP * 2);
+  check(
+    "hero-cards",
+    "choosing the other card in the middle of a swing puts the first at rest",
+    (await heroSignatures(heroPage))[1] === expected.female.idle,
+  );
+  await context.close();
+
+  // with reduced motion the idle frame only
+  const reduced = await openHeroPage(true);
+  const reducedExpected = await reduced.heroPage.evaluate(() => window.heroProbe.expected("female"));
+  await reduced.heroPage.locator('.hero-card[data-sex="female"]').click();
+  const reducedTrail = await sampleHero(reduced.heroPage, 700);
+  const reducedRuns = runsOf(reducedTrail, 2);
+  check(
+    "hero-cards",
+    "reduced motion: choosing a card shows the idle frame only",
+    reducedRuns.length === 1 && reducedRuns[0].hash === reducedExpected.idle,
+    `${reducedRuns.length} looks`,
+  );
+  await reduced.context.close();
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -688,6 +896,7 @@ check(
   "hero choice: two cards, one chosen",
   (await page.locator(".hero-card").count()) === 2 && chosenCards === 1,
 );
+await checkHeroCards();
 
 await checkTraitIcons("title", "the warden line shows the trait's icon", ".scroll .warden", 1);
 

@@ -6,160 +6,434 @@ usage: MUBIT_API_KEY=... python3 pipeline/run.py [--render local|shotcup] [--out
 The key is read from the environment only; it is never printed, logged or written to disk.
 Every Mubit call (request id, status, tokens, verdict) is appended to pipeline/runs/run.jsonl (no key, no headers).
 """
-import json, os, re, sys, time, subprocess, hashlib, base64, io, argparse, urllib.request, urllib.error, threading
+
+import argparse
+import base64
+import hashlib
+import io
+import json
+import os
+import re
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
 from PIL import Image
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+PIPELINE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PIPELINE_DIRECTORY)
 from local_render import render_file
-HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
-URL = "https://api.mubit.ai/anthropic/v1/messages"; MODEL = "claude-opus-5-5"
-sha = lambda s: hashlib.sha256(s.encode()).hexdigest()[:12]
-GSYS = open(os.path.join(HERE, "prompts", "generator.md")).read()   # generator system prompt = the builder API doc
-VSYS = open(os.path.join(HERE, "prompts", "verifier.md")).read()    # verifier system prompt = art-director rubric + the same API doc
-RETRY = (429, 500, 502, 503, 504, 529); _lk = threading.Lock()
-BANNED = re.compile(r"\b(import|require|process|Bun|fetch|eval|Function|globalThis|XMLHttpRequest|Deno)\b")
-LOG = os.path.join(HERE, "runs", "run.jsonl")
 
-def logrow(row):
-    os.makedirs(os.path.dirname(LOG), exist_ok=True)
-    with _lk, open(LOG, "a") as f: f.write(json.dumps(row) + "\n")
+REPOSITORY_ROOT = os.path.dirname(PIPELINE_DIRECTORY)
+MUBIT_MESSAGES_URL = "https://api.mubit.ai/anthropic/v1/messages"
+MODEL = "claude-opus-5-5"
+# generator system prompt = the builder API doc
+with open(os.path.join(PIPELINE_DIRECTORY, "prompts", "generator.md")) as prompt_file:
+    GENERATOR_SYSTEM_PROMPT = prompt_file.read()
+# verifier system prompt = art-director rubric + the same API doc
+with open(os.path.join(PIPELINE_DIRECTORY, "prompts", "verifier.md")) as prompt_file:
+    VERIFIER_SYSTEM_PROMPT = prompt_file.read()
+RETRYABLE_STATUSES = (429, 500, 502, 503, 504, 529)
+_file_lock = threading.Lock()
+BANNED_IDENTIFIERS = re.compile(r"\b(import|require|process|Bun|fetch|eval|Function|globalThis|XMLHttpRequest|Deno)\b")
+LOG_PATH = os.path.join(PIPELINE_DIRECTORY, "runs", "run.jsonl")
+PASSING_SCORE = 7
 
-def raw_call(system, messages, sess, max_tokens):
-    key = os.environ.get("MUBIT_API_KEY")
-    if not key: sys.exit("MUBIT_API_KEY is not set (export it in your shell; do not put it in files)")
-    body = {"model": MODEL, "max_tokens": max_tokens, "system": system, "messages": messages, "metadata": {"user_id": sess}}   # no temperature
-    req = urllib.request.Request(URL, data=json.dumps(body).encode(), method="POST",
-          headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
-    t = time.time()
+
+def short_sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def append_log_row(row):
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    with _file_lock, open(LOG_PATH, "a") as log_file:
+        log_file.write(json.dumps(row) + "\n")
+
+
+def send_request(system, messages, session, max_tokens):
+    """One POST to Mubit. Returns (status, request_id, elapsed_milliseconds, reply_json, error_text)."""
+    api_key = os.environ.get("MUBIT_API_KEY")
+    if not api_key:
+        sys.exit("MUBIT_API_KEY is not set (export it in your shell; do not put it in files)")
+    body = {  # no temperature
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": messages,
+        "metadata": {"user_id": session},
+    }
+    request = urllib.request.Request(
+        MUBIT_MESSAGES_URL,
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+    )
+    started = time.time()
     try:
-        r = urllib.request.urlopen(req, timeout=240); h = {k.lower(): v for k, v in r.headers.items()}
-        return r.status, h.get("x-middleware-request-id"), round((time.time() - t) * 1000), json.loads(r.read()), None
-    except urllib.error.HTTPError as e:
-        h = {k.lower(): v for k, v in e.headers.items()}
-        return e.code, h.get("x-middleware-request-id"), round((time.time() - t) * 1000), None, e.read()[:400].decode("utf-8", "replace")
-    except Exception as e:
-        return None, None, round((time.time() - t) * 1000), None, repr(e)[:200]
+        response = urllib.request.urlopen(request, timeout=240)
+        headers = {name.lower(): value for name, value in response.headers.items()}
+        elapsed_milliseconds = round((time.time() - started) * 1000)
+        return (
+            response.status,
+            headers.get("x-middleware-request-id"),
+            elapsed_milliseconds,
+            json.loads(response.read()),
+            None,
+        )
+    except urllib.error.HTTPError as error:
+        headers = {name.lower(): value for name, value in error.headers.items()}
+        elapsed_milliseconds = round((time.time() - started) * 1000)
+        error_text = error.read()[:400].decode("utf-8", "replace")
+        return error.code, headers.get("x-middleware-request-id"), elapsed_milliseconds, None, error_text
+    # any other failure (URLError, timeout, reset) is logged and retried once by call_model
+    except Exception as error:  # noqa: BLE001
+        return None, None, round((time.time() - started) * 1000), None, repr(error)[:200]
 
-def call(task, system, messages, sess, meta, max_tokens):
-    st, rid, ms, js, err = raw_call(system, messages, sess, max_tokens); first = None
-    if st in RETRY or st is None:   # one retry
-        first = {"status": st, "rid": rid, "ms": ms, "error": err}; time.sleep(5); st, rid, ms, js, err = raw_call(system, messages, sess, max_tokens)
-    rec = {"ts": time.strftime("%H:%M:%S"), "task": task, "status": st, "rid": rid, "ms": ms, "session": sess, "model": MODEL, "system_sha": sha(system), **meta}
-    if first: rec["first_try"] = first
-    txt = None
-    if js is None: rec["error"] = err
+
+def call_model(task, system, messages, session, log_fields, max_tokens):
+    """send_request with one retry on 429/5xx/timeout. Returns (log_row, reply_text); reply_text is None on failure."""
+    status, request_id, elapsed_milliseconds, reply, error_text = send_request(system, messages, session, max_tokens)
+    first_try = None
+    if status in RETRYABLE_STATUSES or status is None:  # one retry
+        first_try = {"status": status, "rid": request_id, "ms": elapsed_milliseconds, "error": error_text}
+        time.sleep(5)
+        status, request_id, elapsed_milliseconds, reply, error_text = send_request(
+            system, messages, session, max_tokens
+        )
+    log_row = {
+        "ts": time.strftime("%H:%M:%S"),
+        "task": task,
+        "status": status,
+        "rid": request_id,
+        "ms": elapsed_milliseconds,
+        "session": session,
+        "model": MODEL,
+        "system_sha": short_sha(system),
+        **log_fields,
+    }
+    if first_try:
+        log_row["first_try"] = first_try
+    reply_text = None
+    if reply is None:
+        log_row["error"] = error_text
     else:
-        u = js.get("usage", {}); rec.update(in_tokens=u.get("input_tokens"), out_tokens=u.get("output_tokens"), stop=js.get("stop_reason"))
-        txt = "".join(c.get("text", "") for c in js.get("content", []))
-    return rec, txt
+        usage = reply.get("usage", {})
+        log_row.update(
+            in_tokens=usage.get("input_tokens"), out_tokens=usage.get("output_tokens"), stop=reply.get("stop_reason")
+        )
+        reply_text = "".join(content_block.get("text", "") for content_block in reply.get("content", []))
+    return log_row, reply_text
 
-def png_b64(path):   # 128px sprite -> 4x nearest on the (46,46,56) backdrop the verifier is calibrated on
-    im = Image.open(path).convert("RGBA"); bg = Image.new("RGBA", im.size, (46, 46, 56, 255)); bg.alpha_composite(im)
-    bg = bg.convert("RGB").resize((im.width * 4, im.height * 4), Image.NEAREST); b = io.BytesIO(); bg.save(b, "PNG"); return base64.b64encode(b.getvalue()).decode()
 
-def parse_json(txt):
-    m = re.search(r"\{.*\}", txt or "", re.S)
-    try: return json.loads(m.group(0)) if m else None
-    except Exception: return None
+def verifier_png_base64(path):
+    """128px sprite -> 4x nearest on the (46,46,56) backdrop the verifier is calibrated on, as base64 PNG."""
+    sprite = Image.open(path).convert("RGBA")
+    backdrop = Image.new("RGBA", sprite.size, (46, 46, 56, 255))
+    backdrop.alpha_composite(sprite)
+    magnified = backdrop.convert("RGB").resize((sprite.width * 4, sprite.height * 4), Image.NEAREST)
+    png_buffer = io.BytesIO()
+    magnified.save(png_buffer, "PNG")
+    return base64.b64encode(png_buffer.getvalue()).decode()
 
-def verify_once(png, brief, code, stats, sess, meta):
-    stat = "bbox %s, coverage %.0f%%, parts %s, flags %s" % (stats.get("bbox"), 100 * (stats.get("coverage") or 0), stats.get("parts"), stats.get("flags"))
-    content = [{"type": "text", "text": "BRIEF: " + brief + "\n\nENGINE STATS: " + stat + "\n\nGENERATOR CODE:\n```ts\n" + code + "\n```\n\nRENDERED SPRITE (image):"},
-               {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": png_b64(png)}}]
-    rec, txt = call("verify", VSYS, [{"role": "user", "content": content}], sess, dict(meta), 1800)
-    v = parse_json(txt)
-    if v is None: v = {"pass": False, "score": None, "issues": ["verifier reply not JSON: " + (txt or rec.get("error") or "")[:200]], "fix": "", "lesson": ""}
-    v["pass"] = bool(v.get("pass")) and isinstance(v.get("score"), (int, float)) and v["score"] >= 7
-    rec["verdict"] = v; logrow(rec); return rec
 
-def verify(png, brief, code, stats, sess, meta):
-    r1 = verify_once(png, brief, code, stats, sess, {**meta, "sample": 1}); v = dict(r1["verdict"]); rids = [r1["rid"]]; s = v.get("score")
-    if isinstance(s, (int, float)) and 6 <= s <= 7:   # borderline: verify twice, average
-        r2 = verify_once(png, brief, code, stats, sess, {**meta, "sample": 2}); rids.append(r2["rid"]); s2 = r2["verdict"].get("score")
-        if isinstance(s2, (int, float)):
-            v["scores"] = [s, s2]; v["score"] = (s + s2) / 2; v["pass"] = v["score"] >= 7 and (v["pass"] or r2["verdict"]["pass"])
-    return v, rids
+def parse_json(text):
+    match = re.search(r"\{.*\}", text or "", re.DOTALL)
+    try:
+        return json.loads(match.group(0)) if match else None
+    except (ValueError, RecursionError):
+        return None
 
-def extract(txt):
-    m = re.search(r"```(?:ts|typescript|js|javascript)?\n(.*?)```", txt, re.S); return (m.group(1) if m else txt).strip()
-def truncated(rec, txt):
-    code = extract(txt or ""); return rec.get("stop") == "max_tokens" or code.count("{") != code.count("}") or ("function build" in code and not code.rstrip().endswith("}"))
 
-def gen(task, msgs, sess, meta, mt):
-    rec, txt = call(task, GSYS, msgs, sess, meta, mt)
-    if txt is not None and truncated(rec, txt):   # one retry with a bigger budget
-        rec["truncated_first"] = {"rid": rec["rid"], "out_tokens": rec.get("out_tokens")}
-        rec2, txt2 = call(task, GSYS, msgs, sess, meta, 4000); rec2["note"] = "truncation retry of " + str(rec["rid"]); logrow(rec); rec, txt = rec2, txt2
-    logrow(rec); return rec, txt
+def is_score(value):
+    return isinstance(value, (int, float))
 
-# ---- renderers: both return (stats dict, None) or (None, error). The PNG lands in out/<name>.png ----
-def render_local(code, name, out, pose=""):
-    src = os.path.join(out, name + ".ts"); open(src, "w").write(code + "\n")
-    return render_file(src, name, out, pose)   # allowlisted env: generated code never sees MUBIT_API_KEY or any other secret
 
-def render(code, name, out, mode, pose=""):
-    if BANNED.search(code): return None, "rejected: banned identifier " + BANNED.search(code).group(0)
-    if "function build" not in code: return None, "no function build(k) found"
-    if mode == "shotcup":
-        import shotcup_render; return shotcup_render.render(code, name, out, pose)
-    return render_local(code, name, out, pose)
+def verify_once(png_path, brief, code, stats, session, log_fields):
+    coverage_percent = 100 * (stats.get("coverage") or 0)
+    stats_summary = (
+        f"bbox {stats.get('bbox')}, coverage {coverage_percent:.0f}%, "
+        f"parts {stats.get('parts')}, flags {stats.get('flags')}"
+    )
+    prompt_text = (
+        "BRIEF: "
+        + brief
+        + "\n\nENGINE STATS: "
+        + stats_summary
+        + "\n\nGENERATOR CODE:\n```ts\n"
+        + code
+        + "\n```\n\nRENDERED SPRITE (image):"
+    )
+    content = [
+        {"type": "text", "text": prompt_text},
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": verifier_png_base64(png_path)},
+        },
+    ]
+    log_row, reply_text = call_model(
+        "verify", VERIFIER_SYSTEM_PROMPT, [{"role": "user", "content": content}], session, dict(log_fields), 1800
+    )
+    verdict = parse_json(reply_text)
+    if verdict is None:
+        unparsed = (reply_text or log_row.get("error") or "")[:200]
+        verdict = {
+            "pass": False,
+            "score": None,
+            "issues": ["verifier reply not JSON: " + unparsed],
+            "fix": "",
+            "lesson": "",
+        }
+    verdict["pass"] = bool(verdict.get("pass")) and is_score(verdict.get("score")) and verdict["score"] >= PASSING_SCORE
+    log_row["verdict"] = verdict
+    append_log_row(log_row)
+    return log_row
 
-def det(st):
-    f, i = st["flags"], []
-    if "clipped_at_edge" in f: i.append("sprite touches the canvas edge (bbox %s): keep everything within |u|,|v|<=14 and z<=40" % st["bbox"])
-    if "too_small" in f: i.append("sprite covers only %.1f%% of the canvas: make it bigger" % (100 * st["coverage"]))
-    if "too_big" in f: i.append("sprite covers %.0f%% of the canvas: make it smaller" % (100 * st["coverage"]))
-    if "too_short" in f: i.append("sprite is under 24 px tall: make it taller")
-    return i
 
-def check(code, name, out, brief, sess, meta, mode, pose):
-    st, err = render(code, name, out, mode, pose)
-    if err: return st, {"pass": False, "score": 0, "issues": ["code did not run: " + err], "fix": "Return a complete function build(k) using only the documented builders.", "lesson": ""}, [], "render"
-    d = det(st)
-    if d: return st, {"pass": False, "score": 0, "issues": d, "fix": "; ".join(d), "lesson": ""}, [], "post"   # engine flags short-circuit: no verifier call
-    v, rids = verify(os.path.join(out, name + ".png"), brief, code, st, sess, meta); return st, v, rids, "llm"
+def verify(png_path, brief, code, stats, session, log_fields):
+    first_row = verify_once(png_path, brief, code, stats, session, {**log_fields, "sample": 1})
+    verdict = dict(first_row["verdict"])
+    request_ids = [first_row["rid"]]
+    first_score = verdict.get("score")
+    if is_score(first_score) and 6 <= first_score <= 7:  # borderline: verify twice, average
+        second_row = verify_once(png_path, brief, code, stats, session, {**log_fields, "sample": 2})
+        request_ids.append(second_row["rid"])
+        second_score = second_row["verdict"].get("score")
+        if is_score(second_score):
+            verdict["scores"] = [first_score, second_score]
+            verdict["score"] = (first_score + second_score) / 2
+            verdict["pass"] = verdict["score"] >= PASSING_SCORE and (verdict["pass"] or second_row["verdict"]["pass"])
+    return verdict, request_ids
 
-def slug(s): return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:48]
 
-def process(bid, cat, brief, args):
-    out = os.path.join(HERE, "runs", "work"); os.makedirs(out, exist_ok=True)
-    sess = f"lampwarden-{bid}-" + re.sub(r"\W+", "-", brief)[:34]
-    meta = {"bid": bid, "cat": cat, "brief": brief, "render": args.render}; msgs = [{"role": "user", "content": "Brief: " + brief}]
-    g1, txt = gen("gen", msgs, sess, dict(meta), 1500)
-    row = {"id": bid, "brief": brief, "session": sess, "gen": g1["rid"]}
-    if txt is None: print(bid, "GEN FAILED", g1.get("error"), flush=True); return None
-    code = extract(txt); n = slug(bid)
-    st, v, rids, stage = check(code, n, out, brief, sess, {**meta, "stage": "first"}, args.render, args.pose)
-    row.update(verify=rids, first_score=v.get("score")); best = (code, st, v, n, "first")
-    print(f"{bid} | gen {g1['rid']} | {stage} pass={v['pass']} score={v['score']} {v['issues'][:2]}", flush=True)
-    if not v["pass"]:   # ONE fix call: the verifier's issues + fix go back to the generator as a follow-up turn
-        corr = ("Your sprite was rendered and rejected.\nBrief: " + brief + "\nScore: " + str(v.get("score")) + "/10\nIssues:\n- " + "\n- ".join(map(str, v.get("issues") or [])) +
-                "\nRequested fix: " + str(v.get("fix", "")) + "\n\nReply with the complete corrected build(k) only, keeping what already works.")
-        g2, txt2 = gen("fix", msgs + [{"role": "assistant", "content": txt}, {"role": "user", "content": corr}], sess, {**meta, "fixes_verify": rids[:1]}, 3000)
-        row["fix"] = g2["rid"]
-        if txt2 is not None:
-            code2 = extract(txt2); st2, v2, rids2, stage2 = check(code2, n + "-fixed", out, brief, sess, {**meta, "stage": "after_fix"}, args.render, args.pose)
-            row.update(fixed_verify=rids2, fixed_score=v2.get("score"))
-            print(f"   fix {g2['rid']} | {stage2} pass={v2['pass']} score={v2['score']} {v2['issues'][:2]}", flush=True)
-            if (v2.get("score") or 0) > (v.get("score") or 0): best = (code2, st2, v2, n + "-fixed", "fixed")   # best-of: ties go to the first attempt
-    code_b, st_b, v_b, name_b, which = best
-    if st_b is None: print(bid, "no renderable result"); return None
-    os.makedirs(args.out, exist_ok=True)
-    Image.open(os.path.join(out, name_b + ".png")).save(os.path.join(args.out, n + ".png"))
-    open(os.path.join(args.out, n + ".ts"), "w").write(code_b + "\n")
-    row.update(final=which, score=v_b.get("score"), passed=v_b["pass"], issues=v_b.get("issues"), rendered_with=args.render)
-    mp = os.path.join(args.out, "manifest.json"); 
-    with _lk:
-        man = json.load(open(mp)) if os.path.exists(mp) else {"sprites": {}}
-        man["sprites"][n] = {"brief": brief, "file": n + ".png", "code": n + ".ts", **{k: row[k] for k in row if k not in ("id", "brief")}}
-        json.dump(man, open(mp, "w"), indent=1)
+def extract_code(text):
+    match = re.search(r"```(?:ts|typescript|js|javascript)?\n(.*?)```", text, re.DOTALL)
+    return (match.group(1) if match else text).strip()
+
+
+def is_truncated(log_row, text):
+    code = extract_code(text or "")
+    return (
+        log_row.get("stop") == "max_tokens"
+        or code.count("{") != code.count("}")
+        or ("function build" in code and not code.rstrip().endswith("}"))
+    )
+
+
+def generate(task, messages, session, log_fields, max_tokens):
+    log_row, reply_text = call_model(task, GENERATOR_SYSTEM_PROMPT, messages, session, log_fields, max_tokens)
+    if reply_text is not None and is_truncated(log_row, reply_text):  # one retry with a bigger budget
+        log_row["truncated_first"] = {"rid": log_row["rid"], "out_tokens": log_row.get("out_tokens")}
+        retry_row, retry_text = call_model(task, GENERATOR_SYSTEM_PROMPT, messages, session, log_fields, 4000)
+        retry_row["note"] = "truncation retry of " + str(log_row["rid"])
+        append_log_row(log_row)
+        log_row, reply_text = retry_row, retry_text
+    append_log_row(log_row)
+    return log_row, reply_text
+
+
+# ---- renderers: both return (stats dict, None) or (None, error). The PNG lands in <output_directory>/<name>.png ----
+def render_locally(code, name, output_directory, pose=""):
+    source_path = os.path.join(output_directory, name + ".ts")
+    with open(source_path, "w") as source_file:
+        source_file.write(code + "\n")
+    # allowlisted env: generated code never sees MUBIT_API_KEY or any other secret
+    return render_file(source_path, name, output_directory, pose)
+
+
+def render(code, name, output_directory, renderer, pose=""):
+    banned_match = BANNED_IDENTIFIERS.search(code)
+    if banned_match:
+        return None, "rejected: banned identifier " + banned_match.group(0)
+    if "function build" not in code:
+        return None, "no function build(k) found"
+    if renderer == "shotcup":
+        import shotcup_render
+
+        return shotcup_render.render(code, name, output_directory, pose)
+    return render_locally(code, name, output_directory, pose)
+
+
+def engine_flag_issues(stats):
+    flags, issues = stats["flags"], []
+    if "clipped_at_edge" in flags:
+        issues.append(
+            f"sprite touches the canvas edge (bbox {stats['bbox']}): keep everything within |u|,|v|<=14 and z<=40"
+        )
+    if "too_small" in flags:
+        issues.append(f"sprite covers only {100 * stats['coverage']:.1f}% of the canvas: make it bigger")
+    if "too_big" in flags:
+        issues.append(f"sprite covers {100 * stats['coverage']:.0f}% of the canvas: make it smaller")
+    if "too_short" in flags:
+        issues.append("sprite is under 24 px tall: make it taller")
+    return issues
+
+
+def render_and_verify(code, name, output_directory, brief, session, log_fields, renderer, pose):
+    """Returns (stats, verdict, verifier request ids, stage) where stage is "render", "post" or "llm"."""
+    stats, error = render(code, name, output_directory, renderer, pose)
+    if error:
+        verdict = {
+            "pass": False,
+            "score": 0,
+            "issues": ["code did not run: " + error],
+            "fix": "Return a complete function build(k) using only the documented builders.",
+            "lesson": "",
+        }
+        return stats, verdict, [], "render"
+    flag_issues = engine_flag_issues(stats)
+    if flag_issues:  # engine flags short-circuit: no verifier call
+        verdict = {"pass": False, "score": 0, "issues": flag_issues, "fix": "; ".join(flag_issues), "lesson": ""}
+        return stats, verdict, [], "post"
+    png_path = os.path.join(output_directory, name + ".png")
+    verdict, request_ids = verify(png_path, brief, code, stats, session, log_fields)
+    return stats, verdict, request_ids, "llm"
+
+
+def slugify(text):
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:48]
+
+
+def correction_message(brief, verdict):
+    issue_lines = "\n- ".join(map(str, verdict.get("issues") or []))
+    return (
+        "Your sprite was rendered and rejected.\nBrief: "
+        + brief
+        + "\nScore: "
+        + str(verdict.get("score"))
+        + "/10\nIssues:\n- "
+        + issue_lines
+        + "\nRequested fix: "
+        + str(verdict.get("fix", ""))
+        + "\n\nReply with the complete corrected build(k) only, keeping what already works."
+    )
+
+
+def process(brief_id, category, brief, arguments):
+    work_directory = os.path.join(PIPELINE_DIRECTORY, "runs", "work")
+    os.makedirs(work_directory, exist_ok=True)
+    session = f"lampwarden-{brief_id}-" + re.sub(r"\W+", "-", brief)[:34]
+    log_fields = {"bid": brief_id, "cat": category, "brief": brief, "render": arguments.render}
+    messages = [{"role": "user", "content": "Brief: " + brief}]
+    generation_row, generated_text = generate("gen", messages, session, dict(log_fields), 1500)
+    row = {"id": brief_id, "brief": brief, "session": session, "gen": generation_row["rid"]}
+    if generated_text is None:
+        print(brief_id, "GEN FAILED", generation_row.get("error"), flush=True)
+        return None
+    code = extract_code(generated_text)
+    sprite_name = slugify(brief_id)
+    stats, verdict, request_ids, stage = render_and_verify(
+        code,
+        sprite_name,
+        work_directory,
+        brief,
+        session,
+        {**log_fields, "stage": "first"},
+        arguments.render,
+        arguments.pose,
+    )
+    row.update(verify=request_ids, first_score=verdict.get("score"))
+    best = (code, stats, verdict, sprite_name, "first")
+    print(
+        f"{brief_id} | gen {generation_row['rid']} | {stage} pass={verdict['pass']} score={verdict['score']}"
+        f" {verdict['issues'][:2]}",
+        flush=True,
+    )
+    if not verdict["pass"]:  # ONE fix call: the verifier's issues + fix go back to the generator as a follow-up turn
+        fix_messages = messages + [
+            {"role": "assistant", "content": generated_text},
+            {"role": "user", "content": correction_message(brief, verdict)},
+        ]
+        fix_row, fixed_text = generate(
+            "fix", fix_messages, session, {**log_fields, "fixes_verify": request_ids[:1]}, 3000
+        )
+        row["fix"] = fix_row["rid"]
+        if fixed_text is not None:
+            fixed_code = extract_code(fixed_text)
+            fixed_name = sprite_name + "-fixed"
+            fixed_stats, fixed_verdict, fixed_request_ids, fixed_stage = render_and_verify(
+                fixed_code,
+                fixed_name,
+                work_directory,
+                brief,
+                session,
+                {**log_fields, "stage": "after_fix"},
+                arguments.render,
+                arguments.pose,
+            )
+            row.update(fixed_verify=fixed_request_ids, fixed_score=fixed_verdict.get("score"))
+            print(
+                f"   fix {fix_row['rid']} | {fixed_stage} pass={fixed_verdict['pass']} score={fixed_verdict['score']}"
+                f" {fixed_verdict['issues'][:2]}",
+                flush=True,
+            )
+            if (fixed_verdict.get("score") or 0) > (verdict.get("score") or 0):  # best-of: ties go to the first attempt
+                best = (fixed_code, fixed_stats, fixed_verdict, fixed_name, "fixed")
+    best_code, best_stats, best_verdict, best_name, best_attempt = best
+    if best_stats is None:
+        print(brief_id, "no renderable result")
+        return None
+    os.makedirs(arguments.out, exist_ok=True)
+    Image.open(os.path.join(work_directory, best_name + ".png")).save(os.path.join(arguments.out, sprite_name + ".png"))
+    with open(os.path.join(arguments.out, sprite_name + ".ts"), "w") as code_file:
+        code_file.write(best_code + "\n")
+    row.update(
+        final=best_attempt,
+        score=best_verdict.get("score"),
+        passed=best_verdict["pass"],
+        issues=best_verdict.get("issues"),
+        rendered_with=arguments.render,
+    )
+    manifest_path = os.path.join(arguments.out, "manifest.json")
+    with _file_lock:
+        if os.path.exists(manifest_path):
+            with open(manifest_path) as manifest_file:
+                manifest = json.load(manifest_file)
+        else:
+            manifest = {"sprites": {}}
+        manifest["sprites"][sprite_name] = {
+            "brief": brief,
+            "file": sprite_name + ".png",
+            "code": sprite_name + ".ts",
+            **{key: row[key] for key in row if key not in ("id", "brief")},
+        }
+        with open(manifest_path, "w") as manifest_file:
+            json.dump(manifest, manifest_file, indent=1)
     return row
 
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("briefs", nargs="*"); ap.add_argument("--file"); ap.add_argument("--render", choices=["local", "shotcup"], default="local")
-    ap.add_argument("--out", default=os.path.join(ROOT, "public", "sprites")); ap.add_argument("--pose", default=""); a = ap.parse_args()
-    items = list(json.load(open(a.file)).items()) if a.file else [(slug(b), ["brief", b]) for b in a.briefs]
-    if not items: sys.exit("give at least one brief")
-    print({"generator_prompt_sha": sha(GSYS), "verifier_prompt_sha": sha(VSYS), "render": a.render}, flush=True)
-    with ThreadPoolExecutor(1 if a.render == "shotcup" else 4) as ex: list(ex.map(lambda t: process(t[0], t[1][0], t[1][1], a), items))
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("briefs", nargs="*")
+    parser.add_argument("--file")
+    parser.add_argument("--render", choices=["local", "shotcup"], default="local")
+    parser.add_argument("--out", default=os.path.join(REPOSITORY_ROOT, "public", "sprites"))
+    parser.add_argument("--pose", default="")
+    arguments = parser.parse_args()
+    if arguments.file:
+        with open(arguments.file) as briefs_file:
+            items = list(json.load(briefs_file).items())
+    else:
+        items = [(slugify(brief), ["brief", brief]) for brief in arguments.briefs]
+    if not items:
+        sys.exit("give at least one brief")
+    prompt_shas = {
+        "generator_prompt_sha": short_sha(GENERATOR_SYSTEM_PROMPT),
+        "verifier_prompt_sha": short_sha(VERIFIER_SYSTEM_PROMPT),
+        "render": arguments.render,
+    }
+    print(prompt_shas, flush=True)
+
+    def process_item(item):
+        brief_id, brief_entry = item  # brief_entry is ["category", "brief"]
+        return process(brief_id, brief_entry[0], brief_entry[1], arguments)
+
+    with ThreadPoolExecutor(1 if arguments.render == "shotcup" else 4) as executor:
+        list(executor.map(process_item, items))
     print("ALL DONE", flush=True)
+
+
+if __name__ == "__main__":
+    main()

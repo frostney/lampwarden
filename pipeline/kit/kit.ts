@@ -586,13 +586,14 @@ export class Kit {
       const parts = this.parts; const partCount = parts.length;
       const centreX = new Float64Array(partCount), centreY = new Float64Array(partCount), centreZ = new Float64Array(partCount);
       const radius = new Float64Array(partCount); const rayBound = new Float64Array(partCount);
-      const nearParts = new Int32Array(partCount), farParts = new Int32Array(partCount);
+      const nearParts = new Int32Array(partCount), farParts = new Int32Array(partCount); const lineSquared = new Float64Array(partCount);
       for (let partIndex = 0; partIndex < partCount; partIndex++) {
         const centre = parts[partIndex].c; centreX[partIndex] = centre[0]; centreY[partIndex] = centre[1]; centreZ[partIndex] = centre[2]; radius[partIndex] = parts[partIndex].R;
       }
       const lightX = LIGHT[0], lightY = LIGHT[1], lightZ = LIGHT[2];
       const boundMargin = 1e-6;   // covers rounding: a bound may only ever be below the distance the march computes, an exit only beyond it
       const hitDistance = 0.03; const shadowNearSlack = 2;
+      const farBound = 4;   // a part whose sphere stays this far from the whole line gets this as its bound, without the segment distance
       for (let py = Y0; py <= Y1; py++) for (let px = X0; px <= X1; px++) {
         const i = py * W + px; if (part[i] >= 0) continue;
         const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const groundX = (sg + d) / 2, groundY = (sg - d) / 2;
@@ -601,7 +602,8 @@ export class Kit {
           const offsetX = centreX[partIndex] - groundX, offsetY = centreY[partIndex] - groundY, offsetZ = centreZ[partIndex];
           const alongLine = offsetX * lightX + offsetY * lightY + offsetZ * lightZ;
           const lineX = offsetX - lightX * alongLine, lineY = offsetY - lightY * alongLine, lineZ = offsetZ - lightZ * alongLine;
-          const lineDistanceSquared = lineX * lineX + lineY * lineY + lineZ * lineZ;
+          const lineDistanceSquared = lineX * lineX + lineY * lineY + lineZ * lineZ; lineSquared[partIndex] = lineDistanceSquared;
+          const farRadius = radius[partIndex] + farBound; if (lineDistanceSquared >= farRadius * farRadius) { rayBound[partIndex] = farBound - boundMargin; continue; }
           const grownRadius = radius[partIndex] + hitDistance + boundMargin;
           if (lineDistanceSquared < grownRadius * grownRadius) { const leaves = alongLine + Math.sqrt(grownRadius * grownRadius - lineDistanceSquared); if (leaves > rayExit) rayExit = leaves; }
           const along = alongLine < 0.15 ? 0.15 : alongLine > 60 ? 60 : alongLine;
@@ -621,7 +623,11 @@ export class Kit {
             let partIndex: number;
             if (order < 0) { partIndex = previousNearestPart; if (partIndex < 0) continue; }
             else if (order < nearCount) { partIndex = nearParts[order]; if (partIndex === previousNearestPart) continue; }
-            else { if (nearest <= nearLimit) break; partIndex = farParts[order - nearCount]; if (partIndex === previousNearestPart) continue; }
+            else {
+              if (nearest <= nearLimit) break; partIndex = farParts[order - nearCount]; if (partIndex === previousNearestPart) continue;
+              const reach = nearest + radius[partIndex] + boundMargin;   // the line distance is a lower bound too: skip when it's beyond reach
+              if (reach < 0 || lineSquared[partIndex] > reach * reach) continue;
+            }
             if (rayBound[partIndex] > nearest) continue;
             const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
             const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;

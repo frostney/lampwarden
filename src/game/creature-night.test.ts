@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  ARCHETYPES,
-  type CreatureStats,
-  creatureStats,
-  MODIFIER_NAMES,
-  type ModifierName,
-  type Modifiers,
-  statsOf,
-} from "./creature";
+import { ARCHETYPES, type CreatureStats, creatureStats, MODIFIER_NAMES, type Modifiers, statsOf } from "./creature";
 import { newLegacy } from "./legacy";
 import { STEP } from "./replay";
 import {
@@ -63,7 +55,7 @@ const STAT_NAMES = [
 
 describe("a creature's modifiers", () => {
   test("each moves its own stat when raised, and no other", () => {
-    const moves: Record<ModifierName, keyof CreatureStats> = {
+    const moves: Record<keyof Modifiers, keyof CreatureStats> = {
       speed: "speed",
       toughness: "health",
       bite: "damage",

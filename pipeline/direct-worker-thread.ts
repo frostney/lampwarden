@@ -1,7 +1,7 @@
 // The worker side of the direct-worker renderer (render-direct-worker.ts). MEASUREMENT ONLY: not reachable from
 // `renderers.ts`; docs/LIVE_GENERATION.md, "Direct execution in a worker", has the measurements and the verdict.
 //
-// This file imports nothing but `node:worker_threads`, so Node can run it as it is (type stripping, no loader) and a
+// This file imports nothing but Node built-ins (`node:worker_threads`, `node:vm`, `node:v8`), so Node can run it as it is (type stripping, no loader) and a
 // bundler needs no resolution for it. The host passes the kit as plain JavaScript in `workerData`, the build code in
 // every `render` message, and gets pixels and a stats string back. The worker runs the build as ordinary JavaScript,
 // with `new Function`, exactly the way `render/run_local.ts` does.

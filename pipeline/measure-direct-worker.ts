@@ -558,7 +558,8 @@ async function main() {
     return;
   }
   if (values["identity-child"]) {
-    process.exit((await checkIdentity()) ? 0 : 1);
+    process.exitCode = (await checkIdentity()) ? 0 : 1;
+    return;
   }
   const runtimes = (values.runtimes ?? "").split(",").filter(isRuntime);
   const nodeBundle = runtimes.includes("node")

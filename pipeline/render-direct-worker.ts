@@ -83,6 +83,7 @@ export const DEFAULT_LIMITS: DirectWorkerLimits = {
 const DEFAULT_DEADLINE_MILLISECONDS = 10_000;
 const DEFAULT_MEMORY_LIMIT_MEGABYTES = 256;
 const MEMORY_POLL_MILLISECONDS = 10;
+const STATISTICS_PATIENCE_MILLISECONDS = 30;
 
 // ---- preparing the code: plain JavaScript, no types, no `export` ----
 
@@ -309,8 +310,13 @@ class WorkerSession {
       // Bun's `getHeapStatistics` does not answer while the worker is busy, so there the host's resident memory is used
       if (process.versions.bun || typeof this.worker.getHeapStatistics !== "function")
         return process.memoryUsage.rss() - residentBaselineBytes;
-      const statistics = await this.worker.getHeapStatistics();
-      return statistics.external_memory + statistics.malloced_memory;
+      // if the worker does not answer within a few polls, measure the host's resident growth instead of not measuring
+      const answer = await Promise.race([
+        this.worker.getHeapStatistics(),
+        new Promise<undefined>((resolve) => setTimeout(resolve, STATISTICS_PATIENCE_MILLISECONDS)),
+      ]);
+      if (!answer) return process.memoryUsage.rss() - residentBaselineBytes;
+      return answer.external_memory + answer.malloced_memory;
     } catch {
       return 0; // the worker is already gone
     }
@@ -458,6 +464,7 @@ export function createDirectWorkerRenderer(options: DirectWorkerOptions = {}): D
   const renderDetailed = async (request: RenderRequest): Promise<DetailedRender> => {
     const invalidReason = invalidRequestReason(request);
     if (invalidReason) return { result: { ok: false, error: invalidReason }, timings: NO_TIMINGS };
+    if (closed) return { result: { ok: false, error: "direct-worker: renderer is closed" }, timings: NO_TIMINGS };
     const begun = performance.now();
     let session: WorkerSession;
     try {

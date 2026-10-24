@@ -232,7 +232,8 @@ h1 {
   align-items: center;
   gap: 10px;
 }
-.btn.up > div {
+.btn.up > div,
+.btn.heir > div {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -251,7 +252,17 @@ h1 {
   letter-spacing: 2px;
 }
 .btn.heir {
-  width: 210px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 250px;
+}
+/* a trait's name with its icon, in a line of text */
+.trait {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
 }
 /* "Tonight the sea sends…" (SeaSends.tsx): the creature that joins the coming night, above the button that starts it;
    on the title it is inked on the scroll */
@@ -554,6 +565,9 @@ h1 {
 .privacy {
   font-size: 12px;
 }
+.scroll-content .privacy {
+  line-height: 1.2;
+}
 .scroll {
   --scale: 3;
   --portrait: 2;
@@ -653,11 +667,15 @@ h1 {
   gap: 8px;
   min-width: 0;
 }
+.scroll-hero {
+  gap: 6px;
+}
 @container (min-width: 560px) {
   .scroll-layout {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     grid-template-rows: auto auto auto 1fr;
     column-gap: calc(8px * var(--scale));
+    row-gap: 8px; /* the empty row of a night without an announced creature still takes a gap */
   }
   .scroll-hero {
     grid-column: 2;
@@ -771,6 +789,58 @@ h1 {
 }
 .hero-card.chosen .hero-mark {
   color: var(--ink);
+}
+/* How to play (HowToPlay.tsx): the controls as keys and buttons drawn in pixels, each over its label */
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.scroll-content .controls p {
+  line-height: 1.2;
+}
+.controls-heading {
+  margin: 0;
+  font-family: var(--font-title), serif;
+  font-weight: normal;
+  font-size: 16px;
+  line-height: 1;
+}
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 6px 16px;
+}
+.control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.glyphs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.glyph {
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+/* a touch button's weapon sits in the middle of its round backdrop */
+.touch-glyph {
+  position: relative;
+  display: flex;
+}
+.scroll .touch-glyph .icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
 }
 /* ink-in: each line is written left to right once the scroll is open */
 .scroll[data-stage="unrolling"] [data-line] {

@@ -4,6 +4,7 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
 import { SeaSends } from "@/components/SeaSends";
@@ -28,6 +29,7 @@ import {
   ordinal,
   saveLegacy,
   TRAITS,
+  type TraitId,
   tideLabel,
   type UpgradeId,
   upgradeCost,
@@ -457,7 +459,6 @@ export default function Game() {
   };
 
   const legacy = legacyRef.current;
-  const heirLine = `${legacy.heir.name}, ${ordinal(legacy.generation)} Lampwarden · ${TRAITS[legacy.heir.trait].label}`;
 
   const shopWarden = shopSex(legacy);
   const shop = (
@@ -526,7 +527,7 @@ export default function Game() {
               <div>
                 {legacy.heir.name}
                 <span className="long">
-                  , {ordinal(legacy.generation)} Lampwarden · {TRAITS[legacy.heir.trait].label}
+                  , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </span>
               </div>
               <div className="bar">
@@ -651,6 +652,7 @@ export default function Game() {
                 ))}
               </div>
               <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+              <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
                   Who takes up the lamp?
@@ -693,7 +695,7 @@ export default function Game() {
                   })}
                 </div>
                 <p className="warden" data-line>
-                  {heirLine}
+                  {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </p>
                 <p className="dim" data-line>
                   Night {legacy.night}
@@ -707,10 +709,11 @@ export default function Game() {
                     Start a new bloodline
                   </button>
                 )}
+                <p className="privacy dim" data-line>
+                  Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the
+                  game.
+                </p>
               </div>
-              <p className="privacy dim" data-line>
-                Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
-              </p>
             </div>
           </TitleScroll>
         )}
@@ -752,11 +755,14 @@ export default function Game() {
                   className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
                   onClick={() => chooseHeir(heir)}
                 >
-                  <b>{heir.name}</b>
-                  <span>{ARMS[heir.sex].loadout}</span>
-                  <span>
-                    {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
-                  </span>
+                  <Icon name={heir.trait} />
+                  <div>
+                    <b>{heir.name}</b>
+                    <span>{ARMS[heir.sex].loadout}</span>
+                    <span>
+                      {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -776,6 +782,16 @@ export default function Game() {
         )}
       </div>
     </div>
+  );
+}
+
+// a trait's name with its icon (the icon is decoration: the name says it)
+function TraitMark({ trait }: { trait: TraitId }) {
+  return (
+    <span className="trait">
+      <Icon name={trait} size={16} />
+      {TRAITS[trait].label}
+    </span>
   );
 }
 

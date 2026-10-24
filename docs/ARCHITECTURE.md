@@ -8,9 +8,13 @@ src/
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
                      :id/sprite.png)
   components/        flat: one file per component
-    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons, the sword and arrow beside the
-                     daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon` for the verifier
+    Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
+                     arrow beside the daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon`
+                     for the verifier
     TouchControls.tsx  on-screen stick and buttons for touch devices; Strike and Shoot show the warden's weapons
+    HowToPlay.tsx    the title scroll's "How to play": the controls of the input in use (touch on a coarse pointer, the pad
+                     while one is connected, else keyboard and mouse), keys, mouse, pad and touch buttons drawn as pixel
+                     art from code; each glyph carries `data-glyph` for the verifier
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)

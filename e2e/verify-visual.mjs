@@ -424,6 +424,92 @@ async function checkCodePress(tag, name, press, pressedElement, release) {
   const after = await page.evaluate(pressedElement);
   check(tag, name, during === true && after === false, `while pressed ${during}, after ${after}`);
 }
+// on the desktop stage the whole title, controls included, fits the parchment without scrolling
+async function checkScrollFits(tag) {
+  const room = await page.evaluate(() => {
+    const body = document.querySelector(".scroll-body");
+    return body ? { needed: body.scrollHeight, shown: body.clientHeight } : null;
+  });
+  check(
+    tag,
+    "the scroll holds the controls and the rest without scrolling",
+    room !== null && room.needed <= room.shown + 1,
+    room && `${room.needed}px of content in ${room.shown}px`,
+  );
+}
+// The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
+// glyphs (keys, mouse, pad buttons, touch buttons) in this order, with the weapon icons on the touch buttons, and saying
+// how to relight a lamp
+async function checkHowToPlay(tag, kind, glyphs, weapons = []) {
+  const blocks = await page.evaluate(() =>
+    [...document.querySelectorAll(".scroll .controls")].map((block) => ({
+      kind: block.dataset.controls,
+      glyphs: [...block.querySelectorAll("[data-glyph]")].map((glyph) => ({
+        name: glyph.dataset.glyph,
+        drawn: glyph.querySelectorAll("rect").length,
+      })),
+      icons: [...block.querySelectorAll("[data-icon]")].map((icon) => icon.dataset.icon),
+      text: block.textContent,
+      inked: block.hasAttribute("data-line"),
+      shown: block.getBoundingClientRect().height > 40,
+    })),
+  );
+  const [block] = blocks;
+  const found = block?.glyphs.map((glyph) => glyph.name).join(" ");
+  check(
+    tag,
+    `How to play shows the ${kind} controls`,
+    blocks.length === 1 &&
+      block.kind === kind &&
+      found === glyphs.join(" ") &&
+      block.glyphs.every((glyph) => glyph.drawn > 3) &&
+      block.icons.join(" ") === weapons.join(" ") &&
+      block.inked &&
+      block.shown &&
+      /How to play/.test(block.text) &&
+      /move/.test(block.text) &&
+      /strike/.test(block.text) &&
+      /shoot/.test(block.text) &&
+      /dark lamp/.test(block.text),
+    block ? `${blocks.length} block: ${block.kind}, ${found}, icons ${block.icons.join(",") || "none"}` : "no block",
+  );
+}
+// every element matching the selector names one trait and shows exactly that trait's icon, hidden from assistive tech
+// because the name is beside it
+const TRAIT_ICONS = {
+  Swift: "swift",
+  Stout: "stout",
+  Lamplighter: "lamplighter",
+  "Long-armed": "longarm",
+  "Keen-eyed": "keen",
+};
+async function checkTraitIcons(tag, name, selector, expectedCount) {
+  const found = await page.locator(selector).evaluateAll((elements) =>
+    elements.map((element) => ({
+      text: element.textContent,
+      icons: [...element.querySelectorAll("[data-icon]")].map((icon) => ({
+        name: icon.dataset.icon,
+        hidden: icon.getAttribute("aria-hidden") === "true",
+        drawn: icon.querySelectorAll("rect").length,
+      })),
+    })),
+  );
+  const problems = found.flatMap((element) => {
+    const label = Object.keys(TRAIT_ICONS).find((trait) => element.text.includes(trait));
+    const [icon] = element.icons;
+    if (!label) return [`no trait in "${element.text.slice(0, 30)}"`];
+    if (element.icons.length !== 1 || icon.name !== TRAIT_ICONS[label])
+      return [`${label}: icons ${element.icons.map((shown) => shown.name).join(",") || "none"}`];
+    if (!icon.hidden || icon.drawn < 20) return [`${label}: hidden ${icon.hidden}, ${icon.drawn} pixels`];
+    return [];
+  });
+  check(
+    tag,
+    name,
+    found.length === expectedCount && problems.length === 0,
+    problems.join("; ") || `${found.length} shown`,
+  );
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -475,6 +561,8 @@ check(
 );
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 await checkTitleScroll("title", 1000, 640);
+await checkHowToPlay("title", "keyboard", ["W", "A", "S", "D", "J", "K", "mouse"]);
+await checkScrollFits("title");
 await checkPress(
   "button-press",
   "Light the lamps sinks and darkens",
@@ -505,9 +593,12 @@ check(
   (await page.locator(".hero-card").count()) === 2 && chosenCards === 1,
 );
 
+await checkTraitIcons("title", "the warden line shows the trait's icon", ".scroll .warden", 1);
+
 // 2 night start: all five lamps lit
 await page.getByRole("button", { name: "Light the lamps" }).click();
 await page.waitForSelector('[data-phase="night"]');
+await checkTraitIcons("night", "the HUD's warden line shows the trait's icon", ".hud .stats > div:first-child", 1);
 await freeze();
 const lamps = await page.evaluate(() => window.lampwarden.state().lamps.map((lamp) => [lamp.x, lamp.y]));
 const head = ([x, y]) => [x - 4, y - 82, 8, 8];
@@ -821,6 +912,7 @@ await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
 shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
+await checkTraitIcons("heir", "each heir button shows its trait's icon", ".btn.heir", 3);
 await checkPress("button-press", "an heir button sinks and darkens", page.locator(".btn.heir").first());
 // the shop is for the fallen warden until an heir is picked, then for the heir (a daughter if one is offered)
 await checkWeaponShop("heir", "male");
@@ -888,7 +980,14 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await checkHowToPlay("gamepad", "keyboard", ["W", "A", "S", "D", "J", "K", "mouse"]); // until a pad connects
   await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
+  await page.waitForSelector('.scroll .controls[data-controls="gamepad"]', { timeout: 3000 });
+  await checkHowToPlay("gamepad", "gamepad", ["pad-left-stick", "pad-A", "pad-B", "pad-RT"]);
+  await checkScrollFits("gamepad");
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await settle();
+  await shoot("09-gamepad-title");
   // the d-pad walks the title's buttons to a hero card and A chooses it: the daughter, then the son again
   const focusHeroCard = async (sex, direction) => {
     for (let move = 0; move < 8; move++) {
@@ -1037,6 +1136,32 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const wardenLine = (await text(".scroll .warden")).join("");
   check("hero-choice", "the warden line names her", wardenLine.includes(daughter.name), wardenLine);
   await shoot("11-hero-choice");
+  // every trait: its icon on the warden line (a saved legacy with that trait), and the five icons are all different
+  const drawings = [];
+  for (const trait of Object.values(TRAIT_ICONS)) {
+    await page.evaluate((trait) => {
+      const saved = JSON.parse(localStorage.getItem("lampwarden:legacy:v1"));
+      localStorage.setItem("lampwarden:legacy:v1", JSON.stringify({ ...saved, heir: { ...saved.heir, trait } }));
+    }, trait);
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    const shown = await page.locator(".scroll .warden [data-icon]").evaluateAll((icons) =>
+      icons.map((icon) => ({
+        name: icon.dataset.icon,
+        drawing: [...icon.querySelectorAll("rect")]
+          .map((rect) => `${rect.getAttribute("x")},${rect.getAttribute("y")},${rect.getAttribute("fill")}`)
+          .join(";"),
+      })),
+    );
+    check("traits", `the ${trait} trait shows the ${trait} icon`, shown.length === 1 && shown[0].name === trait);
+    drawings.push(shown[0]?.drawing);
+  }
+  check("traits", "the five trait icons are all different", new Set(drawings).size === drawings.length);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await page.click('.hero-card[data-sex="female"]');
   await page.click('.hero-card[data-sex="male"]');
   const son = await heir();
   check(
@@ -1106,6 +1231,17 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await unrollPage.waitForSelector(".scroll:not([hidden])");
   const opening = await stageOf();
   await unrollPage.waitForSelector('.scroll[data-stage="writing"]', { timeout: 6000 });
+  // the controls ink in with the other lines
+  const inking = await unrollPage.evaluate(() => {
+    const animationOf = (selector) => getComputedStyle(document.querySelector(selector)).animationName;
+    return { controls: animationOf(".controls"), heading: animationOf(".scroll-heading") };
+  });
+  check(
+    "unroll",
+    "How to play is inked in like the other lines",
+    inking.controls === "ink-in" && inking.controls === inking.heading,
+    `${inking.controls}, the heading's ${inking.heading}`,
+  );
   // a click on the daughter's card while the lines are being written completes the scroll and chooses nothing
   const card = await unrollPage.locator('.hero-card[data-sex="female"]').boundingBox();
   await unrollPage.mouse.click(card.x + card.width / 2, card.y + card.height / 2);
@@ -1531,6 +1667,12 @@ for (const [tag, device, sex] of [
       (await page.evaluate(() => window.lampwarden.legacy().heir.sex)) === "female",
     );
   }
+  await checkHowToPlay(
+    tag,
+    "touch",
+    ["touch-stick", "touch-strike", "touch-shoot"],
+    [WEAPONS[sex].strike, WEAPONS[sex].shoot],
+  );
   await page.getByRole("button", { name: "Light the lamps" }).scrollIntoViewIfNeeded();
   const [startButton] = await boxes(".btn.big");
   check(tag, "start button on screen (scrolled to)", inView(startButton, viewportWidth, viewportHeight));

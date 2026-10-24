@@ -12,12 +12,15 @@
 // - `createDirectWorkerRenderer({ poolSize })`: workers started ahead of time, each used for one render and replaced, so
 //   no render sees another's state and the start cost moves off the request path;
 // - `renderBatchInDirectWorker()`: many renders (a creature's animation frames) in one worker, each against a fresh kit.
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import * as nodeModule from "node:module";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
+import { HERO_ANIMATIONS, SEXES } from "../src/scene/assets";
 import { PixelImage } from "../tools/logo/image";
 import { encodePng } from "../tools/logo/png";
+import { heroFrameBuilds } from "./hero-animation";
 import {
   invalidRequestReason,
   type Renderer,
@@ -61,6 +64,13 @@ export interface DirectWorkerOptions {
    * `new Function`, to measure what it closes.
    */
   denyDynamicImport?: boolean;
+  /**
+   * Run scripts that are not byte-for-byte one of the repository's own (`public/sprites/*.ts` and the generated hero
+   * frame builds). Default false: this renderer is a measurement, AGENTS.md forbids running model code outside a sandbox
+   * or the env-allowlisted local renderer, and an accidental wiring into a route must not run model output. The probe
+   * harness, the pose check and the tests set it, and only ever feed it code written for them.
+   */
+  allowUncommittedScripts?: boolean;
   /** The worker file; the default is `direct-worker-thread.ts` next to this file. */
   workerFile?: string;
 }
@@ -110,6 +120,24 @@ export function prepareKit(): PreparedKit {
 export function prepareBuild(code: string): string {
   const withoutExport = code.replace(/^\s*export\s+/m, "");
   return stripTypes(withoutExport).replace(/^\s*export\s*\{[^}]*\};?\s*$/m, "");
+}
+
+let committedScriptHashes: Set<string> | undefined;
+
+const sha256Of = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** True when `code` is byte-for-byte one of the scripts committed in this repository or generated for the hero's frames. */
+function isCommittedScript(code: string): boolean {
+  if (!committedScriptHashes) {
+    committedScriptHashes = new Set();
+    const spritesDirectory = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
+    for (const file of readdirSync(spritesDirectory))
+      if (file.endsWith(".ts")) committedScriptHashes.add(sha256Of(readFileSync(join(spritesDirectory, file), "utf8")));
+    for (const sex of SEXES)
+      for (const animation of HERO_ANIMATIONS)
+        for (const frame of heroFrameBuilds(sex, animation)) committedScriptHashes.add(sha256Of(frame.code));
+  }
+  return committedScriptHashes.has(sha256Of(code));
 }
 
 // ---- one worker ----
@@ -202,7 +230,7 @@ class WorkerSession {
           session.removedGlobals = Array.isArray(message.removed) ? message.removed.map(String) : [];
           resolve(session);
         } else if (isReply(message)) {
-          session.pending?.settle(message);
+          if (session.pending?.id === message.id) session.pending.settle(message);
         }
       });
       worker.on("error", (error: Error) => {
@@ -233,6 +261,8 @@ class WorkerSession {
   /** Sends one build and waits for its reply, the deadline, or the worker's death. */
   render(request: RenderRequest, options: DirectWorkerOptions): Promise<WorkerReply | Error> {
     if (this.failure) return Promise.resolve(this.failure);
+    if (!options.allowUncommittedScripts && !isCommittedScript(request.code))
+      return Promise.resolve(new Error("only runs scripts committed in this repository (measurement only)"));
     let code: string;
     try {
       code = prepareBuild(request.code);
@@ -262,6 +292,7 @@ class WorkerSession {
           checking = true;
           const outsideHeapBytes = await this.memoryOutsideHeapBytes(baseline);
           checking = false;
+          if (this.pending?.id !== id) return; // the render settled while the poll was in flight
           if (outsideHeapBytes <= memoryLimit * 1048576) return;
           this.failure ??= new Error("render used too much memory");
           void this.close();
@@ -302,7 +333,7 @@ export interface RenderTimings {
   kitLoadMilliseconds: number;
   /** Variables in the worker's `process.env` when it started; 0 when the empty environment took. */
   environmentKeyCount: number;
-  /** How long this render waited for a worker to be ready. */
+  /** How long this render waited for a worker to be ready; for a fresh worker that is its start. */
   waitMilliseconds: number;
   /** The worker's own time for the render (a fresh kit, the build, the rasteriser). */
   workerRenderMilliseconds: number;
@@ -431,16 +462,15 @@ export function createDirectWorkerRenderer(options: DirectWorkerOptions = {}): D
     let session: WorkerSession;
     try {
       const taken = warm.shift();
+      topUp(); // replace the worker just taken at once, so concurrent renders find the pool refilling
       session = await (taken ?? spawn());
-      topUp(); // replace the worker just taken, after this render's own worker is in hand
     } catch (error) {
       topUp();
       return { result: { ok: false, error: `direct-worker: ${errorText(error)}` }, timings: NO_TIMINGS };
     }
     const waited = performance.now();
-    const sent = performance.now();
     const reply = await session.render(request, options);
-    const roundTripMilliseconds = performance.now() - sent;
+    const roundTripMilliseconds = performance.now() - waited;
     retire(session);
     const finished = finishRender(request, reply);
     return {

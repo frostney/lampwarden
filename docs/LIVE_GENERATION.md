@@ -489,6 +489,8 @@ What is done to the worker, all of it checked by the probes below:
 - A fresh instance of the kit per render (`kitFactory()` is called again), so a build that edits the kit's tables cannot change the next render in the same worker. Built-in prototypes are not reset (`prototype-pollution` below).
 - The kit is passed to the worker as plain JavaScript in `workerData` (type-stripped once per host process: Bun's transpiler under Bun, `node:module`'s `stripTypeScriptTypes` under Node), and the worker file imports nothing but Node built-ins, so it runs as it is under Node 24 with no loader and no bundler resolution. It would need to be a bundled `.js` file in a Next route.
 
+It also refuses, by default, any script that is not byte-for-byte one of the repository's own (`public/sprites/*.ts` and the generated hero frame builds), the way #33's direct renderer does, so that wiring it into a route by accident cannot run model output; `allowUncommittedScripts: true` lifts that, and only the probe harness, the pose check and the tests set it, with code written for them. The memory guard under Bun measures the whole host's resident growth, so concurrent renders in a busy Bun host can trip it for an innocent render; the Node guard reads the worker's own statistics.
+
 Three ways to use it: a fresh worker per render (`createDirectWorkerRenderer()`), a pool of ready workers each used for one render and replaced (`{ poolSize }`), and many renders in one worker (`renderBatchInDirectWorker`, a fresh kit per render), which is the shape of a creature's animation frames.
 
 ### Timings

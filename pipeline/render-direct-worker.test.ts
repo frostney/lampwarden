@@ -10,7 +10,7 @@ const lampPixels = decodePng(readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.png"
 
 // These run under Bun, which ignores a worker's `resourceLimits`; the heap and stack caps are measured under Node by
 // `measure-direct-worker.ts --floor` and `probe-direct-worker.ts` (docs/LIVE_GENERATION.md).
-const renderer = createDirectWorkerRenderer({ deadlineMilliseconds: 1500 });
+const renderer = createDirectWorkerRenderer({ deadlineMilliseconds: 1500, allowUncommittedScripts: true });
 afterAll(() => renderer.close());
 
 describe("direct worker renderer", () => {
@@ -56,6 +56,19 @@ describe("direct worker renderer", () => {
     expect(result).toEqual({ ok: false, error: "direct-worker: Error: render returned no usable pixels" });
   });
 
+  test("refuses a script that is not committed in this repository, unless told otherwise", async () => {
+    const strict = createDirectWorkerRenderer();
+    try {
+      const result = await strict.render({ code: "function build(k) {}", name: "probe", pose: "" });
+      expect(result).toEqual({
+        ok: false,
+        error: "direct-worker: only runs scripts committed in this repository (measurement only)",
+      });
+    } finally {
+      await strict.close();
+    }
+  });
+
   test("refuses names and poses the other renderers refuse", async () => {
     expect(await renderer.render({ code: lampCode, name: "../escape", pose: "" })).toEqual({
       ok: false,
@@ -79,10 +92,13 @@ describe("direct worker renderer", () => {
   test("renders several builds in one worker, each against a fresh kit", async () => {
     const polluting =
       "function build(k) { PALETTE.bronze[0] = '#ff00ff'; lampstand(k, { height: 34, mat: 'bronze', lit: true, base: 'tripod', head: 'lantern' }); }";
-    const batch = await renderBatchInDirectWorker([
-      { code: polluting, name: "probe", pose: "" },
-      { code: lampCode, name: "lamp-lit", pose: "" },
-    ]);
+    const batch = await renderBatchInDirectWorker(
+      [
+        { code: polluting, name: "probe", pose: "" },
+        { code: lampCode, name: "lamp-lit", pose: "" },
+      ],
+      { allowUncommittedScripts: true },
+    );
     const polluted = batch.results[0];
     const clean = batch.results[1];
     expect(polluted?.ok).toBe(true);

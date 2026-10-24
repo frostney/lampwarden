@@ -64,7 +64,10 @@ function isRuntime(value: string): value is RuntimeName {
 }
 
 function optionsFor(config: Config): DirectWorkerOptions {
-  const base: DirectWorkerOptions = { deadlineMilliseconds: PROBE_DEADLINE_MILLISECONDS };
+  const base: DirectWorkerOptions = {
+    deadlineMilliseconds: PROBE_DEADLINE_MILLISECONDS,
+    allowUncommittedScripts: true,
+  };
   if (config === "pool") return { ...base, poolSize: 1 };
   if (config === "noguard") return { ...base, memoryLimitMegabytes: 0 };
   if (config === "batch-import" || config === "batch-import-long") return { ...base, denyDynamicImport: false };

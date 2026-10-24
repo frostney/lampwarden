@@ -75,7 +75,7 @@ const BUILDERS: Builder[] = [
 ];
 
 function buildCode(builder: Builder, pose: string): string {
-  return `function build(k) {\n  k.noScale = true;\n  ${builder.call.replace("POSE", JSON.stringify(pose))};\n}\n`;
+  return `function build(k) {\n  k.noScale = true;\n  ${builder.call.replaceAll("POSE", JSON.stringify(pose))};\n}\n`;
 }
 
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
@@ -118,7 +118,7 @@ const { values } = parseArgs({ options: { out: { type: "string", default: "/tmp/
 const outputDirectory = resolve(values.out ?? "/tmp/lampwarden-pose-check");
 mkdirSync(outputDirectory, { recursive: true });
 
-const renderer = createDirectWorkerRenderer({ poolSize: 2 });
+const renderer = createDirectWorkerRenderer({ poolSize: 2, allowUncommittedScripts: true });
 const report: Record<string, unknown> = {};
 const sheets = new Map<string, { image: PixelImage; rows: string[] }>();
 try {

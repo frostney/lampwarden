@@ -93,7 +93,7 @@ src/
     vignette.ts      the red vignette that pulses at the screen's edges when the warden is wounded: a dithered ring of hard pixels
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
-e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
+e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
@@ -144,9 +144,10 @@ night. So the build carries a **sim fingerprint** and every play records the one
   optional `sim` field, validated at `/api/plays` (12 lowercase hex digits). `scripts/plays.ts` computes the same hash
   from the checkout. The value is read when Next starts, so under `next dev` restart the server after editing one of
   the sources, or nights recorded afterwards carry the old fingerprint.
-- **What it does not cover:** `Scene.tsx`'s fixed-step loop and `controls.ts` (which build the live input), and the
-  dependencies (zod, the runtime). The sim is fixed at 60 Hz by rule; a change to how the scene steps it would have to
-  be added to `SIM_SOURCES`.
+- **What it does not cover:** the JavaScript engine's own maths (`Math.sin`, `Math.hypot` and the like), which a
+  different engine or version could round differently. The recorded human nights replay exactly across engines (recorded
+  in browsers, replayed in Bun). A replay is a pure function of the play (seed, legacy, inputs) and the sim, so the step
+  loop and controls, which only shape what is recorded, can't change an old replay.
 - **Replay:** `/?replay=<id>` plays a night whose `sim` equals `RUNNING_SIM`. A play with another `sim`, or none (before
   fingerprints), shows the "earlier version" panel with its recorded summary and a way back to the title, and no night
   runs. `bun scripts/plays.ts --verify` replays only the plays on the current fingerprint and counts the rest as

@@ -37,6 +37,8 @@ src/
     random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
+    pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
+                     the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format shared by the API routes
   server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
                      stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily

@@ -44,14 +44,22 @@ export function TouchControls({
     onStick(0, 0);
   };
 
+  const letGo = (event: React.PointerEvent<HTMLButtonElement>) => {
+    delete event.currentTarget.dataset.pressed;
+  };
+
   const actionButton = (action: Action, label: string, icon: IconName) => (
     <button
       type="button"
       className={`tbtn ${action}`}
       onPointerDown={(event) => {
         event.preventDefault();
+        event.currentTarget.dataset.pressed = ""; // :active does not follow a prevented pointerdown on every device
         onPress(action);
       }}
+      onPointerUp={letGo}
+      onPointerCancel={letGo}
+      onPointerLeave={letGo}
       aria-label={label}
     >
       <Icon name={icon} size={32} />

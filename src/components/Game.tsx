@@ -29,6 +29,7 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
+import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
@@ -308,8 +309,10 @@ export default function Game() {
       if (action) actOnMenu(action);
     };
     frame = requestAnimationFrame(poll);
+    const unbindKeyboardPress = bindKeyboardPress();
     return () => {
       cancelAnimationFrame(frame);
+      unbindKeyboardPress();
       window.removeEventListener("gamepadconnected", refreshConnection);
       window.removeEventListener("gamepaddisconnected", refreshConnection);
     };
@@ -738,12 +741,18 @@ function actOnMenu(action: MenuAction) {
     document.activeElement instanceof HTMLButtonElement && buttons.includes(document.activeElement)
       ? document.activeElement
       : null;
+  // the pad's press shows as a press (:active does not fire for a click made by code)
+  const pressButton = (button: HTMLButtonElement | null | undefined) => {
+    if (!button) return;
+    flashPressed(button);
+    button.click();
+  };
   if (action === "primary") {
-    primary?.click();
+    pressButton(primary);
     return;
   }
   if (action === "confirm") {
-    (focused ?? primary)?.click();
+    pressButton(focused ?? primary);
     return;
   }
   if (!buttons.length) return;

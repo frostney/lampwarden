@@ -338,6 +338,51 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
     scroll.unreachable.join(", "),
   );
 }
+// A button's pressed look: held down with the mouse it sinks 1 to 2 px onto its edge, the edge shrinks away and the face
+// darkens (measured on a screenshot of its face, as well as in its style). The mouse is let go away from the button, so
+// nothing is clicked. A disabled button stays as it is.
+async function checkPress(tag, name, locator, disabled = false) {
+  await locator.scrollIntoViewIfNeeded();
+  const read = async () => {
+    const box = await locator.boundingBox();
+    const style = await locator.evaluate((element) => {
+      const computed = getComputedStyle(element);
+      return { edge: computed.getPropertyValue("--edge").trim(), face: computed.backgroundImage };
+    });
+    const picture = await page.screenshot({
+      clip: { x: box.x + 4, y: box.y + 4, width: box.width - 8, height: box.height - 8 },
+    });
+    const [brightness] = await luminance(picture.toString("base64"), [[0, 0, box.width - 8, box.height - 8]]);
+    return { top: box.y, brightness, ...style };
+  };
+  const box = await locator.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const rest = await read();
+  await page.mouse.down();
+  const held = await read();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
+  const sank = held.top - rest.top;
+  const darker = rest.brightness - held.brightness;
+  const detail = `sank ${sank.toFixed(1)} px, edge ${rest.edge} → ${held.edge}, face ${darker.toFixed(1)} darker`;
+  check(
+    tag,
+    name,
+    disabled
+      ? sank === 0 && held.edge === rest.edge && held.face === rest.face && Math.abs(darker) < 1
+      : sank >= 1 && sank <= 2 && rest.edge !== "0px" && held.edge === "0px" && held.face !== "none" && darker > 3,
+    detail,
+  );
+}
+// a press made by code (the pad's A, Enter) shows for a moment and goes
+async function checkCodePress(tag, name, press, pressedElement, release) {
+  await press();
+  const during = await page.evaluate(pressedElement);
+  await (release ?? (() => {}))();
+  await page.waitForTimeout(250);
+  const after = await page.evaluate(pressedElement);
+  check(tag, name, during === true && after === false, `while pressed ${during}, after ${after}`);
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -389,6 +434,29 @@ check(
 );
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 await checkTitleScroll("title", 1000, 640);
+await checkPress(
+  "button-press",
+  "Light the lamps sinks and darkens",
+  page.getByRole("button", { name: "Light the lamps" }),
+);
+await checkPress("button-press", "a hero card sinks and darkens", page.locator('.hero-card[data-sex="female"]'));
+await checkPress("button-press", "the chosen setting sinks and darkens", page.locator(".settings .btn.on"));
+await checkPress(
+  "button-press",
+  "a disabled button does not press",
+  page.locator(".settings .btn[disabled]").first(),
+  true,
+);
+await checkCodePress(
+  "button-press",
+  "Enter on a focused button shows the press for a moment",
+  async () => {
+    await page.locator(".settings .btn.on").focus();
+    await page.keyboard.down("Enter");
+  },
+  () => document.querySelector(".settings .btn.on")?.hasAttribute("data-pressed"),
+  () => page.keyboard.up("Enter"),
+);
 const chosenCards = await page.locator(".hero-card[aria-pressed='true']").count();
 check(
   "title",
@@ -662,6 +730,8 @@ check(
 );
 const icons = await page.locator(".btn.up .icon").count();
 check("dawn", "every upgrade has an icon", icons === 3, `${icons} icons`);
+await checkPress("button-press", "a shop card sinks and darkens", page.locator(".btn.up:not([disabled])").first());
+await checkPress("button-press", "Into night sinks and darkens", page.getByRole("button", { name: /Into night/ }));
 await checkWeaponShop("dawn", "male");
 // each offer shows its label, level pips, effect text and cost, and they are three different upgrades
 const offerCards = await page.locator(".btn.up").evaluateAll((cards) =>
@@ -710,6 +780,7 @@ await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
 shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
+await checkPress("button-press", "an heir button sinks and darkens", page.locator(".btn.heir").first());
 // the shop is for the fallen warden until an heir is picked, then for the heir (a daughter if one is offered)
 await checkWeaponShop("heir", "male");
 {
@@ -798,6 +869,22 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "d-pad focuses the hero cards and A chooses one",
     padChoices.every((choice) => choice.focused && choice.chosen === choice.sex),
     padChoices.map((choice) => `${choice.sex}: focused ${choice.focused}, chosen ${choice.chosen}`).join("; "),
+  );
+  // A held on the focused hero card shows the press while it is held
+  await checkCodePress(
+    "button-press",
+    "the pad's A shows the press on the focused button",
+    async () => {
+      await page.evaluate(() => {
+        window.verifierPad.buttons[0].pressed = true;
+      });
+      await page.waitForTimeout(50);
+    },
+    () => document.activeElement?.hasAttribute("data-pressed") ?? false,
+    () =>
+      page.evaluate(() => {
+        window.verifierPad.buttons[0].pressed = false;
+      }),
   );
   await tapButton(9); // Start presses the title's primary button
   const started = await page.waitForSelector('[data-phase="night"]', { timeout: 3000 }).then(
@@ -1193,6 +1280,16 @@ for (const [tag, device, sex] of [
   await page.waitForTimeout(60);
   const animation = await page.evaluate(() => window.lampwarden.state().hero.animation);
   check(tag, "Strike button strikes", animation === "melee", animation);
+  const strikePressed = () => page.evaluate(() => document.querySelector(".tbtn.melee")?.hasAttribute("data-pressed"));
+  const whileHeld = await strikePressed();
+  await page.dispatchEvent(".tbtn.melee", "pointerup", { pointerId: 8, pointerType: "touch", isPrimary: true });
+  const afterLetGo = await strikePressed();
+  check(
+    tag,
+    "the Strike button shows the press while held",
+    whileHeld === true && afterLetGo === false,
+    `${whileHeld}, ${afterLetGo}`,
+  );
   await page.evaluate(() => {
     window.lampwarden.state().monsters = [];
     window.lampwarden.scene().freezeClock(1.25);

@@ -166,15 +166,21 @@ h1 {
 .tiny {
   font-size: 8px;
 }
+/* Every button stands on a hard 2 px edge (--edge, in the colour --edge-colour). While pressed (see the end of this file)
+   it sinks onto it: the button moves down by the edge, the edge shrinks to nothing and the face darkens one step. */
 .btn {
+  --edge: 2px;
+  --edge-colour: #070d16;
   font: inherit;
   color: #f4ecd8;
   background: #1b2f45;
   border: 2px solid #f4ecd8;
   padding: 4px 12px;
   cursor: pointer;
+  box-shadow: 0 var(--edge) 0 var(--edge-colour);
 }
 .btn.on {
+  --edge-colour: #7a5a12;
   background: #f2c14e;
   color: #1b1b1b;
 }
@@ -187,6 +193,7 @@ h1 {
   padding: 8px 22px;
   background: #7a3b12;
   border-color: #f2c14e;
+  --edge-colour: #2e1305;
 }
 .btn.small {
   opacity: 0.8;
@@ -304,6 +311,8 @@ h1 {
     font-size: 16px;
     color: #1b1b1b;
     border: 2px solid #f4ecd8;
+    --edge: 3px;
+    box-shadow: 0 var(--edge) 0 rgba(7, 13, 22, 0.6);
   }
   .tbtn.melee {
     right: max(16px, env(safe-area-inset-right));
@@ -608,6 +617,7 @@ h1 {
 }
 /* buttons inked on the parchment */
 .scroll .btn {
+  --edge-colour: var(--ink-faded);
   color: var(--ink);
   background: #e0c58f;
   border-color: var(--ink);
@@ -620,9 +630,11 @@ h1 {
   color: #fff1d0;
   background: #8e3412;
   border-color: var(--ink);
+  --edge-colour: var(--ink);
   box-shadow:
     inset 0 2px 0 #c0612e,
-    inset 0 -2px 0 #5a1e0a;
+    inset 0 -2px 0 #5a1e0a,
+    0 var(--edge) 0 var(--edge-colour);
 }
 .scroll .btn.big[disabled] {
   opacity: 0.6;
@@ -654,11 +666,17 @@ h1 {
   background: #e6cd99;
   border: 2px solid var(--ink-faded);
   cursor: pointer;
+  --edge: 2px;
+  --edge-colour: var(--ink-faded);
+  box-shadow: 0 var(--edge) 0 var(--edge-colour);
 }
 .hero-card.chosen {
   background: #f6e8c3;
   border-color: var(--ink);
-  box-shadow: inset 0 0 0 2px var(--ink);
+  --edge-colour: var(--ink);
+  box-shadow:
+    inset 0 0 0 2px var(--ink),
+    0 var(--edge) 0 var(--edge-colour);
 }
 .hero-portrait {
   position: relative;
@@ -739,4 +757,23 @@ h1 {
   .scroll-heading {
     font-size: 32px;
   }
+}
+
+/* The pressed look, on every button: it sinks onto its edge (moves down by it, the edge shrinks to nothing) and its face
+   darkens one step. Hard edges, no easing. It shows while the mouse or a finger holds the button (:active), and for
+   buttons that code presses (a gamepad's A, Enter, the touch buttons) through data-pressed (src/game/pressed.ts).
+   Disabled buttons don't press. */
+.btn:not([disabled]):active,
+.btn:not([disabled])[data-pressed],
+.hero-card:not([disabled]):active,
+.hero-card:not([disabled])[data-pressed],
+.tbtn:active,
+.tbtn[data-pressed] {
+  --edge: 0px;
+  transform: translateY(2px);
+  background-image: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
+}
+.tbtn:active,
+.tbtn[data-pressed] {
+  transform: translateY(3px);
 }

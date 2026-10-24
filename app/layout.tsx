@@ -9,6 +9,7 @@ const title = localFont({ src: "./fonts/ithaca/Ithaca.ttf", variable: "--font-ti
 const ui = Tiny5({ weight: "400", subsets: ["latin", "latin-ext", "greek"], variable: "--font-ui", display: "block" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://lampwarden.vercel.app"),
   title: "Lampwarden",
   description: "Keep the lamps of Lychnos burning until dawn. Sprites generated, verified and corrected through Mubit.",
 };

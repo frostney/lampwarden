@@ -94,9 +94,10 @@ const fontsOk = () => page.evaluate(async () => {
   const want = [...fams(document.querySelector(".logo")).slice(0, 1), ...fams(document.body).slice(0, 1)];
   return want.map((f) => ({ f, ok: [...document.fonts].some((ff) => ff.family.replace(/["']/g, "") === f && ff.status === "loaded") }));
 });
-const fl = await fontsOk();
-check("title", "pixel fonts loaded (title, UI)", fl.every((x) => x.ok), fl.map((x) => `${x.f}:${x.ok ? "loaded" : "MISSING"}`).join(" "));
-check("title", "logo and start button", (await text(".logo")).join("").includes("LAMPWARDEN") && await page.getByRole("button", { name: "Light the lamps" }).isVisible());
+
+const logo = await page.evaluate(() => { const i = document.querySelector(".brand img"); return i && { ok: i.complete && i.naturalWidth === 68, w: i.getBoundingClientRect().width }; });
+check("title", "logo image loaded at a whole multiple", logo && logo.ok && logo.w % 68 === 0, logo && `${logo.w}px wide`);
+check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 
 // 2 night start: all five lamps lit
 await page.getByRole("button", { name: "Light the lamps" }).click();
@@ -157,6 +158,8 @@ await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.l
 await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
 await freeze();
 b = await shoot("06-dawn");
+const fl = await fontsOk();
+check("dawn", "pixel fonts loaded (title, UI)", fl.every((x) => x.ok), fl.map((x) => `${x.f}:${x.ok ? "loaded" : "MISSING"}`).join(" "));
 check("dawn", "dawn panel with four upgrades", (await text(".logo")).join("").includes("DAWN") && (await page.locator(".btn.up").count()) === 4);
 const icons = await page.locator(".btn.up .icon").count();
 check("dawn", "every upgrade has an icon", icons === 4, `${icons} icons`);
@@ -193,8 +196,6 @@ for (const [tag, dev] of [["phone-land", devices["iPhone 14 landscape"]], ["phon
   await page.evaluate(() => localStorage.clear()); await page.reload();
   await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
-  const ff = await fontsOk();
-  check(tag, "pixel fonts loaded", ff.every((x) => x.ok), ff.map((x) => `${x.f}:${x.ok ? "ok" : "MISSING"}`).join(" "));
   const [stage] = await boxes(".stage");
   check(tag, "canvas fits the screen", inView(stage, vw, vh), `${Math.round(stage.w)}x${Math.round(stage.h)} in ${vw}x${vh}`);
   const [startBtn] = await boxes(".btn.big");
@@ -233,6 +234,8 @@ for (const [tag, dev] of [["phone-land", devices["iPhone 14 landscape"]], ["phon
   await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
   await shoot(`${tag}-3-dawn`, true);
+  const ff = await fontsOk();
+  check(tag, "pixel fonts loaded", ff.every((x) => x.ok), ff.map((x) => `${x.f}:${x.ok ? "ok" : "MISSING"}`).join(" "));
   // every shop button and the continue button can be scrolled to and tapped
   const n = await page.locator(".btn.up").count();
   let reach = 0;

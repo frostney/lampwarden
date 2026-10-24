@@ -91,3 +91,6 @@ h1 { margin: 0; font-weight: normal; }
   .tbtn.melee { right: max(12px, env(safe-area-inset-right)); }
   .tbtn.ranged { right: max(12px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + 76px); }
 }
+/* the logo is 68x45 pixel art, shown at whole multiples */
+.brand img { display: block; width: 272px; height: 180px; image-rendering: pixelated; }
+@media (max-width: 760px), (max-height: 520px) { .brand img { width: 204px; height: 135px; } }

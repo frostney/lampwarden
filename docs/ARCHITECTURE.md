@@ -17,7 +17,8 @@ src/
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies
   game/              the game itself, no Pixi
-    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director
+    sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
+                     blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
     legacy.ts        what outlives a warden: oil, upgrades, heirs and traits, tide; localStorage save
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input

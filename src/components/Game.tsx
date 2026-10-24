@@ -465,8 +465,8 @@ export default function Game() {
             {phase === "night" ? (
               <div className="help">
                 {gamepadConnected
-                  ? "Left stick move · A strike · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
-                  : "WASD move · J strike · K or click shoot · stand by a dark lamp to relight it"}
+                  ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
+                  : "WASD move · J strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
               </div>
             ) : (
               <div className="help replaybar">

@@ -11,15 +11,31 @@ export const PLAZA_HALF_WIDTH = 384; // plaza diamond half width (12 tiles of 64
 export const PLAZA_HALF_HEIGHT = 192;
 
 export type MonsterKind = "satyr" | "cyclops" | "harpy";
-// snuff: seconds of clawing to put a lamp out. oil: reward per kill.
+// snuff: seconds of clawing to put a lamp out. oil: reward per kill. recoil: how far a blow throws it (the cyclops is
+// heavy, the harpy light).
 export const MONSTER: Record<
   MonsterKind,
-  { speed: number; health: number; damage: number; snuff: number; oil: number; fly: boolean }
+  { speed: number; health: number; damage: number; snuff: number; oil: number; fly: boolean; recoil: number }
 > = {
-  satyr: { speed: 50, health: 1, damage: 8, snuff: 2.6, oil: 1, fly: false },
-  cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 3, fly: false },
-  harpy: { speed: 76, health: 1, damage: 6, snuff: 3.2, oil: 1, fly: true },
+  satyr: { speed: 50, health: 1, damage: 8, snuff: 2.6, oil: 1, fly: false, recoil: 1 },
+  cyclops: { speed: 30, health: 3, damage: 16, snuff: 1.5, oil: 3, fly: false, recoil: 0.6 },
+  harpy: { speed: 76, health: 1, damage: 6, snuff: 3.2, oil: 1, fly: true, recoil: 1.3 },
 };
+
+// A swing reaches only the 120 degrees in front of the warden (measured on the ground, where the plaza is foreshortened
+// 2:1), so it has to be aimed: hold a direction while striking to turn that way.
+export const SWING_HALF_ARC = Math.PI / 3;
+// How a blow lands. A hit freezes the monster for `stun` seconds, then throws it `push` ground px/s away from the
+// blow; a swing also holds the warden's own animation for a beat, which is what makes it feel solid.
+const MELEE_BLOW = { push: 380, stun: 0.08 };
+const SHOT_BLOW = { push: 160, stun: 0.04 };
+const SWING_HOLD = 0.06;
+const KNOCK_DRAG = 9; // per second: a push of 380 carries about 42 px
+const KNOCK_LIMIT = 0.95; // how near the plaza's rim a push may leave a monster, in plaza units
+// The monster flashes white for the first FLASH_TIME of HURT_TIME after a hit, then red until it has shaken it off.
+export const HURT_TIME = 0.25;
+export const FLASH_TIME = 0.06;
+export const GHOST_TIME = 0.16; // a killed monster's white silhouette is flung back for this long
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
 export const LAMP_SPOTS: [number, number][] = [
@@ -48,6 +64,9 @@ export interface Monster {
   snuff: number;
   attackCooldown: number;
   hurt: number;
+  stun: number; // frozen by a hit
+  knockX: number; // thrown by a hit: ground velocity, px/s
+  knockY: number;
 }
 interface Shot {
   id: number;
@@ -58,12 +77,22 @@ interface Shot {
   life: number;
   hit: number[];
 }
-interface Puff {
+// What a kill leaves for the renderer: the dead monster as a white silhouette, thrown back along the blow.
+interface Ghost {
+  monster: MonsterKind;
+  x: number;
+  y: number;
+  monsterAge: number;
+}
+export interface Puff {
   id: number;
   x: number;
   y: number;
   age: number;
-  kind: "kill" | "snuff" | "light" | "hurt";
+  kind: "kill" | "snuff" | "light" | "hurt" | "hit";
+  directionX: number; // the blow's direction on the ground (0, 0 for a puff that has none)
+  directionY: number;
+  ghost: Ghost | null;
 }
 export interface Hero {
   x: number;
@@ -79,6 +108,7 @@ export interface Hero {
   maxHealth: number;
   hurt: number;
   shotCooldown: number;
+  hold: number; // the animation waits a beat after a swing connects
 }
 export type Outcome = "dawn" | "dark" | "fallen";
 interface Stats {
@@ -123,7 +153,7 @@ function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
   const { wick, blade, quiver } = legacy.levels;
   return {
     speed: 150 * (trait === "swift" ? 1.25 : 1),
-    meleeReach: 70 + blade * 10 + (trait === "longarm" ? 16 : 0),
+    meleeReach: 64 + blade * 10 + (trait === "longarm" ? 16 : 0),
     meleeDamage: 2 + (blade >= 2 ? 1 : 0),
     shotCooldown: 0.55 * (1 - 0.15 * quiver),
     spread: quiver >= 2,
@@ -162,6 +192,7 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
       maxHealth,
       hurt: 0,
       shotCooldown: 0,
+      hold: 0,
     },
     monsters: [],
     shots: [],
@@ -182,8 +213,10 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
   return state;
 }
 
+const plazaRim = (x: number, y: number) =>
+  Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y - CENTRE_Y) / PLAZA_HALF_HEIGHT;
 function inPlaza(x: number, y: number, margin = 0.92) {
-  return Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y - CENTRE_Y) / PLAZA_HALF_HEIGHT <= margin;
+  return plazaRim(x, y) <= margin;
 }
 // ground distance in iso: vertical is foreshortened 2:1
 export const ground = (fromX: number, fromY: number, toX: number, toY: number) =>
@@ -222,6 +255,9 @@ function spawn(state: State) {
     snuff: 0,
     attackCooldown: 0,
     hurt: 0,
+    stun: 0,
+    knockX: 0,
+    knockY: 0,
   });
 }
 
@@ -239,6 +275,48 @@ const inLight = (state: State, x: number, y: number) =>
   state.lamps.some((lamp) => lamp.lit && ground(lamp.x, lamp.y, x, y) < state.rules.lightRadius);
 const AGGRO = 80;
 
+// Whether a point is inside the warden's swing: within reach and within the arc in front of the facing.
+function inSwing(hero: Hero, targetX: number, targetY: number, reach: number): boolean {
+  const offsetX = targetX - hero.x;
+  const offsetY = (targetY - hero.y) * 2;
+  const distance = Math.hypot(offsetX, offsetY);
+  if (distance >= reach) return false;
+  return offsetX * hero.directionX + offsetY * hero.directionY >= distance * Math.cos(SWING_HALF_ARC);
+}
+
+// Faces a heading (ground space); false when there is none.
+function turn(hero: Hero, moveX: number, moveY: number): boolean {
+  const length = Math.hypot(moveX, moveY);
+  if (length === 0) return false;
+  hero.directionX = moveX / length;
+  hero.directionY = moveY / length;
+  if (moveX !== 0) hero.left = moveX < 0;
+  return true;
+}
+
+const bodyHeight = (kind: MonsterKind) => (MONSTER[kind].fly ? 56 : 32);
+
+function addPuff(
+  state: State,
+  x: number,
+  y: number,
+  kind: Puff["kind"],
+  blow?: Pick<Puff, "directionX" | "directionY">,
+): Puff {
+  const puff: Puff = {
+    id: state.nextId++,
+    x,
+    y,
+    age: 0,
+    kind,
+    directionX: blow?.directionX ?? 0,
+    directionY: blow?.directionY ?? 0,
+    ghost: null,
+  };
+  state.puffs.push(puff);
+  return puff;
+}
+
 export function step(state: State, deltaTime: number, input: Input) {
   if (state.outcome) return;
   state.elapsed += deltaTime;
@@ -253,6 +331,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     hero.animation = "melee";
     hero.frameTime = 0;
     hero.fired = false;
+    turn(hero, input.moveX, input.moveY);
   } else if (!busy && input.ranged && hero.shotCooldown <= 0) {
     hero.animation = "ranged";
     hero.frameTime = 0;
@@ -262,13 +341,9 @@ export function step(state: State, deltaTime: number, input: Input) {
 
   const attacking = hero.animation === "melee" || hero.animation === "ranged";
   if (!attacking) {
-    const length = Math.hypot(input.moveX, input.moveY);
-    if (length > 0) {
-      const unitX = input.moveX / length;
-      const unitY = input.moveY / length;
-      hero.directionX = unitX;
-      hero.directionY = unitY;
-      if (unitX !== 0) hero.left = unitX < 0;
+    if (turn(hero, input.moveX, input.moveY)) {
+      const unitX = hero.directionX;
+      const unitY = hero.directionY;
       const nextX = hero.x + unitX * rules.speed * deltaTime;
       const nextY = hero.y + unitY * rules.speed * deltaTime * 0.5;
       if (inPlaza(nextX, nextY)) {
@@ -286,7 +361,8 @@ export function step(state: State, deltaTime: number, input: Input) {
     }
   }
 
-  hero.frameTime += deltaTime;
+  hero.hold = Math.max(0, hero.hold - deltaTime);
+  if (hero.hold <= 0) hero.frameTime += deltaTime;
   const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
   if (attacking && frame >= FRAMES[hero.animation]) {
     hero.animation = "idle";
@@ -296,8 +372,24 @@ export function step(state: State, deltaTime: number, input: Input) {
   // attack effects land mid-animation
   if (hero.animation === "melee" && !hero.fired && frame >= 2) {
     hero.fired = true;
-    for (const monster of state.monsters.slice())
-      if (ground(monster.x, monster.y, hero.x, hero.y) < rules.meleeReach) damage(state, monster, rules.meleeDamage);
+    let connected = false;
+    for (const monster of state.monsters.slice()) {
+      if (!inSwing(hero, monster.x, monster.y, rules.meleeReach)) continue;
+      // thrown straight away from the warden
+      const awayX = monster.x - hero.x;
+      const awayY = (monster.y - hero.y) * 2;
+      const away = Math.hypot(awayX, awayY);
+      strike(state, monster, {
+        ...MELEE_BLOW,
+        amount: rules.meleeDamage,
+        directionX: away > 0 ? awayX / away : hero.directionX,
+        directionY: away > 0 ? awayY / away : hero.directionY,
+        x: monster.x,
+        y: monster.y - bodyHeight(monster.kind),
+      });
+      connected = true;
+    }
+    if (connected) hero.hold = SWING_HOLD;
   }
   if (hero.animation === "ranged" && !hero.fired && frame >= 3) {
     hero.fired = true;
@@ -330,10 +422,18 @@ export function step(state: State, deltaTime: number, input: Input) {
     shot.life -= deltaTime;
     for (const monster of state.monsters.slice()) {
       if (shot.hit.includes(monster.id)) continue;
-      const bodyY = monster.y - (MONSTER[monster.kind].fly ? 56 : 32);
+      const bodyY = monster.y - bodyHeight(monster.kind);
       if (Math.hypot(monster.x - shot.x, bodyY - shot.y) < 30) {
         shot.hit.push(monster.id);
-        damage(state, monster, 1);
+        const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
+        strike(state, monster, {
+          ...SHOT_BLOW,
+          amount: 1,
+          directionX: shot.velocityX / speed,
+          directionY: (shot.velocityY * 2) / speed,
+          x: shot.x,
+          y: shot.y,
+        });
         if (!rules.pierce) {
           shot.life = 0;
           break;
@@ -354,7 +454,7 @@ export function step(state: State, deltaTime: number, input: Input) {
       if (lamp.relight >= rules.relight) {
         lamp.lit = true;
         lamp.relight = 0;
-        state.puffs.push({ id: state.nextId++, x: lamp.x, y: lamp.y - 40, age: 0, kind: "light" });
+        addPuff(state, lamp.x, lamp.y - 40, "light");
       }
     } else lamp.relight = Math.max(0, lamp.relight - deltaTime * 2);
   }
@@ -364,6 +464,11 @@ export function step(state: State, deltaTime: number, input: Input) {
     monster.age += deltaTime;
     monster.attackCooldown = Math.max(0, monster.attackCooldown - deltaTime);
     monster.hurt = Math.max(0, monster.hurt - deltaTime);
+    if (monster.stun > 0) {
+      monster.stun = Math.max(0, monster.stun - deltaTime);
+      continue;
+    }
+    if (monster.knockX !== 0 || monster.knockY !== 0) knock(monster, deltaTime);
     // target: the warden if close, else the nearest lit lamp
     const heroDistance = ground(monster.x, monster.y, hero.x, hero.y);
     let targetX = hero.x;
@@ -394,7 +499,7 @@ export function step(state: State, deltaTime: number, input: Input) {
         hero.health = Math.max(0, hero.health - kind.damage);
         hero.hurt = 0.35;
         state.stats.hpLost += kind.damage;
-        state.puffs.push({ id: state.nextId++, x: hero.x, y: hero.y - 30, age: 0, kind: "hurt" });
+        addPuff(state, hero.x, hero.y - 30, "hurt");
       }
       continue;
     }
@@ -406,7 +511,7 @@ export function step(state: State, deltaTime: number, input: Input) {
         lamp.relight = 0;
         monster.snuff = 0;
         state.stats.lampsLost++;
-        state.puffs.push({ id: state.nextId++, x: lamp.x, y: lamp.y - 40, age: 0, kind: "snuff" });
+        addPuff(state, lamp.x, lamp.y - 40, "snuff");
       }
       continue;
     }
@@ -436,21 +541,64 @@ export function step(state: State, deltaTime: number, input: Input) {
   else if (litCount(state) === 0) state.outcome = "dark";
   else if (state.elapsed >= state.length) {
     // dawn: the sun burns the stragglers away
-    for (const monster of state.monsters)
-      state.puffs.push({ id: state.nextId++, x: monster.x, y: monster.y - 30, age: 0, kind: "kill" });
+    for (const monster of state.monsters) addPuff(state, monster.x, monster.y - 30, "kill");
     state.monsters = [];
     state.outcome = "dawn";
   }
 }
 
-function damage(state: State, monster: Monster, amount: number) {
-  monster.health -= amount;
-  monster.hurt = 0.25;
-  if (monster.health > 0) return;
+interface Blow {
+  amount: number;
+  push: number;
+  stun: number;
+  directionX: number; // unit, on the ground
+  directionY: number;
+  x: number; // where it lands on screen
+  y: number;
+}
+
+// The one path every blow takes, melee or shot: damage, an impact burst where it lands, then either the monster is
+// frozen and thrown back, or it dies and leaves its silhouette flying.
+function strike(state: State, monster: Monster, blow: Blow) {
+  addPuff(state, blow.x, blow.y, "hit", blow);
+  monster.health -= blow.amount;
+  monster.hurt = HURT_TIME;
+  if (monster.health > 0) {
+    const recoil = MONSTER[monster.kind].recoil;
+    monster.stun = blow.stun;
+    monster.knockX = blow.directionX * blow.push * recoil;
+    monster.knockY = blow.directionY * blow.push * recoil;
+    return;
+  }
   state.monsters = state.monsters.filter((other) => other !== monster);
-  state.puffs.push({ id: state.nextId++, x: monster.x, y: monster.y - 30, age: 0, kind: "kill" });
+  addPuff(state, monster.x, monster.y - 30, "kill", blow).ghost = {
+    monster: monster.kind,
+    x: monster.x,
+    y: monster.y,
+    monsterAge: monster.age,
+  };
   state.stats.kills++;
   state.oilEarned += MONSTER[monster.kind].oil;
+}
+
+// Slides a thrown monster along its push and lets the push die away. It never ends up farther out than the rim it was
+// on (or the plaza's edge), so the sea stays where it is; against the edge it slides along it.
+function knock(monster: Monster, deltaTime: number) {
+  const nextX = monster.x + monster.knockX * deltaTime;
+  const nextY = monster.y + monster.knockY * deltaTime * 0.5;
+  const limit = Math.max(KNOCK_LIMIT, plazaRim(monster.x, monster.y));
+  if (plazaRim(nextX, nextY) <= limit) {
+    monster.x = nextX;
+    monster.y = nextY;
+  } else if (plazaRim(nextX, monster.y) <= limit) monster.x = nextX;
+  else if (plazaRim(monster.x, nextY) <= limit) monster.y = nextY;
+  const drag = Math.max(0, 1 - KNOCK_DRAG * deltaTime);
+  monster.knockX *= drag;
+  monster.knockY *= drag;
+  if (Math.hypot(monster.knockX, monster.knockY) < 8) {
+    monster.knockX = 0;
+    monster.knockY = 0;
+  }
 }
 
 // Dawn reward: oil for every lamp still burning.

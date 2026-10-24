@@ -9,7 +9,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ENV } from "varlock/env";
 import { createMubitClient } from "../../../pipeline/mubit";
-import { renderSafely } from "../../../pipeline/render-vercel-sandbox";
+import { renderBatchSafely, renderSafely } from "../../../pipeline/render-vercel-sandbox";
 import { readRunnerFiles, runnerBundleSha } from "../../../pipeline/runner-bundle";
 import {
   type CreatureConfig,
@@ -22,6 +22,8 @@ import { type JobDeps, randomEntropy, runCreatureJob } from "./job";
 import type { ServiceDeps } from "./service";
 import type { CreatureStore } from "./store";
 import { createBlobStore } from "./store.blob";
+
+const FRAME_BATCH_VCPUS = 4;
 
 const pipelineDirectory = () => join(process.cwd(), "pipeline");
 const readPrompt = (name: string) =>
@@ -67,6 +69,8 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
     now: () => new Date(),
     model: createMubitClient({ apiKey: mubitApiKey }),
     render: (request) => renderSafely(request, { snapshotId, expectedBundleSha }),
+    // a creature's 15 frames in one VM, a frame per vCPU at a time
+    renderBatch: (requests) => renderBatchSafely(requests, { snapshotId, expectedBundleSha, vcpus: FRAME_BATCH_VCPUS }),
     prompts: {
       creature: readPrompt("creature.md"),
       generator: readPrompt("generator.md"),

@@ -13,17 +13,23 @@ const bodyFont = Tiny5({
   display: "block",
 });
 
+const DESCRIPTION =
+  "Keep the lamps of Lychnos burning until dawn. Sprites generated, verified and corrected through Mubit.";
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://lampwarden.vercel.app"),
   title: "Lampwarden",
-  description: "Keep the lamps of Lychnos burning until dawn. Sprites generated, verified and corrected through Mubit.",
+  description: DESCRIPTION,
+  // the share card images come from opengraph-image.png and twitter-image.png beside this file
+  openGraph: { type: "website", siteName: "Lampwarden", title: "Lampwarden", description: DESCRIPTION, url: "/" },
+  twitter: { card: "summary_large_image", title: "Lampwarden", description: DESCRIPTION },
 };
 
+// pinch-zoom stays on: the menus are DOM text, and WCAG 1.4.4 needs it. The stage turns it off while a night is played
+// (touch-action in globals.css).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
   themeColor: "#0b1424",
 };

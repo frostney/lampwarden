@@ -75,7 +75,7 @@ describe("the summary of other nights", () => {
     expect(summary.outcome).toBe("dawn");
     expect(summary.lamps).toMatchObject({ lostCount: 1, relightedCount: 1, litAtEnd: 5, lampSecondsDark: 1 });
     expect(summary.killsPerMinute).toBe(16.5);
-    expect(summary.ifTheRulesDecided.tideForNextNight).toBe(1.1);
+    expect(summary.ifTheRulesDecided.tideForNextNight).toBe(1.06); // night 1: a clean dawn raises the tide by 6% while the warden is learning
   });
 
   test("an abandoned night is called that", () => {

@@ -2,6 +2,7 @@
 // real ones), a renderer that returns a fixed sprite, and a clock. No network anywhere.
 import { PixelImage } from "../tools/logo/image";
 import { encodePng } from "../tools/logo/png";
+import type { BatchRenderer } from "./creature-frames";
 import { createMubitClient, type MubitClient } from "./mubit";
 import type { Renderer, RenderRequest, RenderResult, RenderStats } from "./render-types";
 
@@ -107,6 +108,34 @@ export function fakeRenderer(result?: (request: RenderRequest) => RenderResult):
     render: async (request) => {
       requests.push(request);
       return result ? result(request) : { ok: true, stats: CLEAN_STATS, png: spritePng() };
+    },
+  };
+}
+
+/** A 128 px frame with a figure (a 16 px block) placed by `seed`, so frames with different seeds are different pictures. */
+export function framePng(seed: number): Uint8Array {
+  const frame = new PixelImage(128, 128);
+  for (let row = 0; row < 16; row++)
+    for (let column = 0; column < 16; column++) frame.set(20 + (seed % 90) + column, 60 + row, [200, 100, 50, 255]);
+  return encodePng(frame);
+}
+
+/**
+ * A batch renderer for a creature's frames: each pose comes out as its own picture, or, when the code says `STATIC`, the
+ * same picture whatever the pose (a builder that ignores POSE). Code that says `BROKEN` fails to render its walk frames.
+ */
+export function fakeFrameBatch(): { render: BatchRenderer; batches: RenderRequest[][] } {
+  const batches: RenderRequest[][] = [];
+  return {
+    batches,
+    render: async (requests) => {
+      batches.push([...requests]);
+      return requests.map((request, index): RenderResult => {
+        if (request.code.includes("BROKEN") && request.pose.startsWith("walk"))
+          return { ok: false, error: "exit 1: error: boom" };
+        const seed = request.code.includes("STATIC") ? 0 : index + 1;
+        return { ok: true, stats: CLEAN_STATS, png: framePng(seed) };
+      });
     },
   };
 }

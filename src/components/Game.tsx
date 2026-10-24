@@ -4,6 +4,8 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FailurePanel } from "@/components/FailurePanel";
+import { HeroPortrait } from "@/components/HeroPortrait";
 import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
@@ -41,7 +43,7 @@ import {
 } from "@/game/legacy";
 import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
-import { type Play, Recorder, upload } from "@/game/recording";
+import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
@@ -57,7 +59,7 @@ import {
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
-import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
+import { SEXES, type Sex } from "@/scene/assets";
 import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -71,6 +73,7 @@ const APP = {
   autoDensity: false,
 };
 
+const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
 const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
 
 const INTRODUCTION = [
@@ -79,31 +82,6 @@ const INTRODUCTION = [
   "Keep one burning until dawn.",
   "When a warden falls, an heir takes up the lamp.",
 ];
-
-// The hero choice card's warden: his idle frame facing the player, drawn from the atlas the scene has already loaded
-// (the same picture, so it is downloaded once), a pixel for a pixel, scaled with the card by CSS.
-function HeroPortrait({ sex, textures }: { sex: Sex; textures: TextureMap | null }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const context = canvas.current?.getContext("2d");
-    const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
-    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
-    const cell = heroAtlasCell("idle", 0, "s");
-    context.clearRect(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
-    context.drawImage(
-      picture,
-      cell.x,
-      cell.y,
-      HERO_FRAME_SIZE,
-      HERO_FRAME_SIZE,
-      0,
-      0,
-      HERO_FRAME_SIZE,
-      HERO_FRAME_SIZE,
-    );
-  }, [sex, textures]);
-  return <canvas ref={canvas} width={HERO_FRAME_SIZE} height={HERO_FRAME_SIZE} className="hero-sprite" />;
-}
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
@@ -182,6 +160,8 @@ export default function Game() {
   const [textures, setTextures] = useState<TextureMap | null>(null);
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
+  const [away, setAway] = useState(false); // a live night is held because the window lost focus, until the player resumes
+  const [loadFailure, setLoadFailure] = useState<"assets" | "graphics" | null>(null); // why the title can never light
   const [frozenClock, freezeClock] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false); // the canvas has shown a frame; before that it is hidden, not black
   const [controls] = useState(newControls);
@@ -191,6 +171,7 @@ export default function Game() {
   const refresh = useCallback(() => rerender((count) => count + 1), []);
   const [phase, setPhase] = useState<Phase>("title");
   const [ready, setReady] = useState(false);
+  const [strike, setStrike] = useState<{ sex: Sex; count: number } | null>(null); // the hero card last chosen
   const [hud, setHud] = useState<Hud | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [heirs, setHeirs] = useState<Heir[]>([]);
@@ -217,9 +198,15 @@ export default function Game() {
     } catch {
       /* full */
     }
-    // the visual verifier's nights are not real plays, so they are not uploaded (a stubbed server answers for them)
-    const verifying = new URLSearchParams(location.search).has("verify");
-    return { id: play.id, play, uploaded: verifying ? Promise.resolve(true) : upload(play) };
+    return { id: play.id, play, uploaded: upload(play) }; // upload queues one that fails and skips the verifier's nights
+  }, []);
+
+  // A tab that is hidden or going away may not come back (mobile Safari often kills a background tab without a
+  // pagehide) or may (a back-forward-cache restore). Either way the night so far goes out under its id, and the recorder
+  // stays until the night really ends, when sendPlay sends the finished play under the same id.
+  const sendSnapshot = useCallback((state: State | null) => {
+    const play = phaseRef.current === "night" && state ? recorderRef.current?.snapshot(state) : null;
+    if (play) void upload(play, true);
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -245,9 +232,55 @@ export default function Game() {
     (shouldPause: boolean) => {
       setPaused(shouldPause);
       if (shouldPause) release(controls);
+      else setAway(false);
     },
     [controls],
   );
+
+  // a live night waits when the window loses focus or the tab is hidden; the player resumes it from the pause panel
+  // (replays and menus carry on: a replay's steps come from its recording, not from the clock)
+  useEffect(() => {
+    const holdNight = () => {
+      if (phaseRef.current !== "night") return;
+      pause(true);
+      setAway(true);
+    };
+    const holdHiddenNight = () => {
+      if (document.hidden) holdNight();
+    };
+    // the visual verifier (?verify) runs several pages in one window, and any of them may lose focus mid-night
+    const verifying = new URLSearchParams(location.search).has("verify");
+    if (!verifying) window.addEventListener("blur", holdNight);
+    document.addEventListener("visibilitychange", holdHiddenNight);
+    return () => {
+      window.removeEventListener("blur", holdNight);
+      document.removeEventListener("visibilitychange", holdHiddenNight);
+    };
+  }, [pause]);
+  const resume = useCallback(() => {
+    release(controls); // presses made while the night waited are not the player's next move
+    pause(false);
+  }, [controls, pause]);
+  const focusResume = useCallback((button: HTMLButtonElement | null) => button?.focus(), []);
+
+  // @pixi/react has no error callback: when the renderer cannot start (the message varies: no adapter, no context, no 2D
+  // context to fall back on), its init promise rejects unhandled, before the app has ever existed. A rejection counts only
+  // if the app is still not up a moment later, so an unrelated one, or the first mount of a strict-mode double mount, does not.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const rendererFailed = () => {
+      if (appRef.current) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!appRef.current) setLoadFailure("graphics");
+      }, RENDERER_GRACE);
+    };
+    window.addEventListener("unhandledrejection", rendererFailed);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("unhandledrejection", rendererFailed);
+    };
+  }, []);
 
   const endNight = useCallback(
     (state: State, outcome: Outcome) => {
@@ -422,15 +455,20 @@ export default function Game() {
     legacyRef.current = loadLegacy();
     refresh();
     let dead = false;
-    void loadTextures().then((loaded) => {
-      if (dead) return;
-      setTextures(loaded);
-      // preview: a quiet plaza behind the title screen
-      show(newNight(legacyRef.current), legacyRef.current.heir.sex);
-      const id = new URLSearchParams(location.search).get("replay");
-      if (id) void startReplay(id);
-      else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
-    });
+    void loadTextures().then(
+      (loaded) => {
+        if (dead) return;
+        setTextures(loaded);
+        // preview: a quiet plaza behind the title screen
+        show(newNight(legacyRef.current), legacyRef.current.heir.sex);
+        const id = new URLSearchParams(location.search).get("replay");
+        if (id) void startReplay(id);
+        else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+      },
+      () => {
+        if (!dead) setLoadFailure((current) => current ?? "assets");
+      },
+    );
     // debug hook for the visual verifier and recordings
     const scene: DebugScene = {
       setPaused: pause,
@@ -445,25 +483,30 @@ export default function Game() {
       scene: () => scene,
       app: () => appRef.current,
     };
-    // a night abandoned by closing the tab is still recorded (outcome null)
-    const leave = () => {
-      if (phaseRef.current === "night") sendPlay(stateRef.current);
+    // a night abandoned by closing or backgrounding the tab is still recorded (outcome null)
+    const leave = () => sendSnapshot(stateRef.current);
+    const hide = () => {
+      if (document.visibilityState === "hidden") leave();
     };
     window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", hide);
+    void resendQueuedPlays(); // nights an earlier page could not send
     return () => {
       dead = true;
       window.removeEventListener("pagehide", leave);
+      document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendPlay, pause, controls, refresh, show, startReplay, ask]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, ask]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
+  const announcedFrames = tonight.kind === "ready" ? tonight.creature.frames : undefined;
   useEffect(() => {
     if (!announced) return;
-    void loadCreatureTextures(announced).then((loaded) => {
+    void loadCreatureTextures(announced, announcedFrames ?? null).then((loaded) => {
       if (!loaded) withdraw(announced);
     });
-  }, [announced, withdraw]);
+  }, [announced, announcedFrames, withdraw]);
 
   const startNight = async () => {
     if (starting.current) return;
@@ -476,7 +519,7 @@ export default function Game() {
     stop();
     const loaded = announcedCreature
       ? await Promise.race([
-          loadCreatureTextures(announcedCreature.id),
+          loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
         ])
       : null;
@@ -536,6 +579,8 @@ export default function Game() {
   };
   const chooseSex = (sex: Sex) => {
     const legacy = legacyRef.current;
+    // every choice, the chosen card's again too, has that warden swing once (HeroPortrait)
+    setStrike((previous) => ({ sex, count: (previous?.count ?? 0) + 1 }));
     if (legacy.heir.sex === sex) return;
     legacy.heir = heirAs(legacy.heir, sex);
     saveLegacy(legacy);
@@ -615,7 +660,16 @@ export default function Game() {
                   , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </span>
               </div>
-              <div className={hud.hits > 0 ? "bar struck" : "bar"} key={hud.hits}>
+              {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
+              <div
+                className={hud.hits > 0 ? "bar struck" : "bar"}
+                key={hud.hits}
+                role="meter"
+                aria-label="Health"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(hud.maxHealth)}
+                aria-valuenow={Math.round(hud.health)}
+              >
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
               <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
@@ -627,15 +681,23 @@ export default function Game() {
                 Night {legacy.night}
                 <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
               </div>
-              <div className="bar dawnbar">
+              <div
+                className="bar dawnbar"
+                role="progressbar"
+                aria-label="Night until dawn"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(hud.dawn * 100)}
+                aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+              >
                 <i style={{ width: `${hud.dawn * 100}%` }} />
               </div>
             </div>
-            <div className="lamps">
+            <div className="lamps" role="img" aria-label={`${hud.lit} of ${hud.lamps} lamps lit`}>
               <span className="long">Lamps </span>
               {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
                 <span key={slot} className={index < hud.lit ? "lit" : ""}>
-                  ◆
+                  {index < hud.lit ? "◆" : "◇"}
                 </span>
               ))}
             </div>
@@ -673,8 +735,10 @@ export default function Game() {
         )}
 
         {phase === "replayEnd" && replay && (
-          <div className="panel">
-            <div className="logo small">REPLAY OVER</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              REPLAY OVER
+            </h2>
             <p>{describeNight(replay.play)}</p>
             <p className="dim">
               {replay.endsMatch === null
@@ -693,8 +757,10 @@ export default function Game() {
           </div>
         )}
         {phase === "replayRefused" && refusedPlay && (
-          <div className="panel" data-panel="replay-refused">
-            <div className="logo small">AN EARLIER VERSION</div>
+          <div className="panel" data-panel="replay-refused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              AN EARLIER VERSION
+            </h2>
             <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
             {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
             <button type="button" className="btn big" onClick={() => location.assign("/")}>
@@ -702,13 +768,43 @@ export default function Game() {
             </button>
           </div>
         )}
+        {phase === "night" && away && (
+          <div className="panel" data-panel="paused">
+            <div className="logo small">PAUSED</div>
+            <p>The window lost focus, so the night is waiting for you.</p>
+            <button type="button" className="btn big" onClick={resume} ref={focusResume}>
+              Resume
+            </button>
+          </div>
+        )}
+        {loadFailure === "graphics" && (
+          <FailurePanel
+            title="NO LAMPLIGHT"
+            message="Lampwarden could not start its graphics."
+            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
+            action="Reload"
+            onAction={() => location.reload()}
+          />
+        )}
+        {loadFailure === "assets" && (
+          <FailurePanel
+            title="THE LAMPS WON'T LIGHT"
+            message="The pictures for the night would not load."
+            hint="Check your connection, then reload."
+            action="Reload"
+            onAction={() => location.reload()}
+          />
+        )}
         {replayError && (
-          <div className="panel">
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              NO REPLAY
+            </h2>
             <p>Could not load that replay: {replayError}</p>
           </div>
         )}
 
-        {phase === "title" && (
+        {phase === "title" && !loadFailure && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">
@@ -747,7 +843,11 @@ export default function Game() {
                         onClick={() => chooseSex(sex)}
                       >
                         <span className="hero-portrait">
-                          <HeroPortrait sex={sex} textures={textures} />
+                          <HeroPortrait
+                            sex={sex}
+                            textures={textures}
+                            strike={strike?.sex === sex ? strike.count : null}
+                          />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
                         <span>{ARMS[sex].loadout}</span>
@@ -789,8 +889,10 @@ export default function Game() {
         )}
 
         {phase === "dawn" && report && (
-          <div className="panel">
-            <div className="logo small">DAWN</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              DAWN
+            </h2>
             <p>
               {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
               {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
@@ -808,8 +910,10 @@ export default function Game() {
         )}
 
         {phase === "heir" && report && (
-          <div className="panel">
-            <div className="logo small">{report.outcome === "dark" ? "DARKNESS" : "FALLEN"}</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
+            </h2>
             <p>
               {report.outcome === "dark"
                 ? `The lamps of Lychnos went dark on night ${report.night}.`
@@ -853,6 +957,16 @@ export default function Game() {
       </div>
     </div>
   );
+}
+
+// The dawn and heir panels' title, which is their dialog's name. The panel is a dialog for a screen reader but does not
+// trap focus, so it is not aria-modal.
+const PANEL_TITLE_ID = "panel-title";
+
+// A panel's title takes focus when the panel appears, so a keyboard or screen-reader player starts at its top (the buttons
+// the title was in front of just unmounted) and Tab walks on into the panel.
+function focusOnMount(element: HTMLElement | null) {
+  element?.focus();
 }
 
 // a trait's name with its icon (the icon is decoration: the name says it)

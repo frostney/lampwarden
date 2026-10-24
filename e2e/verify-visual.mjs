@@ -8,7 +8,11 @@
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
+import { CREATURE_FRAME_COUNTS, CREATURE_FRAME_SIZE, creatureAtlasLayout } from "../src/game/creature-frames.ts";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
+import { heroAtlasCell } from "../src/scene/assets.ts";
+import { PixelImage } from "../tools/logo/image.ts";
+import { decodePng, encodePng } from "../tools/logo/png.ts";
 
 const argument = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -37,16 +41,59 @@ const SEA_CREATURE = {
   createdAt: "2026-10-24T01:00:00.000Z",
 };
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+
+// An animated creature, for sea.mode "animated": its record carries frame counts and the gallery serves an atlas. The
+// atlas is made in code from the committed hero atlas (the male warden seen from the south-east: idle, walk and the
+// melee swing as attack), never from an outside picture, and its sprite.png is the idle frame, as a real job stores.
+const SEA_ANIMATED = {
+  ...SEA_CREATURE,
+  id: "tide-warden-fixture",
+  name: "Drowned tide warden",
+  anchorY: 0.82,
+  frames: { ...CREATURE_FRAME_COUNTS },
+};
+const ANIMATED_FIXTURE = (() => {
+  const hero = decodePng(readFileSync("public/sprites/hero/male.png"));
+  const layout = creatureAtlasLayout(CREATURE_FRAME_COUNTS);
+  const atlas = new PixelImage(layout.width, layout.height);
+  const heroAnimation = { idle: "idle", walk: "walk", attack: "melee" };
+  for (const cell of layout.cells) {
+    const from = heroAtlasCell(heroAnimation[cell.animation], cell.frame, "se");
+    for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
+      const start = ((from.y + row) * hero.width + from.x) * 4;
+      atlas.data.set(
+        hero.data.subarray(start, start + CREATURE_FRAME_SIZE * 4),
+        ((cell.y + row) * atlas.width + cell.x) * 4,
+      );
+    }
+  }
+  const idle = new PixelImage(CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE);
+  for (let row = 0; row < CREATURE_FRAME_SIZE; row++)
+    idle.data.set(
+      atlas.data.subarray(row * atlas.width * 4, row * atlas.width * 4 + CREATURE_FRAME_SIZE * 4),
+      row * CREATURE_FRAME_SIZE * 4,
+    );
+  return { atlas: encodePng(atlas), sprite: encodePng(idle) };
+})();
 const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [] };
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
+  if (pathname.endsWith("/atlas.png"))
+    return sea.mode === "animated"
+      ? route.fulfill({ status: 200, contentType: "image/png", body: ANIMATED_FIXTURE.atlas })
+      : route.fulfill({ status: 404, json: { error: "not found" } });
   if (pathname.endsWith("/sprite.png"))
     return sea.mode === "broken"
       ? route.abort()
-      : route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
+      : route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          body: sea.mode === "animated" ? ANIMATED_FIXTURE.sprite : SEA_SPRITE,
+        });
   if (pathname.endsWith("/next")) {
     sea.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    if (sea.mode === "animated") return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
     if (sea.mode === "ready" || sea.mode === "broken")
       return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
     if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
@@ -662,6 +709,214 @@ async function checkTraitIcons(tag, name, selector, expectedCount) {
     problems.join("; ") || `${found.length} shown`,
   );
 }
+// The title scroll's hero cards. The portrait canvas (80 x 94 art pixels, PORTRAIT in src/scene/portrait.ts) holds a
+// warden's frame drawn at one offset, the one that puts the middle of his solid (opaque) body in the middle of it; a
+// chosen card swings the melee frames once and is at rest again.
+const HERO_PROBE = `
+  window.heroProbe = {
+    hash(data) {
+      let hash = 2166136261;
+      for (const byte of data) hash = Math.imul(hash ^ byte, 16777619);
+      return hash >>> 0;
+    },
+    canvas(sex) {
+      return document.querySelector('.hero-card[data-sex="' + sex + '"] canvas');
+    },
+    pixels(canvas) {
+      return canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height).data;
+    },
+    signature(sex) {
+      return this.hash(this.pixels(this.canvas(sex)));
+    },
+    // the first and last column of the canvas's opaque pixels
+    body(sex) {
+      const canvas = this.canvas(sex);
+      const data = this.pixels(canvas);
+      let first = canvas.width;
+      let last = -1;
+      for (let row = 0; row < canvas.height; row++)
+        for (let column = 0; column < canvas.width; column++)
+          if (data[(row * canvas.width + column) * 4 + 3] >= 250) {
+            first = Math.min(first, column);
+            last = Math.max(last, column);
+          }
+      return { first, last, width: canvas.width };
+    },
+    // what each frame must look like, drawn here from the atlas on its own: the south-facing column, the idle frame at
+    // atlas row 0 and the melee frames at rows 10 to 14, all at the offset that centres the idle frame's body. These
+    // numbers are the atlas layout and PORTRAIT typed out again on purpose: the check compares the card with a second
+    // statement of the layout, so a change to one of them that the card does not follow fails here.
+    async expected(sex) {
+      const size = 128;
+      const image = new Image();
+      image.src = "/sprites/hero/" + sex + ".png";
+      await image.decode();
+      const target = this.canvas(sex);
+      const reader = document.createElement("canvas");
+      reader.width = size;
+      reader.height = size;
+      const readerContext = reader.getContext("2d", { willReadFrequently: true });
+      readerContext.drawImage(image, 2 * size, 0, size, size, 0, 0, size, size);
+      const data = readerContext.getImageData(0, 0, size, size).data;
+      let first = size;
+      let last = -1;
+      for (let row = 0; row < size; row++)
+        for (let column = 0; column < size; column++)
+          if (data[(row * size + column) * 4 + 3] >= 250) {
+            first = Math.min(first, column);
+            last = Math.max(last, column);
+          }
+      const shift = Math.round(target.width / 2 - (first + last + 1) / 2);
+      const top = 14; // PORTRAIT.top
+      const hashRow = (row) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = target.width;
+        canvas.height = target.height;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 2 * size, row * size, size, size, shift, -top, size, size);
+        return this.hash(this.pixels(canvas));
+      };
+      return { idle: hashRow(0), melee: [10, 11, 12, 13, 14].map(hashRow) };
+    },
+  };
+`;
+const HERO_STEP = 16; // ms of the page's clock between samples
+const HERO_SEXES = ["male", "female"];
+// the looks that follow one another, as runs: [{ hash, from }], from in ms after the start
+const runsOf = (trail, index) => {
+  const runs = [];
+  for (const sample of trail)
+    if (runs.at(-1)?.hash !== sample[index]) runs.push({ hash: sample[index], from: sample[0] });
+  return runs;
+};
+const heroSignatures = (target) =>
+  target.evaluate((sexes) => sexes.map((sex) => window.heroProbe.signature(sex)), HERO_SEXES);
+async function openHeroPage(reducedMotion) {
+  const context = await browser.newContext({
+    viewport: { width: 1000, height: 640 },
+    deviceScaleFactor: 1,
+    reducedMotion: reducedMotion ? "reduce" : "no-preference",
+  });
+  await stubSea(context);
+  const heroPage = await context.newPage();
+  await heroPage.clock.install();
+  await heroPage.goto(BASE_URL);
+  await heroPage.waitForSelector(".hero-card canvas");
+  // a press while the scroll unrolls only completes the unrolling
+  await heroPage.waitForSelector(".scroll[data-stage='done']", { timeout: 30000 });
+  await heroPage.evaluate(HERO_PROBE);
+  await heroPage.waitForFunction(
+    () => ["male", "female"].every((sex) => window.heroProbe.body(sex).last >= 0),
+    undefined,
+    {
+      polling: 100,
+    },
+  );
+  // from here the page's clock moves only when it is stepped
+  await heroPage.clock.pauseAt((await heroPage.evaluate(() => Date.now())) + 100);
+  return { context, heroPage };
+}
+async function sampleHero(heroPage, milliseconds) {
+  const trail = [];
+  for (let elapsed = HERO_STEP; elapsed <= milliseconds; elapsed += HERO_STEP) {
+    await heroPage.clock.runFor(HERO_STEP);
+    trail.push([elapsed, ...(await heroSignatures(heroPage))]);
+  }
+  return trail;
+}
+async function checkHeroCards() {
+  // the body in the middle of the card, for both sexes
+  await page.evaluate(HERO_PROBE);
+  await page.waitForTimeout(600); // the checks before this one chose a card: let its swing end, the warden is at rest
+  for (const sex of HERO_SEXES) {
+    await page.waitForFunction((sex) => window.heroProbe.body(sex).last >= 0, sex, { polling: 100 });
+    const { first, last, width } = await page.evaluate((sex) => window.heroProbe.body(sex), sex);
+    const offCentre = (first + last + 1) / 2 - width / 2;
+    check(
+      "hero-cards",
+      `${sex}: the solid body's middle is within 1 art pixel of the card's middle`,
+      Math.abs(offCentre) <= 1,
+      `body columns ${first}-${last} of ${width}, ${offCentre} px off`,
+    );
+    const scale = await page.evaluate((sex) => {
+      const canvas = window.heroProbe.canvas(sex);
+      return canvas.getBoundingClientRect().width / canvas.width;
+    }, sex);
+    check("hero-cards", `${sex}: the portrait is drawn at a whole multiple`, Number.isInteger(scale), `${scale}x`);
+  }
+
+  // the swing, with the page's clock stepped
+  const { context, heroPage } = await openHeroPage(false);
+  const expected = {};
+  for (const sex of HERO_SEXES) expected[sex] = await heroPage.evaluate((sex) => window.heroProbe.expected(sex), sex);
+  const resting = await heroSignatures(heroPage);
+  check(
+    "hero-cards",
+    "both wardens start at rest on the idle frame, drawn at the centring offset",
+    resting[0] === expected.male.idle && resting[1] === expected.female.idle,
+  );
+  const swingMilliseconds = (5 / 14) * 1000; // five melee frames at FRAMES_PER_SECOND.melee
+  const swingChecks = async (name, sex, other, choose) => {
+    await choose();
+    const trail = await sampleHero(heroPage, 700);
+    const runs = runsOf(trail, 1 + HERO_SEXES.indexOf(sex));
+    const inOrder = runs.slice(0, 5).every((run, index) => run.hash === expected[sex].melee[index]);
+    const back = runs.length === 6 && runs.at(-1).hash === expected[sex].idle;
+    const returnedAt = runs.at(-1).from;
+    check(
+      "hero-cards",
+      `${name}: ${sex} swings the five melee frames in order, then is at rest`,
+      inOrder && back,
+      `${runs.length} looks, at rest after ${returnedAt} ms`,
+    );
+    check(
+      "hero-cards",
+      `${name}: the swing takes five melee frames' time (${Math.round(swingMilliseconds)} ms)`,
+      back && Math.abs(returnedAt - swingMilliseconds) <= 100,
+      `${returnedAt} ms`,
+    );
+    const otherRuns = runsOf(trail, 1 + HERO_SEXES.indexOf(other));
+    check(
+      "hero-cards",
+      `${name}: the other card stays at rest`,
+      otherRuns.length === 1 && otherRuns[0].hash === expected[other].idle,
+      `${otherRuns.length} looks`,
+    );
+  };
+  await swingChecks("a click", "female", "male", () => heroPage.locator('.hero-card[data-sex="female"]').click());
+  await swingChecks("a second click on the chosen card", "female", "male", () =>
+    heroPage.locator('.hero-card[data-sex="female"]').click(),
+  );
+  await swingChecks("Enter on a focused card", "male", "female", async () => {
+    await heroPage.locator('.hero-card[data-sex="male"]').focus();
+    await heroPage.keyboard.press("Enter");
+  });
+  // choosing the other card in the middle of a swing puts the first at rest at once
+  await heroPage.locator('.hero-card[data-sex="female"]').click();
+  await heroPage.clock.runFor(100);
+  await heroPage.locator('.hero-card[data-sex="male"]').click();
+  await heroPage.clock.runFor(HERO_STEP * 2);
+  check(
+    "hero-cards",
+    "choosing the other card in the middle of a swing puts the first at rest",
+    (await heroSignatures(heroPage))[1] === expected.female.idle,
+  );
+  await context.close();
+
+  // with reduced motion the idle frame only
+  const reduced = await openHeroPage(true);
+  const reducedExpected = await reduced.heroPage.evaluate(() => window.heroProbe.expected("female"));
+  await reduced.heroPage.locator('.hero-card[data-sex="female"]').click();
+  const reducedTrail = await sampleHero(reduced.heroPage, 700);
+  const reducedRuns = runsOf(reducedTrail, 2);
+  check(
+    "hero-cards",
+    "reduced motion: choosing a card shows the idle frame only",
+    reducedRuns.length === 1 && reducedRuns[0].hash === reducedExpected.idle,
+    `${reducedRuns.length} looks`,
+  );
+  await reduced.context.close();
+}
 const heroTextures = () =>
   page.evaluate(() => {
     const found = [];
@@ -738,6 +993,7 @@ check(
   "hero choice: two cards, one chosen",
   (await page.locator(".hero-card").count()) === 2 && chosenCards === 1,
 );
+await checkHeroCards();
 
 await checkTraitIcons("title", "the warden line shows the trait's icon", ".scroll .warden", 1);
 
@@ -2482,6 +2738,154 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "sea-broken",
     "the night goes without it, and does not count it as met",
     brokenNight.creature === null && brokenNight.bestiary.length === 0,
+  );
+
+  // 21b an animated creature: its record has frame counts, the gallery serves its atlas, and the night draws the frame
+  // its animation is at (walk while it travels, attack while it claws a lamp or has just struck the warden, idle at
+  // rest), flipped as the other monsters are, with the flash, the hurt tint and the lamps' light on every frame
+  sea.mode = "animated";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await startFromTitle();
+  const animatedNight = await night();
+  check("sea-animated", "the animated creature joins the night", animatedNight.creature?.id === SEA_ANIMATED.id);
+  let animatedSent = false;
+  for (let attempt = 0; attempt < 80 && !animatedSent; attempt++) {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature");
+      state.spawnTimer = 0;
+      state.elapsed = Math.max(state.elapsed, 9);
+      state.hero.health = state.hero.maxHealth;
+      for (const lamp of state.lamps) lamp.lit = true;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForTimeout(100);
+    animatedSent = await page.evaluate(() =>
+      window.lampwarden.state().monsters.some((monster) => monster.kind === "creature"),
+    );
+  }
+  check("sea-animated", "the spawner sends the animated creature", animatedSent);
+  // stands it somewhere clear, as the sim would hold it, and sets what the animation reads (all of it render-only state)
+  const stand = (patch) =>
+    page.evaluate((patch) => {
+      const state = window.lampwarden.state();
+      window.lampwarden.scene().setPaused(true);
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature").slice(0, 1);
+      for (const monster of state.monsters)
+        Object.assign(monster, { x: 600, y: 400, hurt: 0, stun: 0, snuff: 0, attackCooldown: 0, age: 0 }, patch);
+      state.hero.x = 300;
+      state.hero.y = 330;
+      state.puffs = [];
+    }, patch);
+  // the frames the stage shows for the creature: the pose each sprite's texture came from, and how it is drawn
+  const creatureFrames = () =>
+    page.evaluate((id) => {
+      const found = [];
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        if (label.startsWith(`/api/creatures/${id}/`) && node.visible && !node.destroyed)
+          found.push({
+            pose: label.split("/").pop(),
+            flipped: node.scale.x < 0,
+            // the painted shadow is cut out and the pixels kept, which is what the lamps' rim light needs
+            shadowless: node.texture.source.resource instanceof Uint8Array,
+          });
+        for (const child of node.children ?? []) visit(child);
+      };
+      const app = window.lampwarden.app();
+      if (app) visit(app.stage);
+      return found;
+    }, SEA_ANIMATED.id);
+  const poseNow = async () => (await creatureFrames()).map((frame) => frame.pose).join();
+  const poseShot = async (name, patch) => {
+    await stand(patch);
+    await freeze();
+    await page.waitForTimeout(60);
+    return { shot: await shoot(name), pose: await poseNow() };
+  };
+  const walkFirst = await poseShot("21-sea-animated-walk1", { age: 0 });
+  const walkLater = await poseShot("22-sea-animated-walk4", { age: 0.31 });
+  check(
+    "sea-animated",
+    "it walks: a different frame a third of a second on",
+    walkFirst.pose === "walk1" && walkLater.pose === "walk4",
+    `${walkFirst.pose} then ${walkLater.pose}`,
+  );
+  const walkChange = await boxDiff(walkLater.shot, walkFirst.shot, creatureBox);
+  check(
+    "sea-animated",
+    "the picture changes between the two walk frames",
+    walkChange > 0.02,
+    `${(walkChange * 100).toFixed(1)}%`,
+  );
+  const walkingPoses = new Set();
+  for (const age of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) {
+    await stand({ age });
+    await settle();
+    walkingPoses.add(await poseNow());
+  }
+  check("sea-animated", "its walk goes through all six frames", walkingPoses.size === 6, [...walkingPoses].join(" "));
+  const claw = await poseShot("23-sea-animated-attack", { snuff: 0.1 });
+  check("sea-animated", "it claws a lamp with the attack frames", claw.pose.startsWith("attack"), claw.pose);
+  const strike = await poseShot("24-sea-animated-strike", { attackCooldown: 0.95 });
+  check("sea-animated", "it strikes the warden with the attack frames", strike.pose.startsWith("attack"), strike.pose);
+  const rest = await poseShot("25-sea-animated-idle", { stun: 0.05 });
+  check("sea-animated", "it stands in the idle frames when a hit holds it", rest.pose.startsWith("idle"), rest.pose);
+  const frame = (await creatureFrames())[0];
+  check(
+    "sea-animated",
+    "a frame has its painted shadow cut out, ready for the lamps' rim light",
+    frame?.shadowless === true,
+  );
+  const rightSide = (await creatureFrames())[0]?.flipped;
+  await stand({ x: 200, age: 0 });
+  await settle();
+  const leftSide = (await creatureFrames())[0]?.flipped;
+  check("sea-animated", "it faces the middle of the plaza from either side", rightSide === true && leftSide === false);
+  // the flash and the red tint follow the frame
+  await stand({ age: 0.31 });
+  await freeze();
+  const animatedPlain = await shoot("26-sea-animated-plain");
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+  });
+  await settle();
+  const animatedFlash = await shoot("27-sea-animated-flash");
+  const [animatedPlainLight, animatedFlashLight] = await Promise.all([
+    luminance(animatedPlain, [creatureBox]),
+    luminance(animatedFlash, [creatureBox]),
+  ]);
+  check(
+    "sea-animated",
+    "a blow flashes the frame it is on white",
+    animatedFlashLight[0] > animatedPlainLight[0] + 25,
+    `${animatedPlainLight[0].toFixed(0)} → ${animatedFlashLight[0].toFixed(0)}`,
+  );
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.1;
+  });
+  await settle();
+  const animatedTint = await shoot("28-sea-animated-hurt");
+  const [animatedPlainRed, animatedTintRed] = [await redOverBlue(animatedPlain), await redOverBlue(animatedTint)];
+  check(
+    "sea-animated",
+    "the hurt frame is tinted red",
+    animatedTintRed > animatedPlainRed * 1.03,
+    `red/blue ${animatedPlainRed.toFixed(2)} → ${animatedTintRed.toFixed(2)}`,
+  );
+  // the sprite the title and the dawn show is the idle picture the job judged
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  const animatedPanel = await page.evaluate(() => {
+    const portrait = document.querySelector(".sea canvas.sea-sprite");
+    return { loaded: portrait?.dataset.loaded === "1", source: portrait?.dataset.src ?? "" };
+  });
+  check(
+    "sea-animated",
+    "the title shows the creature's idle sprite",
+    animatedPanel.loaded && animatedPanel.source.includes(`/api/creatures/${SEA_ANIMATED.id}/sprite.png`),
   );
 
   page = mainPage;

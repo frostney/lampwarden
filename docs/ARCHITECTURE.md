@@ -64,6 +64,8 @@ src/
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
                      bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
+    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5), the atlas layout and the
+                     paces; kept out of creature.ts so the sim fingerprint does not move (frames are drawn, never played)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
@@ -83,7 +85,8 @@ src/
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
                      warden's eight directions (octants), the five of them drawn and the three mirrored
-    layers.ts        textures (and the creature's, loaded at runtime from its sprite path; a sprite that fails means a
+    creature-animation.ts  which frame a creature from the sea shows (walk, attack, idle) from what the sim says about it; drawing only
+    layers.ts        textures (and the creature's, loaded at runtime from its sprite path and, with frames, its atlas; a sprite that fails means a
                      night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
                      is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
                      and anchor
@@ -115,7 +118,8 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
@@ -125,25 +129,26 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  creature-frames.ts the frame set of a creature: its code rendered in every pose in one batch, checked (every frame renders, the walk moves) and packed into the atlas
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
-  render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
-  render-local.ts    bun render subprocess with an allowlisted environment
-  render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
-  hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity gate
+  render-types.ts    the renderer's contract (RenderStats, RenderResult) and the validation of what a sandbox sends back
+  render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
+                     render-checkout.ts is its entry for the command line (runner files from this checkout, snapshot from the environment)
+  hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
-  render/            local bun runner + canvas shim (also copied into the sandboxes)
+  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and the canvas shim
 docs/ARCHITECTURE.md this file
 docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
-docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared, with parallelism and Mubit numbers
+docs/LIVE_GENERATION.md  design note: live generation behind a server route, why only Vercel Sandbox renders, with parallelism and Mubit numbers
 ```
 
 ## Sprite flow
 
-1. `bun run assets -- "your brief"` (`--render local|shotcup|vercel|boat`), or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
+1. `bun run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it in the sandbox:
+   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
@@ -231,10 +236,13 @@ anchors first. To repeat: `bun run build && bun run start -- -p 3720`, then `bun
 ## Logo
 
 The logo and everything derived from it (`public/logo/logo.png`, `logo@4x.png`, `logo-noglow.png`, `logo.svg`, and
-`src/app/icon.png`, `favicon.ico`, `apple-icon.png`, `opengraph-image.png`, `twitter-image.png`) are generated by
+`src/app/icon.png`, `favicon.ico`, `apple-icon.png`, `opengraph-image.png`, `twitter-image.png`, and the web app
+manifest's `public/logo/icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`) are generated by
 `bun run logo` (`bun tools/logo/build.ts`). The oil-lamp emblem and the 16 px favicon lamp are character grids in
 `tools/logo/pixel-art.ts`, coloured by `tools/logo/palette.ts`; the wordmark is `LAMPWARDEN` in Ithaca at 16 px and the
 social card's tagline is Tiny5 at 8 px (`src/app/fonts/tiny5/`, OFL), both rasterised from the font files in headless
 Chromium through Playwright; `tools/logo/compose.ts` adds outlines, the extruded shadow and the stepped glow and lays
-everything out. `bun tools/logo/build.ts --check` writes nothing and reports whether each committed asset still
+everything out. The manifest icons (`src/app/manifest.ts` lists them) are the emblem on the night colour like the Apple
+icon: "any" at 5x on 192 px and 14x on 512 px, "maskable" smaller (4x and 10x) so the lamp sits inside a launcher mask's
+safe zone. `bun tools/logo/build.ts --check` writes nothing and reports whether each committed asset still
 matches a fresh build.

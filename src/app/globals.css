@@ -21,9 +21,14 @@ canvas {
   image-rendering: crisp-edges;
   display: block;
 }
-h1 {
+h1,
+h2.logo {
   margin: 0;
   font-weight: normal;
+}
+/* a panel's title takes focus when the panel opens, for a screen reader: it is no control, so it gets no ring */
+h2.logo:focus {
+  outline: none;
 }
 .shell {
   min-height: 100dvh;
@@ -43,9 +48,14 @@ h1 {
   width: min(960px, 100vw, 160dvh);
   aspect-ratio: 960 / 600;
   container-type: inline-size;
-  touch-action: none;
+  /* the menus can be pinch-zoomed (WCAG 1.4.4); only while a night is played does the stage take every touch itself */
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+}
+.stage[data-phase="night"],
+.stage[data-phase="replay"] {
+  touch-action: none;
 }
 .canvas,
 .canvas canvas {
@@ -86,8 +96,10 @@ h1 {
   right: calc(14 * var(--hu));
   letter-spacing: 2px;
 }
+/* a dark lamp is a hollow diamond and a lit one a solid one, so the state does not rest on colour alone; #7a84a2 is
+   at least 3:1 on the night sea (#4a5068 was 2.3:1 on the page colour) */
 .lamps span:not(.long) {
-  color: #4a5068;
+  color: #7a84a2;
 }
 .lamps span.lit {
   color: #ffcf6a;
@@ -517,9 +529,15 @@ h1 {
     padding-top: max(12px, env(safe-area-inset-top));
   }
 }
+/* On small screens the long text leaves the screen but not the page: a screen reader still reads it */
 @container (max-width: 620px) {
   .long {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 .rotate {

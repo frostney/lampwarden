@@ -609,7 +609,16 @@ export default function Game() {
                   , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </span>
               </div>
-              <div className={hud.hits > 0 ? "bar struck" : "bar"} key={hud.hits}>
+              {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
+              <div
+                className={hud.hits > 0 ? "bar struck" : "bar"}
+                key={hud.hits}
+                role="meter"
+                aria-label="Health"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(hud.maxHealth)}
+                aria-valuenow={Math.round(hud.health)}
+              >
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
               <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
@@ -621,15 +630,23 @@ export default function Game() {
                 Night {legacy.night}
                 <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
               </div>
-              <div className="bar dawnbar">
+              <div
+                className="bar dawnbar"
+                role="progressbar"
+                aria-label="Night until dawn"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(hud.dawn * 100)}
+                aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+              >
                 <i style={{ width: `${hud.dawn * 100}%` }} />
               </div>
             </div>
-            <div className="lamps">
+            <div className="lamps" role="img" aria-label={`${hud.lit} of ${hud.lamps} lamps lit`}>
               <span className="long">Lamps </span>
               {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
                 <span key={slot} className={index < hud.lit ? "lit" : ""}>
-                  ◆
+                  {index < hud.lit ? "◆" : "◇"}
                 </span>
               ))}
             </div>
@@ -783,8 +800,10 @@ export default function Game() {
         )}
 
         {phase === "dawn" && report && (
-          <div className="panel">
-            <div className="logo small">DAWN</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              DAWN
+            </h2>
             <p>
               {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
               {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
@@ -802,8 +821,10 @@ export default function Game() {
         )}
 
         {phase === "heir" && report && (
-          <div className="panel">
-            <div className="logo small">{report.outcome === "dark" ? "DARKNESS" : "FALLEN"}</div>
+          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
+            </h2>
             <p>
               {report.outcome === "dark"
                 ? `The lamps of Lychnos went dark on night ${report.night}.`
@@ -847,6 +868,16 @@ export default function Game() {
       </div>
     </div>
   );
+}
+
+// The dawn and heir panels' title, which is their dialog's name. The panel is a dialog for a screen reader but does not
+// trap focus, so it is not aria-modal.
+const PANEL_TITLE_ID = "panel-title";
+
+// A panel's title takes focus when the panel appears, so a keyboard or screen-reader player starts at its top (the buttons
+// the title was in front of just unmounted) and Tab walks on into the panel.
+function focusOnMount(element: HTMLElement | null) {
+  element?.focus();
 }
 
 // a trait's name with its icon (the icon is decoration: the name says it)

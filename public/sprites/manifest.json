@@ -1,6 +1,6 @@
 {
  "setting": "greek",
- "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes.",
+ "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. temple and house are hand-written examples, not Mubit output (see their 'source' field).",
  "sprites": {
   "hero-male-still": {
    "brief": "male hero warrior with a xiphos in hand and a bow slung on his back",
@@ -258,6 +258,22 @@
     "fixed_verify": null
    },
    "bbox": "48,43,105,107"
+  },
+  "temple": {
+   "brief": "small Doric temple (hand-written from kit primitives)",
+   "file": "temple.png",
+   "code": "temple.ts",
+   "source": "hand-written build script (pipeline/kit/examples/ex_temple.ts); NOT generated or verified through Mubit",
+   "score": null,
+   "passed": null
+  },
+  "house": {
+   "brief": "whitewashed Greek house (hand-written from kit primitives)",
+   "file": "house.png",
+   "code": "house.ts",
+   "source": "hand-written build script (pipeline/kit/examples/ex_house.ts); NOT generated or verified through Mubit",
+   "score": null,
+   "passed": null
   }
  },
  "hero_frames": {

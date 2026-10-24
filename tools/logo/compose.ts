@@ -58,6 +58,14 @@ function emblemIcon(size: number, scale: number, glowRadii: readonly number[]): 
 export const favicon32 = (): PixelImage => emblemIcon(32, 1, [11, 8, 5]);
 export const appleTouchIcon = (): PixelImage => emblemIcon(180, 5, [15, 11, 8, 5]);
 
+/**
+ * The web app manifest's icons. "any" fills the square the way the Apple icon does. "Maskable" keeps the whole emblem
+ * inside the safe zone (the circle whose diameter is 80% of the width): the emblem at 4x on 192 px and 10x on 512 px,
+ * whose box corners (empty, the lamp is not square) lie at the circle's edge or inside it.
+ */
+export const manifestIcon = (size: 192 | 512, maskable: boolean): PixelImage =>
+  emblemIcon(size, size === 192 ? (maskable ? 4 : 5) : maskable ? 10 : 14, [15, 11, 8, 5]);
+
 /** 1200 x 630 social card: the logo at the largest integer scale that fits, the tagline under it, and stars. */
 export function socialCard(logoImage: PixelImage, tagline: TextMask): PixelImage {
   const cardWidth = 1200,

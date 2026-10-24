@@ -77,6 +77,7 @@ type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd";
 interface Hud {
   health: number;
   maxHealth: number;
+  hits: number; // blows the warden has taken: the health bar flashes and shakes on each
   lit: number;
   lamps: number;
   kills: number;
@@ -117,6 +118,7 @@ declare global {
 const hudOf = (state: State, legacy: Legacy): Hud => ({
   health: Math.ceil(state.hero.health),
   maxHealth: state.hero.maxHealth,
+  hits: state.hero.hits,
   lit: litCount(state),
   lamps: state.lamps.length,
   kills: state.stats.kills,
@@ -125,6 +127,7 @@ const hudOf = (state: State, legacy: Legacy): Hud => ({
 });
 const sameHud = (first: Hud, second: Hud) =>
   first.health === second.health &&
+  first.hits === second.hits &&
   first.lit === second.lit &&
   first.kills === second.kills &&
   first.oil === second.oil &&
@@ -468,7 +471,7 @@ export default function Game() {
                   , {ordinal(legacy.generation)} Lampwarden · {TRAITS[legacy.heir.trait].label}
                 </span>
               </div>
-              <div className="bar">
+              <div className={hud.hits > 0 ? "bar struck" : "bar"} key={hud.hits}>
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
               <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>

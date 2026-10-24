@@ -51,7 +51,7 @@ optional (without a key or salt every answer is the rules').
 `bun.lock`, then `bun install`). It validates the environment before the build starts, redacts sensitive values from
 `console` output, fails a build whose prerendered output holds a sensitive value, and stops a route from returning one
 in a response. Server code reads `ENV` from `varlock/env`, typed by `env.d.ts`, which `varlock codegen` writes from the
-schema; it is git-ignored, and `typecheck`, `next dev` and `next build` regenerate it. Two reads stay on `process.env`
+schema; it is git-ignored, and `typecheck`, `next dev` and `next build` regenerate it (run `bunx varlock codegen` once after cloning, for the editor). Two reads stay on `process.env`
 on purpose: `NEXT_PUBLIC_SIM_FINGERPRINT` in `src/game/plays.ts`, which `next.config.ts` computes and inlines and which
 `bun test` also reads, and the scripts below, which receive plain variables.
 

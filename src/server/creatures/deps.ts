@@ -81,6 +81,7 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
 
 /** `schedule` runs work after the response has gone out: `after` from next/server in a route. */
 export function createServiceDeps(schedule: (work: () => Promise<unknown>) => void): ServiceDeps {
+  // ENV holds null, not undefined, for an unset item; the reader treats both as unset
   const config = readCreatureConfig(ENV);
   const store = createBlobStore(config.blobPrefix);
   return {

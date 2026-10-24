@@ -1,9 +1,11 @@
 // Scores our own committed art with the verifier exactly as the creature job does (same prompt, same message, the
 // borderline double-take), so the acceptance bar can be set against it: the score that most of our own sprites reach.
 //
-// usage: MUBIT_API_KEY=... bun --no-env-file pipeline/calibrate-verifier.ts [--out scores.json] [--repeat 1] [--concurrency 4]
-// Every sprite is re-rendered locally from its committed build code (the PNG is byte-identical to the committed one) so
-// the verifier gets the same engine stats it would in a job. Costs about one verifier call per sprite and repeat.
+// usage: MUBIT_API_KEY=... VERCEL_SANDBOX_SNAPSHOT_ID=... bun --no-env-file pipeline/calibrate-verifier.ts [--out scores.json]
+//        [--repeat 1] [--concurrency 4]
+// Every sprite is re-rendered from its committed build code, all of them in one Vercel Sandbox batch (the PNG is
+// byte-identical to the committed one), so the verifier gets the same engine stats it would in a job. Needs Vercel auth
+// (docs/tooling.md, "Rendering needs Vercel auth"). Costs about one verifier call per sprite and repeat.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -11,7 +13,7 @@ import { z } from "zod";
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
 import { createMubitClient } from "./mubit";
-import { renderBuild } from "./renderers";
+import { renderBatchFromCheckout } from "./render-checkout";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
@@ -52,7 +54,6 @@ for (const [sex, animation, frame, brief] of [
 const loop: LoopCore = {
   model: createMubitClient({ apiKey }),
   render: async () => ({ ok: false, error: "not used" }),
-  rendererName: "local",
   pose: "",
   generatorPrompt: "",
   verifierPrompt: readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8"),
@@ -60,18 +61,21 @@ const loop: LoopCore = {
   print: () => {},
 };
 
+const requests = items.map((item) => ({
+  code: item.code,
+  name: item.name.replace(/[^A-Za-z0-9_-]/g, "-"),
+  pose: "",
+}));
+const renders = await renderBatchFromCheckout(requests, { vcpus: 4 });
+
 const results: Array<{ name: string; scores: Array<number | null>; flags: string }> = [];
-const queue = items[Symbol.iterator]();
+const queue = items.entries();
 const worker = async () => {
   for (let step = queue.next(); !step.done; step = queue.next()) {
-    const item = step.value;
-    const rendered = await renderBuild("local", {
-      code: item.code,
-      name: item.name.replace(/[^A-Za-z0-9_-]/g, "-"),
-      pose: "",
-    });
-    if (!rendered.ok) {
-      results.push({ name: item.name, scores: [], flags: rendered.error });
+    const [position, item] = step.value;
+    const rendered = renders[position];
+    if (!rendered?.ok) {
+      results.push({ name: item.name, scores: [], flags: rendered?.error ?? "no render" });
       continue;
     }
     const scores = await Promise.all(

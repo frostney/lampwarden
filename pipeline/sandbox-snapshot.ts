@@ -16,6 +16,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sandbox } from "@vercel/sandbox";
+import { batchResultsSchema, interpretOutcome } from "./render-types";
 import {
   kitSha,
   PINNED_BUN_SHA256,
@@ -32,6 +33,7 @@ import {
 const PIPELINE_DIRECTORY = import.meta.dir;
 const SMOKE_BUILD = join(PIPELINE_DIRECTORY, "kit", "examples", "ex_lamp_lit.ts");
 const SMOKE_EXPECTED_PNG = join(PIPELINE_DIRECTORY, "..", "public", "sprites", "lamp-lit.png");
+const SMOKE_DIRECTORY = "/vercel/sandbox/job/smoke";
 const BUN_DOWNLOAD_HOSTS = ["github.com", "*.githubusercontent.com"];
 
 const sandbox = await Sandbox.create({
@@ -87,16 +89,28 @@ try {
       content: Buffer.from(file.content),
     })),
     { path: SNAPSHOT_MANIFEST_PATH, content: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`) },
-    { path: "/vercel/sandbox/job/smoke/build.ts", content: readFileSync(SMOKE_BUILD) },
+    { path: `${SMOKE_DIRECTORY}/0.ts`, content: readFileSync(SMOKE_BUILD) },
+    {
+      path: `${SMOKE_DIRECTORY}/batch.json`,
+      content: Buffer.from(
+        JSON.stringify({ itemDeadlineMilliseconds: 30_000, items: [{ name: "lamp-lit", pose: "" }] }),
+      ),
+    },
   ]);
 
-  // smoke test: the committed example must come out byte for byte as the committed sprite
+  // smoke test, through the batch driver every render uses: the committed example must come out byte for byte as the
+  // committed sprite
   await run(
     "smoke render",
-    `cd ${SANDBOX_PIPELINE_DIRECTORY}/render && KIT_OUT=/vercel/sandbox/job/smoke/out ${SANDBOX_BUN_PATH} --preload ./shim_plugin.ts run_local.ts /vercel/sandbox/job/smoke/build.ts lamp-lit`,
+    `cd ${SANDBOX_PIPELINE_DIRECTORY}/render && ${SANDBOX_BUN_PATH} batch.ts ${SMOKE_DIRECTORY}`,
   );
-  const smokePng = await sandbox.readFileToBuffer({ path: "/vercel/sandbox/job/smoke/out/lamp-lit.png" });
-  if (smokePng === null || !smokePng.equals(readFileSync(SMOKE_EXPECTED_PNG))) {
+  const smokeResults = await sandbox.readFileToBuffer({ path: `${SMOKE_DIRECTORY}/results.json` });
+  const smokeOutcome = smokeResults
+    ? batchResultsSchema.parse(JSON.parse(smokeResults.toString("utf8"))).items[0]
+    : undefined;
+  const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, 30_000) : undefined;
+  if (!smoke?.ok) throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
+  if (!Buffer.from(smoke.png).equals(readFileSync(SMOKE_EXPECTED_PNG))) {
     throw new Error("the smoke render of ex_lamp_lit.ts does not reproduce public/sprites/lamp-lit.png");
   }
   console.log("smoke render: lamp-lit.png reproduced byte for byte");

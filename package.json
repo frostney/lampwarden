@@ -23,7 +23,7 @@
     "render": "bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts",
-    "check:pixels": "bun pipeline/check-pixels.ts"
+    "check:pixels": "bun --no-env-file pipeline/check-pixels.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",
@@ -37,7 +37,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
-    "@boatdev/sdk": "1.11.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",

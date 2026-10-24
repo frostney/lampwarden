@@ -1,15 +1,13 @@
-// The contract every renderer (local, Shotcup, Vercel Sandbox, boat.dev) fulfils: a build script and a name go in, the
-// kit's stats and the 128 px PNG come out. Build code may come from a model, so everything a renderer reads back from
-// outside the process (the stats line a sandbox prints) is validated once, here.
+// The contract of the Vercel Sandbox renderer, the only renderer: a build script and a name go in, the kit's stats and
+// the 128 px PNG come out. Build code may come from a model, so everything read back from the sandbox (the stats line a
+// runner prints, a batch's results file) is validated once, here.
 import { z } from "zod";
 
-/** The stats `render/run_local.ts` (or the generated Shotcup main) prints for one sprite: the kit's `post()` stats plus fit. */
+/** The stats `render/runner.ts` prints for one sprite: the kit's `post()` stats plus fit. */
 export const renderStatsSchema = z.object({
   name: z.string(),
-  /** Render time inside the runner; the Shotcup main does not time itself. */
+  /** Render time inside the runner. */
   ms: z.number().optional(),
-  /** Shotcup only: engine time of the whole run the sprite was rendered in. */
-  engineMilliseconds: z.number().optional(),
   fit: z.string(),
   snapped: z.number(),
   dropped: z.number(),
@@ -43,14 +41,14 @@ export interface RenderedSprite {
 
 export type RenderResult = ({ ok: true } & RenderedSprite) | { ok: false; error: string };
 
-export const RENDERER_NAMES = ["local", "shotcup", "vercel", "boat"] as const;
-export type RendererName = (typeof RENDERER_NAMES)[number];
+/** What a manifest row and a log line record as the renderer. */
+export const RENDERED_WITH = "vercel-sandbox";
 
 export type Renderer = (request: RenderRequest) => Promise<RenderResult>;
 
 const SAFE_RENDER_ARGUMENT = /^[A-Za-z0-9_-]*$/;
 
-/** Names and poses end up in file paths, generated source and a shell command; only these characters may. */
+/** Names and poses end up in file paths and a command line; only these characters may. */
 export function isSafeRenderArgument(value: string): boolean {
   return SAFE_RENDER_ARGUMENT.test(value);
 }
@@ -95,5 +93,36 @@ export async function withDeadline<Result>(
     return await Promise.race([work, expiry]);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** What `render/batch.ts` writes for one item; the sandbox is outside this process, so the file is validated. */
+export const batchResultsSchema = z.object({
+  items: z.array(
+    z.object({
+      exitCode: z.number().nullable(),
+      timedOut: z.boolean(),
+      standardOutput: z.string(),
+      standardError: z.string(),
+      png: z.string().nullable(),
+      milliseconds: z.number(),
+    }),
+  ),
+});
+export type BatchItemOutcome = z.infer<typeof batchResultsSchema>["items"][number];
+
+/** One item's outcome as a render result: the runner's stats and PNG, or the one-line reason it failed. */
+export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds: number): RenderResult {
+  if (outcome.timedOut) return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
+  if (outcome.exitCode !== 0) {
+    const reason =
+      outcome.exitCode === 137 ? "render killed (memory)" : lastErrorLine(outcome.standardError).slice(0, 300);
+    return { ok: false, error: `exit ${outcome.exitCode}: ${reason}` };
+  }
+  if (outcome.png === null) return { ok: false, error: "render wrote no PNG" };
+  try {
+    return { ok: true, stats: parseStatsLine(outcome.standardOutput), png: Buffer.from(outcome.png, "base64") };
+  } catch {
+    return { ok: false, error: "render printed no valid stats" };
   }
 }

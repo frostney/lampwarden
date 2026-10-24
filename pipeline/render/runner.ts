@@ -1,4 +1,6 @@
-// bun --preload ./shim_plugin.ts run_local.ts <build.ts> <name> [pose]   (KIT_OUT = output dir, default ./out)
+// The runner a render sandbox executes for one sprite (batch.ts starts one per item):
+//   bun --preload ./shim_plugin.ts runner.ts <build.ts> <name> [pose]   (KIT_OUT = output dir, default ./out)
+// It runs model-written code, so model code reaches it only inside the Vercel Sandbox VM, never on a host.
 import { createCanvas } from './shim_canvas.ts';
 import * as K from '../kit/kit.ts';
 import { readFileSync } from 'node:fs';

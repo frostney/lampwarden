@@ -1,35 +1,24 @@
-// The local bun renderer: runs one build script against the kit and returns its stats. The build code may come from a
-// model, so the subprocess gets an allowlisted environment: no API keys, tokens or other secrets from the caller's shell
-// reach it (the banned-identifier check is a tripwire, not a sandbox).
-import { existsSync, rmSync } from "node:fs";
+// The local bun renderer: runs one build script against the kit in a subprocess and returns its stats and PNG. The
+// build code may come from a model, so the subprocess gets an allowlisted environment: no API keys, tokens or other
+// secrets from the caller's shell reach it (the banned-identifier check is a tripwire, not a sandbox). It still runs
+// with the caller's file and network access; use a sandboxed renderer when that matters.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  invalidRequestReason,
+  lastErrorLine,
+  parseStatsLine,
+  type RenderRequest,
+  type RenderResult,
+} from "./render-types";
 
 const RENDER_DIRECTORY = join(import.meta.dir, "render");
 // what bun needs to start; nothing else is passed through
 const ALLOWED_ENVIRONMENT_VARIABLES = ["PATH", "HOME", "TMPDIR", "LANG"] as const;
+const DEFAULT_TIMEOUT_MILLISECONDS = 30_000;
 
-/** The stats line `render/run_local.ts` prints for one sprite: the kit's post() stats plus timing and fit. */
-export interface RenderStats {
-  name: string;
-  ms: number;
-  fit: string;
-  snapped: number;
-  dropped: number;
-  coverage: number;
-  bbox: string;
-  outer: number;
-  inner: number;
-  clamped: number;
-  edge: number;
-  parts: number;
-  flags: string;
-}
-
-export type RenderResult = { ok: true; stats: RenderStats } | { ok: false; error: string };
-
-export interface RenderOptions {
-  pose?: string;
-  keepMagnifiedView?: boolean;
+export interface LocalRenderOptions {
   timeoutMilliseconds?: number;
 }
 
@@ -42,34 +31,36 @@ function renderEnvironment(outputDirectory: string): Record<string, string> {
   return environment;
 }
 
-/** Renders `sourcePath` (a build script) to `<outputDirectory>/<name>.png`. */
-export function renderFileLocally(
-  sourcePath: string,
-  name: string,
-  outputDirectory: string,
-  options: RenderOptions = {},
-): RenderResult {
-  const completed = Bun.spawnSync(
-    ["bun", "--preload", "./shim_plugin.ts", "run_local.ts", sourcePath, name, options.pose ?? ""],
-    {
-      cwd: RENDER_DIRECTORY,
-      env: renderEnvironment(outputDirectory),
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: options.timeoutMilliseconds ?? 30_000,
-    },
-  );
-  if (!(options.keepMagnifiedView ?? true)) {
-    const magnifiedPath = join(outputDirectory, `${name}_x4.png`);
-    if (existsSync(magnifiedPath)) rmSync(magnifiedPath);
+/** Renders the build in a bun subprocess that writes its PNGs to a temporary directory, then reads the PNG back. */
+export async function renderLocally(request: RenderRequest, options: LocalRenderOptions = {}): Promise<RenderResult> {
+  const invalidReason = invalidRequestReason(request);
+  if (invalidReason) return { ok: false, error: invalidReason };
+  const workDirectory = mkdtempSync(join(tmpdir(), "lampwarden-render-"));
+  try {
+    const sourcePath = join(workDirectory, "build.ts");
+    writeFileSync(sourcePath, `${request.code}\n`);
+    const subprocess = Bun.spawn(
+      ["bun", "--preload", "./shim_plugin.ts", "run_local.ts", sourcePath, request.name, request.pose],
+      { cwd: RENDER_DIRECTORY, env: renderEnvironment(workDirectory), stdout: "pipe", stderr: "pipe" },
+    );
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      subprocess.kill("SIGKILL");
+    }, options.timeoutMilliseconds ?? DEFAULT_TIMEOUT_MILLISECONDS);
+    const [standardOutput, standardError, exitCode] = await Promise.all([
+      new Response(subprocess.stdout).text(),
+      new Response(subprocess.stderr).text(),
+      subprocess.exited,
+    ]);
+    clearTimeout(timer);
+    if (timedOut) return { ok: false, error: "render timed out" };
+    if (exitCode !== 0) return { ok: false, error: lastErrorLine(standardError).slice(0, 300) };
+    const stats = parseStatsLine(standardOutput);
+    return { ok: true, stats, png: readFileSync(join(workDirectory, `${request.name}.png`)) };
+  } catch (error) {
+    return { ok: false, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+  } finally {
+    rmSync(workDirectory, { recursive: true, force: true });
   }
-  if (completed.exitedDueToTimeout) return { ok: false, error: "render timed out" };
-  if (completed.exitCode !== 0) {
-    const errorLines = completed.stderr.toString().trim().split("\n");
-    return { ok: false, error: (errorLines.at(-1) || "error").slice(0, 300) };
-  }
-  const lastLine = completed.stdout.toString().trim().split("\n").at(-1) ?? "";
-  // run_local.ts prints exactly this shape as its last line; the type is the contract between the two files
-  const stats: RenderStats = JSON.parse(lastLine);
-  return { ok: true, stats };
 }

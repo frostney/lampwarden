@@ -870,6 +870,9 @@ function useReducedMotion(): RefObject<boolean> {
 const KILL_SHAKE = { time: 0.12, amplitude: 2 };
 const WOUND_SHAKE = { time: 0.22, amplitude: 4 };
 const NO_SHAKE = { startedAt: Number.NEGATIVE_INFINITY, time: 0, amplitude: 0 };
+// how hard a shake throws the picture `age` seconds in: its full amplitude for the first half, half of it for the rest
+const shakeAmplitude = (shake: { time: number; amplitude: number }, age: number) =>
+  age > shake.time ? 0 : age < shake.time / 2 ? shake.amplitude : shake.amplitude / 2;
 function ScreenShake({ state }: { state: State }) {
   const { app } = useApplication();
   const reducedMotion = useReducedMotion();
@@ -900,20 +903,14 @@ function ScreenShake({ state }: { state: State }) {
       const remembered = memory.current;
       // a blow replaces a shake that is weaker than it is at that moment
       const start = (shake: { time: number; amplitude: number }) => {
-        const age = state.elapsed - remembered.shake.startedAt;
-        const current =
-          age > remembered.shake.time
-            ? 0
-            : age < remembered.shake.time / 2
-              ? remembered.shake.amplitude
-              : remembered.shake.amplitude / 2;
+        const current = shakeAmplitude(remembered.shake, state.elapsed - remembered.shake.startedAt);
         if (shake.amplitude >= current) remembered.shake = { ...shake, startedAt: state.elapsed };
       };
       if (state.stats.kills > remembered.kills) start(KILL_SHAKE);
       if (state.hero.hits > remembered.hits) start(WOUND_SHAKE);
       remembered.kills = state.stats.kills;
       remembered.hits = state.hero.hits;
-      const { startedAt, time, amplitude } = remembered.shake;
+      const { startedAt, time } = remembered.shake;
       const age = state.elapsed - startedAt;
       const running = state.elapsed !== remembered.elapsed;
       remembered.elapsed = state.elapsed;
@@ -921,7 +918,7 @@ function ScreenShake({ state }: { state: State }) {
         app.stage.position.set(0, 0);
         return;
       }
-      const strength = age < time / 2 ? amplitude : amplitude / 2;
+      const strength = shakeAmplitude(remembered.shake, age);
       const tick = Math.floor(age * 60);
       app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % 3 === 0 ? -1 : 1);
     }, [state, app, reducedMotion]),

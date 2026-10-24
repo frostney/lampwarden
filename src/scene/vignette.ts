@@ -22,7 +22,8 @@ export function vignettePixels(strength: number, width = STAGE_WIDTH, height = S
   if (depth === 0) return pixels;
   for (let row = 0; row < height; row++)
     for (let column = 0; column < width; column++) {
-      // how far in from the nearest edge; near a corner the two edges add up, so the ring reaches further in there
+      // how far in from the nearest edge; near a corner the two edges combine into less than either (their harmonic
+      // mean), so the ring reaches further in there
       const fromSide = Math.min(column, width - 1 - column);
       const fromTop = Math.min(row, height - 1 - row) * VERTICAL_WEIGHT;
       const inward = fromSide + fromTop === 0 ? 0 : (fromSide * fromTop) / (fromSide + fromTop);

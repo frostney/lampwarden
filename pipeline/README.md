@@ -81,6 +81,8 @@ Every renderer returns the same thing, so the loop does not care which one ran: 
 
 Timings, parallelism limits, cost and isolation probes for the three sandboxes, and Mubit latency and caching, are in [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md).
 
+`render-inprocess-*.ts`, `measure-inprocess.ts` and `probe-inprocess.ts` are a measurement spike for running the kit without a sandbox (direct, `node:vm`, QuickJS in WebAssembly, isolated-vm); they are not renderers you can select and `run.ts` never loads them. `bun pipeline/measure-inprocess.ts` times them against the local and Vercel renderers, `bun pipeline/probe-inprocess.ts` runs the JavaScript isolation probes in `inprocess_eval/probes/` in disposable child processes, and the results and the recommendation are in "In-process rendering" in `docs/LIVE_GENERATION.md`.
+
 ## `--render vercel`
 
 `render-vercel-sandbox.ts` runs each build in its own [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) Firecracker microVM: it creates the VM (default image, which ships bun; 1 vCPU; `networkPolicy: "deny-all"`; `persistent: false`), uploads `kit/kit.ts`, `render/run_local.ts` and the shims plus the build, runs the same `bun run_local.ts` as the local renderer with a 30 s limit, reads the PNG back and stops the VM. Nothing is passed into the VM except `KIT_OUT`. The whole render has a 180 s deadline; set `VERCEL_SANDBOX_SNAPSHOT_ID` to boot from a snapshot that already holds the kit (`createRunnerSnapshot`).

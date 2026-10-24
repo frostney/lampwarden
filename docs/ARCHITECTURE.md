@@ -5,7 +5,8 @@
 ```
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
-                     api/plays (store and serve recorded plays)
+                     api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
+                     :id/sprite.png)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
                      arrow beside the daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon`
@@ -38,6 +39,10 @@ src/
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
+  server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
+                     stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
+                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
+                     (the only module that reads env and files and wires Mubit, the sandbox and Blob)
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
     layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
@@ -69,7 +74,10 @@ tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG e
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
-  sprite-loop.ts     the loop for one brief; mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
+                     file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
+  creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
+  runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
   render-local.ts    bun render subprocess with an allowlisted environment
   render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)

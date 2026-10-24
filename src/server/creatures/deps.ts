@@ -4,7 +4,7 @@
 // Files read at runtime (the prompts, and the kit and runner to compute the digest a snapshot must match) are listed in
 // next.config.ts under outputFileTracingIncludes, so a deployed function has them; the kit and runner themselves
 // are in the sandbox snapshot, not read for rendering.
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMubitClient } from "../../../pipeline/mubit";
 import { renderSafely } from "../../../pipeline/render-vercel-sandbox";
@@ -25,6 +25,36 @@ const pipelineDirectory = () => join(process.cwd(), "pipeline");
 const readPrompt = (name: string) =>
   readFileSync(join(/*turbopackIgnore: true*/ pipelineDirectory(), "prompts", name), "utf8");
 
+/** Dev only (CREATURE_DEBUG_DIR): every candidate's PNG and a summary of the scores, to look at a run afterwards. */
+function debugSink(directory: string): NonNullable<JobDeps["onOutcome"]> {
+  return ({ jobId, id, brief, accepted, outcome }) => {
+    try {
+      mkdirSync(directory, { recursive: true });
+      for (const candidate of outcome.candidates) {
+        if (candidate.png) writeFileSync(join(directory, `${jobId}-${candidate.name}.png`), candidate.png);
+      }
+      const summary = {
+        jobId,
+        id,
+        accepted,
+        brief,
+        winner: outcome.winner.name,
+        candidates: outcome.candidates.map(({ name, score, pass, stage, isFix, stats }) => ({
+          name,
+          score,
+          pass,
+          stage,
+          isFix,
+          flags: stats?.flags,
+        })),
+      };
+      writeFileSync(join(directory, `${jobId}.json`), `${JSON.stringify(summary, null, 2)}\n`);
+    } catch {
+      // a debug aid must never fail a job
+    }
+  };
+}
+
 /** The deployed job's dependencies, or null when generation is not configured. */
 function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | null {
   const { mubitApiKey, snapshotId } = config;
@@ -42,6 +72,8 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
     },
     entropy: randomEntropy,
     budgetMilliseconds: JOB_BUDGET_SECONDS * 1000,
+    candidates: config.candidates,
+    ...(config.debugDirectory ? { onOutcome: debugSink(config.debugDirectory) } : {}),
   };
 }
 

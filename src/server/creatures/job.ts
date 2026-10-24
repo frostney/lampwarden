@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { type Creature, type CreatureJob, creatureSchema, type JobStep } from "@/game/creature";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
-import { type LoopStage, type LoopWinner, runLoop } from "../../../pipeline/loop";
+import { type CandidateOutcome, type LoopStage, type LoopWinner, runCandidateLoop } from "../../../pipeline/loop";
 import type { CallRecord, MubitClient } from "../../../pipeline/mubit";
 import { type Renderer, withDeadline } from "../../../pipeline/render-types";
 import type { CreatureStore } from "./store";
@@ -90,6 +90,16 @@ export interface JobDeps {
   entropy: () => string;
   /** The job gives up after this long and records a timeout. */
   budgetMilliseconds: number;
+  /** How many candidate sprites to draw side by side from the brief (the best one is kept and gets the fix turn). */
+  candidates: number;
+  /** Dev only: told how a finished loop went, accepted or not, with every candidate. Must not throw. */
+  onOutcome?: (summary: {
+    jobId: string;
+    id: string;
+    brief: CreatureBrief;
+    accepted: boolean;
+    outcome: CandidateOutcome;
+  }) => void;
   /** Progress and call summaries (never model output). Defaults to the console. */
   log?: (event: Record<string, unknown>) => void;
 }
@@ -135,7 +145,7 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     }
 
     const id = creatureId(deps.now(), written.brief.name, deps.entropy());
-    const outcome = await runLoop(
+    const outcome = await runCandidateLoop(
       {
         model: deps.model,
         render: deps.render,
@@ -148,14 +158,18 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
         onStage: (stage: LoopStage) => report(stage),
       },
       { id, category: "creature", text: written.brief.brief },
+      deps.candidates,
+      isAccepted,
     );
     if (ended) return;
     if (!outcome) return fail("no sprite could be drawn");
     const accepted = isAccepted(outcome.winner);
+    deps.onOutcome?.({ jobId, id, brief: written.brief, accepted, outcome });
     log({
       event: "creature-job-judged",
       jobId,
       accepted,
+      candidate_scores: outcome.row.candidate_scores,
       first_score: outcome.row.first_score,
       fixed_score: outcome.row.fixed_score,
       final: outcome.row.final,

@@ -44,6 +44,16 @@ export const verdictJson = (score: number) =>
 
 export const fenced = (code: string) => `\`\`\`ts\n${code}\n\`\`\``;
 
+const replyWith = (text: string, requestNumber: number) =>
+  new Response(
+    JSON.stringify({
+      content: [{ type: "text", text }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: "end_turn",
+    }),
+    { headers: { "x-middleware-request-id": `req-${requestNumber}` } },
+  );
+
 export interface FakeModel {
   client: MubitClient;
   /** Every request body sent to Mubit, parsed. */
@@ -51,8 +61,18 @@ export interface FakeModel {
   urls: string[];
 }
 
-/** Mubit answering each request with the next scripted reply (a string), or failing with 500 for `null`. */
-export function fakeModel(replies: Array<string | null>): FakeModel {
+/** A request as the fake sees it: which prompt it carries and the messages after it. */
+export interface SentRequest {
+  system: string;
+  messages: unknown[];
+}
+
+/**
+ * Mubit answering each request with the next scripted reply (a string), or failing with 500 for `null`; or, given a
+ * function, answering each request from what it says (for tests where requests run side by side and arrive in no fixed order).
+ */
+export function fakeModel(script: Array<string | null> | ((request: SentRequest) => string | null)): FakeModel {
+  const replies = Array.isArray(script) ? script : [];
   const sent: FakeModel["sent"] = [];
   const urls: string[] = [];
   const client = createMubitClient({
@@ -61,17 +81,17 @@ export function fakeModel(replies: Array<string | null>): FakeModel {
     fetchImplementation: async (url, init) => {
       urls.push(url);
       sent.push(JSON.parse(String(init.body)));
+      const body = sent[sent.length - 1];
+      const systemBlocks = Array.isArray(body?.system) ? body.system : [];
+      const system = systemBlocks.map((block: { text?: string }) => block.text ?? "").join("");
+      if (!Array.isArray(script)) {
+        const answer = script({ system, messages: body?.messages ?? [] });
+        return answer === null ? new Response("overloaded", { status: 500 }) : replyWith(answer, sent.length);
+      }
       if (replies.length === 0) throw new Error("the code made a request the test did not expect");
       const reply = replies.shift();
       if (reply === null || reply === undefined) return new Response("overloaded", { status: 500 });
-      return new Response(
-        JSON.stringify({
-          content: [{ type: "text", text: reply }],
-          usage: { input_tokens: 1, output_tokens: 1 },
-          stop_reason: "end_turn",
-        }),
-        { headers: { "x-middleware-request-id": `req-${sent.length}` } },
-      );
+      return replyWith(reply, sent.length);
     },
   });
   return { client, sent, urls };

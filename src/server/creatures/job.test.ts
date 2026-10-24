@@ -55,7 +55,10 @@ describe("ids", () => {
   });
 });
 
-function jobWith(replies: Array<string | null>, options: { render?: ReturnType<typeof fakeRenderer> } = {}) {
+function jobWith(
+  replies: Parameters<typeof fakeModel>[0],
+  options: { render?: ReturnType<typeof fakeRenderer>; candidates?: number } = {},
+) {
   const store = createMemoryStore();
   const clock = fakeClock();
   const model = fakeModel(replies);
@@ -75,6 +78,7 @@ function jobWith(replies: Array<string | null>, options: { render?: ReturnType<t
     prompts: { creature: "CREATURE PROMPT", generator: "GENERATOR PROMPT", verifier: "VERIFIER PROMPT" },
     entropy: () => "abc123",
     budgetMilliseconds: 5000,
+    candidates: options.candidates ?? 1,
     log: (event) => events.push(event),
   };
   return { deps, store, model, renderer, steps, events };
@@ -231,5 +235,76 @@ describe("a creature job", () => {
     expect(events.length).toBeGreaterThan(0);
     expect(JSON.stringify(events)).not.toContain("SECRET-LORE-LINE");
     expect(JSON.stringify(events)).not.toContain("too plain");
+  });
+});
+
+describe("a job with several candidates", () => {
+  const variant = (index: number) => fenced(`// candidate ${index}\n${GOOD_CODE}`);
+
+  /** Answers by content: the brief, the Nth generator call, a verifier call by the candidate it shows, a fix. */
+  function scripted(scores: Record<number, number>, fixScore = 0) {
+    let generated = 0;
+    return (request: { system: string; messages: unknown[] }): string | null => {
+      const text = JSON.stringify(request.messages);
+      if (request.system.startsWith("CREATURE")) return briefJson();
+      if (request.system.startsWith("GENERATOR"))
+        return request.messages.length === 1 ? variant(generated++) : variant(9);
+      const candidate = /candidate (\d)/.exec(text)?.[1];
+      return verdictJson(candidate === "9" ? fixScore : (scores[Number(candidate)] ?? 0));
+    };
+  }
+
+  test("draws them side by side, keeps the best, and skips the fix turn when it passes", async () => {
+    const { deps, store, steps, model, renderer } = jobWith(scripted({ 0: 4, 1: 8, 2: 5 }), { candidates: 3 });
+    const job = await runCreatureJob(deps, "job-cand-aaaa");
+    expect(job.step).toBe("done");
+    expect(job.creature?.score).toBe(8);
+    expect(renderer.requests).toHaveLength(3);
+    expect(model.sent).toHaveLength(7); // brief, 3 generators, 3 verifiers
+    // each stage is reported once, not once per candidate
+    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "done"]);
+    const [id] = await store.listCreatureIds();
+    expect(store.codes.get(id ?? "")).toContain("// candidate 1");
+  });
+
+  test("a fix turn goes to the best candidate only, and carries that candidate's own code", async () => {
+    const { deps, model, steps } = jobWith(scripted({ 0: 3, 1: 5, 2: 4 }, 7.5), { candidates: 3 });
+    const job = await runCreatureJob(deps, "job-cand-bbbb");
+    expect(job.step).toBe("done");
+    expect(job.creature?.score).toBe(7.5);
+    expect(model.sent).toHaveLength(9); // brief, 3 generators, 3 verifiers, 1 fix, 1 verifier
+    const fixRequest = JSON.stringify(model.sent.find((request) => request.messages.length === 3)?.messages);
+    expect(fixRequest).toContain("// candidate 1");
+    expect(fixRequest).not.toContain("// candidate 0");
+    expect(fixRequest).not.toContain("// candidate 2");
+    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "fixing", "rendering", "judging", "done"]);
+  });
+
+  test("a best candidate that is accepted without a verifier pass gets no fix turn", async () => {
+    const { deps, model, steps } = jobWith(scripted({ 0: 4, 1: 6, 2: 5 }), { candidates: 3 });
+    const job = await runCreatureJob(deps, "job-cand-eeee");
+    expect(job.creature?.score).toBe(6);
+    expect(model.sent).toHaveLength(8); // brief, 3 generators, 3 verifiers, the borderline 6 verified twice: no fix
+    expect(steps).not.toContain("fixing");
+  });
+
+  test("an engine-flagged candidate gets no verifier call and cannot win", async () => {
+    const flaggedFirst = fakeRenderer((request) => ({
+      ok: true,
+      stats: request.code.includes("candidate 0") ? { ...CLEAN_STATS, flags: "too_small" } : CLEAN_STATS,
+      png: spritePng(),
+    }));
+    const { deps, model, store } = jobWith(scripted({ 0: 9, 1: 8 }), { candidates: 2, render: flaggedFirst });
+    const job = await runCreatureJob(deps, "job-cand-cccc");
+    expect(job.step).toBe("done");
+    expect(model.sent).toHaveLength(4); // brief, 2 generators, 1 verifier
+    const [id] = await store.listCreatureIds();
+    expect(store.codes.get(id ?? "")).toContain("// candidate 1");
+  });
+
+  test("candidates that fail to draw are dropped; the job fails when none is left", async () => {
+    const { deps } = jobWith([briefJson(), null, null, null, null], { candidates: 2 });
+    const job = await runCreatureJob(deps, "job-cand-dddd");
+    expect(job).toMatchObject({ step: "failed", error: "no sprite could be drawn" });
   });
 });

@@ -175,6 +175,10 @@ describe("rate limits", () => {
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_MAX_STARTS_PER_DAY: "7" }).limits.perDay).toBe(7);
     expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_MAX_STARTS_PER_DAY: "lots" }).limits.perDay).toBe(40);
     expect(readCreatureConfig(GENERATING_ENV).limits).toEqual({ perVisitorPerHour: 3, perDay: 40 });
+    expect(readCreatureConfig(GENERATING_ENV).candidates).toBe(3);
+    expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_CANDIDATES: "1" }).candidates).toBe(1);
+    expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_CANDIDATES: "50" }).candidates).toBe(5);
+    expect(readCreatureConfig({ ...GENERATING_ENV, CREATURE_CANDIDATES: "many" }).candidates).toBe(3);
   });
 
   test("visitors are keyed by a salted hash; the address is never in the key", () => {

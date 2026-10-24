@@ -53,7 +53,9 @@ export function prepareKit(): PreparedKit {
   const cacheDirectory = process.env.LAMPWARDEN_KIT_CACHE_DIRECTORY;
   const source = readFileSync(KIT_PATH, "utf8");
   const sha256 = createHash("sha256").update(source).digest("hex");
-  const cachePath = cacheDirectory ? join(cacheDirectory, `kit-${sha256.slice(0, 16)}.js`) : undefined;
+  const cachePath = cacheDirectory
+    ? join(cacheDirectory, `kit-${sha256.slice(0, 16)}-${process.versions.bun ? "bun" : "node"}.js`)
+    : undefined;
   let body: string | undefined;
   if (cachePath && existsSync(cachePath)) body = readFileSync(cachePath, "utf8");
   if (body === undefined) {
@@ -66,6 +68,10 @@ export function prepareKit(): PreparedKit {
     }
   }
   const names = [...source.matchAll(/^export (?:const|let|function|class) (\w+)/gm)].map((match) => match[1] ?? "");
+  // every value export must have been found, or build code calling it would fail with a ReferenceError
+  const valueExports = (source.match(/^export (?!type\b|interface\b)/gm) ?? []).length;
+  if (valueExports !== names.length)
+    throw new Error("kit.ts has an export form the in-process renderers do not handle");
   preparedKit = { sha256, names: names.filter((name) => IDENTIFIER.test(name)), body };
   return preparedKit;
 }

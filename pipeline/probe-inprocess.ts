@@ -201,6 +201,13 @@ function rssOf(pid: number): number {
   return Number(output.stdout.toString().trim()) || 0;
 }
 
+function commandOf(pid: number): string {
+  return Bun.spawnSync(["ps", "-o", "command=", "-p", String(pid)], {
+    stdout: "pipe",
+    stderr: "ignore",
+  }).stdout.toString();
+}
+
 function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -271,7 +278,8 @@ async function runProbe(
   const pidFile = join(workDirectory, "at-pid");
   if (existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, "utf8").trim());
-    if (pid > 1 && processAlive(pid)) {
+    // the file is written by the probe, so trust it only for a process that is the probe's own `sh -c ... at-ran`
+    if (pid > 1 && processAlive(pid) && commandOf(pid).includes(join(workDirectory, "at-ran"))) {
       leftoverPid = pid;
       process.kill(pid, "SIGKILL");
     }

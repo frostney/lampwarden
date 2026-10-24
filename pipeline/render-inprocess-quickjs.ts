@@ -22,7 +22,6 @@ import {
   type QuickJSHandle,
   type QuickJSRuntime,
   type QuickJSWASMModule,
-  shouldInterruptAfterDeadline,
 } from "quickjs-emscripten-core";
 import {
   DETERMINISM_PRELUDE,
@@ -72,7 +71,12 @@ export interface QuickJsRenderDetails {
 
 const sharedModules = new Map<number, Promise<QuickJSWASMModule>>();
 
-function createModule(wasmMemoryLimitBytes: number): Promise<QuickJSWASMModule> {
+function createModule(requestedLimitBytes: number): Promise<QuickJSWASMModule> {
+  // never below the initial size, always whole pages
+  const wasmMemoryLimitBytes = Math.max(
+    WASM_INITIAL_BYTES,
+    Math.ceil(requestedLimitBytes / WASM_PAGE_BYTES) * WASM_PAGE_BYTES,
+  );
   const memory = new WebAssembly.Memory({
     initial: WASM_INITIAL_BYTES / WASM_PAGE_BYTES,
     maximum: wasmMemoryLimitBytes / WASM_PAGE_BYTES,
@@ -87,8 +91,15 @@ function loadModule(options: QuickJsRenderOptions): Promise<QuickJSWASMModule> {
   if (!module) {
     module = createModule(wasmMemoryLimitBytes);
     sharedModules.set(wasmMemoryLimitBytes, module);
+    // a module that failed to load is not kept: the next render tries again
+    module.catch(() => sharedModules.delete(wasmMemoryLimitBytes));
   }
   return module;
+}
+
+/** Drops the shared module after a render that failed, so a build that drove it into a trap or out of memory cannot affect the next one. */
+function discardSharedModule(options: QuickJsRenderOptions): void {
+  sharedModules.delete(options.wasmMemoryLimitBytes ?? DEFAULT_WASM_MEMORY_LIMIT_BYTES);
 }
 
 function readMemoryUsed(runtime: QuickJSRuntime, context: QuickJSContext): number {
@@ -169,12 +180,18 @@ export async function renderInQuickJsWithDetails(
   const runtime = quickJs.newRuntime();
   let memoryUsedBytes = 0;
   const start = performance.now();
-  const deadline = Date.now() + timeoutMilliseconds;
+  // a monotonic deadline; the interrupt handler records that it fired, so only a real timeout is reported as one
+  const deadline = performance.now() + timeoutMilliseconds;
+  let interrupted = false;
   let result: RenderResult;
   try {
     runtime.setMemoryLimit(options.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES);
     runtime.setMaxStackSize(options.stackLimitBytes ?? DEFAULT_STACK_LIMIT_BYTES);
-    runtime.setInterruptHandler(shouldInterruptAfterDeadline(deadline));
+    runtime.setInterruptHandler(() => {
+      if (performance.now() < deadline) return false;
+      interrupted = true;
+      return true;
+    });
     // Date is left out: a render must not depend on the clock. (Eval stays, because the host's own evalCode needs it.)
     const context = runtime.newContext({
       intrinsics: {
@@ -200,15 +217,20 @@ export async function renderInQuickJsWithDetails(
       } finally {
         output.dispose();
       }
-      memoryUsedBytes = readMemoryUsed(runtime, context);
+      try {
+        memoryUsedBytes = readMemoryUsed(runtime, context);
+      } catch {
+        memoryUsedBytes = 0; // a statistic must not turn a finished render into a failure
+      }
     } finally {
       context.dispose();
     }
   } catch (error) {
-    result = { ok: false, error: Date.now() >= deadline ? "render timed out" : `quickjs: ${interpreterError(error)}` };
+    result = { ok: false, error: interrupted ? "render timed out" : `quickjs: ${interpreterError(error)}` };
   } finally {
     runtime.dispose();
   }
+  if (!result.ok && !options.freshModule) discardSharedModule(options);
   return { result, interpreterMilliseconds: Math.round(performance.now() - start), memoryUsedBytes };
 }
 

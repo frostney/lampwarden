@@ -737,23 +737,29 @@ export interface NightResult {
 
 // The rules-based director: read the night as implicit feedback and set the next tide.
 // Clean dawn with most lamps and health kept → the sea pushes harder; a lost night → it eases off.
-export function rulesTide(tide: number, night: NightResult): number {
+// `mayEase` is false after a night the player was not there for (src/game/engagement.ts): a loss then says nothing about how
+// hard the night was, so the tide is not lowered.
+export function rulesTide(tide: number, night: NightResult, mayEase = true): number {
   const killRate = night.kills / Math.max(1, night.seconds / 60); // kills per minute
   let next = tide;
   if (night.outcome === "dawn") {
     const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;
     next *= clean ? (killRate > 20 ? 1.18 : 1.1) : 1.0;
-  } else next *= 0.85;
+  } else if (mayEase) next *= 0.85;
   return Math.min(2, Math.max(0.6, Math.round(next * 100) / 100));
 }
 
-export function nextTide(tide: number, state: State): number {
-  return rulesTide(tide, {
-    outcome: state.outcome,
-    kills: state.stats.kills,
-    seconds: state.stats.time,
-    lampsLost: state.stats.lampsLost,
-    health: state.hero.health,
-    maxHealth: state.hero.maxHealth,
-  });
+export function nextTide(tide: number, state: State, mayEase = true): number {
+  return rulesTide(
+    tide,
+    {
+      outcome: state.outcome,
+      kills: state.stats.kills,
+      seconds: state.stats.time,
+      lampsLost: state.stats.lampsLost,
+      health: state.hero.health,
+      maxHealth: state.hero.maxHealth,
+    },
+    mayEase,
+  );
 }

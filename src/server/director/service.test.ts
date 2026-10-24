@@ -201,7 +201,7 @@ describe("the rules answer when the model cannot", () => {
     const result = await ask();
     if (result.kind !== "decision") throw new Error("no decision");
     expect(result.fallback).toBe(reason);
-    expect(result.decision).toEqual(rulesDirector(0.94, 2, FIXTURE_PLAY_ID));
+    expect(result.decision).toEqual(rulesDirector(0.94, 2, FIXTURE_PLAY_ID, "engaged"));
     return result;
   };
 
@@ -330,6 +330,96 @@ describe("the play it is asked about", () => {
   test("a play stored under another id than it was asked for is not used", async () => {
     world.store.plays.set("2026-10-24-16-11-50-otherxxx", lostNightTwo());
     expect(await decide(world.deps, { playId: "2026-10-24-16-11-50-otherxxx", ip: null })).toEqual({ kind: "no-play" });
+  });
+});
+
+describe("a night nobody played", () => {
+  // the model, asked to ease as far as it may
+  const easing = () =>
+    Response.json({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            modelReply({ tide: 0.5, mix: { satyr: 0.5, cyclops: 0.5, harpy: 0.5 }, creatureShare: 0.1 }),
+          ),
+        },
+      ],
+    });
+  const decideWith = async (play: ReturnType<typeof lostNightTwo>) => {
+    world = setup({}, easing);
+    world.store.plays.set(play.id, play);
+    const result = await decide(world.deps, { playId: play.id, ip: "203.0.113.7" });
+    if (result.kind !== "decision") throw new Error("no decision");
+    return result.decision;
+  };
+
+  test("an engaged loss is eased as far as the bounds allow", async () => {
+    expect(await decideWith(lostNightTwo())).toMatchObject({
+      tide: 0.79, // the rules' 0.94 less 0.15
+      mix: { satyr: 0.5, cyclops: 0.5, harpy: 0.5 },
+      creatureShare: 0.1,
+      engagement: "engaged",
+    });
+  });
+
+  test("an idle loss is not: the tide stays at the rules' (which held), nothing drops below 1, the share below a quarter", async () => {
+    const decision = await decideWith(lostNightTwo({ hands: "idle" }));
+    expect(decision).toMatchObject({
+      source: "mubit",
+      tide: 1.1,
+      rulesTide: 1.1,
+      mix: { satyr: 1, cyclops: 1, harpy: 1 },
+      creatureShare: 0.25,
+      engagement: "idle",
+    });
+    expect(directorSchema.safeParse(decision).success).toBe(true);
+  });
+
+  test("so is a loss in a night most of whose real time was spent away", async () => {
+    const decision = await decideWith(lostNightTwo({ wallSeconds: 120 }));
+    expect(decision).toMatchObject({
+      tide: 1.1,
+      mix: { satyr: 1, cyclops: 1, harpy: 1 },
+      creatureShare: 0.25,
+      engagement: "paused",
+    });
+    expect((await decideWith(lostNightTwo({ wallSeconds: 22 }))).engagement).toBe("engaged"); // 4 s away is not paused
+  });
+
+  test("and a night left before the end", async () => {
+    expect(await decideWith(lostNightTwo({ outcome: null }))).toMatchObject({
+      tide: 1.1,
+      engagement: "left",
+      creatureShare: 0.25,
+    });
+  });
+
+  test("the rules' decision after an idle night does not ease either, whatever stopped the model", async () => {
+    world = setup({}, () => new Response("busy", { status: 500 }));
+    const play = lostNightTwo({ hands: "idle" });
+    world.store.plays.set(play.id, play);
+    const result = await decide(world.deps, { playId: play.id, ip: null });
+    expect(result.kind === "decision" && result.decision).toMatchObject({
+      source: "rules",
+      tide: 1.1,
+      engagement: "idle",
+    });
+  });
+
+  test("the model is told, in the summary, that the night was not engaged", async () => {
+    await decideWith(lostNightTwo({ hands: "idle", wallSeconds: 120 }));
+    const text = JSON.stringify(world.sent[0]?.body.messages);
+    expect(text).toContain('\\"kind\\":\\"paused\\"');
+    expect(text).toContain("afterThisNightNothingGetsEasier");
+    expect(text).toContain('\\"pausedSeconds\\":101.6');
+  });
+
+  test("a play from before the real time was kept loads, judged on its inputs alone", async () => {
+    const decision = await decideWith(lostNightTwo());
+    expect(decision.engagement).toBe("engaged");
+    const text = JSON.stringify(world.sent[0]?.body.messages);
+    expect(text).toContain('\\"wallSeconds\\":null');
   });
 });
 

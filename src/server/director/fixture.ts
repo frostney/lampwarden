@@ -33,6 +33,26 @@ export interface FixtureOverrides {
   tide?: number;
   outcome?: "dawn" | "dark" | "fallen" | null;
   director?: Director;
+  /** What the warden did: "engaged" (the default: moving most of the night, a strike or shot every few seconds) or "idle" (nothing). */
+  hands?: "engaged" | "idle";
+  /** Real seconds the night took, when the recording keeps them. */
+  wallSeconds?: number;
+}
+
+// [step, moveX, moveY, strike, shot, aimX, aimY] every half second: walking, with a strike every third change and a shot every fourth
+function engagedInputs(steps: number): number[][] {
+  const rows: number[][] = [];
+  for (let step = 0, index = 0; step < steps; step += 30, index++)
+    rows.push([
+      step,
+      index % 2 === 0 ? 1 : 0,
+      index % 2 === 0 ? 0 : 1,
+      index % 3 === 0 ? 1 : 0,
+      index % 4 === 0 ? 1 : 0,
+      400,
+      300,
+    ]);
+  return rows;
 }
 
 /** A recorded play as the plays store holds it (JSON), by default a night 2 lost to the dark in 18 seconds. */
@@ -41,7 +61,7 @@ export function lostNightTwo(overrides: FixtureOverrides = {}) {
     v: 1,
     id: overrides.id ?? FIXTURE_PLAY_ID,
     seed: 123,
-    inputs: [],
+    inputs: overrides.hands === "idle" ? [] : engagedInputs(1102),
     session: overrides.session ?? "soipj2xp240eqfxx",
     build: "test",
     startedAt: "2026-10-24T16:11:46.000Z",
@@ -57,6 +77,7 @@ export function lostNightTwo(overrides: FixtureOverrides = {}) {
     steps: 1102,
     outcome: overrides.outcome === undefined ? "dark" : overrides.outcome,
     stats: { kills: 2, lampsLost: 5, hpLost: 62, time: 18.37, oilEarned: 0, hp: 38, maxHp: 100, lit: 0 },
+    ...(overrides.wallSeconds === undefined ? {} : { wallSeconds: overrides.wallSeconds }),
     receivedAt: "2026-10-24T16:12:12.000Z",
   };
 }

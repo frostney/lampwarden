@@ -41,5 +41,6 @@ export const incomingPlay = z.looseObject({
   seed: z.number().int(),
   inputs: z.array(z.array(z.number()).length(7)),
   creature: recordedCreatureSchema.optional(), // the creature from the sea the night met; plays from before have none
+  wallSeconds: z.number().min(0).max(86_400).optional(), // real seconds the night took; plays from before have none
   sim: z.string().regex(SIM_FINGERPRINT).optional(), // the sim the night was played on; plays from before have none
 });

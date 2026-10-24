@@ -66,6 +66,7 @@ const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
 //   "answer": a decision from the model, built on the rules' decision the page is waiting with (tide 0.1 under the
 //             rules', cyclops 0.6, harpy 1.5, creature share 0.2, and a line of the sea's)
 //   "late": the same, but only once director.hold is resolved
+//   "eager": eases whatever the night was, and says it was engaged
 //   "fallback": the rules' decision with fallback "timeout"; "down": the connection fails
 const DIRECTOR_LINE = "The tide withdraws, and Lychnos sleeps a little.";
 const director = { mode: "off", asked: [], uploads: [], hold: null, decision: null };
@@ -85,15 +86,19 @@ async function serveDirector(route) {
       .evaluate(() => window.lampwarden.legacy().director);
     if (director.mode === "late") await director.hold;
     if (director.mode === "down") return await route.abort();
-    if (director.mode === "answer" || director.mode === "late") {
+    if (director.mode === "answer" || director.mode === "late" || director.mode === "eager") {
+      // The real route eases only after an engaged night (src/game/engagement.ts); "eager" is a server that eases anyway and
+      // claims the night was engaged, which the game must not take on its word.
+      const eases = director.mode === "eager" || !rules.engagement || rules.engagement === "engaged";
       director.decision = {
         ...rules,
         source: "mubit",
-        tide: Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100),
-        mix: { satyr: 1, cyclops: 0.6, harpy: 1.5 },
-        creatureShare: 0.2,
+        tide: eases ? Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100) : rules.rulesTide,
+        mix: eases ? { satyr: 1, cyclops: 0.6, harpy: 1.5 } : { satyr: 1, cyclops: 1, harpy: 1.5 },
+        creatureShare: eases ? 0.2 : 0.25,
         line: DIRECTOR_LINE,
         playId,
+        ...(director.mode === "eager" ? { engagement: "engaged" } : {}),
       };
       return await route.fulfill({ json: { decision: director.decision } });
     }
@@ -2139,7 +2144,16 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     await page.waitForSelector('[data-phase="night"]');
     await freeze();
   };
-  const toDawn = async () => {
+  // `played`: the warden walks as the night ends, so it reads as engaged; without it nobody touched anything (idle)
+  const toDawn = async (played = true) => {
+    if (played) {
+      // walk for half a second of play first: the recording must show the warden moving for a good part of the night
+      await page.evaluate(() => {
+        window.lampwarden.scene().stick(1, 0);
+        window.lampwarden.scene().setPaused(false);
+      });
+      await page.waitForTimeout(600);
+    }
     await page.evaluate(() => {
       const state = window.lampwarden.state();
       state.elapsed = state.length - 0.01;
@@ -2159,6 +2173,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
         creatureShare: state.creatureShare,
         legacyTide: legacy.tide,
         source: legacy.director.source,
+        engagement: legacy.director.engagement ?? null,
+        directorMix: legacy.director.mix,
+        directorShare: legacy.director.creatureShare,
         savedSource: JSON.parse(localStorage.getItem("lampwarden:legacy:v1") ?? "{}").director?.source,
         line: document.querySelector("[data-director-line]")?.textContent ?? null,
         note: [...document.querySelectorAll(".panel p.dim")].map((paragraph) => paragraph.textContent).join(" "),
@@ -2190,6 +2207,12 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     "the night's recording went to /api/plays first, and the director was asked about that play",
     director.uploads.length === 1 && director.asked.length === 1 && director.asked[0] === sentPlay?.id,
     `${director.uploads.length} uploads, asked ${director.asked.join()} for ${sentPlay?.id}`,
+  );
+  check(
+    "director-answer",
+    "the recording keeps the real seconds the night took, for the engagement summary",
+    typeof sentPlay?.wallSeconds === "number" && sentPlay.wallSeconds >= 0.5 && sentPlay.wallSeconds < 30,
+    String(sentPlay?.wallSeconds),
   );
   check(
     "director-answer",
@@ -2327,8 +2350,35 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     JSON.stringify({ before: lateNightBefore, after: lateNightAfter }),
   );
 
-  // the heir screen shows the line as well
+  // 26 a night nobody played: it reads idle, and the answer, which tries to ease, is not taken as it stands
+  director.mode = "eager";
+  // (the night begun in the last scenario is still on stage)
+  const tideBeforeIdle = (await snapshot()).legacyTide;
+  await toDawn(false);
+  await page.waitForSelector("[data-director-line]", { timeout: 5000 });
+  const idle = await snapshot();
+  check(
+    "director-idle",
+    "a night with no input reads idle, and the sea's line still shows",
+    idle.engagement === "idle" && idle.line === DIRECTOR_LINE,
+    JSON.stringify(idle),
+  );
+  check(
+    "director-idle",
+    "an answer that eases it is held: the tide at the rules', no weight under 1, the share at least a quarter",
+    idle.source === "mubit" &&
+      idle.legacyTide === director.decision?.rulesTide &&
+      idle.legacyTide >= tideBeforeIdle &&
+      Object.values(idle.directorMix).every((weight) => weight >= 1) &&
+      idle.directorShare >= 0.25,
+    JSON.stringify({ tide: idle.legacyTide, before: tideBeforeIdle, mix: idle.directorMix, share: idle.directorShare }),
+  );
+  await shoot("25-director-idle-dawn");
+
+  // the heir screen shows the line as well, and a loss nobody played does not lower the tide
   director.mode = "answer";
+  await startNight(/Into night/);
+  const tideBeforeLoss = (await snapshot()).legacyTide;
   await page.evaluate(() => {
     for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
     window.lampwarden.scene().setPaused(false);
@@ -2336,7 +2386,14 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
   await page.waitForSelector("[data-director-line]", { timeout: 5000 });
   await freeze();
-  check("director-heir", "the heir screen shows the sea's line too", (await snapshot()).line === DIRECTOR_LINE);
+  const heirScreen = await snapshot();
+  check("director-heir", "the heir screen shows the sea's line too", heirScreen.line === DIRECTOR_LINE);
+  check(
+    "director-idle",
+    "a night lost with nobody playing does not lower the tide (the rules' 0.85 is not applied)",
+    heirScreen.engagement === "idle" && heirScreen.legacyTide >= tideBeforeLoss,
+    `${tideBeforeLoss} -> ${heirScreen.legacyTide}`,
+  );
   await shoot("24-director-heir");
 
   page = mainPage;

@@ -33,6 +33,9 @@ export interface Play {
   outcome: string | null; // dawn | dark | fallen | null when abandoned
   // hp and maxHp are the warden's health and maxHealth; the keys stay as recorded so stored plays still read
   stats: State["stats"] & { oilEarned: number; hp: number; maxHp: number; lit: number };
+  // Real seconds from the night's start to its end, from a monotonic clock. The sim stops when the tab is hidden, so this
+  // minus steps / 60 is the time away (src/game/engagement.ts). Plays from before it was kept have none.
+  wallSeconds?: number;
   replay?: { endsMatch: boolean }; // filled in when a recording is verified by replay
 }
 
@@ -53,6 +56,7 @@ function sessionId(): string {
 export class Recorder {
   play: Play;
   private last: InputRow | null = null;
+  private readonly startedClock = performance.now();
   constructor(
     legacy: Legacy,
     seed: number,
@@ -107,6 +111,7 @@ export class Recorder {
   }
   finish(state: State): Play {
     const play = this.play;
+    play.wallSeconds = Math.round((performance.now() - this.startedClock) / 100) / 10;
     play.outcome = state.outcome;
     play.stats = {
       ...state.stats,

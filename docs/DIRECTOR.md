@@ -46,6 +46,79 @@ the share 0.25, which draw exactly the same random numbers).
 4. That night's call tells the model its previous decision (from the recording, validated again), what it wrote about
    it (from the log of the play that decision answered).
 
+## Was the player there?
+
+A night that was left alone must not make the next one easier. `src/game/engagement.ts` (`engagementOf`) works out, from
+a recorded play, how engaged the player was, and a night that was not engaged is no evidence it was too hard.
+
+**What a recording keeps.** Inputs are recorded when they change (a move, a strike, a shot), so the share of the night
+spent moving, the strikes and the shots come straight from them. Pausing is not in the sim: there is no pause button in a
+night, the sim only advances while frames are drawn, a hidden tab stops it, and a long frame is clamped to 50 ms
+(`Scene.tsx`). So time away is the real time minus the sim's (`steps / 60`). The recording had no real time. `startedAt`
+and the server's `receivedAt` are two clocks that can disagree by minutes (on the nine recorded plays they agree within
+1.5 s, which is luck, not a guarantee), so the recorder now keeps `wallSeconds`, the seconds from the night's start to its
+end by a monotonic clock (`performance.now()`), as an optional field (`incomingPlay` validates it, 0 to 86400). It is
+recorder-only: the sim and `replay.ts` do not read it, replays are exact with or without it, and `recording.ts` and
+`plays.ts` are outside the sim fingerprint. (`director.ts` and `sim.ts` are inside it and were edited for this, so the
+fingerprint changes with this branch, as it does with any edit to those files.) A play without `wallSeconds` has no
+pause time and is judged on its inputs alone. Slow frames also count as time away; a device under about 10 frames a second
+would read as half paused.
+
+**The rule**, in this order:
+
+| kind      | when                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `left`    | the night did not finish (outcome null): it says nothing about how hard it was             |
+| `paused`  | more than 50% of the real time was spent away, and at least 10 s of it                     |
+| `idle`    | moving for under 15% of the night **and** striking or shooting fewer than 6 times a minute |
+| `engaged` | anything else                                                                              |
+
+The two clauses of `idle` are needed: one recorded night moves for only 13% of it but strikes and shoots 26 times a
+minute, a warden who stands his ground and fights, and is engaged.
+
+**The nine recorded plays** (a test reads them where they exist; they are not committed):
+
+| play (night, outcome) | simulated | moving | strikes + shots | a minute | kind                                  |
+| --------------------- | --------- | ------ | --------------- | -------- | ------------------------------------- |
+| 1 (night 1, dark)     | 27.3 s    | 13%    | 7 + 5           | 26.4     | engaged (it moves little, and fights) |
+| 2 (night 1, dawn)     | 40 s      | 19%    | 8 + 28          | 54       | engaged                               |
+| 3 (night 1, dawn)     | 40 s      | 56%    | 14 + 16         | 45       | engaged                               |
+| 4 (night 1, dawn)     | 40 s      | 38%    | 21 + 12         | 49.5     | engaged                               |
+| 5 (night 2, dark)     | 18.4 s    | 45%    | 8 + 0           | 26.1     | engaged                               |
+| 6 (night 1, quit)     | 7.4 s     | 45%    | 2 + 0           | 16.1     | left                                  |
+| 7 (night 2, quit)     | 7.5 s     | 33%    | 0 + 5           | 40.2     | left                                  |
+| 8 (night 2, quit)     | 29.2 s    | 58%    | 13 + 9          | 45.2     | left                                  |
+| 9 (night 2, dark)     | 27.9 s    | 46%    | 5 + 21          | 55.8     | engaged                               |
+
+The two 7 s quits are not idle: both moved and acted (45% moving and two strikes; 33% and five shots). They read as `left`,
+which holds the same way. No recorded night is idle or paused, and none can be shown paused (they have no `wallSeconds`;
+the timestamps, for what they are worth, put the real time within 1.5 s of the simulated on every one).
+
+**Enforced in code, not just in the prompt.** After a night that is not engaged (`mayEase` in `director.ts`):
+- the tide is at least the rules' tide (`tideRange(rulesTide, kind)`), and the rules' tide itself does not ease: `rulesTide`
+  in `sim.ts` takes `mayEase`, and `endNight` passes it, so an idle loss no longer multiplies the tide by 0.85 (before
+  this the rules eased after every lost night, idle or not);
+- no mix weight is below 1, and the creature share is at least the default 0.25;
+- this is `clampProposal` on the model's reply, again in the game on the answer it receives against the game's own read
+  of the night (`applyDirector` passes `waiting.engagement`; the server's claim is not trusted), and `directorSchema`,
+  which refuses a stored or recorded decision that eases after such a night, so it loads as the rules'. The model may
+  still push.
+- The rules' decision carries the same `engagement` and is held the same way; the server's rules fallback too.
+
+**The prompt** ("Was the player there?") gives the model the engagement object (kind, moving share, strikes, shots,
+actions a minute, real time and time away, and `afterThisNightNothingGetsEasier`), says plainly that idle, paused or left
+nights are not evidence the night was too hard, and that the game enforces the floor. The system prompt is still one fixed
+text.
+
+**Live** (four calls through the route, 24 Oct 2026; the model sees the engagement and answers accordingly, and the clamp
+is the backstop): a 7 s quit (play 6, `left`): held at the rules' 0.94, even mix, "The player left after seven seconds, so
+the night says little"; an engaged loss (play 5): eased to 0.8 with cyclops 0.6 and harpies 0.8, "Engaged loss: all lamps
+dark by second 18 while health held, so ease pace and fast snuffers"; the same loss with its inputs removed (`idle`):
+1.1, the rules' (which held), even mix, "The player was idle, with no movement, strikes or shots, so the loss says nothing";
+the same loss with `wallSeconds` 120 (`paused`, 101.6 s away): 1.1, even mix, "The player was away for most of the night,
+so the loss is not evidence". The idle and paused nights are the same recording as the engaged loss with its inputs
+removed or its real time set, since no recorded night was idle or paused. Model time 3.0 to 5.0 s.
+
 ## The route
 
 `src/app/api/director/route.ts` (Node, `maxDuration` 30), `src/server/director/service.ts` (everything injected).

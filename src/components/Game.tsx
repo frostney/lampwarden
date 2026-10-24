@@ -51,7 +51,7 @@ import {
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
-import { SEXES, type Sex } from "@/scene/assets";
+import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
 import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -79,6 +79,31 @@ const INTRODUCTION = [
   "Keep one burning until dawn.",
   "When a warden falls, an heir takes up the lamp.",
 ];
+
+// The hero choice card's warden: his idle frame facing the player, drawn from the atlas the scene has already loaded
+// (the same picture, so it is downloaded once), a pixel for a pixel, scaled with the card by CSS.
+function HeroPortrait({ sex, textures }: { sex: Sex; textures: TextureMap | null }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
+    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
+    const cell = heroAtlasCell("idle", 0, "s");
+    context.clearRect(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
+    context.drawImage(
+      picture,
+      cell.x,
+      cell.y,
+      HERO_FRAME_SIZE,
+      HERO_FRAME_SIZE,
+      0,
+      0,
+      HERO_FRAME_SIZE,
+      HERO_FRAME_SIZE,
+    );
+  }, [sex, textures]);
+  return <canvas ref={canvas} width={HERO_FRAME_SIZE} height={HERO_FRAME_SIZE} className="hero-sprite" />;
+}
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
@@ -673,14 +698,7 @@ export default function Game() {
                         onClick={() => chooseSex(sex)}
                       >
                         <span className="hero-portrait">
-                          <Image
-                            src={`/sprites/hero/${sex}_idle1.png`}
-                            alt=""
-                            width={128}
-                            height={128}
-                            unoptimized
-                            className="hero-sprite"
-                          />
+                          <HeroPortrait sex={sex} textures={textures} />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
                         <span>{ARMS[sex].loadout}</span>

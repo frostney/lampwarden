@@ -823,9 +823,9 @@ h1 {
   position: absolute;
   left: calc(-37px * var(--portrait));
   top: calc(-20px * var(--portrait));
+  display: block;
   width: calc(128px * var(--portrait));
   height: calc(128px * var(--portrait));
-  max-width: none;
   image-rendering: pixelated;
 }
 .hero-card:not(.chosen) .hero-sprite {

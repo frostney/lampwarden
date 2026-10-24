@@ -62,7 +62,8 @@ src/
                      starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
                      (the only module that reads env and files and wires Mubit, the sandbox and Blob)
   scene/             what the scene looks like, plain Pixi
-    assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
+    assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
+                     warden's eight directions (octants), the five of them drawn and the three mirrored
     layers.ts        textures (and the creature's, loaded at runtime from its sprite path; a sprite that fails means a
                      night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
                      is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite

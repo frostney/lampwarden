@@ -57,5 +57,7 @@ describe("isCharacterKey", () => {
   test("picks the hero's frames and the monsters, not the buildings", () => {
     expect(["satyr", "cyclops", "harpy", "hero/male_idle1"].every(isCharacterKey)).toBe(true);
     expect(["temple", "lamp-lit", "wall", "trireme"].some(isCharacterKey)).toBe(false);
+    // the warden's atlas is only read, never stripped of a shadow: its frames are cut out of it
+    expect(isCharacterKey("hero-atlas/male")).toBe(false);
   });
 });

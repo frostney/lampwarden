@@ -869,7 +869,7 @@ const placeClawer = (heroX, heroY) =>
       state.hero.y = heroY;
       state.hero.animation = "idle";
       state.hero.frameTime = 0;
-      state.hero.left = false;
+      state.hero.octant = 2;
       state.monsters.push({
         id: state.nextId++,
         kind: "satyr",
@@ -985,6 +985,151 @@ const placeClawer = (heroX, heroY) =>
     const state = window.lampwarden.state();
     state.monsters = [];
     Object.assign(state.hero, { hurt: 0, mercy: 0, stun: 0, knockX: 0, knockY: 0, x: 560, y: 360 });
+  });
+  await settle();
+}
+
+// 4d the warden faces the eight ways he strikes: pointing the stick (or the keys) a way turns him to it, every frame
+// he is drawn with is the frame of that direction (the sw, w and nw ones mirrored from the se, e and ne), and the wedge
+// a swing draws on the ground is centred on the direction he is shown facing
+{
+  const heroSprite = () =>
+    page.evaluate(() => {
+      let found = null;
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        if (node.visible && label.includes("/hero/") && !label.startsWith("flash:"))
+          found = { name: label.slice(label.indexOf("/hero/") + 6), mirrored: node.scale.x < 0 };
+        for (const child of node.children ?? []) visit(child);
+      };
+      visit(window.lampwarden.app().stage);
+      return found;
+    });
+  // the ground angle, in degrees clockwise from east, the swing's wedge is centred on; null when none is drawn
+  const wedgeAngle = () =>
+    page.evaluate(() => {
+      let angle = null;
+      const visit = (node) => {
+        for (const instruction of node.context?.instructions ?? []) {
+          const steps = instruction.data?.path?.instructions;
+          if (instruction.action !== "fill" || !steps || steps.length < 10) continue;
+          const [centreX, centreY] = steps[0].data;
+          const rim = steps.slice(1, -1).map((step) => step.data);
+          const meanX = rim.reduce((total, [x]) => total + x, 0) / rim.length - centreX;
+          const meanY = rim.reduce((total, [, y]) => total + y, 0) / rim.length - centreY;
+          angle = (Math.atan2(meanY * 2, meanX) * 180) / Math.PI;
+        }
+        for (const child of node.children ?? []) visit(child);
+      };
+      visit(window.lampwarden.app().stage);
+      return angle;
+    });
+  const COMPASS = [
+    // name, stick x, stick y, the drawn direction and whether it is mirrored
+    ["e", 1, 0, "e", false],
+    ["se", 1, 1, "se", false],
+    ["s", 0, 1, "s", false],
+    ["sw", -1, 1, "se", true],
+    ["w", -1, 0, "e", true],
+    ["nw", -1, -1, "ne", true],
+    ["n", 0, -1, "n", false],
+    ["ne", 1, -1, "ne", false],
+  ];
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.monsters = [];
+    state.shots = [];
+    state.spawnTimer = 1e9;
+    for (const lamp of state.lamps) lamp.lit = true;
+    window.lampwarden.scene().setPaused(false);
+  });
+  const facings = [];
+  for (const [index, [name, stickX, stickY, drawn, mirrored]] of COMPASS.entries()) {
+    await page.evaluate(
+      ([x, y]) => {
+        const hero = window.lampwarden.state().hero;
+        hero.x = 480;
+        hero.y = 450;
+        hero.animation = "idle";
+        hero.frameTime = 0;
+        window.lampwarden.scene().stick(x, y);
+      },
+      [stickX, stickY],
+    );
+    await page.waitForTimeout(160);
+    const walking = await heroSprite();
+    await page.evaluate(() => {
+      window.lampwarden.scene().stick(0, 0);
+      window.lampwarden.scene().press("melee");
+    });
+    await page.waitForTimeout(90);
+    const striking = await heroSprite();
+    const wedge = await wedgeAngle();
+    const octant = await page.evaluate(() => window.lampwarden.state().hero.octant);
+    await page.waitForFunction(() => window.lampwarden.state().hero.animation === "idle");
+    await page.waitForTimeout(60);
+    const standing = await heroSprite();
+    // a shot with no mouse aim (the K key, a touch button with nothing to aim at) flies the way he faces on the ground:
+    // on the screen that is the stick's direction with its y halved
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.shots = [];
+      state.hero.shotCooldown = 0;
+      window.lampwarden.scene().press("ranged");
+    });
+    await page.waitForFunction(() => window.lampwarden.state().shots.length > 0, null, { timeout: 4000 });
+    const [shotX, shotY] = await page.evaluate(() => {
+      const [shot] = window.lampwarden.state().shots;
+      return [shot.velocityX, shot.velocityY];
+    });
+    const shotAngle = (Math.atan2(shotY, shotX) * 180) / Math.PI;
+    const wantedAngle = (Math.atan2(stickY / 2, stickX) * 180) / Math.PI;
+    const shotOff = Math.abs(((shotAngle - wantedAngle + 540) % 360) - 180);
+    await page.waitForFunction(() => window.lampwarden.state().hero.animation === "idle");
+    const shown = (sprite, animation) =>
+      sprite?.name.startsWith(`male_${animation}`) &&
+      sprite.name.endsWith(`_${drawn}.png`) &&
+      sprite.mirrored === mirrored;
+    facings.push({
+      name,
+      ok: shown(walking, "walk") && shown(striking, "melee") && shown(standing, "idle") && octant === index,
+      detail: `${walking?.name}${walking?.mirrored ? " mirrored" : ""}, ${striking?.name}, ${standing?.name}`,
+      wedge: wedge === null ? null : ((wedge % 360) + 360) % 360,
+      shotOff,
+    });
+    const stage = await page.locator(".stage").boundingBox();
+    await page.screenshot({
+      path: `${OUT}/latest/hero-direction-${index}-${name}.png`,
+      clip: { x: stage.x + 480 - 60, y: stage.y + 450 - 110, width: 120, height: 130 },
+    });
+  }
+  for (const facing of facings)
+    check(
+      "hero-facing",
+      `facing ${facing.name}: walks, strikes and stands in that direction's frames`,
+      facing.ok,
+      facing.detail,
+    );
+  check(
+    "hero-facing",
+    "the swing's wedge is centred on the direction shown, in all eight",
+    facings.every(
+      (facing, index) => facing.wedge !== null && Math.abs(((facing.wedge - index * 45 + 540) % 360) - 180) < 4,
+    ),
+    facings.map((facing) => `${facing.name} ${facing.wedge?.toFixed(0)}`).join(" "),
+  );
+  check(
+    "hero-facing",
+    "a shot with no mouse aim flies the way he faces, in all eight (within a degree)",
+    facings.every((facing) => facing.shotOff < 1),
+    facings.map((facing) => `${facing.name} ${facing.shotOff.toFixed(1)}`).join(" "),
+  );
+  await page.evaluate(() => {
+    const hero = window.lampwarden.state().hero;
+    window.lampwarden.scene().setPaused(true);
+    window.lampwarden.scene().stick(0, 0);
+    hero.x = 560;
+    hero.y = 360;
   });
   await settle();
 }

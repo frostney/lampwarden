@@ -49,7 +49,7 @@ import {
   type State,
   step,
 } from "@/game/sim";
-import { heroKey, type Sex } from "@/scene/assets";
+import { heroKey, heroView, type Sex } from "@/scene/assets";
 import {
   anchor,
   anchorAt,
@@ -451,20 +451,22 @@ const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
-      const texture = textures[heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime))];
+      // the five drawn directions, the other three mirrored (src/scene/assets.ts)
+      const view = heroView(hero.octant);
+      const texture = textures[heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn)];
       if (!sprite || !texture) return;
       const light = lighting.get(hero) ?? DARK_CHARACTER;
       sprite.texture = texture;
       sprite.position.set(Math.round(hero.x), Math.round(hero.y));
       sprite.zIndex = hero.y;
-      sprite.scale.x = hero.left ? -1 : 1;
+      sprite.scale.x = view.mirrored ? -1 : 1;
       sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, 0xff8080) : light.tint;
       showRim(rim.current, sprite, texture, light.rim);
     }, [textures, lighting, hero, sex]),
   );
   return (
     <>
-      <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0))} anchor={anchor("hero")} />
+      <pixiSprite ref={ref} texture={textureFor(textures, heroKey(sex, "idle", 0, "s"))} anchor={anchor("hero")} />
       <pixiSprite ref={rim} anchor={anchor("hero")} visible={false} />
     </>
   );
@@ -817,12 +819,13 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
           );
       const hero = state.hero;
       if (hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
+        // the same frame, place and mirroring as the warden's own sprite (Hero)
+        const view = heroView(hero.octant);
         const white = heroFlashTexture(
           textures,
-          heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime)),
+          heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
         );
-        // the same place, frame and mirroring as the warden's own sprite (Hero)
-        if (white) show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = hero.left ? -1 : 1;
+        if (white) show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
       }
       for (const puff of state.puffs) {
         const ghost = puff.ghost;

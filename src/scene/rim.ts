@@ -78,17 +78,42 @@ function readPixels(texture: Texture): { pixels: Uint8ClampedArray; width: numbe
   return { pixels: data, width: canvas.width, height: canvas.height };
 }
 
+// a character's pixels (already without the shadow) as a texture of its own, kept for the rim
+function characterTexture(pixels: Uint8Array, width: number, height: number, label: string): Texture {
+  const clean = bufferTexture(pixels, width, height);
+  // the label names the sprite (the visual verifier reads it to tell which warden is shown)
+  clean.source.label = label;
+  spritePixels.set(clean, { pixels, width, height });
+  return clean;
+}
+
 // The sprite redrawn without its painted shadow, as a new nearest-sampled texture (null when the browser will not give up
 // the pixels, which leaves the sprite as it was). The pixels are kept for the rim.
 export function withoutPaintedShadow(texture: Texture): Texture | null {
   const read = readPixels(texture);
   if (!read) return null;
-  const pixels = withoutShadowPixels(read.pixels);
-  const clean = bufferTexture(pixels, read.width, read.height);
-  // keep the loaded file's label, which names the sprite (the visual verifier reads it to tell which warden is shown)
-  clean.source.label = texture.source.label;
-  spritePixels.set(clean, { pixels, width: read.width, height: read.height });
-  return clean;
+  return characterTexture(withoutShadowPixels(read.pixels), read.width, read.height, texture.source.label);
+}
+
+// Cuts square cells out of an atlas of character frames, each as its own shadowless texture with the label it is given
+// (null when the browser will not give up the atlas's pixels). The atlas is read once.
+export function cutCharacterFrames(
+  atlas: Texture,
+  size: number,
+  cells: readonly { key: string; label: string; x: number; y: number }[],
+): Map<string, Texture> | null {
+  const read = readPixels(atlas);
+  if (!read) return null;
+  const frames = new Map<string, Texture>();
+  for (const cell of cells) {
+    const pixels = new Uint8Array(size * size * 4);
+    for (let row = 0; row < size; row++) {
+      const start = ((cell.y + row) * read.width + cell.x) * 4;
+      pixels.set(read.pixels.subarray(start, start + size * 4), row * size * 4);
+    }
+    frames.set(cell.key, characterTexture(withoutShadowPixels(pixels), size, size, cell.label));
+  }
+  return frames;
 }
 
 // The rim for the edge of a (shadowless) sprite that faces `octant`, a texture the size of the sprite to draw over it.

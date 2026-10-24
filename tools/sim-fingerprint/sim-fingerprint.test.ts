@@ -21,23 +21,31 @@ function withCopy(run: (root: string) => void) {
   }
 }
 
-// The relative modules a file imports as values (an `import type` and a clause of only `type` names are erased).
+// Packages the sim may import. They are not hashed: a version bump that changed how a recorded decision or creature
+// parses would not change the fingerprint, so keep this list to libraries that only validate.
+const SIM_PACKAGES = new Set(["zod"]);
+
+// The repository modules a file imports as values (an `import type` and a clause of only `type` names are erased),
+// whether relative or through the `@/` alias (tsconfig.json paths).
 function importedAtRuntime(file: string): string[] {
   const source = readFileSync(join(repository, file), "utf8");
   const imported: string[] = [];
   // The closure is only as good as this reading of the imports, so a form it cannot follow fails the test.
-  expect(source, `${file}: a side-effect import of a relative module`).not.toMatch(/^import\s+"\./m);
-  expect(source, `${file}: a dynamic import of a relative module`).not.toMatch(/\bimport\(\s*["'`]\./);
+  expect(source, `${file}: a side-effect import`).not.toMatch(/^import\s+["']/m);
+  expect(source, `${file}: a dynamic import`).not.toMatch(/\bimport\(/);
+  expect(source, `${file}: a require`).not.toMatch(/\brequire\(/);
   for (const [, typeOnly, clause = "", specifier = ""] of source.matchAll(
-    /^(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+"(\.[^"]+)";/gm,
+    /^(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+["']([^"']+)["'];/gm,
   )) {
     const names = clause
       .replace(/[{}]/g, "")
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean);
-    if (!typeOnly && !names.every((name) => name.startsWith("type ")))
-      imported.push(join(dirname(file), `${specifier}.ts`));
+    if (typeOnly || names.every((name) => name.startsWith("type "))) continue;
+    if (specifier.startsWith(".")) imported.push(join(dirname(file), `${specifier}.ts`));
+    else if (specifier.startsWith("@/")) imported.push(join("src", `${specifier.slice(2)}.ts`));
+    else expect(SIM_PACKAGES.has(specifier), `${file}: imports the package ${specifier}`).toBe(true);
   }
   return imported;
 }

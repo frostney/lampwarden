@@ -38,14 +38,14 @@ python3 pipeline/run.py "Ionic marble column"            # writes public/sprites
 python3 pipeline/run.py --file briefs.json               # {"id": ["category", "brief"], ...}
 python3 pipeline/run.py --render vercel "brief"          # render in a Vercel Sandbox microVM instead of local bun
 python3 pipeline/run.py --render shotcup "brief"         # render on Shotcup instead of local bun
-npm run assets -- "brief"                                # same as run.py, via npm
+bun run assets -- "brief"                                # same as run.py, via bun
 ```
 
 Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|vercel|shotcup`.
 
 Requirements for the local renderer: `python3` with Pillow, and [`bun`](https://bun.sh) on PATH. The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 
-Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames in `public/sprites/hero/` from deterministic builder code (no Mubit call; `--render local|shotcup`). Running it locally reproduces the committed frames byte-for-pixel (checked: 40/40 identical). `npm run kit` rebuilds `kit/kit.ts` from `kit/src/*.ts`.
+Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames in `public/sprites/hero/` from deterministic builder code (no Mubit call; `--render local|shotcup`). Running it locally reproduces the committed frames byte-for-pixel (checked: 40/40 identical). `bun run kit` rebuilds `kit/kit.ts` from `kit/src/*.ts`.
 
 ## Layout
 
@@ -63,7 +63,7 @@ Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames i
 
 `vercel_sandbox_render.ts` runs each build in its own [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) Firecracker microVM: it creates the VM (default image, which ships bun; 1 vCPU; `networkPolicy: "deny-all"`; `persistent: false`), uploads `kit/kit.ts`, `render/run_local.ts` and the shims plus the build, runs the same `bun run_local.ts` as the local renderer with a 30 s limit, reads the PNGs back and stops the VM. `run.py` calls it as `bun --no-env-file pipeline/vercel_sandbox_render.ts <build.ts> <name> <out_dir> [pose]` with only `PATH`, `HOME`, `TMPDIR`, `LANG` and `VERCEL_*` in its environment; nothing is passed into the VM except `KIT_OUT`.
 
-Authentication: run `vercel link` once (the SDK then refreshes an OIDC token from your Vercel CLI login), or export `VERCEL_OIDC_TOKEN` from `vercel env pull`, or `VERCEL_TOKEN` + `VERCEL_TEAM_ID` + `VERCEL_PROJECT_ID`. Needs `npm install` (for `@vercel/sandbox`) and bun.
+Authentication: run `vercel link` once (the SDK then refreshes an OIDC token from your Vercel CLI login), or export `VERCEL_OIDC_TOKEN` from `vercel env pull`, or `VERCEL_TOKEN` + `VERCEL_TEAM_ID` + `VERCEL_PROJECT_ID`. Needs `bun install` (for `@vercel/sandbox`).
 
 Measured on 24 Oct 2026 (Pro plan, `iad1`, from the UK): 1.4-2.4 s per candidate until the PNG is in hand and 2.6-4.1 s including `stop()`, against 10-107 s on Shotcup; five candidates in parallel took 3.9-4.3 s; 90 renders were pixel- and byte-identical to the committed sprites; the build code had no network (DNS, IP and metadata blocked) and no secrets, but is root inside its own VM, which is why every candidate gets a fresh one. About $0.0008 per candidate at list prices. Details: [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md).
 

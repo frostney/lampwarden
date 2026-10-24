@@ -2,7 +2,7 @@
 // usage: bun scripts/plays.ts [--since 2026-10-24] [--build abc1234] [--verify]
 //   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); --verify replays every finished night and checks it ends the same.
 import { get, list } from "@vercel/blob";
-import { type Play, verifyPlay } from "../lib/replay";
+import { type Play, verifyPlay } from "../src/game/replay";
 
 const argument = (name: string) => {
   const index = process.argv.indexOf(name);

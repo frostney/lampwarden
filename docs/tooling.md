@@ -7,9 +7,9 @@
 | `bun run check` | The gate: `lint`, `typecheck`, `bun test`, `knip`, `build`, in that order. |
 | `bun run lint` / `format` | Biome check, and Biome check with fixes (format, lint fixes, import order). |
 | `bun run typecheck` | `tsc --noEmit` with the strict flags from `typescript-stack`. |
-| `bun test` | Unit tests, co-located with source (`*.test.ts`). |
+| `bun test` | Unit tests, co-located with source under `src/` (`*.test.ts`). |
 | `bun run knip` | Unused files, exports and dependencies. |
-| `bun run verify:visual -- --url <url>` | Headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`. |
+| `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`. |
 | `bun run balance` | Plays nights headlessly with an idle and a bot warden. |
 | `bun run plays` | Balance report from recorded plays in Blob storage. |
 | `bun run logo` | Regenerates the logo, icons and share image from `tools/logo`. |

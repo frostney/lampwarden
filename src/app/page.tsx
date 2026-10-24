@@ -1,4 +1,4 @@
-import GameClient from "@/components/GameClient";
+import GameClient from "@/components/organisms/GameClient/GameClient";
 
 export default function Page() {
   return (

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const MAX_BODY_LENGTH = 400_000;
 
-import { PLAY_ID } from "@/lib/plays";
+import { PLAY_ID } from "@/game/plays";
 
 // The shape a client must send; everything else in the recording is stored as sent.
 const incomingPlay = z.looseObject({

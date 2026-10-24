@@ -11,7 +11,7 @@
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit -p .",
     "knip": "knip",
-    "verify:visual": "bun scripts/verify-visual.mjs",
+    "verify:visual": "bun e2e/verify-visual.mjs",
     "balance": "bun scripts/balance.ts",
     "plays": "bun scripts/plays.ts",
     "assets": "python3 pipeline/run.py",

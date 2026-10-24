@@ -8,21 +8,21 @@ The sprites are generated, verified and corrected through [Mubit](https://mubit.
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · npm. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/organisms/Scene/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
 
 ## Run
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build
-bun scripts/balance.ts   # headless balance check: an idle and a bot warden play nights 1-7
-npm run verify:visual -- --url http://localhost:3000   # visual verifier (needs `npm start` running), see below
+bun install
+bun run dev        # http://localhost:3000
+bun run build      # production build
+bun run balance    # headless balance check: an idle and a bot warden play nights 1-7
+bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs `bun run start` running), see below
 ```
 
 ## Checking a change visually
 
-`scripts/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
+`e2e/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
 
 ## Recorded plays
 
@@ -57,8 +57,8 @@ Details, options and the Shotcup renderer are in [`pipeline/README.md`](pipeline
 
 ```bash
 export MUBIT_API_KEY=...        # environment only; never committed (see .env.example)
-npm run assets -- "Ionic marble column"
-# or: MUBIT_API_KEY=... npm run assets -- "brief one" "brief two"
+bun run assets -- "Ionic marble column"
+# or: MUBIT_API_KEY=... bun run assets -- "brief one" "brief two"
 ```
 
 This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs `python3` with Pillow and `bun` on PATH.
@@ -78,7 +78,7 @@ The kit is the renderer plus every builder the model may call. It lives in `pipe
 | `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof) |
 | `src/kit_figures.ts` | `humanoid`, `tree`, `hydra` |
 | `src/kit_themes.ts` | `THEMES`/`theme()`, `hero`, `ship` |
-| `assemble.sh` | `npm run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
+| `assemble.sh` | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
 | `kit.ts` | the assembled single file the renderers import (212,457 bytes) |
 | `exports.json` | the 58 names destructured into model code |
 | `palette.json` | material ramps (identical to the kit's `PALETTE`; checked) |
@@ -104,7 +104,7 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 ## What's built, what isn't
 
 Built and run:
-- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `lib/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
+- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `src/scene/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
 - Balance from `bun scripts/balance.ts` (150 runs each): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, no upgrades) holds nights 1-3 every time, night 5 about 85-90% and night 7 about 20%. Human play-testing has not been done.
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 

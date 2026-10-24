@@ -1,6 +1,6 @@
 // One night in Lychnos: monsters come out of the sea to snuff the town's lamps; the warden fights and relights them until dawn.
 // Pure game state and step(); no Pixi, so scripts/balance.ts can run it headless.
-import { FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "../scene/assets";
 import type { Legacy, TraitId } from "./legacy";
 
 export const STAGE_WIDTH = 960;

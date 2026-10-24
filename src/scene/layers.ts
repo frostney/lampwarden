@@ -1,8 +1,7 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
-// frame (the lights are in light.ts). components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
+// frame (the lights are in light.ts). src/components/organisms/Scene/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, type Texture } from "pixi.js";
-import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 import {
   CENTRE_X,
   CENTRE_Y,
@@ -12,7 +11,8 @@ import {
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
-} from "./sim";
+} from "../game/sim";
+import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
 
 export type TextureMap = Record<string, Texture>;
 
@@ -169,7 +169,7 @@ const PUFF_COLOURS = { snuff: 0x9aa0b0, hurt: 0xff5050, light: 0xffe6a0, kill: 0
 export function drawMarks(graphics: Graphics, state: State, clock: number) {
   const rules = state.rules;
   for (const shot of state.shots) {
-    // a short motion trail behind each projectile sprite (see components/Scene.tsx)
+    // a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
     for (const [behind, alpha] of TRAIL)
       graphics
         .rect(Math.round(shot.x - shot.velocityX * behind), Math.round(shot.y - shot.velocityY * behind), 1, 1)

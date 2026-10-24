@@ -1,7 +1,17 @@
 // Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
 // usage: bun scripts/balance.ts [runs=200]
-import { newLegacy } from "../lib/legacy";
-import { ground, type Input, litCount, MONSTER, type Monster, NO_INPUT, newNight, type State, step } from "../lib/sim";
+import { newLegacy } from "../src/game/legacy";
+import {
+  ground,
+  type Input,
+  litCount,
+  MONSTER,
+  type Monster,
+  NO_INPUT,
+  newNight,
+  type State,
+  step,
+} from "../src/game/sim";
 
 function bot(state: State): Input {
   const hero = state.hero;

@@ -3,8 +3,8 @@
 // once, and cached; a frame only picks which precomputed texture each sprite shows, from the scene clock (frozen by the
 // visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint.
 import { BufferImageSource, Rectangle, Texture } from "pixi.js";
+import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH } from "../game/sim";
 import { ANCHOR_Y } from "./assets";
-import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH } from "./sim";
 
 type Rgb = readonly [number, number, number];
 

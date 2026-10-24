@@ -4,9 +4,11 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Sex } from "@/lib/assets";
-import { newControls, press, release, stick } from "@/lib/controls";
-import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/lib/gamepad";
+import { Icon } from "@/components/atoms/Icon/Icon";
+import { TouchControls } from "@/components/molecules/TouchControls/TouchControls";
+import { type Driver, type Night, Scene } from "@/components/organisms/Scene/Scene";
+import { newControls, press, release, stick } from "@/game/controls";
+import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   buy,
   clearLegacy,
@@ -24,9 +26,8 @@ import {
   UPGRADES,
   type UpgradeId,
   upgradeCost,
-} from "@/lib/legacy";
-import { legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/lib/replay";
-import { loadTextures, type TextureMap } from "@/lib/scene";
+} from "@/game/legacy";
+import { legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
   LAMP_SPOTS,
@@ -38,10 +39,9 @@ import {
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
-} from "@/lib/sim";
-import { Icon } from "./Icons";
-import { type Driver, type Night, Scene } from "./Scene";
-import { TouchControls } from "./TouchControls";
+} from "@/game/sim";
+import type { Sex } from "@/scene/assets";
+import { loadTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {

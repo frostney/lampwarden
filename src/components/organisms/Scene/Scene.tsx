@@ -18,12 +18,20 @@ import {
   useRef,
   useState,
 } from "react";
-import { heroKey, type Sex } from "@/lib/assets";
-import { bindKeyboard, type Controls, consumePresses, liveInput, shootAt } from "@/lib/controls";
-import { newGamepadMemory, pollGamepadForPlay } from "@/lib/gamepad";
-import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/lib/light";
-import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/lib/projectiles";
-import { STEP } from "@/lib/replay";
+import { bindKeyboard, type Controls, consumePresses, liveInput, shootAt } from "@/game/controls";
+import { newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
+import { STEP } from "@/game/replay";
+import {
+  CENTRE_X,
+  type Hero as HeroState,
+  type Input,
+  type Lamp,
+  MONSTER,
+  type Monster,
+  type State,
+  step,
+} from "@/game/sim";
+import { heroKey, type Sex } from "@/scene/assets";
 import {
   anchor,
   drawGround,
@@ -35,17 +43,9 @@ import {
   nightTint,
   PROPS,
   type TextureMap,
-} from "@/lib/scene";
-import {
-  CENTRE_X,
-  type Hero as HeroState,
-  type Input,
-  type Lamp,
-  MONSTER,
-  type Monster,
-  type State,
-  step,
-} from "@/lib/sim";
+} from "@/scene/layers";
+import { glintFrame, heroLight, type LightPiece, lampFlicker, lampLight, lanternGlow } from "@/scene/light";
+import { arrowTextureFor, createProjectileTextures, type ProjectileTextures, projectileFor } from "@/scene/projectiles";
 
 extend({ Container, Graphics, Sprite });
 
@@ -339,7 +339,7 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
   return <pixiSprite ref={ref} blendMode="add" />;
 });
 
-// A lit lamp's light, all of it precomputed in lib/light.ts: the pool on the ground, the lantern glowing in its own
+// A lit lamp's light, all of it precomputed in src/scene/light.ts: the pool on the ground, the lantern glowing in its own
 // colours inside a halo, and the glints on the stone, the brass and the sea. A dark lamp shows none of it.
 const LampLight = memo(function LampLight({ lamp, radius }: { lamp: Lamp; radius: number }) {
   const { textures, clock } = useScene();

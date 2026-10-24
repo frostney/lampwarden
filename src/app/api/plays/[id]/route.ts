@@ -1,6 +1,6 @@
 // Serves one recorded night back for in-game replay (?replay=<id>).
 import { get } from "@vercel/blob";
-import { PLAY_ID } from "@/lib/plays";
+import { PLAY_ID } from "@/game/plays";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

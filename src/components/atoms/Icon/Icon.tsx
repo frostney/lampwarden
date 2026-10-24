@@ -1,5 +1,5 @@
 // 16x16 pixel icons for the upgrades, drawn as crisp SVG rects. One character per pixel; '.' is transparent.
-import type { UpgradeId } from "@/lib/legacy";
+import type { UpgradeId } from "@/game/legacy";
 
 const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline

@@ -1,6 +1,6 @@
 // The part of a run that outlives the warden: oil, upgrades, the bloodline and the director's read of the player.
 // Saved to localStorage, so a reload keeps the line going.
-import type { Sex } from "./assets";
+import type { Sex } from "../scene/assets";
 
 export const UPGRADE_IDS = ["wick", "blade", "quiver", "heart"] as const;
 export type UpgradeId = (typeof UPGRADE_IDS)[number];

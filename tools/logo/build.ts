@@ -1,5 +1,5 @@
 // Builds the Lampwarden logo and every asset derived from it.
-// usage: bun tools/logo/build.ts            write the assets into public/logo/ and app/
+// usage: bun tools/logo/build.ts            write the assets into public/logo/ and src/app/
 //        bun tools/logo/build.ts --check    write nothing; compare the committed assets with a fresh build
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,8 +23,12 @@ const pngAsset = (path: string, image: PixelImage): Asset => ({ path, bytes: enc
 
 async function buildAssets(): Promise<Asset[]> {
   const [wordmark, tagline] = await rasteriseTexts([
-    { text: "LAMPWARDEN", fontFile: join(repositoryRoot, "app/fonts/ithaca/Ithaca.ttf"), pixelSize: 16 },
-    { text: "KEEP ONE BURNING UNTIL DAWN", fontFile: join(repositoryRoot, "app/fonts/tiny5/Tiny5.ttf"), pixelSize: 8 },
+    { text: "LAMPWARDEN", fontFile: join(repositoryRoot, "src/app/fonts/ithaca/Ithaca.ttf"), pixelSize: 16 },
+    {
+      text: "KEEP ONE BURNING UNTIL DAWN",
+      fontFile: join(repositoryRoot, "src/app/fonts/tiny5/Tiny5.ttf"),
+      pixelSize: 8,
+    },
   ]);
   const master = logo(wordmark, true);
   const smallFavicon = favicon16();
@@ -35,11 +39,11 @@ async function buildAssets(): Promise<Asset[]> {
     pngAsset("public/logo/logo@4x.png", scaleImage(master, 4)),
     pngAsset("public/logo/logo-noglow.png", logo(wordmark, false)),
     { path: "public/logo/logo.svg", bytes: Buffer.from(toSvg(master, 8)), frames: [] },
-    pngAsset("app/icon.png", icon),
-    { path: "app/favicon.ico", bytes: encodeIco([smallFavicon, icon]), frames: [smallFavicon, icon] },
-    pngAsset("app/apple-icon.png", appleTouchIcon()),
-    pngAsset("app/opengraph-image.png", card),
-    pngAsset("app/twitter-image.png", card),
+    pngAsset("src/app/icon.png", icon),
+    { path: "src/app/favicon.ico", bytes: encodeIco([smallFavicon, icon]), frames: [smallFavicon, icon] },
+    pngAsset("src/app/apple-icon.png", appleTouchIcon()),
+    pngAsset("src/app/opengraph-image.png", card),
+    pngAsset("src/app/twitter-image.png", card),
   ];
 }
 

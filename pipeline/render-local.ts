@@ -20,10 +20,13 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 30_000;
 
 export interface LocalRenderOptions {
   timeoutMilliseconds?: number;
+  /** Whether the runner also writes the 4x magnified `<name>_x4.png` nothing reads. True by default; see "Pixel scaling" in docs/LIVE_GENERATION.md. */
+  writeMagnifiedCopy?: boolean;
 }
 
-function renderEnvironment(outputDirectory: string): Record<string, string> {
+function renderEnvironment(outputDirectory: string, writeMagnifiedCopy: boolean): Record<string, string> {
   const environment: Record<string, string> = { KIT_OUT: outputDirectory };
+  if (!writeMagnifiedCopy) environment.KIT_X4 = "0";
   for (const name of ALLOWED_ENVIRONMENT_VARIABLES) {
     const value = process.env[name];
     if (value !== undefined) environment[name] = value;
@@ -41,7 +44,12 @@ export async function renderLocally(request: RenderRequest, options: LocalRender
     writeFileSync(sourcePath, `${request.code}\n`);
     const subprocess = Bun.spawn(
       ["bun", "--preload", "./shim_plugin.ts", "run_local.ts", sourcePath, request.name, request.pose],
-      { cwd: RENDER_DIRECTORY, env: renderEnvironment(workDirectory), stdout: "pipe", stderr: "pipe" },
+      {
+        cwd: RENDER_DIRECTORY,
+        env: renderEnvironment(workDirectory, options.writeMagnifiedCopy ?? true),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
     );
     let timedOut = false;
     const timer = setTimeout(() => {

@@ -89,6 +89,7 @@ src/
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
+scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
@@ -97,6 +98,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
+  measure-x4.ts      times the runner's 4x magnified copy against the host-side magnification (see docs/LIVE_GENERATION.md, Pixel scaling)
   render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
   render-local.ts    bun render subprocess with an allowlisted environment
   render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
@@ -112,10 +114,63 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route; Sho
 ## Sprite flow
 
 1. `bun run assets -- "your brief"` (`--render local|shotcup|vercel|boat`), or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
+   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png` (nothing reads it); set `KIT_X4=0` to skip it, or delete it. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+
+## Pixel scaling
+
+The game scales its pixels **in the browser's compositor, not in Pixi**. `src/components/Game.tsx` builds the Pixi
+application with `resolution: 1`, `autoDensity: false`, `antialias: false` and `roundPixels: true`, so Pixi draws the
+960×600 stage into a 960×600 canvas. The canvas is sized by CSS (`.stage`: at most 960 CSS px wide; the phone views crop
+the open sea, so the canvas can be shown wider than the stage) and `canvas { image-rendering: pixelated, then crisp-edges }`
+in `src/app/globals.css` makes the browser magnify it by nearest neighbour on the GPU. The sprites are 128×128 PNGs
+(1× art, `scaleMode: "nearest"`), and the scene's painted textures (`paint.ts`) are 1× RGBA buffers. The HUD is DOM over
+the canvas, not Pixi text. So on a 2× display the stage is magnified exactly 2×; on a 1× display not at all; on a phone
+by 1.5× to 2.1×, which is not a whole number, so some game pixels are one device pixel wider than others whichever way it is done.
+
+Measured on 24 Oct 2026 on a production build, in headed Chromium (macOS, a 120 Hz display) and headed Playwright WebKit
+(iPhone 14 profiles, 60 Hz; WebKit on macOS, not iOS Safari, so a proxy), by `scripts/measure-pixel-scaling.mjs`. It
+switches the live renderer between three modes with `app.renderer.resize(960, 600, resolution)` and changes nothing in
+the game:
+- **A, today:** Pixi at 1×, the browser magnifies.
+- **B:** Pixi at the device resolution (canvas pixels = device pixels, no CSS magnification).
+- **C:** Pixi at the whole-number part of it (2× or 3×), the browser doing the remainder. It equals A where the device scale is under 2 and B where it is exactly 2.
+
+Each cell is 3 × 20 s of a stick-driven night (a bot walks to the nearest dark lamp or monster and shoots; its health is
+topped up so the night lasts). The machine was busy with other work (load average about 10), so read differences under
+about 0.1 ms as noise.
+
+| profile (canvas shown at, device px)                     | mode      | backing store      | frame mean / p95 / p99 (ms) at the display's refresh | frames over 20 ms per 1000 | `render()` CPU mean (ms) | render with the GPU finished, 1 px readback (ms) | uncapped frame mean / p95 / p99 (ms) |
+| -------------------------------------------------------- | --------- | ------------------ | ---------------------------------------------------- | -------------------------- | ------------------------ | ------------------------------------------------ | ------------------------------------ |
+| Chromium, 1440×900 at 2×: 960×600 CSS, 1920×1200         | A         | 960×600, 2.2 MiB   | 8.33 / 9.40 / 10.20                                  | 0.0                        | 0.23                     | 0.52                                             | **0.66** / 1.10 / 1.50 (1,511 fps)   |
+|                                                          | B = C     | 1920×1200, 8.8 MiB | 8.33 / 9.20 / 10.10                                  | 0.0                        | 0.19                     | 0.70                                             | **0.94** / 1.60 / 1.90 (1,069 fps)   |
+| Chromium, 1280×800 at 1.5×: 960×600 CSS, 1440×900        | A = C     | 960×600, 2.2 MiB   | 8.33 / 8.80 / 9.30                                   | 0.0                        | 0.22                     | 0.69                                             | **0.66** / 1.10 / 1.60 (1,517 fps)   |
+|                                                          | B         | 1440×900, 4.9 MiB  | 8.34 / 8.90 / 9.30                                   | 0.0                        | 0.21                     | 0.63                                             | **0.77** / 1.30 / 1.60 (1,303 fps)   |
+| WebKit, iPhone 14 landscape (3×): 659×412 CSS, 1978×1236 | A         | 960×600, 2.2 MiB   | 16.70 / 17.00 / 18.00                                | 0.8                        | 0.37                     | 0.64                                             | n/a                                  |
+|                                                          | B (2.06×) | 1978×1236, 9.3 MiB | 16.66 / 17.00 / 18.00                                | 0.3                        | 0.35                     | 0.63                                             | n/a                                  |
+|                                                          | C (2×)    | 1920×1200, 8.8 MiB | 16.66 / 17.00 / 18.00                                | 0.3                        | 0.33                     | 0.60                                             | n/a                                  |
+| WebKit, iPhone 14 portrait (3×): 480×300 CSS, 1440×900   | A = C     | 960×600, 2.2 MiB   | 16.67 / 17.00 / 18.00                                | 0.8                        | 0.34                     | 0.50                                             | n/a                                  |
+|                                                          | B (1.5×)  | 1440×900, 4.9 MiB  | 16.67 / 17.00 / 18.00                                | 0.8                        | 0.39                     | 0.78                                             | n/a                                  |
+
+"Uncapped" is Chromium with `--disable-frame-rate-limit --disable-gpu-vsync`, so the frame time is what the work costs
+rather than the display's refresh. Chromium's CPU while capped (browser / renderer / GPU process, % of a core): A 1 / 12 /
+14 against B 1 / 10 / 11 at 2×, and 1 / 11 / 13 against 2 / 11 / 12 at 1.5×; uncapped the GPU process runs at 178% for A and
+159% for B at 2×, but B finishes 30% fewer frames. Frame time at the display's refresh is pinned to the refresh in every
+mode (no long frames beyond noise), so nothing here makes the game slower or faster on these machines; the only
+difference is headroom, and A has more of it in the uncapped runs. That rests on one uncapped Chromium run per cell on a Mac GPU, and the phones are only proxied by WebKit on macOS, so treat it as "B and C show no gain", not as a measured phone result.
+
+How it looks, from `diff-A-*.png` and `crops.png` written next to the numbers (every crop viewed):
+- **The HUD is untouched.** With the canvas hidden the stage screenshots are identical in every mode (0 differing pixels in all four profiles). Over the canvas the text and bars only blend against a different background.
+- **At the whole 2× (B = C), a sprite that stays on the same pixel is pixel-identical to A** (the lamps, the hero, the temple). What differs (2.5% of the screenshot's pixels) is (1) the vector layers, which rasterise on the finer grid: the ground's tile lines and the rings and strokes become thin, finely stepped lines that no longer share the sprites' pixel grid, and (2) props whose ground anchor is a fraction of a game pixel (the stall's `0.88 × 128 = 112.64`, the statue, the house, the boats), which `roundPixels` now rounds to half a game pixel instead of a whole one, so they shift by one device pixel. The temple and lamps, whose anchors are whole pixels (0.93 × 128 = 119.04, 0.82 × 128 = 104.96), do not move.
+- **At a non-whole scale (1.5×, 2.06×), B is not crisper than A**: Pixi's nearest sampling steps unevenly exactly as the browser's does (7-9% of pixels differ: where the steps fall, plus the thinner lines). C is nearer to A at 2.06× (3.4% differ) but adds a browser resample of 1.03×.
+
+**Recommendation: keep A.** It is already a cheap place (a 1× draw, then a compositor texture scale that takes no CPU work in the page), it keeps every layer on one pixel grid, and B/C draw 2-4× the pixels for no gain in
+what a player sees at the display's refresh. Neither B nor C wins on speed and look, so the default is not changed. If a
+sharper vector layer were ever wanted, `src/scene/layers.ts` would have to round or snap its strokes and the props'
+anchors first. To repeat: `bun run build && bun run start -- -p 3720`, then `bun scripts/measure-pixel-scaling.mjs --url http://localhost:3720`
+(see the script's header; it takes `/tmp/lw-screen.lock`, the lock agents hold around headed browsers, while it runs).
 
 ## Logo
 

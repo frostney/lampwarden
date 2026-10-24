@@ -68,6 +68,7 @@ import {
   monsterTextureKey,
   nightProgress,
   nightTint,
+  sceneryTextureKey,
   type TextureMap,
   textureFor,
 } from "@/scene/layers";
@@ -403,19 +404,23 @@ function Props({ state, props }: { state: State; props: readonly Placed[] }) {
       for (const sprite of sprites.current) if (sprite) sprite.tint = tint;
     }, [state]),
   );
-  return props.map(({ key, x, y }, index) => (
-    <pixiSprite
-      key={`${key}@${x},${y}`}
-      ref={(sprite: Sprite | null) => {
-        sprites.current[index] = sprite;
-      }}
-      texture={textureFor(textures, key)}
-      anchor={anchor(key)}
-      x={x}
-      y={y}
-      zIndex={y}
-    />
-  ));
+  return props.map(({ key, x, y }, index) => {
+    // a building whose Mubit sprite did not load is drawn from its hand-written one, with that sprite's own anchor
+    const drawn = sceneryTextureKey(textures, key);
+    return (
+      <pixiSprite
+        key={`${key}@${x},${y}`}
+        ref={(sprite: Sprite | null) => {
+          sprites.current[index] = sprite;
+        }}
+        texture={textureFor(textures, drawn)}
+        anchor={anchor(drawn)}
+        x={x}
+        y={y}
+        zIndex={y}
+      />
+    );
+  });
 }
 
 // a boat at its mooring, rocked by the water

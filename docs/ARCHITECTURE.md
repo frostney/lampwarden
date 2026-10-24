@@ -20,8 +20,9 @@ src/
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
                      of the job still making one; on the title and the dawn and heir panels
-    useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
-                     blocks play (none, a network error and "still generating" all mean the night starts without it)
+    useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
+                     begins, for the next night's creature, and keeps a job that is still running through the night);
+                     never blocks play (none, a network error and "still generating" all mean the night starts without it)
     Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
                      choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
@@ -158,7 +159,7 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
 ## Sprite flow
 
 1. `bun run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it in the sandbox:
-   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
+   `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the sprites `lamp-lit`, `lamp-unlit` and the fallbacks `temple-handwritten`, `house-handwritten`, `wall-handwritten` and `stall-handwritten` were made from `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_temple.ts`, `ex_house.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house-handwritten.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand. Scenery (buildings and decorations) goes through Mubit instead: `bun run assets -- --candidates 3 --file briefs.json` (pipeline/README.md), then the key goes in `SCENERY` in `src/scene/assets.ts`, which loads it sprite by sprite, with its `ANCHOR_Y` from the manifest's `anchor_y`; a building keeps a `<name>-handwritten` sprite that is drawn when the Mubit one does not load.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Run `bun run decor` (it measures the sprite's pixels into `src/scene/decor-extents.ts`; `src/scene/decor.test.ts` fails when the table is stale) and add a line to `DECOR` in `src/scene/decor.ts`: the key, where it may stand (`back`, `front`, `edge`, `anywhere`, or the sea), how many and how they group. The placer lays it out afresh each night (static and depth-sorted by ground y; `src/components/Scene.tsx` renders them); a slim base (a wall, a trunk) takes a row count in `SLIM_BASES` in `src/scene/extent.ts`. A monster instead goes in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`). Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
@@ -183,10 +184,18 @@ The rules, in `decor.ts`:
   uses, sampled; `decor.test.ts` checks it against the sim), 12 from the bases of other props, and 6 from the other olives
   of its cluster. A prop's sprite keeps clear of every lantern, of the pole of a lamp it stands in front of, and of the warden
   at his start, and a prop in front of the lamps rises at most 64 px into their ground.
-- **Zones**: the statue stands in the middle; the temple and the house toward the back; the stall at the centre front; the
-  olives in clusters anywhere; the wall in runs of one or two pieces along a rim that runs the way it does, as close in as
-  it fits; the trireme and the galley's dock along the front shore, where the ripples and planks go with them.
-- Temple, house, stall and two groups of olives are always placed; the wall may go unplaced when there is no room.
+- **Zones**: the statue stands in the middle; the temple and the house toward the back; the stall at the centre front; one
+  cluster of one or two olives anywhere; the wall, when there is one, in a run of one or two pieces along a rim that runs
+  the way it does, as close in as it fits; the small decorations from the Mubit scenery (`olive-young`, `amphora-stack` on a
+  rim, `broken-column`, and the flame-bearing `votive-altar`, which keeps further from the lamps) anywhere they fit; the
+  trireme and the galley's dock along the front shore, where the ripples and the bridge go with them.
+- **Density** is data in `DECOR`: a plaza reads open, with five to seven land props a night, the statue included. The temple
+  and one house are always placed (the ochre house replaces the other one on about a third of nights, never as an extra);
+  the stall, the wall and each small decoration have `chance` of being laid out at all, and the small decorations share a
+  `pool` that lets a night draw at most two, whichever the dice put first.
+- **A live building**: `decorFor(seed, live)` takes an optional `{ key, extents }` (the extents from `measureSprite`) that
+  stands in the building slot (`slot: "building"`, the house) instead of the committed house; the scene draws that key's
+  texture at that key's anchor, so a night can have one building from a live gallery with nothing in the committed table.
 
 
 ## Sim fingerprint

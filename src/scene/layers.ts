@@ -36,6 +36,8 @@ import {
   heroFrames,
   octantVector,
   SEXES,
+  sceneryAssetList,
+  sceneryKeyFor,
 } from "./assets";
 import { creatureFrameKey, creatureFrameOf } from "./creature-animation";
 import type { Point } from "./extent";
@@ -60,6 +62,18 @@ export function loadTextures(): Promise<TextureMap> {
       if (!texture) continue;
       textures[asset.alias] = prepared(asset.alias, texture);
     }
+    // the scenery loads sprite by sprite: one that will not load is missing, and sceneryTextureKey draws the building's
+    // hand-written sprite in its place
+    await Promise.all(
+      sceneryAssetList().map(async (asset) => {
+        try {
+          textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
+        } catch {
+          // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
+          console.warn(`scenery sprite ${asset.alias} did not load`);
+        }
+      }),
+    );
     // the wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been
     for (const sex of SEXES) {
       const atlas = textures[heroAtlasKey(sex)];
@@ -86,6 +100,10 @@ export function loadTextures(): Promise<TextureMap> {
   });
   return textureCache;
 }
+
+// The key whose texture draws a prop: its own, or when a building's sprite did not load, its hand-written one
+export const sceneryTextureKey = (textures: TextureMap, key: string) =>
+  sceneryKeyFor(key, (candidate) => candidate in textures);
 
 // A loaded sprite as the scene draws it: nearest-sampled. Every sprite goes through here, hand-made or from the sea.
 function prepared(alias: string, texture: Texture): Texture {

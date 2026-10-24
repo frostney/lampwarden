@@ -85,7 +85,6 @@ function contextWith(
       rendered.push(request);
       return renderResult(request);
     },
-    rendererName: "local",
     pose: "",
     generatorPrompt: GENERATOR_PROMPT,
     verifierPrompt: VERIFIER_PROMPT,
@@ -129,7 +128,7 @@ describe("the generate-verify loop's requests", () => {
     expect(magnified.get(0, 0)).toEqual([46, 46, 56, 255]); // transparent pixels sit on the verifier's backdrop
     expect(magnified.get(12, 12)).toEqual([200, 100, 50, 255]); // each sprite pixel is a 4x4 block
 
-    expect(row).toMatchObject({ final: "first", passed: true, score: 7, rendered_with: "local" });
+    expect(row).toMatchObject({ final: "first", passed: true, score: 7, rendered_with: "vercel-sandbox" });
     expect(row?.verify).toEqual(["req-2", "req-3"]);
     expect(sent).toHaveLength(3); // passing after averaging: no fix call
   });

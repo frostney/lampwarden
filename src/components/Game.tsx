@@ -14,6 +14,7 @@ import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
 import { askDirector } from "@/game/director-api";
+import { engagementOf, heldTide } from "@/game/engagement";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   applyDirector,
@@ -134,6 +135,7 @@ interface Report {
 // A recorded night on its way to the server: its id, and whether the upload went through.
 interface SentPlay {
   id: string;
+  play: Play;
   uploaded: Promise<boolean>;
 }
 
@@ -217,7 +219,7 @@ export default function Game() {
     }
     // the visual verifier's nights are not real plays, so they are not uploaded (a stubbed server answers for them)
     const verifying = new URLSearchParams(location.search).has("verify");
-    return { id: play.id, uploaded: verifying ? Promise.resolve(true) : upload(play) };
+    return { id: play.id, play, uploaded: verifying ? Promise.resolve(true) : upload(play) };
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -254,7 +256,11 @@ export default function Game() {
       const bonus = outcome === "dawn" ? dawnBonus(state) : 0;
       const tideBefore = legacy.tide;
       legacy.oil += state.oilEarned + bonus;
-      setRulesDirector(legacy, nextTide(legacy.tide, state), state.night, sent?.id); // the live director may replace it
+      // a night the player was not there for (idle, tab away, left) is no evidence it was too hard: the tide does not ease
+      // (a night with no recording cannot be judged, and is held the same way)
+      const engagement = sent ? engagementOf(sent.play).kind : "idle";
+      const nextRulesTide = heldTide(legacy.tide, nextTide(legacy.tide, state), engagement);
+      setRulesDirector(legacy, nextRulesTide, state.night, sent?.id, engagement); // the live director may replace it
       const nightReport: Report = {
         outcome,
         night: state.night,

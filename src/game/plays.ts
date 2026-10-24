@@ -84,5 +84,6 @@ export const playSchema = z.object({
     maxHp: z.number(),
     lit: count,
   }),
+  hiddenSeconds: z.number().min(0).max(86_400).optional(), // seconds the tab was hidden in the night; plays from before have none
   replay: z.object({ endsMatch: z.boolean() }).optional(), // filled in when a recording is verified by replay
 }) satisfies z.ZodType<Play>;

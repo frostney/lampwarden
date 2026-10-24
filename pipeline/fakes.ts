@@ -112,11 +112,11 @@ export function fakeRenderer(result?: (request: RenderRequest) => RenderResult):
   };
 }
 
-/** A 128 px frame with one pixel placed by `seed`, so frames with different seeds are different pictures. */
+/** A 128 px frame with a figure (a 16 px block) placed by `seed`, so frames with different seeds are different pictures. */
 export function framePng(seed: number): Uint8Array {
   const frame = new PixelImage(128, 128);
-  frame.set(20 + (seed % 90), 60, [200, 100, 50, 255]);
-  frame.set(64, 100, [90, 120, 200, 255]);
+  for (let row = 0; row < 16; row++)
+    for (let column = 0; column < 16; column++) frame.set(20 + (seed % 90) + column, 60 + row, [200, 100, 50, 255]);
   return encodePng(frame);
 }
 

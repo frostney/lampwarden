@@ -27,7 +27,11 @@ export interface FrameSet {
  * Why a frame set was refused. `kind` is a fixed word, safe to log; `reason` is for a person and may quote the sandbox's
  * error, which can carry model text, so it is never stored or logged by the job.
  */
-export type FrameSetFailure = { ok: false; kind: "incomplete" | "render" | "picture" | "static"; reason: string };
+export type FrameSetFailure = {
+  ok: false;
+  kind: "incomplete" | "render" | "picture" | "blank" | "static";
+  reason: string;
+};
 
 export type FrameSetResult = ({ ok: true } & FrameSet) | FrameSetFailure;
 
@@ -38,6 +42,15 @@ export function frameRequests(code: string): RenderRequest[] {
     return { code, name: pose, pose };
   });
 }
+
+/** A frame that draws less than this is a pose that drew nothing (a figure is hundreds of pixels). */
+const MIN_FIGURE_PIXELS = 100;
+
+const opaquePixels = (rgba: Uint8Array) => {
+  let count = 0;
+  for (let offset = 3; offset < rgba.length; offset += 4) if ((rgba[offset] ?? 0) > 200) count++;
+  return count;
+};
 
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
@@ -66,6 +79,8 @@ export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResu
         kind: "picture",
         reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
       };
+    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS)
+      return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
     for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
       const from = row * CREATURE_FRAME_SIZE * 4;
       atlas.data.set(

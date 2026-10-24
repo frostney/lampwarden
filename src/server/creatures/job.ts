@@ -22,6 +22,8 @@ const MINIMUM_UNPASSED_SCORE = 6;
 const SHADOW_ROWS = 4;
 const FRAME = 128;
 const NAME_HISTORY = 60;
+/** How many accepted candidates get their frames rendered: the winner and the next best. Each is a sandbox batch. */
+const FRAME_ATTEMPTS = 2;
 
 type JobFailure =
   | "generation is unavailable"
@@ -190,7 +192,8 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     await report("rendering");
     let animated: Animated | null = null;
     const tried: string[] = [];
-    for (const candidate of acceptedCandidates(outcome)) {
+    for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
+      if (ended) return; // timed out while rendering: do not put a creature in the gallery for a job that failed
       const frameSet = await renderFrameSet(deps.renderBatch, candidate.code);
       if (frameSet.ok) {
         animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
@@ -198,6 +201,7 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       }
       tried.push(frameSet.kind);
     }
+    if (ended) return;
     log({ event: "creature-job-frames", jobId, animated: animated !== null, refused: tried });
     if (!animated) return fail("it could not be animated");
 

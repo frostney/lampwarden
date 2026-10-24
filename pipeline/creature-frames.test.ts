@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { creatureAtlasLayout, creatureFramesSchema, creatureRecordSchema } from "../src/game/creature-frames";
-import { decodePng } from "../tools/logo/png";
+import { PixelImage } from "../tools/logo/image";
+import { decodePng, encodePng } from "../tools/logo/png";
 import { assembleFrameSet, frameRequests, renderFrameSet } from "./creature-frames";
 import { CLEAN_STATS, fakeFrameBatch, framePng, spritePng } from "./fakes";
 import type { RenderResult } from "./render-types";
@@ -61,7 +62,7 @@ describe("a frame set", () => {
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     const atlas = decodePng(Buffer.from(set.atlas));
     expect([atlas.width, atlas.height]).toEqual([768, 384]);
-    // frame number 6 (walk2, index 5) sits at column 1 of row 1 and carries the marker pixel framePng(6) drew
+    // frame number 6 (walk2, index 5) sits at column 1 of row 1 and carries the block framePng(6) drew
     const marker = atlas.get(128 + 20 + (6 % 90), 128 + 60);
     expect(marker).toEqual([200, 100, 50, 255]);
     expect(atlas.get(0, 0)[3]).toBe(0);
@@ -70,6 +71,13 @@ describe("a frame set", () => {
   test("is refused when the walk frames are all one picture", () => {
     const results = distinctSet().map((result, index) => (index >= 4 && index < 10 ? okResult(framePng(1)) : result));
     expect(assembleFrameSet(results)).toMatchObject({ ok: false, kind: "static" });
+  });
+
+  test("is refused when a pose draws no figure", () => {
+    const empty = distinctSet();
+    const blank = new PixelImage(128, 128);
+    empty[11] = okResult(encodePng(blank));
+    expect(assembleFrameSet(empty)).toMatchObject({ ok: false, kind: "blank" });
   });
 
   test("is refused when a frame did not render, is not 128 px, or the batch came back short", () => {

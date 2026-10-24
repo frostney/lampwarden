@@ -13,7 +13,7 @@ POST /api/sprites {brief}                       (Next.js route handler, Node.js 
   └─ start a durable job, answer {jobId}         (generation takes minutes: see latencies)
 job:
   1. generator   Mubit → Opus, system prompt pipeline/prompts/generator.md            → build(k) source (text only)
-  2. tripwire    BANNED regex + "function build" check (cheap pre-filter, not a sandbox)
+  2. tripwire    BANNED_IDENTIFIERS regex + "function build" check (cheap pre-filter, not a sandbox)
   3. render      POST https://shotcup.dev/api/v1/runs, one candidate per run:
                  {code: main.ts, engine:{canvas:true}, mounts:[{drive:"lampwarden", path:"/kit", mode:"ro"}],
                   deterministic:true, timeoutMs:<budget>}, no allowedHosts          → PNG (inlineBase64) + stats (last stdout line)
@@ -24,7 +24,7 @@ job:
 GET /api/sprites/:jobId → status / result
 ```
 
-The route and the job only move text and PNG bytes between Mubit and Shotcup; they never `eval`, transpile or import model output. `shotcup_main.main_ts` (wrap the code, destructure the kit exports, call `post()`, save `/out/<name>.png`) is the part to port to TypeScript; `run.py` already has the rest of the loop.
+The route and the job only move text and PNG bytes between Mubit and Shotcup; they never `eval`, transpile or import model output. `shotcup_main.main_source` (wrap the code, destructure the kit exports, call `post()`, save `/out/<name>.png`) is the part to port to TypeScript; `run.py` already has the rest of the loop.
 
 Because one sprite takes from tens of seconds to several minutes of render alone (below), the job should not live inside one request. On Vercel's documented limits (not tested here), a function runs 300 s by default on every plan and up to 800 s on Pro, so a temple-sized sprite with one fix (about 215 s of render plus the model calls) leaves little headroom. A durable runner (Vercel Workflow, or a queue consumer) with one step per model call or render keeps each step short and survives restarts; the client polls or streams progress.
 
@@ -87,7 +87,7 @@ All harmless, run with the same body the client sends (canvas engine, kit drive 
 | question | result |
 |---|---|
 | Environment variables | `process`, `Deno`, `Bun` and `require` are undefined. The globals are standard JS plus `fetch`, `Goccia` (version info and `gc`), `PermissionDenied`, `performance`, `URL`, text codecs and streams. There is nothing to read an env from. |
-| Dynamic code | `new Function(...)` and `[].constructor.constructor('return this')()` throw "Dynamic code generation is disabled"; `eval` is not defined. A string-built bypass of the BANNED regex inside real build code (`[].constructor.constructor('return this')()['pro'+'cess']`) failed at the Function constructor, with `failureKind: "script-error"`. |
+| Dynamic code | `new Function(...)` and `[].constructor.constructor('return this')()` throw "Dynamic code generation is disabled"; `eval` is not defined. A string-built bypass of the BANNED_IDENTIFIERS regex inside real build code (`[].constructor.constructor('return this')()['pro'+'cess']`) failed at the Function constructor, with `failureKind: "script-error"`. |
 | Files outside /kit | The filesystem is virtual: `/` holds only `kit` and `main.ts`. `/etc/passwd`, `/proc/self/environ`, `/home` and `/tmp` don't exist (ENOENT), and `/kit/../..` resolves to the same root. Writing under `/kit` fails with `EROFS`. |
 | Network | `fetch('https://example.com/')` throws `PermissionDenied: net: example.com` when the run has no `allowedHosts`. |
 | Infinite loop | `while (true) {}` with `timeoutMs: 5000` ended at 5.0 s as `status: failed`, `failureKind: "timeout"`. The full time counts against compute-hours. |

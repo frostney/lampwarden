@@ -9,6 +9,7 @@ import {
   offsetFromOctant,
 } from "../scene/assets";
 import { type Creature, type CreatureStats, statsOf } from "./creature";
+import type { Mix } from "./director";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 
@@ -75,10 +76,10 @@ export interface NightCreature {
 export const nightCreature = (
   creature: Pick<Creature, "id" | "archetype" | "modifiers" | "anchorY">,
 ): NightCreature => ({ id: creature.id, anchorY: creature.anchorY, stats: statsOf(creature) });
-// From CREATURE_FROM seconds in, about CREATURE_SHARE of the spawns are the creature, with at most CREATURE_CAP alive.
-// The draw for it is made only when it can come, so a night without a creature draws exactly what it always did.
+// From CREATURE_FROM seconds in, about State.creatureShare of the spawns (the director's; DEFAULT_CREATURE_SHARE, a
+// quarter, without one) are the creature, with at most CREATURE_CAP alive. The draw for it is made only when it can
+// come, so a night without a creature draws exactly what it always did.
 const CREATURE_FROM = 8;
-const CREATURE_SHARE = 0.25;
 const CREATURE_CAP = 2;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
@@ -191,6 +192,8 @@ export interface State {
   spawnTimer: number;
   nextId: number;
   tide: number;
+  mix: Mix; // the director's weights on the hand-made monsters (1 each: the sim's own)
+  creatureShare: number; // the director's share of the spawns that are the night's creature
   creature: NightCreature | null;
   randomState: number; // mulberry32 state: a night replays exactly from its seed and inputs
   rules: Rules;
@@ -199,7 +202,7 @@ export interface State {
   outcome: Outcome | null;
 }
 
-const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
+export const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
 
 function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
   const { wick, blade, quiver, knockback, seeker, tinder, stride } = legacy.levels;
@@ -262,6 +265,8 @@ export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreatu
     spawnTimer: 2.5,
     nextId: 1,
     tide: legacy.tide,
+    mix: { ...legacy.director.mix },
+    creatureShare: legacy.director.creatureShare,
     creature,
     randomState: seed | 0,
     rules,
@@ -287,9 +292,9 @@ const haste = (state: State) => 1 + 0.05 * (state.night - 1); // the sea's creat
 
 function pickKind(state: State, roll: number): MonsterKind {
   const weights: [MonsterKind, number][] = [
-    ["satyr", 1],
-    ["harpy", 0.4 + 0.1 * state.night],
-    ["cyclops", state.night >= 2 ? 0.15 + 0.1 * state.night : 0],
+    ["satyr", 1 * state.mix.satyr],
+    ["harpy", (0.4 + 0.1 * state.night) * state.mix.harpy],
+    ["cyclops", state.night >= 2 ? (0.15 + 0.1 * state.night) * state.mix.cyclops : 0],
   ];
   let remaining = roll * weights.reduce((total, [, weight]) => total + weight, 0);
   for (const [kind, weight] of weights) {
@@ -313,7 +318,7 @@ function spawn(state: State) {
     state.creature &&
     state.elapsed >= CREATURE_FROM &&
     creaturesAlive(state) < CREATURE_CAP &&
-    rand(state) < CREATURE_SHARE
+    rand(state) < state.creatureShare
   )
     kind = "creature";
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
@@ -719,14 +724,36 @@ function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
 // Dawn reward: a little oil, and a little more for every lamp still burning.
 export const dawnBonus = (state: State) => 2 + litCount(state);
 
-// The director: read the night as implicit feedback and set the next tide.
+// What the rules read of a night that ended: all of it is in a recorded play's stats, so the live director's server
+// can work out what the rules would have chosen without replaying anything.
+export interface NightResult {
+  outcome: Outcome | null;
+  kills: number;
+  seconds: number;
+  lampsLost: number;
+  health: number;
+  maxHealth: number;
+}
+
+// The rules-based director: read the night as implicit feedback and set the next tide.
 // Clean dawn with most lamps and health kept → the sea pushes harder; a lost night → it eases off.
-export function nextTide(tide: number, state: State): number {
-  const killRate = state.stats.kills / Math.max(1, state.stats.time / 60); // kills per minute
+export function rulesTide(tide: number, night: NightResult): number {
+  const killRate = night.kills / Math.max(1, night.seconds / 60); // kills per minute
   let next = tide;
-  if (state.outcome === "dawn") {
-    const clean = state.stats.lampsLost <= 1 && state.hero.health > state.hero.maxHealth * 0.5;
+  if (night.outcome === "dawn") {
+    const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;
     next *= clean ? (killRate > 20 ? 1.18 : 1.1) : 1.0;
   } else next *= 0.85;
   return Math.min(2, Math.max(0.6, Math.round(next * 100) / 100));
+}
+
+export function nextTide(tide: number, state: State): number {
+  return rulesTide(tide, {
+    outcome: state.outcome,
+    kills: state.stats.kills,
+    seconds: state.stats.time,
+    lampsLost: state.stats.lampsLost,
+    health: state.hero.health,
+    maxHealth: state.hero.maxHealth,
+  });
 }

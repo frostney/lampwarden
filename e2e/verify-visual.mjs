@@ -60,6 +60,55 @@ async function serveSea(route) {
 }
 const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
 
+// The recording and director APIs are stubbed on every page and context too: no night is stored and the model is never
+// asked. /api/plays keeps the bodies it was sent (the nights a page uploaded). /api/director answers by mode:
+//   "off" (the default, so every older scenario plays as before): the rules' decision, as the real route does with no key
+//   "answer": a decision from the model, built on the rules' decision the page is waiting with (tide 0.1 under the
+//             rules', cyclops 0.6, harpy 1.5, creature share 0.2, and a line of the sea's)
+//   "late": the same, but only once director.hold is resolved
+//   "fallback": the rules' decision with fallback "timeout"; "down": the connection fails
+const DIRECTOR_LINE = "The tide withdraws, and Lychnos sleeps a little.";
+const director = { mode: "off", asked: [], uploads: [], hold: null, decision: null };
+async function serveDirector(route) {
+  const request = route.request();
+  const { pathname } = new URL(request.url());
+  if (pathname === "/api/plays") {
+    director.uploads.push(JSON.parse(request.postData() ?? "{}"));
+    return route.fulfill({ json: { ok: true } });
+  }
+  const { playId } = JSON.parse(request.postData() ?? "{}");
+  director.asked.push(playId);
+  try {
+    const rules = await request
+      .frame()
+      .page()
+      .evaluate(() => window.lampwarden.legacy().director);
+    if (director.mode === "late") await director.hold;
+    if (director.mode === "down") return await route.abort();
+    if (director.mode === "answer" || director.mode === "late") {
+      director.decision = {
+        ...rules,
+        source: "mubit",
+        tide: Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100),
+        mix: { satyr: 1, cyclops: 0.6, harpy: 1.5 },
+        creatureShare: 0.2,
+        line: DIRECTOR_LINE,
+        playId,
+      };
+      return await route.fulfill({ json: { decision: director.decision } });
+    }
+    return await route.fulfill({
+      json: { decision: rules, fallback: director.mode === "fallback" ? "timeout" : "unavailable" },
+    });
+  } catch {
+    // the page gave up on this answer (it started the next night) or was closed
+  }
+}
+const stubDirector = async (target) => {
+  await target.route("**/api/director", serveDirector);
+  await target.route("**/api/plays", serveDirector);
+};
+
 // A recorded night as /api/plays/<id> serves it, played on a sim that is not this build's (`sim` is a fingerprint no
 // build has), or with `sim` left out as plays from before fingerprints are. The page is never given the real store.
 const otherVersionPlay = (id, withSim) => ({
@@ -86,6 +135,7 @@ const serveFixturePlay = (play) => (route) => route.fulfill({ json: play });
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
 let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
 await stubSea(page);
+await stubDirector(page);
 const lab = await browser.newPage(); // blank page used to decode and compare PNGs
 const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));
@@ -1364,6 +1414,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 {
   const padPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
   await stubSea(padPage);
+  await stubDirector(padPage);
   padPage.on("pageerror", (error) => errors.push(`gamepad: ${error}`));
   await padPage.addInitScript(() => {
     const pad = {
@@ -1526,6 +1577,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 {
   const heroPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
   await stubSea(heroPage);
+  await stubDirector(heroPage);
   heroPage.on("pageerror", (error) => errors.push(`hero choice: ${error}`));
   const mainPage = page;
   page = heroPage;
@@ -1638,6 +1690,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     localStorage.clear();
   });
   await stubSea(unrollContext);
+  await stubDirector(unrollContext);
   const unrollPage = await unrollContext.newPage();
   unrollPage.on("pageerror", (error) => errors.push(`unroll: ${error}`));
   const stageOf = () => unrollPage.evaluate(() => document.querySelector(".scroll")?.dataset.stage);
@@ -1706,6 +1759,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     reducedMotion: "reduce",
   });
   await stubSea(reducedContext);
+  await stubDirector(reducedContext);
   const reducedPage = await reducedContext.newPage();
   await reducedPage.goto(BASE_URL);
   await reducedPage.waitForSelector(".scroll:not([hidden])");
@@ -1744,6 +1798,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 {
   const seaContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
   await stubSea(seaContext);
+  await stubDirector(seaContext);
   const seaPage = await seaContext.newPage();
   seaPage.on("pageerror", (error) => errors.push(`sea: ${error}`));
   seaPage.on("console", (message) => {
@@ -2047,6 +2102,248 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   sea.mode = "none";
 }
 
+// 22 to 25 the live director (APIs stubbed, see above). A reduced-motion context with no ?verify=1, so the title scroll
+// is open and the night's recording is really sent to /api/plays before the director is asked about it.
+{
+  const directorContext = await browser.newContext({
+    viewport: { width: 1000, height: 640 },
+    deviceScaleFactor: 1,
+    reducedMotion: "reduce",
+  });
+  await stubSea(directorContext);
+  await stubDirector(directorContext);
+  const directorPage = await directorContext.newPage();
+  directorPage.on("pageerror", (error) => errors.push(`director: ${error}`));
+  directorPage.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+      errors.push(`director: ${message.text()}`);
+  });
+  directorPage.on("response", (response) => {
+    if (response.status() >= 400) errors.push(`director: HTTP ${response.status()} ${response.url()}`);
+  });
+  const mainPage = page;
+  page = directorPage;
+  const openTitle = async () => {
+    await page.goto(BASE_URL);
+    await page.evaluate(() => localStorage.clear());
+    director.asked = [];
+    director.uploads = [];
+    director.decision = null;
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+  };
+  const startNight = async (name) => {
+    await page.getByRole("button", { name }).click();
+    await page.waitForSelector('[data-phase="night"]');
+    await freeze();
+  };
+  const toDawn = async () => {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.elapsed = state.length - 0.01;
+      state.oilEarned = 12;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+    await freeze();
+  };
+  const snapshot = () =>
+    page.evaluate(() => {
+      const state = window.lampwarden.state();
+      const legacy = window.lampwarden.legacy();
+      return {
+        tide: state.tide,
+        mix: state.mix,
+        creatureShare: state.creatureShare,
+        legacyTide: legacy.tide,
+        source: legacy.director.source,
+        savedSource: JSON.parse(localStorage.getItem("lampwarden:legacy:v1") ?? "{}").director?.source,
+        line: document.querySelector("[data-director-line]")?.textContent ?? null,
+        note: [...document.querySelectorAll(".panel p.dim")].map((paragraph) => paragraph.textContent).join(" "),
+      };
+    });
+  const EVEN = { satyr: 1, cyclops: 1, harpy: 1 };
+
+  // 22 the model answers while the dawn panel is up: its line is the sea's answer, and the next night is played under it
+  director.mode = "answer";
+  await openTitle();
+  await startNight("Light the lamps");
+  const firstNight = await snapshot();
+  check(
+    "director-answer",
+    "the first night is the rules' night: even mix, a quarter of the spawns the creature's",
+    firstNight.source === "rules" &&
+      JSON.stringify(firstNight.mix) === JSON.stringify(EVEN) &&
+      firstNight.creatureShare === 0.25 &&
+      firstNight.tide === 1,
+    JSON.stringify(firstNight),
+  );
+  await toDawn();
+  await page.waitForSelector("[data-director-line]", { timeout: 5000 });
+  await page.waitForTimeout(300);
+  const answered = await snapshot();
+  const sentPlay = director.uploads[0];
+  check(
+    "director-answer",
+    "the night's recording went to /api/plays first, and the director was asked about that play",
+    director.uploads.length === 1 && director.asked.length === 1 && director.asked[0] === sentPlay?.id,
+    `${director.uploads.length} uploads, asked ${director.asked.join()} for ${sentPlay?.id}`,
+  );
+  check(
+    "director-answer",
+    "the recording carries the rules' decision the night was played under",
+    sentPlay?.legacy?.director?.source === "rules" && sentPlay.legacy.tide === 1,
+    JSON.stringify(sentPlay?.legacy?.director),
+  );
+  check(
+    "director-answer",
+    "the dawn panel shows the sea's line, in place of the rules' note",
+    answered.line === DIRECTOR_LINE && !/The sea (stays|noticed|draws)/.test(answered.note),
+    JSON.stringify({ line: answered.line, note: answered.note }),
+  );
+  const lineStyle = await page.evaluate(() => {
+    const style = getComputedStyle(document.querySelector("[data-director-line]"));
+    return { italic: style.fontStyle === "italic", colour: style.color };
+  });
+  check("director-answer", "it is set in the sea's colour, in italics", lineStyle.italic, JSON.stringify(lineStyle));
+  check(
+    "director-answer",
+    "the answer is stored in the legacy (tide included), and saved",
+    answered.source === "mubit" &&
+      answered.savedSource === "mubit" &&
+      answered.legacyTide === director.decision?.tide &&
+      answered.legacyTide < 1.1,
+    JSON.stringify(answered),
+  );
+  await shoot("22-director-dawn");
+
+  await startNight(/Into night/);
+  const decidedNight = await snapshot();
+  check(
+    "director-answer",
+    "the next night is played at the decision's tide, mix and creature share",
+    decidedNight.tide === director.decision?.tide &&
+      JSON.stringify(decidedNight.mix) === JSON.stringify(director.decision?.mix) &&
+      decidedNight.creatureShare === 0.2,
+    JSON.stringify(decidedNight),
+  );
+  const spawned = await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    return { satyr: state.mix.satyr, cyclops: state.mix.cyclops, harpy: state.mix.harpy };
+  });
+  check(
+    "director-answer",
+    "and the sim's mix is a copy of it (cyclops eased, harpies sharpened)",
+    spawned.cyclops === 0.6 && spawned.harpy === 1.5,
+    JSON.stringify(spawned),
+  );
+
+  // 23 the second night is recorded under the decision, and the model's answer is not asked for twice at once
+  director.mode = "fallback";
+  await toDawn();
+  await page.waitForTimeout(500);
+  const secondPlay = director.uploads[1];
+  check(
+    "director-answer",
+    "the second night's recording carries the decision, so a replay builds the same night",
+    secondPlay?.legacy?.director?.source === "mubit" &&
+      secondPlay.legacy.director.mix.cyclops === 0.6 &&
+      secondPlay.legacy.director.creatureShare === 0.2 &&
+      secondPlay.legacy.tide === director.decision?.tide,
+    JSON.stringify(secondPlay?.legacy?.director),
+  );
+
+  // 24 the fallback: the model did not answer in time, so the dawn panel keeps the rules' note and no line
+  const fellBack = await snapshot();
+  check(
+    "director-fallback",
+    "no sea line, and the rules' note is shown",
+    fellBack.line === null && /^The sea /.test(fellBack.note),
+    JSON.stringify({ line: fellBack.line, note: fellBack.note }),
+  );
+  check(
+    "director-fallback",
+    "the rules' decision stands: even mix, a quarter, saved as the rules'",
+    fellBack.source === "rules" && fellBack.savedSource === "rules",
+    JSON.stringify(fellBack),
+  );
+  await shoot("23-director-fallback-dawn");
+  await startNight(/Into night/);
+  const fallbackNight = await snapshot();
+  check(
+    "director-fallback",
+    "the next night is the rules' night: its tide, an even mix, a quarter",
+    fallbackNight.tide === fallbackNight.legacyTide &&
+      JSON.stringify(fallbackNight.mix) === JSON.stringify(EVEN) &&
+      fallbackNight.creatureShare === 0.25,
+    JSON.stringify(fallbackNight),
+  );
+
+  // an unreachable route is the same
+  director.mode = "down";
+  await toDawn();
+  await page.waitForTimeout(500);
+  const unreachable = await snapshot();
+  check(
+    "director-fallback",
+    "with the route unreachable the dawn panel is the rules' too, and the shop and Into night work",
+    unreachable.line === null &&
+      unreachable.source === "rules" &&
+      (await page.getByRole("button", { name: /Into night/ }).isEnabled()),
+    JSON.stringify(unreachable),
+  );
+
+  // 25 an answer that comes after the next night began is ignored
+  director.mode = "late";
+  let release = () => {};
+  director.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  await startNight(/Into night/);
+  await toDawn();
+  await page.waitForFunction(() => document.querySelector('[data-phase="dawn"]'));
+  await page.waitForTimeout(300);
+  const waitingDawn = await snapshot();
+  check(
+    "director-late",
+    "while the answer is awaited the dawn panel is the rules' and the shop can be used",
+    waitingDawn.line === null && waitingDawn.source === "rules",
+    JSON.stringify(waitingDawn),
+  );
+  await startNight(/Into night/);
+  const lateNightBefore = await snapshot();
+  release();
+  await page.waitForTimeout(600);
+  const lateNightAfter = await snapshot();
+  check(
+    "director-late",
+    "an answer that arrives once the night has begun changes nothing",
+    lateNightBefore.tide === lateNightAfter.tide &&
+      lateNightAfter.source === "rules" &&
+      JSON.stringify(lateNightAfter.mix) === JSON.stringify(EVEN) &&
+      lateNightAfter.line === null,
+    JSON.stringify({ before: lateNightBefore, after: lateNightAfter }),
+  );
+
+  // the heir screen shows the line as well
+  director.mode = "answer";
+  await page.evaluate(() => {
+    for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+    window.lampwarden.scene().setPaused(false);
+  });
+  await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
+  await page.waitForSelector("[data-director-line]", { timeout: 5000 });
+  await freeze();
+  check("director-heir", "the heir screen shows the sea's line too", (await snapshot()).line === DIRECTOR_LINE);
+  await shoot("24-director-heir");
+
+  page = mainPage;
+  await directorContext.close();
+  director.mode = "off";
+}
+
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
 // --- mobile: WebKit (Safari's engine) on phone profiles, with touch ------------------------------------------
@@ -2068,6 +2365,7 @@ const overlap = (first, second) =>
 const inView = (box, viewportWidth, viewportHeight) =>
   box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
 sea.mode = "ready"; // the phone passes show the creature panel on the title and at dawn
+director.mode = "answer"; // and the sea's answer at dawn
 for (const [tag, device, sex] of [
   ["phone-land", devices["iPhone 14 landscape"], "male"],
   ["phone-port", devices["iPhone 14"], "male"],
@@ -2075,6 +2373,7 @@ for (const [tag, device, sex] of [
 ]) {
   const context = await webkitBrowser.newContext({ ...device });
   await stubSea(context);
+  await stubDirector(context);
   page = await context.newPage();
   page.on("pageerror", (error) => errors.push(`${tag}: ${error}`));
   const { width: viewportWidth, height: viewportHeight } = device.viewport;
@@ -2269,6 +2568,21 @@ for (const [tag, device, sex] of [
     seaDawnBox && `${Math.round(seaDawnBox.width)}x${Math.round(seaDawnBox.height)}`,
   );
   await shoot(`${tag}-4-dawn-sea`, true);
+  await page.waitForSelector("[data-director-line]", { timeout: 5000 });
+  const seaLine = page.locator("[data-director-line]");
+  await seaLine.scrollIntoViewIfNeeded();
+  const seaLineBox = await seaLine.boundingBox();
+  check(
+    tag,
+    "the sea's line at dawn is on screen, inside the panel, and its text is whole",
+    seaLineBox &&
+      inView(seaLineBox, viewportWidth, viewportHeight) &&
+      (await seaLine.textContent()) === DIRECTOR_LINE &&
+      (await seaLine.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)),
+    seaLineBox && `${Math.round(seaLineBox.width)}x${Math.round(seaLineBox.height)}`,
+  );
+  await page.waitForTimeout(800); // the line inks in over 0.6 s
+  await shoot(`${tag}-5-dawn-line`, true);
   const phoneFonts = await fontsLoaded();
   check(
     tag,

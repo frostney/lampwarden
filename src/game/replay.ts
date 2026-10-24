@@ -2,6 +2,7 @@
 // headless check that a night ends where it was played. These decide what a night does, so this file is covered by the
 // sim fingerprint (tools/sim-fingerprint); the Recorder and the upload live in recording.ts and are not.
 import { recordedCreatureSchema } from "./creature";
+import { directorFrom } from "./director";
 import { type Legacy, levelsOf } from "./legacy";
 import type { Play } from "./recording";
 import { type Input, type NightCreature, newNight, nightCreature, type State, step } from "./sim";
@@ -43,6 +44,7 @@ export function legacyOf(play: Play): Legacy {
   return {
     ...play.legacy,
     levels: levelsOf(play.legacy.levels),
+    director: directorFrom(play.legacy.director, play.legacy.tide, play.legacy.night),
     bestiary: [],
     offerSeed: 0,
     offers: [],

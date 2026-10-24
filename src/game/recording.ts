@@ -19,8 +19,12 @@ export interface Play {
   sim?: string; // fingerprint of the sim sources the night was played on (tools/sim-fingerprint); old plays have none
   startedAt: string;
   seed: number;
-  // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf)
-  legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & { levels: Partial<Legacy["levels"]> };
+  // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf). The director
+  // is the decision the night was played under (mix and creature share); a play from before it has none (the rules').
+  legacy: Pick<Legacy, "night" | "generation" | "tide" | "heir"> & {
+    levels: Partial<Legacy["levels"]>;
+    director?: unknown;
+  };
   // the creature from the sea that joined the night, when one did; a play from before creatures has none
   creature?: RecordedCreature;
   inputs: InputRow[];
@@ -56,7 +60,7 @@ export class Recorder {
     creature: RecordedCreature | null = null,
     sim: string | undefined = undefined,
   ) {
-    const { night, generation, tide, levels, heir } = legacy;
+    const { night, generation, tide, levels, heir, director } = legacy;
     this.play = {
       v: 1,
       id: `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${randomId()}`,
@@ -65,7 +69,7 @@ export class Recorder {
       ...(sim ? { sim } : {}),
       startedAt: new Date().toISOString(),
       seed,
-      legacy: structuredClone({ night, generation, tide, levels, heir }),
+      legacy: structuredClone({ night, generation, tide, levels, heir, director }),
       ...(creature ? { creature: structuredClone(creature) } : {}),
       inputs: [],
       timeline: [],

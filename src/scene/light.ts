@@ -163,7 +163,7 @@ const HERO_PALETTE: readonly Rgb[] = [
 // --- glints ----------------------------------------------------------------------------------------------------
 
 // One frame of a glint: a small additive shape, or nothing (between twinkles).
-export type GlintFrame = LightPiece | null;
+type GlintFrame = LightPiece | null;
 export interface Glint {
   x: number;
   y: number;

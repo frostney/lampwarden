@@ -49,7 +49,7 @@ export interface Monster {
   attackCooldown: number;
   hurt: number;
 }
-export interface Shot {
+interface Shot {
   id: number;
   x: number;
   y: number;
@@ -58,7 +58,7 @@ export interface Shot {
   life: number;
   hit: number[];
 }
-export interface Puff {
+interface Puff {
   id: number;
   x: number;
   y: number;
@@ -81,13 +81,13 @@ export interface Hero {
   shotCooldown: number;
 }
 export type Outcome = "dawn" | "dark" | "fallen";
-export interface Stats {
+interface Stats {
   kills: number;
   lampsLost: number;
   hpLost: number;
   time: number;
 }
-export interface Rules {
+interface Rules {
   speed: number;
   meleeReach: number;
   meleeDamage: number;
@@ -117,9 +117,9 @@ export interface State {
   outcome: Outcome | null;
 }
 
-export const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
+const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
 
-export function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
+function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
   const { wick, blade, quiver } = legacy.levels;
   return {
     speed: 150 * (trait === "swift" ? 1.25 : 1),
@@ -135,7 +135,7 @@ export function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules 
 }
 
 // seeded RNG kept in the state (mulberry32)
-export function rand(state: State): number {
+function rand(state: State): number {
   state.randomState = (state.randomState + 0x6d2b79f5) | 0;
   let value = state.randomState;
   value = Math.imul(value ^ (value >>> 15), value | 1);
@@ -182,7 +182,7 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
   return state;
 }
 
-export function inPlaza(x: number, y: number, margin = 0.92) {
+function inPlaza(x: number, y: number, margin = 0.92) {
   return Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y - CENTRE_Y) / PLAZA_HALF_HEIGHT <= margin;
 }
 // ground distance in iso: vertical is foreshortened 2:1
@@ -207,7 +207,7 @@ function pickKind(state: State, roll: number): MonsterKind {
   return "satyr";
 }
 
-export function spawn(state: State) {
+function spawn(state: State) {
   const kind = pickKind(state, rand(state));
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
   const angle = rand(state) < 0.6 ? Math.PI * (0.15 + rand(state) * 0.7) : rand(state) * Math.PI * 2;
@@ -237,7 +237,7 @@ export const NO_INPUT: Input = { moveX: 0, moveY: 0, melee: false, ranged: false
 export const litCount = (state: State) => state.lamps.reduce((count, lamp) => count + (lamp.lit ? 1 : 0), 0);
 const inLight = (state: State, x: number, y: number) =>
   state.lamps.some((lamp) => lamp.lit && ground(lamp.x, lamp.y, x, y) < state.rules.lightRadius);
-export const AGGRO = 80;
+const AGGRO = 80;
 
 export function step(state: State, deltaTime: number, input: Input) {
   if (state.outcome) return;

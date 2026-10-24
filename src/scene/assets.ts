@@ -1,13 +1,13 @@
 // Sprite list for the scene. Frame counts match pipeline/shotcup_main.py (FRAMES).
-export const SEXES = ["male", "female"] as const;
+const SEXES = ["male", "female"] as const;
 export type Sex = (typeof SEXES)[number];
-export const HERO_ANIMATIONS = ["idle", "walk", "melee", "ranged"] as const;
+const HERO_ANIMATIONS = ["idle", "walk", "melee", "ranged"] as const;
 export type HeroAnimation = (typeof HERO_ANIMATIONS)[number];
 
 export const FRAMES: Record<HeroAnimation, number> = { idle: 4, walk: 6, melee: 5, ranged: 5 };
 export const FRAMES_PER_SECOND: Record<HeroAnimation, number> = { idle: 6, walk: 10, melee: 14, ranged: 12 };
 
-export const SINGLE = [
+const SINGLE = [
   "satyr",
   "cyclops",
   "harpy",

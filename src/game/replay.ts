@@ -29,7 +29,7 @@ export interface Play {
 }
 
 const randomId = () => Math.random().toString(36).slice(2, 10);
-export function sessionId(): string {
+function sessionId(): string {
   try {
     let session = localStorage.getItem("lampwarden:session");
     if (!session) {

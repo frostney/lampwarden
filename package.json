@@ -13,6 +13,7 @@
     "replay-check": "bun scripts/replay-check.ts"
   },
   "dependencies": {
+    "@pixi/react": "^8.0.5",
     "@vercel/blob": "^2.8.2",
     "next": "^16.4.3",
     "pixi.js": "^8.22.0",

@@ -6,11 +6,18 @@
 app/                 Next App Router: layout.tsx, page.tsx (renders <GameClient/>), globals.css
 components/
   GameClient.tsx     dynamic import with ssr:false (Pixi needs the browser)
-  Game.tsx           React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy
+  Game.tsx           React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy, the night on
+                     stage (state, warden, recording or replay driver), pause, replay speed; renders the @pixi/react <Application>
+  Scene.tsx          the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one component
+                     per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a night starts or
+                     a monster spawns or dies
+  TouchControls.tsx  on-screen stick and buttons for touch devices
 lib/
   assets.ts          sprite keys, frame counts/fps, ground anchors, asset list for Assets.load
-  scene.ts           plain Pixi: one Application, ground, props, depth-sorted sprites synced from the sim, night tint + lamp light, input
+  scene.ts           what the scene looks like, plain Pixi: textures, ground, props, glow, night tint, per-frame strokes
+  controls.ts        keyboard, click, stick and button input between frames, turned into the next sim step's input
   sim.ts             one night, no Pixi: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director
+  replay.ts          fixed step, input quantisation, Recorder/Replayer for recorded plays
   legacy.ts          what outlives a warden: oil, upgrades, heirs and traits, tide; localStorage save
 scripts/balance.ts   headless balance check (idle and bot wardens), run with bun
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
@@ -31,7 +38,7 @@ docs/ARCHITECTURE.md this file
    `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `lib/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
-4. Place it in `lib/scene.ts` (`PROPS`, static and depth-sorted by ground y) or in `lib/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `lib/sim.ts`.
+4. Place it in `lib/scene.ts` (`PROPS`, static and depth-sorted by ground y; `components/Scene.tsx` renders them) or in `lib/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `lib/sim.ts`.
 
 ## Add a setting (Norse, Egyptian…)
 

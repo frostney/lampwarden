@@ -52,6 +52,8 @@ src/
                      bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
+    pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
+                     the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
                      recorder (the creature a night met is an optional field)
   server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the

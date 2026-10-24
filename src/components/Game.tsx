@@ -363,7 +363,7 @@ export default function Game() {
       }
       const version = playVersion.safeParse(fetched);
       if (!version.success) {
-        setReplayError("Error: no recording");
+        setReplayError("there is no recording");
         return;
       }
       // A night replays exactly only on the sim it was played on. Another version (or one from before versions were
@@ -378,7 +378,7 @@ export default function Game() {
       // a recording on this sim is replayed only whole: one that is damaged or was not made by the game is refused
       const parsed = playSchema.safeParse(fetched);
       if (!parsed.success) {
-        setReplayError("Error: this recording is damaged and can't be replayed");
+        setReplayError("the recording is damaged and can't be replayed");
         return;
       }
       const play = parsed.data;
@@ -712,12 +712,16 @@ export default function Game() {
           </div>
         )}
         {replayError && (
-          <div className="panel">
+          <div className="panel" data-panel="replay-error">
             <p>Could not load that replay: {replayError}</p>
+            <button type="button" className="btn big" onClick={() => location.assign("/")}>
+              Back to the title
+            </button>
           </div>
         )}
 
-        {phase === "title" && (
+        {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
+        {phase === "title" && !replayError && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">

@@ -64,6 +64,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
   render/            local bun runner + canvas shim (also copied into the sandboxes)
 docs/ARCHITECTURE.md this file
+docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared, with parallelism and Mubit numbers
 ```
 
 ## Sprite flow

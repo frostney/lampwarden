@@ -1,6 +1,9 @@
-// Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
-// usage: bun scripts/balance.ts [runs=200] [--director]; seeded, so two builds are compared on the same nights.
+// Headless balance check: plays nights with an idle warden, a perfect bot and a human-paced bot, prints outcome rates.
+// usage: bun scripts/balance.ts [runs=200] [all|idle|bot|human|creatures] [--director]; seeded, so two builds are
+// compared on the same nights. The perfect bot (reads the state, 150 ms reaction) is the ceiling; the human-paced one
+// (scripts/human-bot.ts) is what the difficulty curve is tuned on.
 // --director: only the live director's section, with stub decisions in place of the model (see directorReport).
+import { consumePresses, liveInput, newControls } from "../src/game/controls";
 import { ARCHETYPES, type Modifiers } from "../src/game/creature";
 import { clampProposal, type Director, EVEN_MIX, type Mix } from "../src/game/director";
 import {
@@ -14,6 +17,7 @@ import {
   UPGRADE_IDS,
   upgradeCost,
 } from "../src/game/legacy";
+import { STEP } from "../src/game/replay";
 import {
   bodyHeight,
   dawnBonus,
@@ -26,9 +30,11 @@ import {
   newNight,
   nextTide,
   nightCreature,
+  type Outcome,
   type State,
   step,
 } from "../src/game/sim";
+import { humanBot } from "./human-bot";
 
 function bot(state: State): Input {
   const hero = state.hero;
@@ -76,24 +82,34 @@ function bot(state: State): Input {
 }
 
 // "novice": the bot with a slow reaction and no bow, standing in for a first-time player (see directorReport)
-type Policy = "idle" | "bot" | "novice";
-const REACTION: Record<Policy, number> = { idle: 0.15, bot: 0.15, novice: 0.45 };
+// "human": the human-paced bot (scripts/human-bot.ts), which works the controls like live play
+type Policy = "idle" | "bot" | "novice" | "human";
+const REACTION: Record<Exclude<Policy, "human">, number> = { idle: 0.15, bot: 0.15, novice: 0.45 };
 
 function playNight(legacy: Legacy, policy: Policy, seed: number, creature: NightCreature | null = null) {
   const state = newNight(legacy, seed, creature);
   let input = NO_INPUT;
   let think = 0;
-  const stepSeconds = 1 / 60;
+  const controls = newControls();
+  const human = policy === "human" ? humanBot(seed) : null;
   while (!state.outcome) {
-    think -= stepSeconds;
-    if (think <= 0) {
-      // ~150 ms reaction time (the novice's is 450 ms, and he never shoots)
-      input = policy === "idle" ? NO_INPUT : bot(state);
-      if (policy === "novice") input = { ...input, ranged: false, aim: null };
-      think = REACTION[policy];
+    if (human) {
+      human.act(state, controls, STEP);
+      input = liveInput(controls);
+    } else if (policy !== "human") {
+      think -= STEP;
+      if (think <= 0) {
+        // ~150 ms reaction time (the novice's is 450 ms, and he never shoots)
+        input = policy === "idle" ? NO_INPUT : bot(state);
+        if (policy === "novice") input = { ...input, ranged: false, aim: null };
+        think = REACTION[policy];
+      }
     }
-    step(state, stepSeconds, input);
-    if (input.melee || input.ranged) input = { ...input, melee: false, ranged: false };
+    step(state, STEP, input);
+    if (input.melee || input.ranged) {
+      consumePresses(controls);
+      input = { ...input, melee: false, ranged: false };
+    }
   }
   return {
     outcome: state.outcome,
@@ -103,6 +119,7 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
     oil: state.oilEarned,
     income: state.oilEarned + (state.outcome === "dawn" ? dawnBonus(state) : 0), // what the warden banks for the night
     healthLost: state.stats.hpLost,
+    lampsLost: state.stats.lampsLost,
     nextTide: nextTide(legacy.tide, state),
   };
 }
@@ -153,8 +170,10 @@ function directorReport(runs: number) {
   console.log(
     `the live director with stub decisions (${runs} seeded nights each; the same seeds under every decision)`,
   );
-  console.log("novice = 450 ms reaction, melee only; bot = 150 ms reaction, bow and sword\n");
-  for (const policy of ["novice", "bot"] as const) {
+  console.log(
+    "novice = 450 ms reaction, melee only; human = the human-paced bot; bot = 150 ms reaction, bow and sword\n",
+  );
+  for (const policy of ["novice", "human", "bot"] as const) {
     for (const [night, tide] of [
       [1, 1],
       [2, 1],
@@ -189,7 +208,12 @@ function directorReport(runs: number) {
   }
 }
 
-const runs = Number(process.argv.slice(2).find((argument) => /^[0-9]+$/.test(argument)) || 200);
+const ONLY = ["all", "idle", "bot", "human", "creatures"];
+const words = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
+const runs = Number(words.find((argument) => /^[0-9]+$/.test(argument)) || 200);
+const only = words.find((argument) => !/^[0-9]+$/.test(argument)) ?? "all";
+if (!ONLY.includes(only)) throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
+const POLICIES = (["idle", "bot", "human"] as const).filter((policy) => only === "all" || only === policy);
 if (process.argv.includes("--director")) {
   directorReport(runs);
   process.exit(0);
@@ -201,7 +225,7 @@ const SCENARIOS = [
   [5, 1.2],
   [7, 1.4],
 ] as const;
-for (const policy of ["idle", "bot"] as const) {
+for (const policy of POLICIES) {
   for (const [night, tide] of SCENARIOS) {
     // the same seeds on every run, so a change to the sim shows against the same nights
     const results = Array.from({ length: runs }, (_, run) => play(night, tide, policy, night * 100_000 + run));
@@ -213,60 +237,94 @@ for (const policy of ["idle", "bot"] as const) {
       results.reduce((total, result) => total + measure(result), 0);
     const killsPerMinute = (60 * sum((result) => result.kills)) / sum((result) => result.time);
     console.log(
-      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
+      `${policy.padEnd(5)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, lamps lost ${average((result) => result.lampsLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
     );
   }
 }
 
-// A campaign: the bot holds nights 1..CAMPAIGN_NIGHTS in a row, banking each night's oil and spending it in the shop
-// (the cheapest level on offer it can afford, until nothing is affordable), the way a player who buys whatever is cheap
-// would. It stops at the first night it does not hold. Shows whether the oil buys about one level a night and keeps
-// the top levels out of early reach.
+// A campaign: a fresh line plays nights 1..CAMPAIGN_NIGHTS in a row the way a player's first line does, banking each
+// night's oil and spending it in the shop (the cheapest level on offer it can afford, until nothing is affordable), the
+// tide following the director's read of each night. A line stops at the first night it does not hold. Per night this
+// shows how the nights that are reached end (dawn, dark or fallen: rates of the lines that reach the night), and
+// whether the oil buys about one level a night and keeps the top levels out of early reach.
 const CAMPAIGN_NIGHTS = 8;
 const levelsOwned = (legacy: Legacy) => UPGRADE_IDS.reduce((total, id) => total + legacy.levels[id], 0);
+const highestLevel = (legacy: Legacy) => Math.max(...UPGRADE_IDS.map((id) => legacy.levels[id]));
 interface Row {
+  outcome: Outcome;
+  time: number;
+  kills: number;
+  healthLost: number;
+  lampsLost: number;
+  tide: number;
   income: number;
-  bought: number;
+  bought: number; // levels bought in the shop after a night that dawned
   ownedAfter: number;
   highest: number;
 }
-const campaigns = Array.from({ length: runs }, (_, run) => {
-  const legacy = newLegacy(run + 1);
-  const rows: Row[] = [];
-  for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
-    legacy.night = night;
-    const result = playNight(legacy, "bot", night * 100_000 + run);
-    if (result.outcome !== "dawn") break;
-    legacy.oil += result.income;
-    legacy.tide = result.nextTide;
-    openShop(legacy);
-    const owned = levelsOwned(legacy);
-    for (;;) {
-      const affordable = legacy.offers
-        .map((id) => ({ id, cost: upgradeCost(legacy, id) }))
-        .filter((offer) => offer.cost !== null && offer.cost <= legacy.oil)
-        .sort((first, second) => (first.cost ?? 0) - (second.cost ?? 0))[0];
-      if (!affordable || !buy(legacy, affordable.id)) break;
+const campaignOf = (policy: Policy) =>
+  Array.from({ length: runs }, (_, run) => {
+    const legacy = newLegacy(run + 1);
+    const rows: Row[] = [];
+    for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
+      legacy.night = night;
+      const tide = legacy.tide;
+      const result = playNight(legacy, policy, night * 100_000 + run);
+      const row: Row = {
+        outcome: result.outcome,
+        time: result.time,
+        kills: result.kills,
+        healthLost: result.healthLost,
+        lampsLost: result.lampsLost,
+        tide,
+        income: result.income,
+        bought: 0,
+        ownedAfter: levelsOwned(legacy),
+        highest: highestLevel(legacy),
+      };
+      rows.push(row);
+      if (result.outcome !== "dawn") break;
+      legacy.oil += result.income;
+      legacy.tide = result.nextTide;
+      openShop(legacy);
+      const owned = levelsOwned(legacy);
+      for (;;) {
+        const affordable = legacy.offers
+          .map((id) => ({ id, cost: upgradeCost(legacy, id) }))
+          .filter((offer) => offer.cost !== null && offer.cost <= legacy.oil)
+          .sort((first, second) => (first.cost ?? 0) - (second.cost ?? 0))[0];
+        if (!affordable || !buy(legacy, affordable.id)) break;
+      }
+      row.bought = levelsOwned(legacy) - owned;
+      row.ownedAfter = levelsOwned(legacy);
+      row.highest = highestLevel(legacy);
     }
-    rows.push({
-      income: result.income,
-      bought: levelsOwned(legacy) - owned,
-      ownedAfter: levelsOwned(legacy),
-      highest: Math.max(...UPGRADE_IDS.map((id) => legacy.levels[id])),
-    });
-  }
-  return rows;
-});
-console.log(`\ncampaign (the bot holds nights in a row, buys the cheapest affordable level; ${runs} lines):`);
-for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
-  const rows = campaigns.flatMap((line) => line[night - 1] ?? []);
-  if (rows.length === 0) break;
-  const average = (measure: (row: Row) => number) =>
-    (rows.reduce((total, row) => total + measure(row), 0) / rows.length).toFixed(1);
-  const atTop = rows.filter((row) => row.highest >= MAX_LEVEL).length;
+    return rows;
+  });
+for (const policy of POLICIES) {
+  if (policy === "idle") continue;
+  const campaigns = campaignOf(policy);
   console.log(
-    `  night ${night}: held by ${((100 * rows.length) / runs).toFixed(0)}% | income ${average((row) => row.income)}, levels bought ${average((row) => row.bought)}, levels owned ${average((row) => row.ownedAfter)}, an upgrade at top level in ${((100 * atTop) / rows.length).toFixed(0)}%`,
+    `\ncampaign (${policy} warden holds nights in a row, buys the cheapest affordable level; ${runs} lines; outcome rates are of the lines that reach the night):`,
   );
+  for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
+    const rows = campaigns.flatMap((line) => line[night - 1] ?? []);
+    if (rows.length === 0) break;
+    const total = (measure: (row: Row) => number) => rows.reduce((sum, row) => sum + measure(row), 0);
+    const average = (measure: (row: Row) => number) => (total(measure) / rows.length).toFixed(1);
+    const percent = (outcome: Outcome) =>
+      ((100 * rows.filter((row) => row.outcome === outcome).length) / rows.length).toFixed(0).padStart(3);
+    const killsPerMinute = (60 * total((row) => row.kills)) / total((row) => row.time);
+    const held = rows.filter((row) => row.outcome === "dawn");
+    const mean = (measure: (row: Row) => number) =>
+      held.length ? (held.reduce((sum, row) => sum + measure(row), 0) / held.length).toFixed(1) : "-";
+    const atTop = held.length
+      ? ((100 * held.filter((row) => row.highest >= MAX_LEVEL).length) / held.length).toFixed(0)
+      : "-";
+    console.log(
+      `  night ${night}: reached by ${((100 * rows.length) / runs).toFixed(0).padStart(3)}% (${String(rows.length).padStart(3)}), tide ${average((row) => row.tide)} | dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}% | kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((row) => row.healthLost)}, lamps lost ${average((row) => row.lampsLost)} | income ${average((row) => row.income)}, levels bought ${mean((row) => row.bought)}, levels owned ${mean((row) => row.ownedAfter)}, an upgrade at top level in ${atTop}%`,
+    );
+  }
 }
 
 // Creatures from the sea: the same seeded nights with one creature of each archetype, neutral and with every modifier at
@@ -284,8 +342,10 @@ const MODIFIER_SETS = [
   ["strongest", STRONGEST],
   ["weakest", WEAKEST],
 ] as const;
-console.log(`\nwith a creature from the sea (bot warden, ${runs} nights each, the same seeds as above):`);
-for (const [night, tide] of CREATURE_SCENARIOS) {
+const withCreatures = only === "all" || only === "creatures";
+if (withCreatures)
+  console.log(`\nwith a creature from the sea (bot warden, ${runs} nights each, the same seeds as above):`);
+for (const [night, tide] of withCreatures ? CREATURE_SCENARIOS : []) {
   const variants: [string, NightCreature | null][] = [["no creature", null]];
   for (const archetype of ARCHETYPES)
     for (const [label, modifiers] of MODIFIER_SETS)

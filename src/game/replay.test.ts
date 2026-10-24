@@ -89,7 +89,7 @@ describe("recorded nights", () => {
 
   test("a night of wounds replays the knockback, hit-stop and mercy frames exactly", () => {
     // a warden who only stands his ground is clawed again and again
-    const { live, play } = recordNight(3, 1.1, 4242, null, () => NO_INPUT);
+    const { live, play } = recordNight(4, 1.1, 4242, null, () => NO_INPUT);
     expect(live.hero.hits).toBeGreaterThan(1);
     const replayed = verifyPlay(play);
     expect(replayed.endsMatch).toBe(true);

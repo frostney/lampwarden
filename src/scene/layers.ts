@@ -280,6 +280,13 @@ export const PROPS: [string, number, number][] = [
   ["wall", 250, 228],
 ];
 
+// The props small enough for one warm tint to light, by the lamps and by the warden's light on the ground at their base
+// (lighting.ts lightProp): the statue, the stall and the olive trees. The temple, the house and the wall are buildings, and
+// the galley at its dock and the trireme are boats: a single tint across a sprite that large would light its whole face at
+// once, so they keep the night's tint.
+const LIT_PROPS: ReadonlySet<string> = new Set(["zeus-statue", "stall", "olive"]);
+export const isLitProp = (key: string) => LIT_PROPS.has(key);
+
 // where a sprite's base touches the ground, as a Pixi anchor (one object per height, so React props stay equal)
 const anchors = new Map<number, { x: number; y: number }>();
 export function anchorAt(anchorY: number) {

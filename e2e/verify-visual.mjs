@@ -1108,6 +1108,140 @@ await page.evaluate(() => {
   await page.waitForTimeout(100);
 }
 
+// 4b4 the warden's own light lights what is around him, not only the ground: in the dark a monster near him is warmer than
+// one far from him, the small props at his side are lit, and at dawn all of it has faded like the lamps' light
+{
+  const wardenAt = [300, 450];
+  await page.evaluate(([x, y]) => {
+    const state = window.lampwarden.state();
+    for (const lamp of state.lamps) lamp.lit = false;
+    state.monsters = [];
+    state.shots = [];
+    state.hero.x = x;
+    state.hero.y = y;
+    state.hero.octant = 0;
+    state.hero.animation = "idle";
+    state.hero.frameTime = 0;
+  }, wardenAt);
+  const setSatyr = async (x, y) => {
+    await page.evaluate(
+      ([satyrX, satyrY]) => {
+        const state = window.lampwarden.state();
+        state.monsters = [];
+        if (satyrX !== null)
+          state.monsters.push({
+            id: state.nextId++,
+            kind: "satyr",
+            x: satyrX,
+            y: satyrY,
+            health: 1,
+            age: 0,
+            wobble: 0,
+            snuff: 0,
+            attackCooldown: 99,
+            hurt: 0,
+          });
+      },
+      [x, y],
+    );
+    await page.waitForTimeout(100); // the monster list reaches React on the next render
+  };
+  const satyrBox = (x, y) => [x - 30, y - 100, 60, 100];
+  // the red over blue of a satyr standing at (x, y), against the same scene without it
+  const satyrWarmth = async (x, y) => {
+    await setSatyr(null, null);
+    const bare = await stageShot();
+    await setSatyr(x, y);
+    const withSatyr = await stageShot();
+    const found = await changedColour(withSatyr, bare, satyrBox(x, y));
+    return { warmth: warmth(found.colour), count: found.count, shot: withSatyr };
+  };
+  const near = await satyrWarmth(wardenAt[0] + 30, wardenAt[1] + 8);
+  const far = await satyrWarmth(wardenAt[0] + 400, wardenAt[1] + 8);
+  writeFileSync(`${OUT}/latest/04b4-monster-near-warden.png`, Buffer.from(near.shot, "base64"));
+  shots.push("04b4-monster-near-warden");
+  check(
+    "warden-light",
+    "in the dark a monster near the warden is warmer than one far from him",
+    near.count > 200 && far.count > 200 && near.warmth > far.warmth * 1.12,
+    `red/blue ${near.warmth.toFixed(2)} near him, ${far.warmth.toFixed(2)} far`,
+  );
+  await setSatyr(null, null);
+  // the statue, in the dark, with the warden far, then beside it, then a lamp's pool brought to its feet
+  const statueBase = [480, 334];
+  const statueTorso = [470, 262, 16, 18];
+  await page.evaluate(() => {
+    window.lampwarden.state().hero.x = 80;
+    window.lampwarden.state().hero.y = 560;
+  });
+  const statueAlone = await stageShot();
+  await page.evaluate(([x, y]) => {
+    window.lampwarden.state().hero.x = x + 34;
+    window.lampwarden.state().hero.y = y + 8;
+  }, statueBase);
+  const statueByWarden = await stageShot();
+  writeFileSync(`${OUT}/latest/04b4-statue-by-warden.png`, Buffer.from(statueByWarden, "base64"));
+  shots.push("04b4-statue-by-warden");
+  await page.evaluate(() => {
+    window.lampwarden.state().hero.x = 80;
+    window.lampwarden.state().hero.y = 560;
+  });
+  // only the lamp's numbers move (its sprites stand where they were mounted), which is all the statue's tint reads
+  await page.evaluate(() => {
+    const lamp = window.lampwarden.state().lamps[4];
+    lamp.y = 300;
+    lamp.lit = true;
+  });
+  const statueByLamp = await stageShot();
+  await page.evaluate(() => {
+    const lamp = window.lampwarden.state().lamps[4];
+    lamp.y = 246;
+  });
+  const statueWarmth = async (encoded) => warmth(await meanColour(encoded, statueTorso));
+  const [alone, byWarden, byLamp] = [
+    await statueWarmth(statueAlone),
+    await statueWarmth(statueByWarden),
+    await statueWarmth(statueByLamp),
+  ];
+  check(
+    "warden-light",
+    "the statue is lit when the warden stands beside it",
+    byWarden > alone * 1.08,
+    `red/blue ${byWarden.toFixed(2)} beside him, ${alone.toFixed(2)} alone`,
+  );
+  check(
+    "warden-light",
+    "the statue is lit when a lamp's light reaches its base",
+    byLamp > alone * 1.08,
+    `red/blue ${byLamp.toFixed(2)} in a lamp's pool, ${alone.toFixed(2)} alone`,
+  );
+  // dawn: the lights are gone, near the warden and far from him a monster is the same colour
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.lamps[4].lit = false;
+    state.elapsed = state.length;
+    state.hero.x = 300;
+    state.hero.y = 450;
+  });
+  const dawnNear = await satyrWarmth(330, 458);
+  const dawnFar = await satyrWarmth(700, 458);
+  check(
+    "warden-light",
+    "at dawn the warden's light has faded: a monster beside him is no warmer than one far away",
+    dawnNear.count > 200 && Math.abs(dawnNear.warmth - dawnFar.warmth) < 0.05,
+    `red/blue ${dawnNear.warmth.toFixed(2)} near him, ${dawnFar.warmth.toFixed(2)} far`,
+  );
+  await setSatyr(null, null);
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.elapsed = 0;
+    for (const lamp of state.lamps) lamp.lit = true;
+    state.hero.x = 560;
+    state.hero.y = 360;
+  });
+  await settle();
+}
+
 // 4c a monster's blow on the warden: a white flash frame, the red vignette, the burst at the claw, a jolt of the screen
 // and the health bar, then the warden thrown away from the attacker. The sim is slowed to a tenth and stopped at each
 // step of the hurt, so every stage can be looked at.

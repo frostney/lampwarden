@@ -242,7 +242,9 @@ export default function Game() {
     const holdHiddenNight = () => {
       if (document.hidden) holdNight();
     };
-    window.addEventListener("blur", holdNight);
+    // the visual verifier (?verify) runs several pages in one window, and any of them may lose focus mid-night
+    const verifying = new URLSearchParams(location.search).has("verify");
+    if (!verifying) window.addEventListener("blur", holdNight);
     document.addEventListener("visibilitychange", holdHiddenNight);
     return () => {
       window.removeEventListener("blur", holdNight);

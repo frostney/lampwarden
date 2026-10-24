@@ -4,6 +4,7 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FailurePanel } from "@/components/FailurePanel";
 import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
@@ -180,6 +181,8 @@ export default function Game() {
   const [textures, setTextures] = useState<TextureMap | null>(null);
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
+  const [away, setAway] = useState(false); // a live night is held because the window lost focus, until the player resumes
+  const [loadFailure, setLoadFailure] = useState<"assets" | "graphics" | null>(null); // why the title can never light
   const [frozenClock, freezeClock] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false); // the canvas has shown a frame; before that it is hidden, not black
   const [controls] = useState(newControls);
@@ -243,9 +246,46 @@ export default function Game() {
     (shouldPause: boolean) => {
       setPaused(shouldPause);
       if (shouldPause) release(controls);
+      else setAway(false);
     },
     [controls],
   );
+
+  // a live night waits when the window loses focus or the tab is hidden; the player resumes it from the pause panel
+  // (replays and menus carry on: a replay's steps come from its recording, not from the clock)
+  useEffect(() => {
+    const holdNight = () => {
+      if (phaseRef.current !== "night") return;
+      pause(true);
+      setAway(true);
+    };
+    const holdHiddenNight = () => {
+      if (document.hidden) holdNight();
+    };
+    window.addEventListener("blur", holdNight);
+    document.addEventListener("visibilitychange", holdHiddenNight);
+    return () => {
+      window.removeEventListener("blur", holdNight);
+      document.removeEventListener("visibilitychange", holdHiddenNight);
+    };
+  }, [pause]);
+  const resume = useCallback(() => {
+    release(controls); // presses made while the night waited are not the player's next move
+    pause(false);
+  }, [controls, pause]);
+  const focusResume = useCallback((button: HTMLButtonElement | null) => button?.focus(), []);
+
+  // @pixi/react has no error callback: when the renderer cannot start (the message varies: no adapter, no context, no 2D
+  // context to fall back on), its init promise rejects unhandled, before the app has ever existed
+  useEffect(() => {
+    const rendererFailed = (event: PromiseRejectionEvent) => {
+      if (appRef.current) return;
+      event.preventDefault();
+      setLoadFailure("graphics");
+    };
+    window.addEventListener("unhandledrejection", rendererFailed);
+    return () => window.removeEventListener("unhandledrejection", rendererFailed);
+  }, []);
 
   const endNight = useCallback(
     (state: State, outcome: Outcome) => {
@@ -416,15 +456,20 @@ export default function Game() {
     legacyRef.current = loadLegacy();
     refresh();
     let dead = false;
-    void loadTextures().then((loaded) => {
-      if (dead) return;
-      setTextures(loaded);
-      // preview: a quiet plaza behind the title screen
-      show(newNight(legacyRef.current), legacyRef.current.heir.sex);
-      const id = new URLSearchParams(location.search).get("replay");
-      if (id) void startReplay(id);
-      else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
-    });
+    void loadTextures().then(
+      (loaded) => {
+        if (dead) return;
+        setTextures(loaded);
+        // preview: a quiet plaza behind the title screen
+        show(newNight(legacyRef.current), legacyRef.current.heir.sex);
+        const id = new URLSearchParams(location.search).get("replay");
+        if (id) void startReplay(id);
+        else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+      },
+      () => {
+        if (!dead) setLoadFailure((current) => current ?? "assets");
+      },
+    );
     // debug hook for the visual verifier and recordings
     const scene: DebugScene = {
       setPaused: pause,
@@ -696,13 +741,40 @@ export default function Game() {
             </button>
           </div>
         )}
+        {phase === "night" && away && (
+          <div className="panel" data-panel="paused">
+            <div className="logo small">PAUSED</div>
+            <p>The window lost focus, so the night is waiting for you.</p>
+            <button type="button" className="btn big" onClick={resume} ref={focusResume}>
+              Resume
+            </button>
+          </div>
+        )}
+        {loadFailure === "graphics" && (
+          <FailurePanel
+            title="NO LAMPLIGHT"
+            message="Lampwarden could not start its graphics."
+            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
+            action="Reload"
+            onAction={() => location.reload()}
+          />
+        )}
+        {loadFailure === "assets" && (
+          <FailurePanel
+            title="THE LAMPS WON'T LIGHT"
+            message="The pictures for the night would not load."
+            hint="Check your connection, then reload."
+            action="Reload"
+            onAction={() => location.reload()}
+          />
+        )}
         {replayError && (
           <div className="panel">
             <p>Could not load that replay: {replayError}</p>
           </div>
         )}
 
-        {phase === "title" && (
+        {phase === "title" && !loadFailure && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">

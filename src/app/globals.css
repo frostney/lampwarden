@@ -225,7 +225,8 @@ h1 {
   align-items: center;
   gap: 10px;
 }
-.btn.up > div {
+.btn.up > div,
+.btn.heir > div {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -244,7 +245,17 @@ h1 {
   letter-spacing: 2px;
 }
 .btn.heir {
-  width: 210px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 250px;
+}
+/* a trait's name with its icon, in a line of text */
+.trait {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
 }
 .icon {
   image-rendering: pixelated;

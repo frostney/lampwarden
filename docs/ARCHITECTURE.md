@@ -107,7 +107,8 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
-scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
+scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)

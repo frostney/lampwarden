@@ -16,6 +16,25 @@ Conventions come from the project-local skills in `.agents/skills/` (`project-st
   verifier. Run it and look at `verify-out/sheet.png` after every change that can show on screen.
 - `bun run balance` plays nights headlessly; `bun run plays` reports from recorded plays (needs `vercel env pull`).
 
+## Git and pull requests
+
+Follow `.agents/skills/git-workflow` and `.agents/skills/create-pr` / `update-pr`. In short:
+
+- Branch from the freshly fetched remote default; update a branch by merging its base, never rebasing. Never amend,
+  never force-push. Pull requests are squash-merged, so the PR title is a Conventional Commit subject stating the
+  impact.
+- Run the publication guard (`python3 .agents/skills/git-workflow/scripts/publication_guard.py`) before each commit
+  (`staged --message-file`), push (`outgoing --base origin/main`) and PR title/body write (`pr --repo
+  frostney/lampwarden ...`). This repository is public.
+- **Every pull request that changes anything a player or reviewer can see carries media**: before/after screenshots
+  (the visual verifier's `verify-out/` shots are a good source) and, for behaviour, a short narrated video with burned-in
+  subtitles. Upload with `gh pr create --attach` / `gh pr edit --attach`; never commit evidence media. Code-only
+  changes attach the verifier contact sheet showing nothing moved.
+- Write PR bodies with local file references (`![alt](./shot.png)`), run the publication guard on that file, then
+  upload with `--attach`. Never run the guard on a body that already holds uploaded attachment URLs: GitHub serves
+  `user-attachments` only to signed-in users, so the guard reads them as private references and rewrites the images
+  away.
+
 ## Hard rules
 
 - Never print, log or commit `MUBIT_API_KEY`, `SHOTCUP_API_KEY`, `BLOB_READ_WRITE_TOKEN` or any token. Read keys from

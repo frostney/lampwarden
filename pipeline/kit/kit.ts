@@ -501,11 +501,20 @@ export class Kit {
         let ta = t, tb = t + 0.06;
         for (let r = 0; r < 4; r++) { const tm = (ta + tb) / 2; const x = (tm + d) / 2, y = (tm - d) / 2, z = (this.oy + tm - cy) / ZK; if (s.f(x, y, z) < 0) ta = tm; else tb = tm; }
         t = (ta + tb) / 2;
-        const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK; const e = 0.04;
-        const n = norm([s.f(x + e, y, z) - s.f(x - e, y, z), s.f(x, y + e, z) - s.f(x, y - e, z), s.f(x, y, z + e) - s.f(x, y, z - e)]);
-        depth[idx] = t; part[idx] = pi; nrm[idx * 3] = n[0]; nrm[idx * 3 + 1] = n[1]; nrm[idx * 3 + 2] = n[2];
-        pos[idx * 3] = x; pos[idx * 3 + 1] = y; pos[idx * 3 + 2] = z;
+        depth[idx] = t; part[idx] = pi;
       }
+    }
+    // surface point and normal, once per pixel for the part that ended up in front (a part drawn over later needs neither)
+    for (let idx = 0; idx < N; idx++) {
+      const frontPart = part[idx]; if (frontPart < 0) continue;
+      const frontShape = this.parts[frontPart].s; const pixelX = idx % W, pixelY = (idx - pixelX) / W;
+      const diagonal = (pixelX + 0.5 - this.ox) / 2; const pixelCentreY = pixelY + 0.5; const surfaceDepth = depth[idx];
+      const surfaceX = (surfaceDepth + diagonal) / 2, surfaceY = (surfaceDepth - diagonal) / 2, surfaceZ = (this.oy + surfaceDepth - pixelCentreY) / ZK; const normalStep = 0.04;
+      const normal = norm([frontShape.f(surfaceX + normalStep, surfaceY, surfaceZ) - frontShape.f(surfaceX - normalStep, surfaceY, surfaceZ),
+        frontShape.f(surfaceX, surfaceY + normalStep, surfaceZ) - frontShape.f(surfaceX, surfaceY - normalStep, surfaceZ),
+        frontShape.f(surfaceX, surfaceY, surfaceZ + normalStep) - frontShape.f(surfaceX, surfaceY, surfaceZ - normalStep)]);
+      nrm[idx * 3] = normal[0]; nrm[idx * 3 + 1] = normal[1]; nrm[idx * 3 + 2] = normal[2];
+      pos[idx * 3] = surfaceX; pos[idx * 3 + 1] = surfaceY; pos[idx * 3 + 2] = surfaceZ;
     }
     // shade
     const rgba = new Uint8Array(N * 4); const shade = new Int8Array(N).fill(-1); const obj = new Int32Array(N).fill(-1);

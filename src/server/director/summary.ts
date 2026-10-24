@@ -54,6 +54,7 @@ const oneDecimal = (value: number) => Math.round(value * 10) / 10;
 /** The tide the rules would pick after this night, and the range the model may move it within. */
 export function rulesTideAfter(play: StoredPlay, engagement: EngagementKind = engagementOf(play).kind): number {
   const next = rulesTide(play.legacy.tide, {
+    night: play.legacy.night,
     outcome: play.outcome,
     kills: play.stats.kills,
     seconds: play.stats.time,

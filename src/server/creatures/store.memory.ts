@@ -1,15 +1,18 @@
 // An in-memory CreatureStore with the same semantics as the Blob one (newest first, atomic claim), for tests.
-import type { Creature, CreatureJob } from "@/game/creature";
+import type { CreatureJob } from "@/game/creature";
+import type { CreatureRecord } from "@/game/creature-frames";
 import type { CreatureStore, RunningLock } from "./store";
 
 export interface MemoryCreatureStore extends CreatureStore {
   readonly sprites: Map<string, Uint8Array>;
+  readonly atlases: Map<string, Uint8Array>;
   readonly codes: Map<string, string>;
 }
 
 export function createMemoryStore(): MemoryCreatureStore {
-  const creatures = new Map<string, Creature>();
+  const creatures = new Map<string, CreatureRecord>();
   const sprites = new Map<string, Uint8Array>();
+  const atlases = new Map<string, Uint8Array>();
   const codes = new Map<string, string>();
   const jobs = new Map<string, CreatureJob>();
   const starts: Array<{ visitor: string; at: Date }> = [];
@@ -18,6 +21,7 @@ export function createMemoryStore(): MemoryCreatureStore {
 
   return {
     sprites,
+    atlases,
     codes,
     async listCreatureIds() {
       return [...creatures.keys()].sort().reverse();
@@ -29,8 +33,13 @@ export function createMemoryStore(): MemoryCreatureStore {
       const png = sprites.get(id);
       return png ? new Blob([new Uint8Array(png)]).stream() : null;
     },
-    async putCreature(creature, png, code) {
+    async getAtlas(id) {
+      const png = atlases.get(id);
+      return png ? new Blob([new Uint8Array(png)]).stream() : null;
+    },
+    async putCreature(creature, png, code, atlas) {
       sprites.set(creature.id, png);
+      if (atlas) atlases.set(creature.id, atlas);
       codes.set(creature.id, code);
       creatures.set(creature.id, creature);
     },

@@ -109,12 +109,19 @@ Built and run:
 Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
-- `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip (generate, render, verify, fix) has been run through it.
+- `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip has been run through the command line. The same loop (`pipeline/loop.ts`) has run end to end, live, behind the creature route: see `docs/LIVE_GENERATION.md`.
 - **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`; [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md) compares them for a live generation route, with measured timings, parallelism limits and Mubit latency.
 
 ## Deploy on Vercel
 
-Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
+Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The game itself needs no environment variables: its sprites are static files under `public/sprites/`, and recorded plays use `BLOB_READ_WRITE_TOKEN`. `SHOTCUP_API_KEY` and `BOAT_API_KEY` are only for the offline asset pipeline; do not set them on the deployment.
+
+### Live creatures
+
+`/api/creatures/*` makes a new sea creature through Mubit when a player has met every one in the gallery, draws it in a Vercel Sandbox and keeps it in the private Blob store for every player (design, limits, races and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), "The route"). To turn it on:
+1. `vercel link`, then `bun run sandbox:snapshot`: builds the sandbox snapshot (Bun 1.4.4, the kit and the runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Rebuild it whenever `pipeline/kit/kit.ts` or `pipeline/render/` changes; a render refuses a snapshot that does not match the deployed kit.
+2. Set on the Vercel project: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, and `CREATURE_RATE_SALT` (at least 16 random characters, e.g. `openssl rand -hex 24`; it keys the per-visitor limit and changing it resets the counts). Optional: `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` (default 3), `CREATURE_MAX_STARTS_PER_DAY` (default 40, site-wide per UTC day), `CREATURE_CANDIDATES` (default 3 candidate sprites per job, at most 5), `CREATURE_BLOB_PREFIX` (default `creatures`).
+3. Without these the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` when a player has met everything.
 
 ## More
 

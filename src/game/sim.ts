@@ -9,7 +9,7 @@ import {
   offsetFromOctant,
 } from "../scene/assets";
 import { type Creature, type CreatureStats, statsOf } from "./creature";
-import type { Mix } from "./director";
+import type { Mix } from "./director-decision";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 

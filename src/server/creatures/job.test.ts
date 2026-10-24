@@ -224,6 +224,63 @@ describe("a creature job", () => {
     expect(await store.listCreatureIds()).toEqual([]);
   });
 
+  test("a model call in flight at the deadline sees the abort, and the job makes no further model call or render", async () => {
+    const renderer = fakeRenderer();
+    const { deps, model } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)], { render: renderer });
+    const sawAbort: boolean[] = [];
+    let releaseCall: () => void = () => {};
+    let calls = 0;
+    const realModel = deps.model;
+    // the second call (the generator's) hangs until the test lets go, then goes on to the real client with the job's signal
+    deps.model = {
+      call: async (task, system, messages, session, logFields, maxTokens, signal) => {
+        calls++;
+        if (calls === 2) {
+          await new Promise<void>((resolve) => {
+            releaseCall = resolve;
+          });
+          sawAbort.push(signal?.aborted ?? false);
+        }
+        return realModel.call(task, system, messages, session, logFields, maxTokens, signal);
+      },
+    };
+    deps.budgetMilliseconds = 30;
+    const job = await runCreatureJob(deps, "job-abort-aaaa");
+    expect(job).toMatchObject({ step: "failed", error: "timed out" });
+    const sentAtDeadline = model.sent.length;
+    releaseCall();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sawAbort).toEqual([true]);
+    expect(model.sent).toHaveLength(sentAtDeadline);
+    expect(renderer.requests).toEqual([]);
+  });
+
+  test("a render in flight at the deadline sees the abort, and no verifier call or frame batch follows it", async () => {
+    const renderer = fakeRenderer();
+    const sawAbort: boolean[] = [];
+    let releaseRender: () => void = () => {};
+    const inFlight = renderer.render;
+    renderer.render = async (request, signal) => {
+      await new Promise<void>((resolve) => {
+        releaseRender = resolve;
+      });
+      sawAbort.push(signal?.aborted ?? false);
+      return inFlight(request, signal);
+    };
+    const { deps, model, frameBatch } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)], {
+      render: renderer,
+    });
+    deps.budgetMilliseconds = 30;
+    const job = await runCreatureJob(deps, "job-abort-bbbb");
+    expect(job).toMatchObject({ step: "failed", error: "timed out" });
+    const sentAtDeadline = model.sent.length;
+    releaseRender();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sawAbort).toEqual([true]);
+    expect(model.sent).toHaveLength(sentAtDeadline);
+    expect(frameBatch.batches).toEqual([]);
+  });
+
   test("a failure never puts model output or a stack trace in the job or the log", async () => {
     const secretText = "SECRET-MODEL-WORDS";
     const { deps, events } = jobWith([briefJson({ lore: secretText, modifiers: { speed: 9 } })]);

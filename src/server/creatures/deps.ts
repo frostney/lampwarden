@@ -68,9 +68,10 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
     store,
     now: () => new Date(),
     model: createMubitClient({ apiKey: mubitApiKey }),
-    render: (request) => renderSafely(request, { snapshotId, expectedBundleSha }),
+    render: (request, signal) => renderSafely(request, { snapshotId, expectedBundleSha }, signal),
     // a creature's 15 frames in one VM, a frame per vCPU at a time
-    renderBatch: (requests) => renderBatchSafely(requests, { snapshotId, expectedBundleSha, vcpus: FRAME_BATCH_VCPUS }),
+    renderBatch: (requests, signal) =>
+      renderBatchSafely(requests, { snapshotId, expectedBundleSha, vcpus: FRAME_BATCH_VCPUS }, signal),
     prompts: {
       creature: readPrompt("creature.md"),
       generator: readPrompt("generator.md"),

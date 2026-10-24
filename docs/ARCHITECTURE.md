@@ -22,7 +22,11 @@ src/
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
-    legacy.ts        what outlives a warden: oil, upgrades, heirs and traits (and their sex), tide; localStorage save
+    legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
+                     (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
+                     sex), tide; localStorage save, validated with Zod on load (a save or recorded play from before an
+                     upgrade existed has it at level 0)
+    random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
@@ -44,7 +48,7 @@ src/
     projectiles.ts   arrow and sling-stone pixel art
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
-scripts/balance.ts   headless balance check (idle and bot wardens), run with bun
+scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, and a campaign that spends it in the shop), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json

@@ -87,7 +87,7 @@ async function rendererFor(mode: Mode): Promise<Renderer> {
     case "local":
       return (await import("./render-local")).renderLocally;
     case "vercel":
-      return (await import("./render-vercel-sandbox")).renderInVercelSandbox;
+      return (await import("./render-vercel-cli")).renderInVercelSandbox;
   }
 }
 
@@ -133,8 +133,12 @@ async function runChild(mode: Mode, sprite: string, count: number): Promise<Chil
       quickJsMemoryUsedBytes = details.memoryUsedBytes;
     } else if (mode === "vercel") {
       const { renderWithFreshSandbox } = await import("./render-vercel-sandbox");
+      const { readRunnerFiles } = await import("./runner-bundle");
       try {
-        const rendered = await renderWithFreshSandbox({ code: job.code, name: sprite, pose: "" });
+        const rendered = await renderWithFreshSandbox(
+          { code: job.code, name: sprite, pose: "" },
+          { runnerFiles: readRunnerFiles(PIPELINE_DIRECTORY) },
+        );
         insideVmSamples.push(rendered.renderCommandMilliseconds);
         result = { ok: true, stats: rendered.stats, png: rendered.png };
       } catch (error) {

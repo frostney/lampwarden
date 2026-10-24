@@ -4,14 +4,14 @@
 import { type Creature, creatureSchema } from "../src/game/creature";
 import type { CallRecord, ModelCall, MubitClient } from "./mubit";
 
-const BRIEF_MAX_TOKENS = 700;
+const BRIEF_MAX_TOKENS = 1500;
 const MAX_ATTEMPTS = 2;
 const NAME_LIST_LIMIT = 80;
 /** The monsters the game already has, which a new creature must not copy. */
 const BUILT_IN_NAMES = ["Satyr", "Cyclops", "Harpy"];
 
 /** What the model decides about a creature, and nothing else. */
-export const creatureBriefSchema = creatureSchema.pick({
+const creatureBriefSchema = creatureSchema.pick({
   name: true,
   lore: true,
   brief: true,

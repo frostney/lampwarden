@@ -1,16 +1,19 @@
 // Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
 // usage: bun scripts/balance.ts [runs=200]; seeded, so two builds are compared on the same nights
+import { ARCHETYPES, type Modifiers } from "../src/game/creature";
 import { buy, type Legacy, MAX_LEVEL, newLegacy, openShop, UPGRADE_IDS, upgradeCost } from "../src/game/legacy";
 import {
+  bodyHeight,
   dawnBonus,
   ground,
   type Input,
   litCount,
-  MONSTER,
   type Monster,
+  type NightCreature,
   NO_INPUT,
   newNight,
   nextTide,
+  nightCreature,
   type State,
   step,
 } from "../src/game/sim";
@@ -49,7 +52,7 @@ function bot(state: State): Input {
       }
   const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
   if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
-    return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - (MONSTER[threat.kind].fly ? 56 : 32) } };
+    return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - bodyHeight(state, threat.kind) } };
   if (!goal) return NO_INPUT;
   const towardX = goal.x - hero.x;
   const towardY = goal.y - hero.y;
@@ -60,8 +63,8 @@ function bot(state: State): Input {
   };
 }
 
-function playNight(legacy: Legacy, policy: "idle" | "bot", seed: number) {
-  const state = newNight(legacy, seed);
+function playNight(legacy: Legacy, policy: "idle" | "bot", seed: number, creature: NightCreature | null = null) {
+  const state = newNight(legacy, seed, creature);
   let input = NO_INPUT;
   let think = 0;
   const stepSeconds = 1 / 60;
@@ -87,11 +90,17 @@ function playNight(legacy: Legacy, policy: "idle" | "bot", seed: number) {
   };
 }
 
-function play(night: number, tide: number, policy: "idle" | "bot", seed: number) {
+function play(
+  night: number,
+  tide: number,
+  policy: "idle" | "bot",
+  seed: number,
+  creature: NightCreature | null = null,
+) {
   const legacy = newLegacy(seed);
   legacy.night = night;
   legacy.tide = tide;
-  return playNight(legacy, policy, seed);
+  return playNight(legacy, policy, seed, creature);
 }
 
 const runs = Number(process.argv[2] || 200);
@@ -168,4 +177,40 @@ for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
   console.log(
     `  night ${night}: held by ${((100 * rows.length) / runs).toFixed(0)}% | income ${average((row) => row.income)}, levels bought ${average((row) => row.bought)}, levels owned ${average((row) => row.ownedAfter)}, an upgrade at top level in ${((100 * atTop) / rows.length).toFixed(0)}%`,
   );
+}
+
+// Creatures from the sea: the same seeded nights with one creature of each archetype, neutral and with every modifier at
+// its extreme either way. The first row is the same nights with no creature, to read the others against; the creature
+// joins about one spawn in four from 8 s in, at most two alive.
+const NEUTRAL: Modifiers = { speed: 0, toughness: 0, bite: 0, snuffing: 0 };
+const STRONGEST: Modifiers = { speed: 1, toughness: 1, bite: 1, snuffing: 1 };
+const WEAKEST: Modifiers = { speed: -1, toughness: -1, bite: -1, snuffing: -1 };
+const CREATURE_SCENARIOS = [
+  [3, 1.1],
+  [5, 1.2],
+] as const;
+const MODIFIER_SETS = [
+  ["neutral", NEUTRAL],
+  ["strongest", STRONGEST],
+  ["weakest", WEAKEST],
+] as const;
+console.log(`\nwith a creature from the sea (bot warden, ${runs} nights each, the same seeds as above):`);
+for (const [night, tide] of CREATURE_SCENARIOS) {
+  const variants: [string, NightCreature | null][] = [["no creature", null]];
+  for (const archetype of ARCHETYPES)
+    for (const [label, modifiers] of MODIFIER_SETS)
+      variants.push([
+        `${archetype} ${label}`,
+        nightCreature({ id: `balance-${archetype}-${label}`, archetype, modifiers, anchorY: 0.8 }),
+      ]);
+  for (const [label, creature] of variants) {
+    const results = Array.from({ length: runs }, (_, run) => play(night, tide, "bot", night * 100_000 + run, creature));
+    const percent = (outcome: string) =>
+      ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0);
+    const average = (measure: (result: (typeof results)[number]) => number) =>
+      (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
+    console.log(
+      `  night ${night} tide ${tide} ${label.padEnd(17)}: dawn ${percent("dawn").padStart(3)}%  dark ${percent("dark").padStart(3)}%  fallen ${percent("fallen").padStart(3)}%  | lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
+    );
+  }
 }

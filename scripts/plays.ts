@@ -74,6 +74,42 @@ for (const night of nights) {
   );
 }
 
+// nights that met a creature from the sea, per creature (the nights without one are the rows above)
+const metCreatures = new Map<string, Play[]>();
+for (const play of plays) {
+  if (!play.creature) continue;
+  metCreatures.set(play.creature.id, [...(metCreatures.get(play.creature.id) ?? []), play]);
+}
+if (metCreatures.size) {
+  console.log("\ncreatures from the sea: nights met, how they ended, and what they cost");
+  console.log(
+    "creature                         archetype  nights  dawn   dark   fallen  quit   kills/min  lamps lost  hp lost",
+  );
+  for (const [id, creaturePlays] of [...metCreatures].sort((first, second) => second[1].length - first[1].length)) {
+    const [first] = creaturePlays;
+    if (!first?.creature) continue;
+    const ending = (outcome: string | null) => creaturePlays.filter((play) => play.outcome === outcome).length;
+    console.log(
+      [
+        `${first.creature.name} (${id.slice(0, 8)})`.padEnd(32),
+        first.creature.archetype.padEnd(10),
+        String(creaturePlays.length).padEnd(7),
+        percent(ending("dawn"), creaturePlays.length).padEnd(6),
+        percent(ending("dark"), creaturePlays.length).padEnd(6),
+        percent(ending("fallen"), creaturePlays.length).padEnd(7),
+        percent(ending(null), creaturePlays.length).padEnd(6),
+        average(creaturePlays.map((play) => play.stats.kills / Math.max(1, seconds(play) / 60)))
+          .toFixed(1)
+          .padEnd(10),
+        average(creaturePlays.map((play) => play.stats.lampsLost))
+          .toFixed(1)
+          .padEnd(11),
+        average(creaturePlays.map((play) => play.stats.hpLost)).toFixed(0),
+      ].join(" "),
+    );
+  }
+}
+
 // when do lost nights go wrong: lamps lit over time, averaged over the nights that ended dark
 const dark = plays.filter((play) => play.outcome === "dark");
 if (dark.length) {

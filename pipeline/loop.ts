@@ -43,6 +43,8 @@ export interface SpriteRow {
   gen: string | null;
   verify?: Array<string | null>;
   first_score?: number | null;
+  /** With several candidates: every candidate's score, in the order drawn. */
+  candidate_scores?: Array<number | null>;
   fix?: string | null;
   fixed_verify?: Array<string | null>;
   fixed_score?: number | null;
@@ -172,7 +174,7 @@ async function verifyOnce(
   return { rid: record.rid, verdict };
 }
 
-async function verify(
+export async function verify(
   context: LoopCore,
   png: Uint8Array,
   brief: string,
@@ -424,4 +426,194 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
     verdict: attempt.verdict,
   };
   return { row, winner };
+}
+
+// Mubit takes no temperature, so candidates drawn from one prompt come out nearly identical. Each candidate after the
+// first gets a different nudge in its user message, which is what makes drawing several worth it.
+const CANDIDATE_HINTS = [
+  "",
+  "\n\nAim for a clear silhouette: turn the figure so its defining parts face the viewer (facing 40), and keep everything well inside the frame.",
+  "\n\nDraw it in a lively pose (an attack or walking pose) at facing 10, with the key parts turned towards the viewer, and keep everything well inside the frame.",
+  "\n\nKeep it as simple as possible: the builder's own defaults wherever the brief does not say otherwise, and only the parameters the brief names.",
+  "\n\nGive each named part a strong, contrasting colour so it stands out from the body.",
+];
+
+const candidateMessages = (brief: Brief, index: number): ModelMessage[] => [
+  { role: "user", content: `Brief: ${brief.text}${CANDIDATE_HINTS[index % CANDIDATE_HINTS.length] ?? ""}` },
+];
+
+/** One rendered candidate or fix, kept for diagnostics (the contact sheets of a live run). */
+export interface CandidateRecord {
+  name: string;
+  code: string;
+  png: Uint8Array | null;
+  stats: RenderStats | null;
+  score: number | null;
+  pass: boolean;
+  stage: "render" | "post" | "llm";
+  isFix: boolean;
+}
+
+export interface CandidateOutcome extends LoopOutcome {
+  /** Every candidate and the fix, in the order made. */
+  candidates: CandidateRecord[];
+}
+
+/** Reports each stage once per phase, so candidates running side by side do not each write the same job step. */
+function reportingEachStageOnce(context: LoopCore): { context: LoopCore; reset: () => void } {
+  const seen = new Set<LoopStage>();
+  return {
+    context: {
+      ...context,
+      onStage: (stage) => {
+        if (seen.has(stage)) return;
+        seen.add(stage);
+        return context.onStage?.(stage);
+      },
+    },
+    reset: () => seen.clear(),
+  };
+}
+
+const recordOf = (attempt: Attempt, isFix: boolean): CandidateRecord => ({
+  name: attempt.name,
+  code: attempt.code,
+  png: attempt.render.ok ? attempt.render.png : null,
+  stats: attempt.render.ok ? attempt.render.stats : null,
+  score: attempt.verdict.score,
+  pass: attempt.verdict.pass,
+  stage: attempt.stage,
+  isFix,
+});
+
+/**
+ * The loop with several candidates: `candidateCount` generator calls from the same brief at once, each candidate rendered
+ * in its own sandbox and (unless the engine flags it) verified as soon as it is drawn, then one fix turn on the best
+ * one only, and best-of between the best candidate and its fix. The fix turn is only for a best candidate that is not
+ * already good enough by the caller's own measure (`goodEnough`): a fix more often loses points than gains them, and
+ * costs a model call, a render and a verification.
+ */
+export async function runCandidateLoop(
+  context: LoopCore,
+  brief: Brief,
+  candidateCount: number,
+  goodEnough: (winner: LoopWinner) => boolean,
+): Promise<CandidateOutcome | null> {
+  const print = context.print ?? console.log;
+  const staging = reportingEachStageOnce(context);
+  const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
+    .slice(0, 34)
+    .join("")}`;
+  const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: context.rendererName };
+  const spriteName = slugify(brief.id);
+
+  await staging.context.onStage?.("drawing");
+  const generations = await Promise.all(
+    Array.from({ length: candidateCount }, (_unused, index) =>
+      generate(
+        context,
+        "gen",
+        candidateMessages(brief, index),
+        session,
+        { ...logFields, candidate: index },
+        GENERATOR_MAX_TOKENS,
+      ),
+    ),
+  );
+  const drawn = generations.flatMap((generation, index) =>
+    generation.text === null ? [] : [{ index, generation, text: generation.text }],
+  );
+  if (drawn.length === 0) {
+    print(`${brief.id} GEN FAILED ${generations[0]?.record.error}`);
+    return null;
+  }
+
+  staging.reset();
+  const attempts = await Promise.all(
+    drawn.map((item) =>
+      renderAndVerify(staging.context, extractCode(item.text), `${spriteName}-c${item.index}`, brief.text, session, {
+        ...logFields,
+        stage: "first",
+        candidate: item.index,
+      }),
+    ),
+  );
+  const records = attempts.map((attempt) => recordOf(attempt, false));
+  // the best candidate; ties go to the lower-numbered one
+  let bestIndex = 0;
+  for (const [index, attempt] of attempts.entries()) {
+    if ((attempt.verdict.score ?? 0) > (attempts[bestIndex]?.verdict.score ?? 0)) bestIndex = index;
+  }
+  const first = attempts[bestIndex];
+  const chosen = drawn[bestIndex];
+  if (!first || !chosen) return null;
+  const row: SpriteRow = { id: brief.id, brief: brief.text, session, gen: chosen.generation.record.rid };
+  row.verify = first.requestIds;
+  row.first_score = first.verdict.score;
+  row.candidate_scores = attempts.map((attempt) => attempt.verdict.score);
+  let best: { attempt: Attempt; which: "first" | "fixed" } = { attempt: first, which: "first" };
+  print(`${brief.id} | candidates ${JSON.stringify(row.candidate_scores)} | ${describeAttempt(first)}`);
+  const firstAttempt: LoopWinner | null = first.render.ok
+    ? {
+        which: "first",
+        name: first.name,
+        code: first.code,
+        png: first.render.png,
+        stats: first.render.stats,
+        verdict: first.verdict,
+      }
+    : null;
+  if (!firstAttempt || !goodEnough(firstAttempt)) {
+    const fixMessages: ModelMessage[] = [
+      ...candidateMessages(brief, chosen.index),
+      { role: "assistant", content: chosen.text },
+      { role: "user", content: correctionMessage(brief.text, first.verdict) },
+    ];
+    staging.reset();
+    await staging.context.onStage?.("fixing");
+    const fixCall = await generate(
+      context,
+      "fix",
+      fixMessages,
+      session,
+      { ...logFields, fixes_verify: first.requestIds.slice(0, 1), candidate: chosen.index },
+      FIX_MAX_TOKENS,
+    );
+    row.fix = fixCall.record.rid;
+    if (fixCall.text !== null) {
+      staging.reset();
+      const fixed = await renderAndVerify(
+        staging.context,
+        extractCode(fixCall.text),
+        `${spriteName}-fixed`,
+        brief.text,
+        session,
+        { ...logFields, stage: "after_fix", candidate: chosen.index },
+      );
+      row.fixed_verify = fixed.requestIds;
+      row.fixed_score = fixed.verdict.score;
+      records.push(recordOf(fixed, true));
+      print(`   fix ${fixCall.record.rid} | ${describeAttempt(fixed)}`);
+      if ((fixed.verdict.score ?? 0) > (first.verdict.score ?? 0)) best = { attempt: fixed, which: "fixed" };
+    }
+  }
+  const { attempt, which } = best;
+  if (!attempt.render.ok) {
+    print(`${brief.id} no renderable result`);
+    return null;
+  }
+  row.final = which;
+  row.score = attempt.verdict.score;
+  row.passed = attempt.verdict.pass;
+  row.issues = attempt.verdict.issues;
+  row.rendered_with = context.rendererName;
+  const winner: LoopWinner = {
+    which,
+    name: attempt.name,
+    code: attempt.code,
+    png: attempt.render.png,
+    stats: attempt.render.stats,
+    verdict: attempt.verdict,
+  };
+  return { row, winner, candidates: records };
 }

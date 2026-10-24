@@ -18,6 +18,7 @@
     "assets": "bun --no-env-file pipeline/run.ts",
     "kit": "bun pipeline/assemble-kit.ts",
     "sandbox:snapshot": "bun --no-env-file pipeline/sandbox-snapshot.ts",
+    "calibrate:verifier": "bun --no-env-file pipeline/calibrate-verifier.ts",
     "assets:hero": "bun --no-env-file pipeline/hero-frames.ts",
     "render": "bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",

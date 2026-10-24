@@ -2,7 +2,7 @@
 // Saved to localStorage, so a reload keeps the line going.
 import { z } from "zod";
 import { SEXES, type Sex } from "../scene/assets";
-import { checkedDecision, type Director, directorFrom, rulesDirector } from "./director";
+import { checkedDecision, type Director, directorFrom, type EngagementKind, rulesDirector } from "./director";
 import { nextRandom } from "./random";
 
 export const UPGRADE_IDS = [
@@ -176,9 +176,15 @@ export function newLegacy(offerSeed = Math.floor(Math.random() * 4294967296)): L
 
 // A night ended and the rules chose its tide: that is the coming night's director until the live one answers. `playId` is
 // the recording the live director will be asked about.
-export function setRulesDirector(legacy: Legacy, rulesTide: number, endedNight: number, playId?: string) {
+export function setRulesDirector(
+  legacy: Legacy,
+  rulesTide: number,
+  endedNight: number,
+  playId?: string,
+  engagement?: EngagementKind,
+) {
   legacy.tide = rulesTide;
-  legacy.director = rulesDirector(rulesTide, endedNight, playId);
+  legacy.director = rulesDirector(rulesTide, endedNight, playId, engagement);
 }
 
 // The live director's answer for the night that just ended, if it is still the one the coming night waits for: it must
@@ -187,7 +193,7 @@ export function setRulesDirector(legacy: Legacy, rulesTide: number, endedNight: 
 export function applyDirector(legacy: Legacy, received: unknown): boolean {
   const waiting = legacy.director;
   if (waiting.source !== "rules" || waiting.playId === undefined) return false;
-  const decision = checkedDecision(received, waiting.rulesTide);
+  const decision = checkedDecision(received, waiting.rulesTide, waiting.engagement);
   if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight)
     return false;
   legacy.tide = decision.tide;

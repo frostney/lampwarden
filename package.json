@@ -20,12 +20,12 @@
     "assets": "varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/run.ts",
     "kit": "bun pipeline/assemble-kit.ts",
     "sandbox:snapshot": "varlock run --inject vars --filter=VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/sandbox-snapshot.ts",
-    "calibrate:verifier": "varlock run --inject vars --filter=MUBIT_API_KEY -- bun --no-env-file pipeline/calibrate-verifier.ts",
-    "assets:hero": "bun --no-env-file pipeline/hero-frames.ts",
-    "render": "bun --no-env-file pipeline/render-file.ts",
+    "calibrate:verifier": "varlock run --inject vars --filter=MUBIT_API_KEY,VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/calibrate-verifier.ts",
+    "assets:hero": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/hero-frames.ts",
+    "render": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts",
-    "check:pixels": "bun pipeline/check-pixels.ts"
+    "check:pixels": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/check-pixels.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",
@@ -41,7 +41,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
-    "@boatdev/sdk": "1.11.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",

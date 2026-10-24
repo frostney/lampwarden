@@ -17,7 +17,8 @@
     "assets": "python3 pipeline/run.py",
     "kit": "bash pipeline/kit/assemble.sh",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
-    "logo": "bun tools/logo/build.ts"
+    "logo": "bun tools/logo/build.ts",
+    "check:pixels": "bun pipeline/check-pixels.ts"
   },
   "dependencies": {
     "@pixi/react": "^8.0.5",

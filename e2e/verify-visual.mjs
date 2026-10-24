@@ -1234,14 +1234,18 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.waitForTimeout(400);
   const panel = await page.evaluate(() => {
     const section = document.querySelector(".sea");
-    const image = section?.querySelector("img");
+    const portrait = section?.querySelector("canvas.sea-sprite");
+    const box = portrait?.getBoundingClientRect();
     return {
       label: section?.querySelector(".sea-label")?.textContent ?? "",
       name: section?.querySelector(".sea-name")?.textContent ?? "",
       lore: section?.querySelector(".sea-lore")?.textContent ?? "",
-      source: image?.getAttribute("src") ?? "",
-      loaded: !!image?.complete && image.naturalWidth === 128,
-      width: image?.getBoundingClientRect().width ?? 0,
+      source: portrait?.getAttribute("data-src") ?? "",
+      loaded: portrait?.getAttribute("data-loaded") === "1",
+      scale: Number(portrait?.getAttribute("data-scale") ?? 0),
+      // drawn at a whole multiple of the cropped figure, and big enough to read
+      whole: !!portrait && !!box && box.width === portrait.width * Number(portrait.dataset.scale) && box.height >= 48,
+      height: box?.height ?? 0,
     };
   });
   check("sea-title", "the panel says what the sea sends", panel.label.startsWith("Tonight the sea sends"), panel.label);
@@ -1254,8 +1258,8 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   check(
     "sea-title",
     "the panel shows its sprite, from its sprite path",
-    panel.loaded && panel.source.includes(`/api/creatures/${SEA_CREATURE.id}/sprite.png`) && panel.width === 64,
-    `${panel.source} ${panel.width}px`,
+    panel.loaded && panel.source.includes(`/api/creatures/${SEA_CREATURE.id}/sprite.png`) && panel.whole,
+    `${panel.source} ${panel.scale}x, ${panel.height}px tall`,
   );
   check("sea-title", "the sea was asked with nothing met", lastAsked() === "[]", lastAsked());
   await checkTitleScroll("sea-title", 1000, 640);

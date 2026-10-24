@@ -261,8 +261,9 @@ h1 {
   text-align: left;
 }
 .sea-sprite {
-  width: 64px; /* half the 128 px frame: whole pixels */
-  height: 64px;
+  /* sized by SeaSends: the figure cropped from its frame, at a whole multiple */
+  width: 0;
+  height: 0;
   flex-shrink: 0;
   image-rendering: pixelated;
 }

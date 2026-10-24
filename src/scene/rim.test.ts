@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { decodePng } from "../../tools/logo/png";
 import { isCharacterKey, paintedShadowPixels, rimPixels, withoutShadowPixels } from "./rim";
 
 const SIZE = 7;
@@ -36,6 +39,18 @@ describe("paintedShadowPixels", () => {
     for (let column = 0; column < SIZE; column++)
       for (let row = 0; row < SIZE; row++)
         expect((alphaAt(shadow, column, row) ?? 0) > 0 && (alphaAt(clean, column, row) ?? 0) > 0).toBe(false);
+  });
+});
+
+describe("the lamps' painted shadow", () => {
+  const lampShadow = (key: string) =>
+    paintedShadowPixels(decodePng(readFileSync(join(import.meta.dir, "../../public/sprites", `${key}.png`))).data);
+
+  // the scene draws one shadow texture for a lamp in either state (Scene.tsx LampShadows)
+  test("is the same on the lit and the unlit lamp, and is there to be split out", () => {
+    const lit = lampShadow("lamp-lit");
+    expect(lit.some((value, index) => index % 4 === 3 && value > 0)).toBe(true);
+    expect(lampShadow("lamp-unlit")).toEqual(lit);
   });
 });
 

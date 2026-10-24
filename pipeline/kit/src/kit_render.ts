@@ -237,16 +237,23 @@ export class Kit {
           rayBound[partIndex] = bound; if (bound < nearestBound) nearestBound = bound;
         }
         if (nearestBound >= 0.03) continue;
-        let t = 0.15; let inShadow = false;
+        let t = 0.15; let inShadow = false; let previousNearestPart = -1;
         for (let step = 0; step < 90 && t < 60; step++) {
           const pointX = groundX + lightX * t, pointY = groundY + lightY * t, pointZ = 0 + lightZ * t;
-          let nearest = BIG;
-          for (let partIndex = 0; partIndex < partCount; partIndex++) {
+          // the part nearest at the previous step goes first: the nearest distance is a minimum, so the order doesn't change it,
+          // but starting low lets the skips drop most of the other parts
+          let nearest = BIG; let nearestPart = -1;
+          for (let order = -1; order < partCount; order++) {
+            const partIndex = order < 0 ? previousNearestPart : order;
+            if (partIndex < 0 || (order >= 0 && partIndex === previousNearestPart)) continue;
             if (rayBound[partIndex] > nearest) continue;
             const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
             const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
-            nearest = Math.min(nearest, Math.max(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ)));
+            const partDistance = Math.max(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ));
+            if (partDistance < nearest) nearestPart = partIndex;
+            nearest = Math.min(nearest, partDistance);
           }
+          previousNearestPart = nearestPart;
           if (nearest < 0.03) { inShadow = true; break; }
           t += Math.max(nearest * 0.8, 0.05);
         }

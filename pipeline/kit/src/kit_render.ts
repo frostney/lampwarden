@@ -131,6 +131,20 @@ export class Kit {
   render1(withShadow: boolean): Rendered {
     const N = W * H; const depth = new Float64Array(N).fill(-BIG); const part = new Int32Array(N).fill(-1);
     const nrm = new Float64Array(N * 3); const pos = new Float64Array(N * 3);
+    // A hit is refined by four bisection steps (from the march depth t over [t, t + 0.06]) only when that refined depth can matter:
+    // when a later part's march reaches that window at the same pixel, or at the end for the part left in front. Outside the window
+    // the march depth and the refined depth compare the same way, so every comparison, and every pixel, is as with refining at once.
+    const unrefined = new Uint8Array(N);
+    const refineDepth = (pixelIndex: number): void => {
+      const shape = this.parts[part[pixelIndex]].s; const pixelX = pixelIndex % W, pixelY = (pixelIndex - pixelX) / W;
+      const diagonal = (pixelX + 0.5 - this.ox) / 2; const pixelCentreY = pixelY + 0.5;
+      let below = depth[pixelIndex], above = depth[pixelIndex] + 0.06;
+      for (let bisection = 0; bisection < 4; bisection++) {
+        const middle = (below + above) / 2;
+        if (shape.f((middle + diagonal) / 2, (middle - diagonal) / 2, (this.oy + middle - pixelCentreY) / ZK) < 0) below = middle; else above = middle;
+      }
+      depth[pixelIndex] = (below + above) / 2; unrefined[pixelIndex] = 0;
+    };
     for (let pi = 0; pi < this.parts.length; pi++) {
       const P = this.parts[pi]; const s = P.s; const lo = s.lo, hi = s.hi;
       let x0 = BIG, x1 = -BIG, y0 = BIG, y1 = -BIG;
@@ -152,19 +166,19 @@ export class Kit {
         while (t >= a - 0.05 && guard < 220) {
           guard++;
           if (t <= depth[idx]) break;
+          if (unrefined[idx] && t <= depth[idx] + 0.06) { refineDepth(idx); if (t <= depth[idx]) break; }
           const x = (t + d) / 2, y = (t - d) / 2, z = (this.oy + t - cy) / ZK;
           const dist = s.f(x, y, z);
           if (dist < 0.02) { hit = true; break; }
           t -= Math.max(dist * lip, 0.01) / VL;
         }
-        if (!hit || t <= depth[idx]) continue;
-        // refine with a few bisection steps
-        let ta = t, tb = t + 0.06;
-        for (let r = 0; r < 4; r++) { const tm = (ta + tb) / 2; const x = (tm + d) / 2, y = (tm - d) / 2, z = (this.oy + tm - cy) / ZK; if (s.f(x, y, z) < 0) ta = tm; else tb = tm; }
-        t = (ta + tb) / 2;
-        depth[idx] = t; part[idx] = pi;
+        if (!hit) continue;
+        if (unrefined[idx] && t > depth[idx] && t <= depth[idx] + 0.06) refineDepth(idx);
+        if (t <= depth[idx]) continue;
+        depth[idx] = t; part[idx] = pi; unrefined[idx] = 1;
       }
     }
+    for (let idx = 0; idx < N; idx++) if (unrefined[idx]) refineDepth(idx);
     // surface point and normal, once per pixel for the part that ended up in front (a part drawn over later needs neither)
     for (let idx = 0; idx < N; idx++) {
       const frontPart = part[idx]; if (frontPart < 0) continue;

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "project-structure": {
+      "source": "frostney/known-good-route",
+      "sourceType": "github",
+      "skillPath": "project-structure/SKILL.md",
+      "computedHash": "93e683bf987fa15c67057d4bdbb0380c8624385cc7f455e44bd819cfc85a704e"
+    },
+    "react-stack": {
+      "source": "frostney/known-good-route",
+      "sourceType": "github",
+      "skillPath": "react-stack/SKILL.md",
+      "computedHash": "60ec6da46ece07faf189ee8fd5d7787113d2503c0273555d660b0314cfab5b61"
+    },
+    "typescript-stack": {
+      "source": "frostney/known-good-route",
+      "sourceType": "github",
+      "skillPath": "typescript-stack/SKILL.md",
+      "computedHash": "e3c4ba90cc947ca4ff4fbc717a9ced65ca33c0409b47573f7172bcbe9d3f3877"
+    }
+  }
+}

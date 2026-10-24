@@ -9,8 +9,11 @@
 11:38 app: Next 16 + @pixi/react scene (plaza, hero m/f, melee/ranged, wandering monsters, town health, kills, game over, settings stub). next build passes. Checked in headless Chrome against the dev server: render, keys, click, kills count, health to game over. Screenshot: screenshot.png.
 11:38 Shotcup: kit on drive `lampwarden`, mounted ro at /kit. 11 renders via MCP pixel-identical to local; much slower than local (18 s/hero frame, 41-61 s/sprite vs ~0.4 s local). Kit shrinking would not help (load 0.23 s). shotcup_render.py (REST) written but NOT run against the API.
 11:38 docs: README (incl. Building kit), pipeline/README.md, docs/ARCHITECTURE.md. hero_frames.py added (local run reproduces 40/40 committed frames).
+12:13 env audit: gitleaks over history and tree, no leaks; Vercel project has no env vars; deployed JS has no key strings. Found and fixed: generated build code could read the renderer's env (regex bypass); render subprocess now gets an allowlisted env (local_render.py), RIG_OUT renamed KIT_OUT. Hero frames reproduce 40/40.
+12:20 game loop rework: lamps, nights to dawn, relighting, warden health, oil + upgrades, heirs + traits, tide director, localStorage. Plain Pixi instead of @pixi/react. scripts/balance.ts. Checked in headless Chrome (dawn and darkness paths, no console errors).
+12:22 Knips clip of the initial version (11d2de0, the deployed build): 7.0 s, 1920x1188 H.264, recorded as a canvas region with knips record, trimmed with knips export. Kept outside the repo.
 
 ## Built vs not
-Built: pipeline + kit + sprites, Pixi scene, settings stub, docs above.
-Not built: Norse/Egyptian, persistence/upgrades, audio, tests, deploy. Sim balance rough. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.
+Built: pipeline + kit + sprites, Pixi scene with the night/lamp/heir loop and persistence, settings stub, docs above. Deployed (initial version) at lampwarden.vercel.app.
+Not built: Norse/Egyptian, audio, tests. Balance checked with a bot only, not human-tested. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.
 Not verified: run.py end-to-end against Mubit from this repo; shotcup_render.py against the API.

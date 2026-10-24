@@ -1,24 +1,35 @@
 # Lampwarden
 
-A Rogue Legacy-style town-defence game, built at the Mubit Night Shift hackathon (London, 24 Oct 2026). You are the lampwarden of a Greek seaside town: keep the town's health up while satyrs, cyclops and harpies wander in from the sea.
+A night-defence roguelite built at the Mubit Night Shift hackathon (London, 24 Oct 2026). Every night the sea sends its creatures to put out the lamps of Lychnos, a Greek harbour town. You are its lampwarden: strike them down, relight the lamps they snuff, and keep at least one burning until dawn. When a warden falls, an heir takes up the lamp and keeps the oil the line has saved.
 
 The sprites are generated, verified and corrected through [Mubit](https://mubit.ai): a model writes small builder scripts against a fixed isometric renderer, a second model call looks at the rendered image and scores it, and its feedback drives one fix pass.
 
-**Status: a one-screen prototype plus the asset pipeline.** See "What's built" below.
+**Status: a playable one-screen night loop plus the asset pipeline.** See "What's built" below. Live at https://lampwarden.vercel.app (the deployment may lag behind `main`).
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` 8 (client-only scene) · npm, Node 20. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 (client-only scene, driven imperatively from `lib/scene.ts`) · npm. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
 
 ## Run
 
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm run build      # production build (passes; no deployment has been done)
+npm run build      # production build
+bun scripts/balance.ts   # headless balance check: an idle and a bot warden play nights 1-7
 ```
 
-Controls: **WASD / arrows** move, **J / Space** melee, **K / click** ranged shot (towards the cursor on click), the **Male hero / Female hero** buttons switch the hero, and the **Settings** buttons list Greek (active) and Norse / Egyptian ("coming soon" stubs).
+Controls: **WASD / arrows** move, **J / Space** melee, **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
+
+## The loop
+
+1. **Night.** Five lamps ring the plaza. Satyrs, harpies and (from night 2) cyclops come out of the sea and go for the nearest lit lamp; a monster at a lamp claws it out over a second or two (a red ring shows how far it has got). Lit lamps slow anything in their light. Monsters that get close to the warden turn on them instead.
+2. **Relight.** Standing by a dark lamp relights it (gold ring). The night is lost when every lamp is out or the warden falls.
+3. **Dawn.** Survive the night timer and the sun burns the stragglers away. Kills and lamps still burning pay out **oil**, which buys upgrades that last for the whole bloodline: brighter wicks, a keener blade, a deeper quiver, a warden's heart.
+4. **Heirs.** When a night is lost, the warden is gone and the line starts again from night 1 with the oil and upgrades kept. You pick one of three heirs (male: sword and bow, female: spear and sling), each with a trait (swift, stout, lamplighter, long-armed, keen-eyed).
+5. **The tide.** A director reads each night as implicit feedback (kill rate, lamps lost, health kept) and makes the next night's sea calmer or rougher. Nothing is asked of the player.
+
+Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`. The setting buttons on the title screen list Greek (live) and Norse / Egyptian ("soon").
 
 ## How the sprites are made (the Mubit loop)
 
@@ -77,19 +88,19 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 ## What's built, what isn't
 
 Built and run:
-- Next app with a client-only Pixi scene: Greek iso plaza with a temple, a house, olives and a Zeus statue, hero (male/female) with idle/walk/melee/ranged animation, wandering satyrs/cyclops/harpies, projectile, town health, kills HUD, game over + restart, settings stub. `next build` passes; the scene was checked in headless Chrome against the dev server (render, keys, mouse, kills counting, town health to game over).
+- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn, additive lamp light), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
+- Balance from `bun scripts/balance.ts` (150 runs each): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, no upgrades) holds nights 1-3 every time, night 5 about 85-90% and night 7 about 20%. Human play-testing has not been done.
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 2 hand-written buildings.
 
 Not built / not claimed:
-- Norse and Egyptian settings (buttons only), persistence, upgrades or "legacy" progression, audio, mobile controls, tests.
-- Sim balance is rough: with no input the town falls in well under a minute.
+- Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `run.py`.
 - `pipeline/run.py` was ported and its local render path was exercised (render, flags, no-key shotcup error), but no full Mubit round trip was run from this repo.
 - **Shotcup:** the kit was rendered on Shotcup 11 times through its MCP server with pixel-identical output to local, but it was much slower than local (see `pipeline/README.md`), and the Python REST client (`pipeline/shotcup_render.py`) has never been run against the API.
 
 ## Deploy on Vercel
 
-Not deployed yet. It is a standard Next.js app: import the repo in Vercel, framework preset "Next.js", default build (`npm run build`), no environment variables needed for the game. `MUBIT_API_KEY` and `SHOTCUP_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
+Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY` and `SHOTCUP_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
 
 ## More
 

@@ -2,7 +2,17 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**", "!pipeline/kit", "!public/sprites", "!.agents", "!skills-lock.json", "!verify-out"]
+    "includes": [
+      "**",
+      "!pipeline/kit",
+      "!pipeline/prompts",
+      "!pipeline/render",
+      "!public/sprites",
+      "!public/logo",
+      "!.agents",
+      "!skills-lock.json",
+      "!verify-out"
+    ]
   },
   "formatter": {
     "enabled": true,

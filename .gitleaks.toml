@@ -1,0 +1,8 @@
+# Uses gitleaks' default rules. The vendored known-good-route skills (.agents/skills, written by the skills CLI and
+# pinned in skills-lock.json) carry test fixtures with made-up IDs that look like keys; they are public upstream.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures in vendored known-good-route skills"
+paths = ['''^\.agents/skills/[^/]+/tests/''']

@@ -8,26 +8,25 @@ The sprites are generated, verified and corrected through [Mubit](https://mubit.
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · npm. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
 
 ## Run
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build
-bun scripts/balance.ts   # headless balance check: an idle and a bot warden play nights 1-7
-npm run verify:visual -- --url http://localhost:3000   # visual verifier (needs `npm start` running), see below
+bun install
+bun run dev        # http://localhost:3000
+bun run build      # production build
+bun run balance    # headless balance check: an idle and a bot warden play nights 1-7
+bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs `bun run start` running), see below
 ```
 
 ## Checking a change visually
 
-`scripts/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
+`e2e/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
 
 ## Recorded plays
 
 Every night is recorded and sent to `/api/plays`, which stores it as a private blob in the `lampwarden-plays` Vercel Blob store (London). A recording holds the night's seed, the legacy it started from, the warden's input changes at the fixed 60 Hz sim step, and a per-second timeline (kills, lamps lit, health, monsters, lamps lost): about 2.5 KB for a 40 s night, no personal data, a random per-browser session id. The title screen says so.
-
 - Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did.
 - Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]`: outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
 - `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
@@ -57,8 +56,8 @@ Details, options and the Vercel Sandbox and Shotcup renderers are in [`pipeline/
 
 ```bash
 export MUBIT_API_KEY=...        # environment only; never committed (see .env.example)
-npm run assets -- "Ionic marble column"
-# or: MUBIT_API_KEY=... npm run assets -- "brief one" "brief two"
+bun run assets -- "Ionic marble column"
+# or: MUBIT_API_KEY=... bun run assets -- "brief one" "brief two"
 ```
 
 This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs `python3` with Pillow and `bun` on PATH.
@@ -67,29 +66,28 @@ This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.jso
 
 The kit is the renderer plus every builder the model may call. It lives in `pipeline/kit/`:
 
-| File | Purpose |
-|---|---|
-| `src/kit_core.ts` | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame` |
-| `src/kit_render.ts` | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`) |
-| `src/kit_build.ts` | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged` |
-| `src/kit_anat.ts` | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy` |
-| `src/kit_beasts.ts` | `quadruped`, `centaur` |
-| `src/kit_props.ts` | `column`, `amphora`, `brazier`, `altar`, `statueBase` |
-| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof) |
-| `src/kit_figures.ts` | `humanoid`, `tree`, `hydra` |
-| `src/kit_themes.ts` | `THEMES`/`theme()`, `hero`, `ship` |
-| `assemble.sh` | `npm run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
-| `kit.ts` | the assembled single file the renderers import (212,457 bytes) |
-| `exports.json` | the 58 names destructured into model code |
-| `palette.json` | material ramps (identical to the kit's `PALETTE`; checked) |
-| `examples/` | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below) |
+| File                   | Purpose                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/kit_core.ts`      | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame`                                                                                      |
+| `src/kit_render.ts`    | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`)                                                                                   |
+| `src/kit_build.ts`     | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged`                                                                                                                                                                      |
+| `src/kit_anat.ts`      | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy`                                                                                                                                                                    |
+| `src/kit_beasts.ts`    | `quadruped`, `centaur`                                                                                                                                                                                                |
+| `src/kit_props.ts`     | `column`, `amphora`, `brazier`, `altar`, `statueBase`                                                                                                                                                                 |
+| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof)                                                   |
+| `src/kit_figures.ts`   | `humanoid`, `tree`, `hydra`                                                                                                                                                                                           |
+| `src/kit_themes.ts`    | `THEMES`/`theme()`, `hero`, `ship`                                                                                                                                                                                    |
+| `assemble.sh`          | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `cf66f505c9e9…`) |
+| `kit.ts`               | the assembled single file the renderers import (212,457 bytes)                                                                                                                                                        |
+| `exports.json`         | the 58 names destructured into model code                                                                                                                                                                             |
+| `palette.json`         | material ramps (identical to the kit's `PALETTE`; checked)                                                                                                                                                            |
+| `examples/`            | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below)                   |
 
 Related: `pipeline/prompts/generator.md` (the API doc given to the model) and `verifier.md`, and `pipeline/render/` (local bun runner and the `shotcup:canvas` shim).
 
 A build script is `export function build(k) { ... }`. Space is u/v ground, z up, origin `[0,0]` at the tile centre; sprites are 128×128 and auto-scaled to fit. Options below were read from the kit source and `generator.md`; anything omitted falls back to a default.
 
 **Builders (all take `(k, params)`)**
-
 - `hero` `{sex:'male'|'female', melee:'xiphos'|'sword'|'spear'|'axe'|'club'|'hammer', ranged:'bow'|'sling'|'javelin'|'throwspear', ready:'melee'|'ranged', pose, at, facing, setting:'greek', helmet:'none'|'corinthian'|'attic', cape, height, build, palette:{cloth,accent,hair,skin,metal}}`. Poses: `idle`, `idle1-4`, `walk1-6`, `melee1-5`, `ranged1-5`, `hurt`, `death`.
 - `humanoid` `{gender, material, robe, ...}` and `humanoidCore`/`spartan`/`cyclops`/`minotaur`/`satyr`/`harpy`/`winged` share the humanoid params: `at, facing, height, build:'slim'|'average'|'heavy'|'giant', pose, skin, head:{type,hair,helmet,helmetMat,crest,beard,eyes,hairStyle}, torso:{armour,colour,trim,skirtColour}, legs:{greaves,sandals,lower,colour}, arms:{bracers,colour}, weapon, weaponMat, shield, stow, fem, skirt, cape, capeStyle, wings:{type,colour,span}`. `harpy`/`winged` also take `span`. Poses also include `attack1-5` for monsters.
 - `quadruped` `{at, facing, kind:'horse'|'bull'|'lion'|'dog'|'boar'|'goat', colour, mane, size, pose, rider}`; `centaur` `{at, facing, colour, pose, upper}`; `hydra` `{at, facing, heads, colour}`.
@@ -104,7 +102,7 @@ A build script is `export function build(k) { ... }`. Space is u/v ground, z up,
 ## What's built, what isn't
 
 Built and run:
-- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `lib/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
+- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `src/scene/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
 - Balance from `bun scripts/balance.ts` (150 runs each): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, no upgrades) holds nights 1-3 every time, night 5 about 85-90% and night 7 about 20%. Human play-testing has not been done.
 - Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 40 hero animation frames (deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
 

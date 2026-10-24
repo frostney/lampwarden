@@ -11,12 +11,12 @@
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit -p .",
     "knip": "knip",
-    "verify:visual": "bun scripts/verify-visual.mjs",
+    "verify:visual": "bun e2e/verify-visual.mjs",
     "balance": "bun scripts/balance.ts",
     "plays": "bun scripts/plays.ts",
     "assets": "python3 pipeline/run.py",
     "kit": "bash pipeline/kit/assemble.sh",
-    "prepare": "lefthook install",
+    "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts"
   },
   "dependencies": {

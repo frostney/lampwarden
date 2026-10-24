@@ -246,7 +246,7 @@ export default function Game() {
         legacy.generation++;
         legacy.night = 1;
         endWarden(legacy);
-        setHeirs(heirChoices());
+        setHeirs(heirChoices(Math.random, legacy.heir.name));
         phaseRef.current = "heir";
         setPhase("heir");
       }

@@ -1,14 +1,14 @@
 // Walkthrough recorder: turns a short script of segments into the narrated, subtitled video a pull request carries.
 // Each segment is footage of the real game, captured frame by frame with the page clock stepped at 30 fps (so it is
 // deterministic and never drops frames), or a still image. Every segment gets a Tiny5 caption band above it and its
-// caption read aloud by macOS `say`; footage holds its last frame until the narration ends.
+// caption read aloud (macOS `say`, else `espeak-ng`); footage holds its last frame until the narration ends.
 //
 // usage: bun run build && bun run start &   then   bun run walkthrough -- <script.ts> [--url <url>] [--out <dir>] [--headed]
 //   --url replaces the script's url (a server on another port)
 //   <out>/walkthrough.mp4   the video (1920x1400: a 200 px caption band over 1920x1200 footage)
 //   <out>/stills/<id>.png   the last frame of each footage segment, for the pull request's stills
 //   <out>/check.png         the middle and end of every segment, to look at before attaching the video
-// Needs ffmpeg, ffprobe and macOS `say`. A script is a module whose default export is a Walkthrough, e.g.
+// Needs ffmpeg, ffprobe and a speech synthesiser: macOS `say`, or `espeak-ng` elsewhere. A script is a module whose default export is a Walkthrough, e.g.
 // e2e/walkthroughs/title.ts.
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +18,7 @@ import { chromium, type Page } from "playwright";
 
 export interface Walkthrough {
   url: string; // the page the first footage segment loads
-  voice?: string; // a macOS `say` voice; Daniel by default
+  voice?: string; // a macOS `say` voice; Daniel by default (espeak-ng always reads in British English)
   segments: Segment[];
 }
 
@@ -63,14 +63,26 @@ const durationOf = (path: string) =>
   Number(run("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path).trim());
 const isStill = (segment: Segment): segment is StillSegment => "image" in segment;
 
-function requireTools() {
-  for (const tool of ["ffmpeg", "ffprobe", "say"]) {
-    try {
-      run("which", tool);
-    } catch {
-      throw new Error(`walkthrough needs ${tool} on PATH`);
-    }
-  }
+const onPath = (tool: string) => spawnSync("which", [tool], { stdio: "ignore" }).status === 0;
+
+type Speaker = (text: string, voice: string | undefined, directory: string, id: string) => string;
+
+// macOS `say` where there is one, else espeak-ng; either writes a file that ffmpeg reads
+function requireTools(): Speaker {
+  for (const tool of ["ffmpeg", "ffprobe"]) if (!onPath(tool)) throw new Error(`walkthrough needs ${tool} on PATH`);
+  if (onPath("say"))
+    return (text, voice, directory, id) => {
+      const narration = join(directory, `${id}.aiff`);
+      run("say", "-v", voice ?? "Daniel", "-o", narration, text);
+      return narration;
+    };
+  if (onPath("espeak-ng"))
+    return (text, _voice, directory, id) => {
+      const narration = join(directory, `${id}.wav`);
+      run("espeak-ng", "-v", "en-gb", "-s", "160", "-w", narration, text);
+      return narration;
+    };
+  throw new Error("walkthrough needs macOS `say` or espeak-ng on PATH");
 }
 
 // the caption band, rendered from an HTML file (a file:// page can load the font; about:blank cannot)
@@ -179,7 +191,7 @@ const argument = (name: string) => {
 async function main() {
   const scriptPath = process.argv.slice(2).find((value) => value.endsWith(".ts") || value.endsWith(".mjs"));
   if (!scriptPath) throw new Error("usage: bun run walkthrough -- <script.ts> [--url <url>] [--out <dir>] [--headed]");
-  requireTools();
+  const speak = requireTools();
   const script: Walkthrough = (await import(resolve(scriptPath))).default;
   const walkthrough = { ...script, url: argument("--url") ?? script.url };
   const outDirectory = resolve(argument("--out") ?? "walkthrough-out");
@@ -198,8 +210,7 @@ async function main() {
   try {
     for (const segment of walkthrough.segments) {
       const caption = await renderCaption(captionPage, segment.caption, workDirectory, segment.id);
-      const narration = join(workDirectory, `${segment.id}.aiff`);
-      run("say", "-v", walkthrough.voice ?? "Daniel", "-o", narration, segment.caption);
+      const narration = speak(segment.caption, walkthrough.voice, workDirectory, segment.id);
       const spoken = durationOf(narration) + NARRATION_TAIL;
       const output = join(workDirectory, `${segment.id}.mp4`);
       if (isStill(segment)) {

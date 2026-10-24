@@ -13,6 +13,9 @@
 12:20 game loop rework: lamps, nights to dawn, relighting, warden health, oil + upgrades, heirs + traits, tide director, localStorage. Plain Pixi instead of @pixi/react. scripts/balance.ts. Checked in headless Chrome (dawn and darkness paths, no console errors).
 12:22 Knips clip of the initial version (11d2de0, the deployed build): 7.0 s, 1920x1188 H.264, recorded as a canvas region with knips record, trimmed with knips export. Kept outside the repo.
 
+13:10 PR #1 merged. Plays: seeded RNG + fixed 60 Hz step, Recorder/Replayer (lib/replay.ts), /api/plays → private Blob store lampwarden-plays (lhr1), /?replay=<id>, scripts/plays.ts, scripts/replay-check.ts (30/30). One browser-played bot night stored, reported and replayed to the same end (then deleted). Upgrade + oil pixel icons. Visual verifier (scripts/verify-visual.mjs, headed): its first pass caught stray lines from progress rings (arc without moveTo), fixed; 17/17 checks.
+13:10 Pixel fonts: researched with licences; in-game captures of 4 pairings; recommendation Ithaca (title) + Tiny5 (UI), not applied yet.
+
 ## Built vs not
 Built: pipeline + kit + sprites, Pixi scene with the night/lamp/heir loop and persistence, settings stub, docs above. Deployed (initial version) at lampwarden.vercel.app.
 Not built: Norse/Egyptian, audio, tests. Balance checked with a bot only, not human-tested. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.

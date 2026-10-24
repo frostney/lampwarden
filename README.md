@@ -17,7 +17,21 @@ npm install
 npm run dev        # http://localhost:3000
 npm run build      # production build
 bun scripts/balance.ts   # headless balance check: an idle and a bot warden play nights 1-7
+npm run verify:visual -- --url http://localhost:3000   # visual verifier (needs `npm start` running), see below
 ```
+
+## Checking a change visually
+
+`scripts/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
+
+## Recorded plays
+
+Every night is recorded and sent to `/api/plays`, which stores it as a private blob in the `lampwarden-plays` Vercel Blob store (London). A recording holds the night's seed, the legacy it started from, the warden's input changes at the fixed 60 Hz sim step, and a per-second timeline (kills, lamps lit, health, monsters, lamps lost): about 2.5 KB for a 40 s night, no personal data, a random per-browser session id. The title screen says so.
+
+- Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did.
+- Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]`: outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
+- `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
+- The visual verifier opens the game with `?verify=1`, and those nights are not uploaded.
 
 Controls: **WASD / arrows** move, **J / Space** melee, **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
 

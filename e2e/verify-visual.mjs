@@ -60,6 +60,29 @@ async function serveSea(route) {
 }
 const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
 
+// A recorded night as /api/plays/<id> serves it, played on a sim that is not this build's (`sim` is a fingerprint no
+// build has), or with `sim` left out as plays from before fingerprints are. The page is never given the real store.
+const otherVersionPlay = (id, withSim) => ({
+  v: 1,
+  id,
+  session: "verifier",
+  build: "abc1234",
+  ...(withSim ? { sim: "000000000000" } : {}),
+  startedAt: "2026-10-20T21:00:00.000Z",
+  seed: 7,
+  legacy: { night: 3, generation: 2, tide: 1.1, levels: {}, heir: { ...newLegacy().heir, name: "Theodora" } },
+  inputs: [],
+  timeline: Array.from({ length: 41 }, (_, second) => [second + 1, 0, 3, 5, 0, 0]),
+  steps: 2460,
+  outcome: "dawn",
+  stats: { kills: 17, lampsLost: 1, hpLost: 2, time: 41, oilEarned: 30, hp: 3, maxHp: 5, lit: 3 },
+});
+const REFUSED_PLAYS = [
+  ["another sim version", otherVersionPlay("2026-10-20-21-00-00-othersim1", true), "08b-replay-refused"],
+  ["no recorded sim", otherVersionPlay("2026-10-20-21-00-00-nosimrec1", false), "08c-replay-unknown-sim"],
+];
+const serveFixturePlay = (play) => (route) => route.fulfill({ json: play });
+
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
 let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
 await stubSea(page);
@@ -1257,6 +1280,62 @@ await freeze();
 shot = await shoot("08-replay");
 check("replay", "replay bar shown", (await text(".replaybar")).join("").includes("REPLAY"));
 
+// 8b a recording is replayed only on the sim it was played on (the sim fingerprint every play carries). The recording
+// just made on this build matches; one from another version, and one from before fingerprints, are described, not played.
+{
+  const lastPlay = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:lastPlay") ?? "null"));
+  check(
+    "replay",
+    "the night just played carries this build's sim",
+    /^[0-9a-f]{12}$/.test(lastPlay?.sim ?? ""),
+    lastPlay?.sim,
+  );
+  const sameSim = { ...lastPlay, id: "2026-10-24-21-00-00-samesim1" };
+  await page.route(`**/api/plays/${sameSim.id}`, serveFixturePlay(sameSim));
+  await page.goto(`${BASE_URL}/?replay=${sameSim.id}`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  check(
+    "replay",
+    "a recording from the same sim, served by the API, replays",
+    (await text(".replaybar")).join("").includes(sameSim.id),
+  );
+
+  for (const [label, play, shotName] of REFUSED_PLAYS) {
+    await page.route(`**/api/plays/${play.id}`, serveFixturePlay(play));
+    await page.goto(`${BASE_URL}/?replay=${play.id}`);
+    await page.waitForSelector('[data-phase="replayRefused"]', { timeout: 15000 });
+    const cleared = await page.evaluate(() => window.lampwarden.state()?.elapsed);
+    await page.waitForTimeout(700);
+    const afterwards = await page.evaluate(() => ({
+      phase: document.querySelector(".stage")?.dataset.phase,
+      elapsed: window.lampwarden.state()?.elapsed,
+      replayBar: document.querySelector(".replaybar") !== null,
+    }));
+    const panel = (await text('[data-panel="replay-refused"]')).join(" ");
+    check(
+      "replay-refused",
+      `${label}: the panel says it was an earlier version and shows the night's summary`,
+      panel.includes("earlier version of Lampwarden and can't be replayed exactly") &&
+        panel.includes(`${play.legacy.heir.name}, night 3: dawn, 17 slain, 1 lamps snuffed, 41 s.`),
+      panel,
+    );
+    check(
+      "replay-refused",
+      `${label}: no night runs`,
+      afterwards.phase === "replayRefused" && !afterwards.replayBar && afterwards.elapsed === cleared,
+      JSON.stringify({ cleared, ...afterwards }),
+    );
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+    await shoot(shotName);
+    if (play === REFUSED_PLAYS.at(-1)?.[1]) {
+      await page.getByRole("button", { name: "Back to the title" }).click();
+      await page.waitForSelector('[data-phase="title"]', { timeout: 15000 });
+      check("replay-refused", "the way back leads to the title", !page.url().includes("replay"), page.url());
+    }
+  }
+}
+
 // 9 gamepad: a mocked standard-mapping pad drives the menus and the warden
 {
   const padPage = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
@@ -2188,6 +2267,28 @@ for (const [tag, device, sex] of [
     upgradeCount === 3 && reachable === 3 && continueBounds && inView(continueBounds, viewportWidth, viewportHeight),
     `${reachable}/${upgradeCount} offers`,
   );
+  // a recording from another sim version is described, not played: the panel fits the phone and the way back is in reach
+  {
+    const [, play] = REFUSED_PLAYS[0];
+    await context.route(`**/api/plays/${play.id}`, serveFixturePlay(play));
+    await page.goto(`${BASE_URL}/?replay=${play.id}`);
+    await page.waitForSelector('[data-phase="replayRefused"]', { timeout: 15000 });
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+    if (tag !== "phone-land-daughter") await shoot(`${tag}-5-replay-refused`, true);
+    const back = page.getByRole("button", { name: "Back to the title" });
+    await back.scrollIntoViewIfNeeded();
+    const backBounds = await back.boundingBox();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    check(
+      tag,
+      "replay of another sim version: the panel and its way back fit the phone",
+      backBounds && inView(backBounds, viewportWidth, viewportHeight) && overflow <= 0,
+      `button ${backBounds && `${Math.round(backBounds.width)}x${Math.round(backBounds.height)}`}, overflow ${overflow}`,
+    );
+  }
   await context.close();
 }
 await webkitBrowser.close();

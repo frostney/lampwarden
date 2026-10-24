@@ -108,9 +108,9 @@ Without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE
 
 ## Recorded plays and replays
 
-Every night is recorded and sent to `/api/plays`: its seed, the legacy it started from, the creature it met, the warden's input changes at the fixed 60 Hz step, and a per-second timeline. There is no personal data, only a random per-browser session id, and the title screen says so. The sim is deterministic, so a recording replays exactly.
-- Watch one at `/?replay=<id>`, or `/?replay=last` for your own last night, at 1x, 2x or 4x. The end screen says whether the replay ended where the live night did.
-- `bun run plays [--since 2026-10-24] [--build <sha>] [--verify]` reports outcomes, length and kills per minute from the store; `--verify` replays every finished night.
+Every night is recorded and sent to `/api/plays`: its seed, the legacy it started from, the creature it met, the warden's input changes at the fixed 60 Hz step, a per-second timeline, and a fingerprint of the sim it ran on. There is no personal data, only a random per-browser session id, and the title screen says so. The sim is deterministic, so a recording replays exactly on the sim it was recorded with.
+- Watch one at `/?replay=<id>`, or `/?replay=last` for your own last night, at 1x, 2x or 4x. The end screen says whether the replay ended where the live night did. A night recorded on another version of the sim isn't replayed: the game shows its recorded summary instead.
+- `bun run plays [--since 2026-10-24] [--build <sha>] [--verify]` reports outcomes, length and kills per minute from the store; `--verify` replays the finished nights recorded on this checkout's sim and counts the others separately.
 - Nights opened with `?verify=1`, as the visual verifier does, are not uploaded.
 
 ## Contributing

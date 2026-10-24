@@ -65,6 +65,18 @@ export const creatureSchema = z.object({
 });
 export type Creature = z.infer<typeof creatureSchema>;
 
+// The creature a night met, as a recording keeps it: enough to build the same night again (id, archetype, modifiers,
+// anchorY) and to name it in reports. A play from before creatures existed has none. It lives here, not with the plays
+// API, because the replay builds the night from it: the sim fingerprint covers this file.
+export const recordedCreatureSchema = creatureSchema.pick({
+  id: true,
+  name: true,
+  archetype: true,
+  modifiers: true,
+  anchorY: true,
+});
+export type RecordedCreature = z.infer<typeof recordedCreatureSchema>;
+
 export const statsOf = (creature: Pick<Creature, "archetype" | "modifiers">) =>
   creatureStats(creature.archetype, creature.modifiers);
 

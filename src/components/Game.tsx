@@ -12,6 +12,7 @@ import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
 import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
+import { recordedCreatureSchema } from "@/game/creature";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   buy,
@@ -34,9 +35,10 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
-import { recordedCreatureSchema } from "@/game/plays";
+import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
-import { creatureOf, legacyOf, type Play, Recorder, Replayer, upload, verifyPlay } from "@/game/replay";
+import { type Play, Recorder, upload } from "@/game/recording";
+import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
   LAMP_SPOTS,
@@ -102,7 +104,7 @@ function HeroPortrait({ sex, textures }: { sex: Sex; textures: TextureMap | null
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
 
-type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd";
+type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd" | "replayRefused";
 interface Hud {
   health: number;
   maxHealth: number;
@@ -184,6 +186,7 @@ export default function Game() {
   phaseRef.current = phase;
   const recorderRef = useRef<Recorder | null>(null);
   const [replay, setReplay] = useState<{ play: Play; endsMatch: boolean | null } | null>(null);
+  const [refusedPlay, setRefusedPlay] = useState<Play | null>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
   const { tonight, ask, stop, withdraw } = useTonight();
@@ -319,6 +322,15 @@ export default function Game() {
         setReplayError(String(error));
         return;
       }
+      // A night replays exactly only on the sim it was played on. Another version (or one from before versions were
+      // noted) would show a night nobody played, so it is described, not played.
+      if (!replaysExactlyOn(play, RUNNING_SIM)) {
+        setRefusedPlay(play);
+        setReplayError(null);
+        phaseRef.current = "replayRefused";
+        setPhase("replayRefused");
+        return;
+      }
       const replayLegacy = legacyOf(play);
       legacyRef.current = { ...legacyRef.current, ...replayLegacy }; // shown in the HUD only; never saved
       const creature = creatureOf(play);
@@ -431,7 +443,13 @@ export default function Game() {
     }
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
-    const recorder = new Recorder(legacyRef.current, seed, "", creature && recordedCreatureSchema.parse(creature));
+    const recorder = new Recorder(
+      legacyRef.current,
+      seed,
+      "",
+      creature && recordedCreatureSchema.parse(creature),
+      RUNNING_SIM,
+    );
     recorderRef.current = recorder;
     show(
       state,
@@ -612,11 +630,7 @@ export default function Game() {
         {phase === "replayEnd" && replay && (
           <div className="panel">
             <div className="logo small">REPLAY OVER</div>
-            <p>
-              {replay.play.legacy.heir.name}, night {replay.play.legacy.night}: {replay.play.outcome ?? "abandoned"},{" "}
-              {replay.play.stats.kills} slain, {replay.play.stats.lampsLost} lamps snuffed,{" "}
-              {replay.play.timeline.length} s.
-            </p>
+            <p>{describeNight(replay.play)}</p>
             <p className="dim">
               {replay.endsMatch === null
                 ? "Abandoned night: no end to compare."
@@ -630,6 +644,16 @@ export default function Game() {
               onClick={() => void startReplay(new URLSearchParams(location.search).get("replay") || "last")}
             >
               Watch again
+            </button>
+          </div>
+        )}
+        {phase === "replayRefused" && refusedPlay && (
+          <div className="panel" data-panel="replay-refused">
+            <div className="logo small">AN EARLIER VERSION</div>
+            <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
+            {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
+            <button type="button" className="btn big" onClick={() => location.assign("/")}>
+              Back to the title
             </button>
           </div>
         )}

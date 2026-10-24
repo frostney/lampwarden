@@ -433,47 +433,24 @@ This evaluation used 25 starts and 188 balance seconds of compute ($0.00188, of 
 
 ## Pixel scaling
 
-The runner writes a second image per render, `<name>_x4.png`: the 128 px sprite magnified 4× by nearest neighbour onto the
-verifier's (46, 46, 56) backdrop (`K.onBg(r, [46, 46, 56], 4)` in `render/run_local.ts`, 512×512). **Nothing reads it.**
-The verifier's picture comes from `verifier-image.ts`, which decodes the 128 px PNG on the host and does the same 4×
-magnification on the same backdrop (`loop.ts` is its only caller); `render-local.ts` and `render-vercel-sandbox.ts`
-read only `<name>.png`, `render-shotcup.ts` reads only the PNGs its generated main writes (that main never wrote an ×4),
-`render-boat.ts` the same as Vercel. `pipeline/measure-x4.ts` also checks that the two images are the same: all 262,144
-pixels of the runner's ×4 and of `verifierImageBytes()` match for lamp-lit, house, satyr, temple and the male idle frame 1.
-So the in-render ×4 is redundant on every path except a person who opens the file after a hand render
-(`docs/ARCHITECTURE.md`, Sprite flow, which says to delete it).
+The runner used to write a second image per render, `<name>_x4.png`: the 128 px sprite magnified 4× onto the verifier's
+backdrop. Nothing read it: the verifier's picture comes from `verifier-image.ts`, which magnifies the 128 px PNG on the
+host, and every renderer reads only `<name>.png`. Its pixels matched the verifier's image exactly (262,144 of 262,144 for
+lamp-lit, house, satyr, temple and a hero frame). So the copy is gone, along with the `KIT_X4` switch and the measurement
+script that timed it.
 
-Measured with `bun --no-env-file pipeline/measure-x4.ts` (10 renders per sprite and mode through `renderLocally`,
-interleaved, after a warm-up; bun 1.4.3 on Apple silicon; wall time of the whole subprocess; medians):
+What it cost before it went (10 renders per sprite through `renderLocally`, medians, Apple silicon):
 
-| sprite     | with the ×4 (ms) | without (`KIT_X4=0`) (ms) | the copy costs (ms) | share of the render |
-| ---------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| lamp-lit   | 53.4             | 43.9                      | 9.5                 | 18%                 |
-| house      | 73.5             | 59.5                      | 14.0                | 19%                 |
-| satyr      | 87.5             | 72.2                      | 15.3                | 18%                 |
-| temple     | 129.7            | 116.9                     | 12.8                | 10%                 |
-| hero idle1 | 97.8             | 84.5                      | 13.3                | 14%                 |
+| sprite     | with the ×4 (ms) | without (ms) | the copy cost (ms) | share of the render |
+| ---------- | ---------------- | ------------ | ------------------ | ------------------- |
+| lamp-lit   | 53.4             | 43.9         | 9.5                | 18%                 |
+| house      | 73.5             | 59.5         | 14.0               | 19%                 |
+| satyr      | 87.5             | 72.2         | 15.3               | 18%                 |
+| temple     | 129.7            | 116.9        | 12.8               | 10%                 |
+| hero idle1 | 97.8             | 84.5         | 13.3               | 14%                 |
 
-A second run on a machine at load average 10 gave 13.0, 14.5, 21.6, 37.5 and 24.6 ms (15-23%), so the saving is 10-40 ms
-a render here. The runner's own `ms` (build, render, `post()`) is the same with and without it (20-112 ms), because the
-copy comes after that clock stops: it is the extra `onBg` plus a 512×512 `deflate` plus a write. Rendering at 1× only and
-magnifying on the host is not cheaper than doing it in the runner: `verifierImageBytes()` takes 29-41 ms in the first run (30-60
-ms in the second), because it decodes the PNG in TypeScript, scales through `PixelImage` and deflates at level 9. It is
-the price of the verifier's smaller picture (4.3-9.6 KB against the runner's 9.1-13.2 KB, same pixels) and is paid once
-per verifier call, next to a Mubit round trip of seconds (generator calls took 1.75-8 s), so it does not matter. What would be wasted is paying both.
-
-**Vercel Sandbox and the other sandboxes: no transfer cost, only compute.** `renderInSandbox` reads back one file,
-`<name>.png` (1.4-3.9 KB for these sprites); the ×4 stays in the VM, so 0 bytes of it cross the network (it would be 9.1-13.2
-KB a render, 3-7× the sprite, if something read it). What it costs is the VM's CPU time before the command returns: the same
-work as above, and the VM's bun is 2-5× slower than this Mac (see "Vercel Sandbox, Measurements"), so about 25-65 ms against
-a render command of 235-1,351 ms. That figure is an estimate from those two measurements, not a run in a VM.
-
-**The flag.** `KIT_X4=0` in the runner's environment skips the copy; unset or any other value keeps today's behaviour.
-`renderLocally(request, { writeMagnifiedCopy: false })` sets it. I did not touch `render-vercel-sandbox.ts`, `render-boat.ts` or
-`loop.ts`; to take the saving on the live path, add `KIT_X4: "0"` to the `env` of `sandbox.runCommand` in
-`renderInSandbox` (and `KIT_X4=0` to boat's command line), and pass `writeMagnifiedCopy: false` from the local renderer's
-caller. Recommendation: do that as a follow-up for the creature renderer (the live route), then make skipping the default and the doc's hand-render line
-`KIT_X4=1` if a person wants the picture.
+Under load the saving was 13-38 ms a render. In a sandbox it cost VM time only (the file never left the VM), estimated at
+25-65 ms a render.
 
 The same investigation measured the game's side of this question (the browser scaling, not the renderer): see
 `docs/ARCHITECTURE.md`, "Pixel scaling".

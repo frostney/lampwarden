@@ -96,10 +96,15 @@ h2.logo:focus {
   right: calc(14 * var(--hu));
   letter-spacing: 2px;
 }
-/* a dark lamp is a hollow diamond and a lit one a solid one, so the state does not rest on colour alone; #7a84a2 is
-   at least 3:1 on the night sea (#4a5068 was 2.3:1 on the page colour) */
-.lamps span:not(.long) {
+/* a dark lamp is a hollow diamond and a lit one a solid one, so the state does not rest on colour alone. Its colour,
+   #7a84a2, is 5:1 on the night sky (#4a5068 was 2.4:1), and a black outline keeps it above 3:1 on the paler dawn sky */
+.lamps span:not(.long, .lit) {
   color: #7a84a2;
+  text-shadow:
+    1px 0 #000,
+    -1px 0 #000,
+    0 1px #000,
+    0 -1px #000;
 }
 .lamps span.lit {
   color: #ffcf6a;

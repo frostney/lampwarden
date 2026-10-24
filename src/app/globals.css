@@ -363,7 +363,7 @@ h1 {
     position: fixed;
     left: 0;
     right: 0;
-    top: calc(100vw / 1.6 + max(12px, env(safe-area-inset-top)) + 24px);
+    top: calc(100vw * 495 / 780 + max(12px, env(safe-area-inset-top)) + 24px);
     text-align: center;
     font-size: 16px;
     opacity: 0.6;
@@ -377,15 +377,15 @@ h1 {
 /* landscape phones: controls live in the side gutters beside the canvas */
 @media (orientation: landscape) and (pointer: coarse) {
   .stick {
-    width: 96px;
-    height: 96px;
-    left: max(8px, env(safe-area-inset-left));
+    width: 84px;
+    height: 84px;
+    left: max(4px, env(safe-area-inset-left));
   }
   .knob {
-    left: 25px;
-    top: 25px;
-    width: 42px;
-    height: 42px;
+    left: 21px;
+    top: 21px;
+    width: 38px;
+    height: 38px;
   }
   .tbtn {
     width: 64px;
@@ -422,21 +422,45 @@ h1 {
   outline-offset: 2px;
 }
 
-/* Small screens: show the playfield closer by cropping the open sea around it. The view is the canvas rectangle
-   x 68-892, y 30-545 (824 x 515, still 1.6:1), which keeps the whole plaza, the spawn rim, every lamp, the boat and
-   the dock; the verifier checks that every lamp and plaza corner stays on screen. */
+/* Small screens: show the playfield closer by cropping the open sea around it. The view is a rectangle of the 960 x 600
+   canvas; every orientation keeps the whole plaza, the spawn rim and every lamp in it (the verifier checks this).
+   Landscape phones are limited by height: x 65-895, y 40-535, with the stage leaving the side gutters to the controls.
+   Portrait phones are limited by width: x 90-870, y 40-535. */
 @media (max-width: 760px), (max-height: 520px) {
   .stage {
+    --view-x: 68;
+    --view-y: 30;
+    --view-width: 824;
+    --view-height: 515;
     overflow: hidden;
+    aspect-ratio: var(--view-width) / var(--view-height);
   }
   .stage > .canvas {
     position: absolute;
-    width: calc(100% * 960 / 824);
-    height: calc(100% * 600 / 515);
-    left: calc(-100% * 68 / 824);
-    top: calc(-100% * 30 / 515);
+    width: calc(100% * 960 / var(--view-width));
+    height: calc(100% * 600 / var(--view-height));
+    left: calc(-100% * var(--view-x) / var(--view-width));
+    top: calc(-100% * var(--view-y) / var(--view-height));
   }
   .hud {
-    --hu: calc(100cqw / 824);
+    --hu: calc(100cqw / var(--view-width));
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .stage {
+    --view-x: 65;
+    --view-y: 40;
+    --view-width: 830;
+    --view-height: 495;
+    width: min(100vw, calc(100dvh * 830 / 495));
+  }
+}
+@media (orientation: portrait) and (max-width: 760px) {
+  .stage {
+    --view-x: 90;
+    --view-y: 40;
+    --view-width: 780;
+    --view-height: 495;
+    width: 100vw;
   }
 }

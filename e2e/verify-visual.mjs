@@ -581,17 +581,41 @@ for (const [tag, device] of [
       .map(([name]) => name);
   });
   check(tag, "plaza, lanterns and spawn rim all on screen", hiddenPoints.length === 0, hiddenPoints.join(", "));
-  const zoom = await page.evaluate(() => {
-    const canvas = document.querySelector(".stage canvas");
-    const stage = document.querySelector(".stage");
-    return canvas && stage ? canvas.getBoundingClientRect().width / stage.getBoundingClientRect().width : 0;
-  });
-  check(
-    tag,
-    "playfield shown closer than the full canvas",
-    zoom > 1.1,
-    `canvas is ${zoom.toFixed(3)}x the stage width`,
+  // magnification against the plain fit of the whole 960 x 600 canvas into this screen (the layout before cropping)
+  const zoom = await page.evaluate(
+    ({ width, height }) => {
+      const canvas = document.querySelector(".stage canvas");
+      if (!canvas) return 0;
+      const cssPixelsPerCanvasPixel = canvas.getBoundingClientRect().width / 960;
+      const wholeCanvasFit = Math.min(width, height * 1.6) / 960;
+      return cssPixelsPerCanvasPixel / wholeCanvasFit;
+    },
+    { width: viewportWidth, height: viewportHeight },
   );
+  check(tag, "playfield shown closer than the whole canvas", zoom > 1.15, `${zoom.toFixed(3)}x the whole-canvas fit`);
+  const coveredPoints = await page.evaluate(() => {
+    const canvas = document.querySelector(".stage canvas");
+    if (!canvas) return ["no canvas"];
+    const canvasBox = canvas.getBoundingClientRect();
+    const controls = [...document.querySelectorAll(".stick, .tbtn")].map((element) => element.getBoundingClientRect());
+    const state = window.lampwarden.state();
+    const points = {
+      "plaza left": [96, 320],
+      "plaza right": [864, 320],
+      "plaza bottom": [480, 526],
+      ...Object.fromEntries(state.lamps.map((lamp, index) => [`lamp ${index + 1}`, [lamp.x, lamp.y]])),
+    };
+    return Object.entries(points)
+      .filter(([, [x, y]]) => {
+        const screenX = canvasBox.left + (x * canvasBox.width) / 960;
+        const screenY = canvasBox.top + (y * canvasBox.height) / 600;
+        return controls.some(
+          (box) => screenX >= box.left && screenX <= box.right && screenY >= box.top && screenY <= box.bottom,
+        );
+      })
+      .map(([name]) => name);
+  });
+  check(tag, "touch controls cover no lamp or plaza edge", coveredPoints.length === 0, coveredPoints.join(", "));
   // stick: hold right for half a second, the warden must move right
   const startX = await page.evaluate(() => window.lampwarden.state().hero.x);
   const stickBox = controlBoxes.find((box) => box.className.includes("stick"));

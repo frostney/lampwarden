@@ -1,5 +1,5 @@
 // Headless balance check: plays nights with an idle warden and a simple bot, prints outcome rates.
-// usage: bun scripts/balance.ts [runs=200]
+// usage: bun scripts/balance.ts [runs=200]; seeded, so two builds are compared on the same nights
 import { newLegacy } from "../src/game/legacy";
 import {
   ground,
@@ -24,7 +24,12 @@ function bot(state: State): Input {
       nearest = monster;
     }
   }
-  if (nearest && nearestDistance < state.rules.meleeReach - 8) return { ...NO_INPUT, melee: true };
+  if (nearest && nearestDistance < state.rules.meleeReach - 8) {
+    // swing towards the monster: a direction held with the strike turns the warden to face it
+    const towardX = nearest.x - hero.x;
+    const towardY = (nearest.y - hero.y) * 2;
+    return { ...NO_INPUT, melee: true, moveX: towardX / nearestDistance, moveY: towardY / nearestDistance };
+  }
   const dark = state.lamps
     .filter((lamp) => !lamp.lit)
     .sort((first, second) => ground(first.x, first.y, hero.x, hero.y) - ground(second.x, second.y, hero.x, hero.y))[0];
@@ -53,11 +58,11 @@ function bot(state: State): Input {
   };
 }
 
-function play(night: number, tide: number, policy: "idle" | "bot") {
+function play(night: number, tide: number, policy: "idle" | "bot", seed: number) {
   const legacy = newLegacy();
   legacy.night = night;
   legacy.tide = tide;
-  const state = newNight(legacy);
+  const state = newNight(legacy, seed);
   let input = NO_INPUT;
   let think = 0;
   const stepSeconds = 1 / 60;
@@ -77,6 +82,7 @@ function play(night: number, tide: number, policy: "idle" | "bot") {
     lit: litCount(state),
     kills: state.stats.kills,
     oil: state.oilEarned,
+    healthLost: state.stats.hpLost,
   };
 }
 
@@ -90,13 +96,17 @@ const SCENARIOS = [
 ] as const;
 for (const policy of ["idle", "bot"] as const) {
   for (const [night, tide] of SCENARIOS) {
-    const results = Array.from({ length: runs }, () => play(night, tide, policy));
+    // the same seeds on every run, so a change to the sim shows against the same nights
+    const results = Array.from({ length: runs }, (_, run) => play(night, tide, policy, night * 100_000 + run));
     const percent = (outcome: string) =>
       ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0);
     const average = (measure: (result: (typeof results)[number]) => number) =>
       (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
+    const sum = (measure: (result: (typeof results)[number]) => number) =>
+      results.reduce((total, result) => total + measure(result), 0);
+    const killsPerMinute = (60 * sum((result) => result.kills)) / sum((result) => result.time);
     console.log(
-      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, oil ${average((result) => result.oil)}`,
+      `${policy.padEnd(4)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}`,
     );
   }
 }

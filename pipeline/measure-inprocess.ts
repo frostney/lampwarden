@@ -1,4 +1,4 @@
-// Times the in-process renderers (direct, node-vm, QuickJS, isolated-vm) against the existing ones (local bun
+// Times the in-process renderers (direct, node-vm, QuickJS) against the existing ones (local bun
 // subprocess, Vercel Sandbox) on committed sprites, and checks every PNG against the committed one. Measurement only.
 //
 // usage: bun pipeline/measure-inprocess.ts [--runtimes bun,node] [--modes a,b,...] [--sprites a,b,...] [--renders 11]
@@ -9,7 +9,7 @@
 // Every (runtime, mode, sprite) runs in its own fresh child process, because "cold" means the first render of a process:
 // runtime or isolate creation, kit load and the first interpretation of the code are all in it. The other renders of the
 // child are "warm". Under Node the harness first bundles itself with `bun build --target node` (the pipeline imports
-// extensionless, which Node cannot resolve), keeping the QuickJS and isolated-vm packages external.
+// extensionless, which Node cannot resolve), keeping the QuickJS packages external.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,16 +24,7 @@ import type { Renderer } from "./render-types";
 const PIPELINE_DIRECTORY = process.env.LAMPWARDEN_PIPELINE_DIRECTORY ?? import.meta.dirname;
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
 const DEFAULT_SPRITES = ["lamp-lit", "house", "satyr", "temple", "male_walk3"];
-const DEFAULT_MODES = [
-  "direct",
-  "node-vm",
-  "quickjs",
-  "quickjs-fresh-module",
-  "isolated-vm",
-  "isolated-vm-snapshot",
-  "local",
-  "vercel",
-] as const;
+const DEFAULT_MODES = ["direct", "node-vm", "quickjs", "quickjs-fresh-module", "local", "vercel"] as const;
 type Mode = (typeof DEFAULT_MODES)[number];
 const RUNTIMES = ["bun", "node"] as const;
 type RuntimeName = (typeof RUNTIMES)[number];
@@ -93,10 +84,6 @@ async function rendererFor(mode: Mode): Promise<Renderer> {
       return (await import("./render-inprocess-quickjs")).createQuickJsRenderer();
     case "quickjs-fresh-module":
       return (await import("./render-inprocess-quickjs")).createQuickJsRenderer({ freshModule: true });
-    case "isolated-vm":
-      return (await import("./render-inprocess-isolated-vm")).createIsolatedVmRenderer();
-    case "isolated-vm-snapshot":
-      return (await import("./render-inprocess-isolated-vm")).createIsolatedVmRenderer({ useSnapshot: true });
     case "local":
       return (await import("./render-local")).renderLocally;
     case "vercel":
@@ -388,12 +375,6 @@ async function main() {
       await spawnChild(command("direct", "lamp-lit", "1"), kitCache, "warm-up");
       for (const mode of modes) {
         if (runtime === "node" && BUN_ONLY_MODES.includes(mode)) continue;
-        if (runtime === "bun" && mode.startsWith("isolated-vm")) {
-          // recorded once: it cannot load under Bun
-          const attempt = await spawnChild(command(mode, "lamp-lit", "1"), kitCache, mode);
-          everything[`${runtime}/${mode}`] = { "lamp-lit": attempt };
-          continue;
-        }
         everything[`${runtime}/${mode}`] = {};
         for (const sprite of sprites) {
           const renders = mode === "vercel" ? "3" : (values.renders ?? "11");

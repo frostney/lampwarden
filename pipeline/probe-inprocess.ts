@@ -1,7 +1,7 @@
 // Runs hostile-looking JavaScript build probes (pipeline/inprocess_eval/probes/*.js) through the in-process renderers and
 // reports, for each probe, what happened and whether the host process and the next render were unaffected.
 //
-// usage: bun pipeline/probe-inprocess.ts [--runtimes bun,node] [--modes node-vm,quickjs,isolated-vm] [--probes a,b]
+// usage: bun pipeline/probe-inprocess.ts [--runtimes bun,node] [--modes node-vm,quickjs] [--probes a,b]
 //          [--node PATH] [--json FILE]
 //        bun pipeline/probe-inprocess.ts --control      (does a reused QuickJS context carry a polluting build over?)
 //
@@ -25,7 +25,7 @@ const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
 const CANARY_ENVIRONMENT_VARIABLE = "LAMPWARDEN_CANARY_SECRET";
 const CANARY_SECRET = "canary-not-a-secret";
 const PROBE_TIMEOUT_MILLISECONDS = 1500;
-const MODES = ["node-vm", "quickjs", "isolated-vm"] as const;
+const MODES = ["node-vm", "quickjs"] as const;
 type Mode = (typeof MODES)[number];
 const RUNTIMES = ["bun", "node"] as const;
 type RuntimeName = (typeof RUNTIMES)[number];
@@ -60,10 +60,6 @@ function rendererFor(mode: Mode): Promise<Renderer> {
     case "quickjs":
       return import("./render-inprocess-quickjs").then((module) =>
         module.createQuickJsRenderer({ timeoutMilliseconds: PROBE_TIMEOUT_MILLISECONDS }),
-      );
-    case "isolated-vm":
-      return import("./render-inprocess-isolated-vm").then((module) =>
-        module.createIsolatedVmRenderer({ timeoutMilliseconds: PROBE_TIMEOUT_MILLISECONDS }),
       );
   }
 }
@@ -431,7 +427,6 @@ async function main(): Promise<void> {
           ? [process.execPath, join(PIPELINE_DIRECTORY, "probe-inprocess.ts")]
           : [values.node ?? "node", "--no-node-snapshot", nodeBundle];
       for (const mode of modes) {
-        if (runtime === "bun" && mode === "isolated-vm") continue;
         const key = `${runtime}/${mode}`;
         results[key] = {};
         for (const probe of probes) {

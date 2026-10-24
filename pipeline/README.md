@@ -81,7 +81,7 @@ Every renderer returns the same thing, so the loop does not care which one ran: 
 
 Timings, parallelism limits, cost and isolation probes for the three sandboxes, and Mubit latency and caching, are in [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md).
 
-`render-inprocess-*.ts`, `measure-inprocess.ts` and `probe-inprocess.ts` are a measurement spike for running the kit without a sandbox (direct, `node:vm`, QuickJS in WebAssembly, isolated-vm); they are not renderers you can select and `run.ts` never loads them. `bun pipeline/measure-inprocess.ts` times them against the local and Vercel renderers, `bun pipeline/probe-inprocess.ts` runs the JavaScript isolation probes in `inprocess_eval/probes/` in disposable child processes, and the results and the recommendation are in "In-process rendering" in `docs/LIVE_GENERATION.md`.
+`render-inprocess-*.ts`, `measure-inprocess.ts` and `probe-inprocess.ts` are a measurement spike for running the kit without a sandbox (direct, `node:vm`, QuickJS in WebAssembly); they are not renderers you can select and `run.ts` never loads them. `bun pipeline/measure-inprocess.ts` times them against the local and Vercel renderers, `bun pipeline/probe-inprocess.ts` runs the JavaScript isolation probes in `inprocess_eval/probes/` in disposable child processes, and the results and the recommendation are in "In-process rendering" in `docs/LIVE_GENERATION.md`.
 
 ## `--render vercel`
 

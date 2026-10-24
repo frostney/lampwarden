@@ -27,13 +27,15 @@ export function HeroPortrait({
   strike: number | null;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  // a card chosen before this one was drawn again (the title shown anew after a night) does not swing on its own
+  const chosenBefore = useRef(strike);
+  const swing = strike !== null && strike !== chosenBefore.current ? strike : null; // which choice to swing for
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
     const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
     if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
     const resting = heroAtlasCell("idle", 0, "s");
     const shift = shiftOfBody(picture, resting);
-    if (shift === null) return;
     const draw = (animation: HeroAnimation, frame: number) => {
       const cell = heroAtlasCell(animation, frame, "s");
       context.clearRect(0, 0, PORTRAIT.width, PORTRAIT.height);
@@ -51,7 +53,7 @@ export function HeroPortrait({
     };
     draw("idle", 0);
     // with reduced motion the warden is only ever shown at rest
-    if (strike === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (swing === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     draw("melee", 0);
     let shown = 0;
     let began: number | null = null;
@@ -71,18 +73,24 @@ export function HeroPortrait({
     };
     handle = requestAnimationFrame(step);
     return () => cancelAnimationFrame(handle);
-  }, [sex, textures, strike]);
+  }, [sex, textures, swing]);
   return <canvas ref={canvas} width={PORTRAIT.width} height={PORTRAIT.height} className="hero-sprite" />;
 }
 
-// the offset that centres the solid body of the frame in `cell` in the portrait (null when the pixels cannot be read)
+// the offset that centres the solid body of the frame in `cell` in the portrait, read once for each picture (0 when the
+// browser will not give up its pixels, which leaves the frame as the atlas has it)
+const shifts = new WeakMap<ImageBitmap | HTMLImageElement, number>();
 function shiftOfBody(picture: ImageBitmap | HTMLImageElement, cell: { x: number; y: number }) {
+  const known = shifts.get(picture);
+  if (known !== undefined) return known;
   const reader = document.createElement("canvas");
   reader.width = HERO_FRAME_SIZE;
   reader.height = HERO_FRAME_SIZE;
   const context = reader.getContext("2d", { willReadFrequently: true });
-  if (!context) return null;
+  if (!context) return 0;
   context.drawImage(picture, cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE, 0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
   const { data } = context.getImageData(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
-  return portraitShift(data, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
+  const shift = portraitShift(data, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
+  shifts.set(picture, shift);
+  return shift;
 }

@@ -35,6 +35,10 @@ describe("portraitShift", () => {
       expect(Math.abs(middleAfter(first, last, last + 25) - PORTRAIT.width / 2)).toBeLessThanOrEqual(0.5);
   });
 
+  test("centres the frame itself when it has no solid body", () => {
+    expect(portraitShift(new Uint8Array(SIZE * SIZE * 4), SIZE, SIZE)).toBe(PORTRAIT.width / 2 - SIZE / 2);
+  });
+
   test("does not follow the shadow", () => {
     expect(portraitShift(frame(42, 86, 86), SIZE, SIZE)).toBe(portraitShift(frame(42, 86, 120), SIZE, SIZE));
   });

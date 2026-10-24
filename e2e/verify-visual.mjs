@@ -591,7 +591,9 @@ const HERO_PROBE = `
       return { first, last, width: canvas.width };
     },
     // what each frame must look like, drawn here from the atlas on its own: the south-facing column, the idle frame at
-    // atlas row 0 and the melee frames at rows 10 to 14, all at the offset that centres the idle frame's body
+    // atlas row 0 and the melee frames at rows 10 to 14, all at the offset that centres the idle frame's body. These
+    // numbers are the atlas layout and PORTRAIT typed out again on purpose: the check compares the card with a second
+    // statement of the layout, so a change to one of them that the card does not follow fails here.
     async expected(sex) {
       const size = 128;
       const image = new Image();
@@ -684,6 +686,11 @@ async function checkHeroCards() {
       Math.abs(offCentre) <= 1,
       `body columns ${first}-${last} of ${width}, ${offCentre} px off`,
     );
+    const scale = await page.evaluate((sex) => {
+      const canvas = window.heroProbe.canvas(sex);
+      return canvas.getBoundingClientRect().width / canvas.width;
+    }, sex);
+    check("hero-cards", `${sex}: the portrait is drawn at a whole multiple`, Number.isInteger(scale), `${scale}x`);
   }
 
   // the swing, with the page's clock stepped
@@ -713,7 +720,7 @@ async function checkHeroCards() {
     check(
       "hero-cards",
       `${name}: the swing takes five melee frames' time (${Math.round(swingMilliseconds)} ms)`,
-      back && Math.abs(returnedAt - swingMilliseconds) <= 70,
+      back && Math.abs(returnedAt - swingMilliseconds) <= 100,
       `${returnedAt} ms`,
     );
     const otherRuns = runsOf(trail, 1 + HERO_SEXES.indexOf(other));

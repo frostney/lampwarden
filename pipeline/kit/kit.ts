@@ -593,10 +593,18 @@ export function post(r: Rendered): Rendered {
   // palette clamp
   if (!PALFLAT) { PALFLAT = []; for (const k of MATS) for (const c of RGB[k]) PALFLAT.push(c); }
   let clamped = 0;
+  // the nearest palette colour depends only on the pixel's colour, and a sprite has few distinct colours: search once per colour
+  const nearestByColour = new Map<number, number[] | null>();   // packed rgb -> nearest palette colour, or null when it is in the palette
   for (let i = 0; i < N; i++) {
-    if (out[i * 4 + 3] !== 255) continue; let bd = BIG, bc = PALFLAT[0];
-    for (const c of PALFLAT) { const dd = (c[0] - out[i * 4]) * (c[0] - out[i * 4]) + (c[1] - out[i * 4 + 1]) * (c[1] - out[i * 4 + 1]) + (c[2] - out[i * 4 + 2]) * (c[2] - out[i * 4 + 2]); if (dd < bd) { bd = dd; bc = c; } }
-    if (bd > 0) { clamped++; out[i * 4] = bc[0]; out[i * 4 + 1] = bc[1]; out[i * 4 + 2] = bc[2]; }
+    if (out[i * 4 + 3] !== 255) continue;
+    const packedColour = (out[i * 4] * 256 + out[i * 4 + 1]) * 256 + out[i * 4 + 2];
+    let nearestColour = nearestByColour.get(packedColour);
+    if (nearestColour === undefined) {
+      let bd = BIG, bc = PALFLAT[0];
+      for (const c of PALFLAT) { const dd = (c[0] - out[i * 4]) * (c[0] - out[i * 4]) + (c[1] - out[i * 4 + 1]) * (c[1] - out[i * 4 + 1]) + (c[2] - out[i * 4 + 2]) * (c[2] - out[i * 4 + 2]); if (dd < bd) { bd = dd; bc = c; } }
+      nearestColour = bd > 0 ? bc : null; nearestByColour.set(packedColour, nearestColour);
+    }
+    if (nearestColour !== null) { clamped++; out[i * 4] = nearestColour[0]; out[i * 4 + 1] = nearestColour[1]; out[i * 4 + 2] = nearestColour[2]; }
   }
   // bounds / coverage
   let cnt = 0, minx = r.w, maxx = -1, miny = r.h, maxy = -1, edge = 0;

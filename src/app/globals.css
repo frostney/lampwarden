@@ -464,3 +464,271 @@ h1 {
     width: 100vw;
   }
 }
+
+/* The title scroll (TitleScroll.tsx): parchment and rollers are canvases painted at 1x and shown at --scale; the
+   contents are inked onto it. It never grows past the panel: when they don't fit, the parchment scrolls between the
+   rollers. */
+.panel.title {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  font-size: 16px;
+  background: rgba(6, 10, 24, 0.5);
+}
+.privacy {
+  font-size: 12px;
+}
+.scroll {
+  --scale: 3;
+  --portrait: 2;
+  --ink: #3a2414;
+  --ink-faded: #6a4a2c;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  color: var(--ink);
+  text-shadow: none;
+}
+.scroll[hidden] {
+  display: none;
+}
+.roller {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.roller.top {
+  margin-bottom: calc(-2px * var(--scale));
+}
+.roller.bottom {
+  margin-top: calc(-2px * var(--scale));
+}
+.scroll-window {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.scroll[data-stage="unrolling"] .scroll-window {
+  max-height: 0;
+}
+.scroll-body {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #8c5530 transparent;
+}
+.scroll:not([data-stage="done"]) .scroll-body {
+  overflow: hidden;
+}
+/* the sheet is as tall as the contents; the parchment, painted in whole art pixels, may reach a little past them */
+.scroll-sheet {
+  position: relative;
+  overflow: clip;
+}
+.parchment {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  image-rendering: pixelated;
+}
+.scroll-content {
+  position: relative;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--scale));
+  padding: calc(6px * var(--scale)) calc(12px * var(--scale)) calc(7px * var(--scale));
+}
+.scroll-content p {
+  margin: 0;
+  max-width: none;
+  line-height: 1.4;
+}
+.scroll .dim {
+  opacity: 1;
+  color: var(--ink-faded);
+}
+/* one column, or on a wide scroll the introduction, settings and privacy note beside the hero choice */
+.scroll-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: start;
+  gap: calc(4px * var(--scale));
+  width: 100%;
+}
+.scroll-intro,
+.scroll-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+@container (min-width: 560px) {
+  .scroll-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: calc(8px * var(--scale));
+  }
+  .scroll-hero {
+    grid-column: 2;
+    grid-row: 1 / 4;
+  }
+}
+.scroll .brand img {
+  width: calc(68px * var(--scale));
+  height: calc(37px * var(--scale));
+}
+.scroll-heading {
+  margin: 0;
+  font-family: var(--font-title), serif;
+  font-weight: normal;
+  font-size: 32px;
+  line-height: 1;
+}
+/* buttons inked on the parchment */
+.scroll .btn {
+  color: var(--ink);
+  background: #e0c58f;
+  border-color: var(--ink);
+}
+.scroll .btn.on {
+  background: var(--ink);
+  color: #f6e8c3;
+}
+.scroll .btn.big {
+  color: #fff1d0;
+  background: #8e3412;
+  border-color: var(--ink);
+  box-shadow:
+    inset 0 2px 0 #c0612e,
+    inset 0 -2px 0 #5a1e0a;
+}
+.scroll .btn.big[disabled] {
+  opacity: 0.6;
+}
+.scroll .btn:focus-visible,
+[data-input="gamepad"] .scroll .btn:focus,
+.hero-card:focus-visible,
+[data-input="gamepad"] .hero-card:focus {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.settings {
+  row-gap: 6px;
+}
+/* hero choice: the idle frame cropped to the warden (80 x 88 of the 128 px frame) at a whole multiple */
+.hero-cards {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.hero-card {
+  font: inherit;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px 6px;
+  background: #e6cd99;
+  border: 2px solid var(--ink-faded);
+  cursor: pointer;
+}
+.hero-card.chosen {
+  background: #f6e8c3;
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+.hero-portrait {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: calc(80px * var(--portrait));
+  height: calc(88px * var(--portrait));
+}
+.hero-sprite {
+  position: absolute;
+  left: calc(-37px * var(--portrait));
+  top: calc(-20px * var(--portrait));
+  width: calc(128px * var(--portrait));
+  height: calc(128px * var(--portrait));
+  max-width: none;
+  image-rendering: pixelated;
+}
+.hero-card:not(.chosen) .hero-sprite {
+  filter: sepia(0.5) brightness(0.9);
+}
+.hero-title {
+  font-family: var(--font-title), serif;
+  font-size: 32px;
+  line-height: 1;
+}
+.hero-mark {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  color: var(--ink-faded);
+}
+.hero-card.chosen .hero-mark {
+  color: var(--ink);
+}
+/* ink-in: each line is written left to right once the scroll is open */
+.scroll[data-stage="unrolling"] [data-line] {
+  visibility: hidden;
+}
+.scroll[data-stage="writing"] [data-line] {
+  animation: ink-in 320ms steps(6, end) both;
+  animation-delay: calc(var(--line, 0) * 110ms);
+}
+@keyframes ink-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.3;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll[data-stage="writing"] [data-line] {
+    animation: none;
+  }
+}
+@media (max-width: 760px), (max-height: 520px) {
+  .panel.title {
+    justify-content: center;
+    overflow: hidden;
+    padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    background: rgba(6, 10, 24, 0.92);
+  }
+  .panel.title > :first-child {
+    margin-top: 0;
+  }
+  .panel.title > :last-child {
+    margin-bottom: 0;
+  }
+  .scroll .brand img {
+    width: calc(68px * var(--scale));
+    height: calc(37px * var(--scale));
+  }
+  .hero-title,
+  .scroll-heading {
+    font-size: 32px;
+  }
+}

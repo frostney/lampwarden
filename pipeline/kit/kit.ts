@@ -1996,25 +1996,26 @@ export function house(k: Kit, P: HouseP = {}): void {
         K.sph([x + q[0] * r, y + q[1] * r, z0 + hgt + q[2] * r], q[3] * r, plant === 'olive' ? 'olive' : 'laurel', { obj: po, tex: (p) => { const h = hash(Math.floor(p[0] * 1.6), Math.floor(p[1] * 1.6), Math.floor(p[2] * 1.6)); return plant === 'flowers' && h > 0.62 ? ['crimson', 2] : (h < 0.25 ? -1 : 0); } });
     };
     const dOp = ops.filter((q) => q.door)[0];
+    // along the door's face: the amphora stands on the door's far side, a pot further along (or on the near side if crowded)
+    const fL = dOp && dOp.f === 'v' ? X : Y; const aSide = dOp ? (dOp.c - dOp.w / 2 - 2.6 >= -fL + 2.4 ? dOp.c - dOp.w / 2 - 2.6 : dOp.c + dOp.w / 2 + 2.6) : -fL + 7;
+    let pSide = -fL + 2.6; if (dOp && (Math.abs(pSide - aSide) < 4.5 || Math.abs(pSide - dOp.c) < dOp.w / 2 + 2.2)) pSide = Math.min(fL - 2, dOp.c + dOp.w / 2 + 2.6);
+    const onFace = (a: number, out: number): number[] => (dOp && dOp.f === 'v' ? [a, Y + out] : [X + out, a]);
     if (has('pots')) {
-      const fv = [[X - 3.2, 'flowers', 3.0], [-X + 4, 'laurel', 3.6]].filter((q) => !stairOn || (q[0] as number) < stairX0 - 3);
+      const fv = [[X - 3.2, 'flowers', 3.0], [-X + 4, 'laurel', 3.6]].filter((q) => (!stairOn || (q[0] as number) < stairX0 - 3) && !(dOp && dOp.f === 'v'));
       for (const q of fv) pot(q[0] as number, Y + 2.0, q[2] as number, q[1] as string);
-      pot(X + 2.2, dOp && dOp.f === 'u' ? Math.min(Y - 2, dOp.c + dOp.w / 2 + 2.6) : -Y + 3.0, 3.2, 'flowers');
+      const pp = onFace(pSide, 2.2); pot(pp[0], pp[1], 3.2, 'flowers');
       if (!tiled) pot(-X + 2.8, Y - 3.0, 2.4, 'laurel', H);   // on the roof behind the parapet
     }
-    if (has('amphora')) {   // a plain storage amphora beside the door (or the front corner)
-      const at = dOp ? (dOp.f === 'u' ? [X + 1.8, dOp.c - dOp.w / 2 - 2.6] : [dOp.c - dOp.w / 2 - 2.6, Y + 1.8]) : [X + 1.8, -Y + 7];
-      amphora(k, { at, height: 5.6, style: 'plain' });
-    }
-    if (has('bougainvillea')) {   // purple flowering creeper spilling over the door (or the front corner)
+    if (has('amphora')) amphora(k, { at: onFace(aSide, 1.8), height: 5.6, style: 'plain' });   // a plain storage amphora beside the door
+    if (has('bougainvillea')) {   // purple flowering creeper over the door lintel, trailing down the door's far side
       const bo = k.obj(); const o = dOp;
-      const z0 = o ? o.h + 1.2 : H * 0.5;
-      for (let i = 0; i < 16; i++) {   // a canopy along the parapet over the door, trailing down the door's left side
+      const z0 = o ? o.h + 2.0 : H * 0.5;
+      for (let i = 0; i < 16; i++) {
         const a = hash(i, 3, 1), b = hash(i, 5, 2); const trail = i >= 11;
-        const zz = trail ? z0 - (i - 10) * 1.6 : z0 + (H + 1.4 - z0) * hash(i, 7, 3);
-        const along = (o ? o.c : Y - 2) + (trail ? (o ? -o.w / 2 - 1.4 : -2) + (b - 0.5) * 1.2 : (b - 0.5) * 10 - 1.2);
-        const c: V = o && o.f === 'v' ? [along, Y + 0.5 + a * 0.8, zz] : [X + 0.5 + a * 0.8, along, zz];
-        K.sph(c, (trail ? 0.8 : 1.0) + a * 0.5, 'purple', { obj: bo, shift: 1, tex: (p) => (hash(Math.floor(p[0] * 2.2), Math.floor(p[1] * 2.2), Math.floor(p[2] * 2.2)) > 0.74 ? ['laurel', 0] : 0) });
+        const zz = trail ? z0 - (i - 10) * 1.7 : z0 + (H + 1.2 - z0) * hash(i, 7, 3);
+        const along = (o ? o.c : Y - 2) + (trail ? (o ? -o.w / 2 - 1.3 : -2) + (b - 0.5) * 1.0 : (b - 0.5) * 9 - 1.5);
+        const c: V = o && o.f === 'v' ? [along, Y + 0.3 + a * 0.5, zz] : [X + 0.3 + a * 0.5, along, zz];
+        K.sph(c, (trail ? 0.75 : 0.95) + a * 0.45, 'purple', { obj: bo, shift: 1, tex: (p) => (hash(Math.floor(p[0] * 2.2), Math.floor(p[1] * 2.2), Math.floor(p[2] * 2.2)) > 0.74 ? ['laurel', 0] : 0) });
       }
     }
   });

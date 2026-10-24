@@ -51,7 +51,7 @@ Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`. Th
 brief → Opus via Mubit → build(k) code → render → verifier (Opus via Mubit, sees the image) → one fix → best-of → PNG + code + manifest
 ```
 
-Details, options and the Shotcup renderer are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
+Details, options and the Vercel Sandbox and Shotcup renderers are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
 
 ### Regenerate assets
 
@@ -112,7 +112,8 @@ Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `run.py`.
 - `pipeline/run.py` was ported and its local render path was exercised (render, flags, no-key shotcup error), but no full Mubit round trip was run from this repo.
-- **Shotcup:** the REST client (`pipeline/shotcup_render.py`) was run against the API: 47 renders of 6 sprites were pixel-identical to local, but 118-314x slower (10-107 s per sprite against 0.1-0.3 s), and batching or parallel runs don't help (see `pipeline/README.md`). A design for live generation with Shotcup as the only place model code runs is in [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md); no Mubit round trip has been run through it.
+- **Shotcup:** the REST client (`pipeline/shotcup_render.py`) was run against the API: 47 renders of 6 sprites were pixel-identical to local, but 118-314x slower (10-107 s per sprite against 0.1-0.3 s), and batching or parallel runs don't help (see `pipeline/README.md`). A design for live generation with model code running only in a sandbox is in [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md); no Mubit round trip has been run through it.
+- **Vercel Sandbox:** `pipeline/vercel_sandbox_render.ts` (`run.py --render vercel`) runs each build in its own Firecracker microVM with no network: 1.4-2.4 s per candidate to the PNG (2.6-4.1 s with VM stop), 90 renders pixel- and byte-identical to the committed sprites, about $0.0008 per candidate at list prices. `docs/LIVE_GENERATION.md` compares it with Shotcup and boat.dev and recommends it for live generation.
 
 ## Deploy on Vercel
 

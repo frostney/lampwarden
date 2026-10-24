@@ -14,12 +14,12 @@ brief ──► generator (Opus via Mubit) ──► build(k) code ──► ren
 ## The loop (what `run.py` does)
 
 1. **Generate.** The system prompt is `prompts/generator.md` (the kit API doc); the user message is `Brief: <your brief>`. The model returns one function `build(k)` that calls the kit builders (see "Building kit" in the top-level README).
-2. **Render.** The code is run against the kit (`kit/kit.ts`) by a renderer (`--render local` or `--render shotcup`) and produces a 128×128 PNG plus stats. Deterministic engine checks (`clipped_at_edge`, `too_small`, `too_big`, `too_short`) score 0 and skip the verifier.
+2. **Render.** The code is run against the kit (`kit/kit.ts`) by a renderer (`--render local`, `--render vercel` or `--render shotcup`) and produces a 128×128 PNG plus stats. Deterministic engine checks (`clipped_at_edge`, `too_small`, `too_big`, `too_short`) score 0 and skip the verifier.
 3. **Verify.** `prompts/verifier.md` is the system prompt; the model gets the brief, the code, the render stats and the sprite magnified 4× on a flat backdrop, and returns JSON `{pass, score, issues, fix, lesson}`. `pass` means score ≥ 7. A score between 6 and 7 is verified twice and averaged.
 4. **Fix.** If not passed, one fix call goes back to the generator (same Mubit session) with the verifier's issues and fix text. The fixed code is rendered and verified the same way.
 5. **Best-of.** The higher-scoring attempt is kept (ties go to the first attempt). Its PNG, builder code and manifest row (brief, score, issues, request ids) are written to `public/sprites/`.
 
-Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. That regex is a tripwire, not a sandbox (string-built names get past it), so the generated code is rendered in a subprocess whose environment is an allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `KIT_OUT`; see `local_render.py`): no API key or other secret from your shell reaches it. It still runs with your user's file and network access; use the Shotcup renderer when that matters.
+Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. That regex is a tripwire, not a sandbox (string-built names get past it), so the generated code is rendered in a subprocess whose environment is an allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `KIT_OUT`; see `local_render.py`): no API key or other secret from your shell reaches it. It still runs with your user's file and network access; use the Vercel Sandbox or Shotcup renderer when that matters.
 
 ### Mubit
 
@@ -36,11 +36,12 @@ cp .env.example .env            # optional; or just export the variable
 export MUBIT_API_KEY=...         # read from the environment only; never printed or written to disk
 python3 pipeline/run.py "Ionic marble column"            # writes public/sprites/ionic-marble-column.*
 python3 pipeline/run.py --file briefs.json               # {"id": ["category", "brief"], ...}
+python3 pipeline/run.py --render vercel "brief"          # render in a Vercel Sandbox microVM instead of local bun
 python3 pipeline/run.py --render shotcup "brief"         # render on Shotcup instead of local bun
 npm run assets -- "brief"                                # same as run.py, via npm
 ```
 
-Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|shotcup`.
+Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|vercel|shotcup`.
 
 Requirements for the local renderer: `python3` with Pillow, and [`bun`](https://bun.sh) on PATH. The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 
@@ -54,8 +55,17 @@ Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames i
 | `prompts/generator.md`, `prompts/verifier.md` | the two system prompts |
 | `kit/src/*.ts`, `kit/assemble.sh`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README) |
 | `render/run_local.ts`, `render/shim_canvas.ts`, `render/shim_plugin.ts` | local bun renderer; the shim maps the kit's `shotcup:canvas` import to a small PNG canvas |
+| `vercel_sandbox_render.ts` | Vercel Sandbox renderer (below) |
 | `shotcup_main.py`, `shotcup_render.py` | Shotcup renderer (below) |
 | `hero_frames.py` | hero animation frames |
+
+## `--render vercel`
+
+`vercel_sandbox_render.ts` runs each build in its own [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) Firecracker microVM: it creates the VM (default image, which ships bun; 1 vCPU; `networkPolicy: "deny-all"`; `persistent: false`), uploads `kit/kit.ts`, `render/run_local.ts` and the shims plus the build, runs the same `bun run_local.ts` as the local renderer with a 30 s limit, reads the PNGs back and stops the VM. `run.py` calls it as `bun --no-env-file pipeline/vercel_sandbox_render.ts <build.ts> <name> <out_dir> [pose]` with only `PATH`, `HOME`, `TMPDIR`, `LANG` and `VERCEL_*` in its environment; nothing is passed into the VM except `KIT_OUT`.
+
+Authentication: run `vercel link` once (the SDK then refreshes an OIDC token from your Vercel CLI login), or export `VERCEL_OIDC_TOKEN` from `vercel env pull`, or `VERCEL_TOKEN` + `VERCEL_TEAM_ID` + `VERCEL_PROJECT_ID`. Needs `npm install` (for `@vercel/sandbox`) and bun.
+
+Measured on 24 Oct 2026 (Pro plan, `iad1`, from the UK): 1.4-2.4 s per candidate until the PNG is in hand and 2.6-4.1 s including `stop()`, against 10-107 s on Shotcup; five candidates in parallel took 3.9-4.3 s; 90 renders were pixel- and byte-identical to the committed sprites; the build code had no network (DNS, IP and metadata blocked) and no secrets, but is root inside its own VM, which is why every candidate gets a fresh one. About $0.0008 per candidate at list prices. Details: [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md).
 
 ## `--render shotcup`
 
@@ -74,6 +84,6 @@ Run body: `{"code": <main.ts>, "engine": {"canvas": true}, "mounts": [{"drive": 
 - **The time is the rasteriser.** Kit import is 0.26 s; for lamp-lit, `k.render()` is 9.2 s of 10.1 s. No run option changed the time (deterministic off, large memory, no retention, kit inline instead of a drive, pre-transpiled or minified kit, a saved sandbox, the `run.shotcup.dev` endpoint): all within 10.0-10.6 s for lamp-lit.
 - **Sandbox:** model code saw no environment (`process` undefined), no `Function`/`eval`, a virtual filesystem holding only `/kit` (read-only) and `/main.ts`, and no network (`fetch` throws `PermissionDenied`). An endless loop ended at its `timeoutMs`. Inside a batch, one build can overwrite another's PNG, so live generation should render one candidate per run.
 
-Details, the full tables and a design for live generation behind a server route: [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md). Plan on the local renderer for iteration. Use Shotcup when model code must not run on your machine or server.
+Details, the full tables and a design for live generation behind a server route: [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md). Plan on the local renderer for iteration. Use Vercel Sandbox (or Shotcup) when model code must not run on your machine or server.
 
 Not done: a Mubit-driven `run.py --render shotcup` end to end, and Shotcup's wake time after idle.

@@ -30,10 +30,11 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble.sh → kit.ts; exports.json, palette.json, examples/
   render/            local bun renderer + canvas shim
+  vercel_sandbox_render.ts  Vercel Sandbox renderer (one microVM per build, no network)
   shotcup_*.py       Shotcup renderer (REST client, run against the API)
   hero_frames.py     regenerate hero animation frames
 docs/ARCHITECTURE.md this file
-docs/LIVE_GENERATION.md  design note: live generation behind a server route, Shotcup timings and sandbox probes
+docs/LIVE_GENERATION.md  design note: live generation behind a server route; Shotcup, Vercel Sandbox and boat.dev compared
 ```
 
 ## Sprite flow

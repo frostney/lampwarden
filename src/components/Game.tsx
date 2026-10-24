@@ -4,6 +4,7 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
 import { type Driver, type Night, Scene } from "@/components/Scene";
 import { SeaSends } from "@/components/SeaSends";
@@ -648,6 +649,7 @@ export default function Game() {
                 ))}
               </div>
               <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+              <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
                   Who takes up the lamp?
@@ -704,10 +706,11 @@ export default function Game() {
                     Start a new bloodline
                   </button>
                 )}
+                <p className="privacy dim" data-line>
+                  Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the
+                  game.
+                </p>
               </div>
-              <p className="privacy dim" data-line>
-                Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
-              </p>
             </div>
           </TitleScroll>
         )}

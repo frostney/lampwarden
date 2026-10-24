@@ -2,7 +2,7 @@
 // '.' is transparent.
 import type { TraitId, UpgradeId } from "@/game/legacy";
 
-const PALETTE: Record<string, string> = {
+export const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline
   W: "#fff6d8", // highlight
   Y: "#ffd34a", // flame

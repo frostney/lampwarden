@@ -85,6 +85,8 @@ export function withoutPaintedShadow(texture: Texture): Texture | null {
   if (!read) return null;
   const pixels = withoutShadowPixels(read.pixels);
   const clean = bufferTexture(pixels, read.width, read.height);
+  // keep the loaded file's label, which names the sprite (the visual verifier reads it to tell which warden is shown)
+  clean.source.label = texture.source.label;
   spritePixels.set(clean, { pixels, width: read.width, height: read.height });
   return clean;
 }

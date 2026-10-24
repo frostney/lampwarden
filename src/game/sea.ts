@@ -6,10 +6,14 @@
 // again about the same question (the same ids met) keeps the running one: a job that is still being made when a night
 // begins is not dropped, it carries on through the night. It never blocks play: while it is asking, when nothing is
 // coming and when the network fails, the answer is "none" and the night simply has no new creature.
-import type { Creature, JobStep } from "./creature";
+import type { JobStep } from "./creature";
 import { askForCreature, waitForJob } from "./creature-api";
+import type { CreatureRecord } from "./creature-frames";
 
-export type Tonight = { kind: "none" } | { kind: "ready"; creature: Creature } | { kind: "generating"; step: JobStep };
+export type Tonight =
+  | { kind: "none" }
+  | { kind: "ready"; creature: CreatureRecord }
+  | { kind: "generating"; step: JobStep };
 
 const NONE: Tonight = { kind: "none" };
 

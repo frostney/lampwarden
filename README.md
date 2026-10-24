@@ -65,15 +65,17 @@ This writes the PNG, its builder code and a row in `public/sprites/manifest.json
 
 ### Live creatures
 
-`POST /api/creatures/next` (`src/app/api/creatures/`) returns the newest gallery creature the player has not met. If there is none, it starts a job, or joins the one already running, and the game follows it at `GET /api/creatures/jobs/:jobId`; `GET /api/creatures/:id/sprite.png` serves a sprite. A job runs the loop above after the response has gone out:
+`POST /api/creatures/next` (`src/app/api/creatures/`) returns the newest gallery creature the player has not met. If there is none, it starts a job, or joins the one already running, and the game follows it at `GET /api/creatures/jobs/:jobId`; `GET /api/creatures/:id/sprite.png` serves a sprite and `GET /api/creatures/:id/atlas.png` its animation atlas. A job runs the loop above after the response has gone out:
 - one Mubit call writes the creature (name, lore, sprite brief, archetype, modifiers), validated by the contract in `src/game/creature.ts`;
 - three candidates are drawn from that brief (`CREATURE_CANDIDATES`, at most 5), each rendered in its own Vercel Sandbox booted from a pinned snapshot, with no network;
 - the verifier judges each; a fix turn runs only if the best is not already accepted;
-- a creature is accepted on a verifier pass, or on a score of at least 6 with no engine flag, and is then stored in a private Vercel Blob store, so every player draws from one gallery. Anything else fails and stores nothing.
+- a creature is accepted on a verifier pass, or on a score of at least 6 with no engine flag;
+- the accepted code is rendered again in every pose of its animations (idle 4, walk 6, attack 5) in one sandbox batch and packed into an atlas, so the game animates the creature: it walks while it travels, claws with the attack frames and flips left and right. A candidate whose frames do not render, or whose walk frames are all one picture (a builder that ignores `POSE`), is refused and the next best accepted candidate is animated instead; a creature from before this, without an atlas, keeps its single sprite;
+- the record, the sprite, the atlas and the code are stored in a private Vercel Blob store, so every player draws from one gallery. Anything else fails and stores nothing.
 
 Starting a job is rate limited, to 12 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
-Running the model's code anywhere but the sandbox was measured and not adopted: in process with QuickJS in WebAssembly ([#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) and in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)). `docs/LIVE_GENERATION.md`, "Why only the sandbox", has the numbers.
+Creatures are drawn from frames rendered in the sandbox and shipped as an image. Running the model's code in process (QuickJS in WebAssembly, [#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) or in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)) was measured and not adopted: `docs/LIVE_GENERATION.md`, "Why only the sandbox".
 
 ## Night Shift and Mubit
 
@@ -88,18 +90,18 @@ Night Shift's brief: build a product that routes its LLM calls through Mubit and
 
 ## Run it
 
-| Command                                | What it does                                                                                                                                |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                            |
-| `bun run dev`                          | Dev server on port 3000.                                                                                                                    |
-| `bun run build`, `bun run start`       | Production build and server.                                                                                                                |
-| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                |
-| `bun run balance`                      | Plays nights headlessly with an idle warden and a bot (200 runs a night, seeded); `-- --director` plays them under stub director decisions. |
-| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                             |
-| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`.                             |
-| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame in Vercel Sandbox (a few batches) and compares pixels; needs Vercel auth.                  |
-| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                                                           |
-| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                                                          |
+| Command                                | What it does                                                                                                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                                               |
+| `bun run dev`                          | Dev server on port 3000.                                                                                                                                       |
+| `bun run build`, `bun run start`       | Production build and server.                                                                                                                                   |
+| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                                   |
+| `bun run balance`                      | Plays nights headlessly with an idle warden, a perfect bot and a human-paced bot (200 runs, seeded); `-- --director` plays them under stub director decisions. |
+| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                                                |
+| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`.                                                |
+| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame in Vercel Sandbox (a few batches) and compares pixels; needs Vercel auth.                                     |
+| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                                                                              |
+| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                                                                             |
 
 All commands, including `kit`, `logo` and `sandbox:snapshot`, are in [`docs/tooling.md`](docs/tooling.md).
 

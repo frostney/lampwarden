@@ -159,7 +159,7 @@ export class Recorder {
 // ---- getting a recording to the server ----------------------------------------------------------------------------------
 // A night is sent when it ends, and a snapshot of it when the tab is hidden. A play the server did not take is kept in
 // localStorage (a few, newest last) and sent again, under the same id, on the next load and after the next play that
-// goes through. The server answers 200 for an id it already has, so a resend is safe.
+// goes through. A resend is safe only because /api/plays answers 200 for an id it already has (its own change, not this file's).
 
 export interface PlayStorage {
   getItem(key: string): string | null;
@@ -224,7 +224,7 @@ export function unqueuePlay(storage: PlayStorage, id: string) {
 export async function flushQueue(
   storage: PlayStorage,
   send: (queued: QueuedPlay) => Promise<UploadResult>,
-  skip: ReadonlySet<string> = new Set(),
+  skip: { has(id: string): boolean } = new Set(),
 ) {
   for (const queued of queuedPlays(storage)) {
     if (skip.has(queued.id)) continue;
@@ -272,7 +272,16 @@ async function post(queued: QueuedPlay, leaving: boolean): Promise<UploadResult>
   }
 }
 
-const inFlight = new Set<string>();
+// ids being sent right now, counted: a snapshot and the finished night of one id can be on their way together
+const inFlight = new Map<string, number>();
+function sending(id: string, change: 1 | -1) {
+  const count = (inFlight.get(id) ?? 0) + change;
+  if (count > 0) inFlight.set(id, count);
+  else inFlight.delete(id);
+}
+
+// the body of the latest upload of each id still on its way
+const newest = new Map<string, string>();
 
 // Sends a play; true when the server has it. One that did not go through is queued and tried again on the next load
 // and after the next play that does. `leaving`: the page is hiding or going away, so the play is queued first, since
@@ -282,13 +291,18 @@ export async function upload(play: Play, leaving = false): Promise<boolean> {
   const storage = localStorageOrNull();
   const queued: QueuedPlay = { id: play.id, body: JSON.stringify(play) };
   if (storage && leaving) queuePlay(storage, queued);
-  inFlight.add(queued.id);
+  sending(queued.id, 1);
+  newest.set(queued.id, queued.body);
   const result = await post(queued, leaving);
-  inFlight.delete(queued.id);
+  sending(queued.id, -1);
+  const stale = newest.get(queued.id) !== queued.body; // a later upload of this night owns its queue entry
+  if (!stale) newest.delete(queued.id);
   if (storage) {
-    if (result === "retry") queuePlay(storage, queued);
-    else unqueuePlay(storage, queued.id);
-    if (result === "sent") await flushQueue(storage, (waiting) => post(waiting, false), inFlight);
+    if (!stale) {
+      if (result === "retry") queuePlay(storage, queued);
+      else unqueuePlay(storage, queued.id);
+    }
+    if (result === "sent") void flushQueue(storage, (waiting) => post(waiting, false), inFlight); // the caller does not wait
   }
   return result === "sent";
 }

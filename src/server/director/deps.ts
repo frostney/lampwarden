@@ -1,8 +1,9 @@
 // Wires the director service to the real world: environment, the prompt file, Mubit and Blob. The only module of the
-// director that reads process.env or a file. The prompt is listed in next.config.ts under outputFileTracingIncludes, so a
+// director that reads the environment (ENV, typed from .env.schema) or a file. The prompt is listed in next.config.ts under outputFileTracingIncludes, so a
 // deployed function has it.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ENV } from "varlock/env";
 import { createMubitClient } from "../../../pipeline/mubit";
 import { DECISION_DEADLINE_MILLISECONDS, MODEL_TIMEOUT_MILLISECONDS, readDirectorConfig } from "./config";
 import type { DirectorDeps } from "./service";
@@ -25,7 +26,7 @@ function systemPrompt(): string | null {
 }
 
 export function createDirectorDeps(): DirectorDeps {
-  const config = readDirectorConfig(process.env);
+  const config = readDirectorConfig(ENV);
   const text = systemPrompt();
   return {
     store: createBlobStore(config.blobPrefix, config.playsPrefix),

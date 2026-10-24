@@ -1,12 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import localFont from "next/font/local";
 import { Tiny5 } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 // Ithaca (GGBotNet, OFL 1.1, app/fonts/ithaca/License.txt) for titles; Tiny5 (OFL 1.1) for everything else.
 // Both are pixel fonts: Ithaca is drawn on a 16 px grid, Tiny5 on 8 px, so sizes stay at integer multiples.
-const title = localFont({ src: "./fonts/ithaca/Ithaca.ttf", variable: "--font-title", display: "block" });
-const ui = Tiny5({ weight: "400", subsets: ["latin", "latin-ext", "greek"], variable: "--font-ui", display: "block" });
+const titleFont = localFont({ src: "./fonts/ithaca/Ithaca.ttf", variable: "--font-title", display: "block" });
+const bodyFont = Tiny5({
+  weight: "400",
+  subsets: ["latin", "latin-ext", "greek"],
+  variable: "--font-ui",
+  display: "block",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lampwarden.vercel.app"),
@@ -25,7 +30,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${title.variable} ${ui.variable}`}>
+    <html lang="en" className={`${titleFont.variable} ${bodyFont.variable}`}>
       <body>{children}</body>
     </html>
   );

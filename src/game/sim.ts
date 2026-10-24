@@ -283,7 +283,8 @@ export const ground = (fromX: number, fromY: number, toX: number, toY: number) =
 
 // The sea quickens every night. The first nights are gentle, 12% quicker a night, because that is when a person is still
 // learning the plaza (people kept up with about two monsters at a time and lost night 2); from the fourth night it is
-// 30% quicker a night, which is the pace the perfect bot's ceiling was set on.
+// 30% quicker a night, which is the pace the perfect bot's ceiling was set on. Only the rate of spawns is gentled: the
+// cap on monsters alive and their haste grow as before, because the retune on the human-paced bot did not need them.
 const GENTLE_NIGHTS = 3;
 const GENTLE_QUICKENING = 0.12;
 const QUICKENING = 0.3;

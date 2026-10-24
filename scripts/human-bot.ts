@@ -86,7 +86,8 @@ interface RelightPlan {
   startAt: number;
   ignore: boolean;
 }
-const HISTORY_SECONDS = 1;
+const CLUMSINESS_LIMIT = 4; // the clumsiest night is four times the typical one: a reaction of about 1.6 s
+const HISTORY_SECONDS = 2; // what the eye can look back on: longer than the slowest reaction
 const RELIGHT_STANDING = 30; // the warden stands this close to a lamp to relight it (the sim asks for 40)
 const HOME = { x: 480, y: 350 }; // where an idle warden drifts back to: the middle of the plaza
 const DEGREES = Math.PI / 180;
@@ -112,7 +113,7 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
   let nextThink = 0;
   // how clumsy this player is tonight: one number, centred on 1, that scales how late they react, how far off they aim
   // and steer, and how often they look away. A night's player is sometimes much better or worse than the next.
-  const clumsiness = Math.exp(traits.clumsinessSpread * gaussian());
+  const clumsiness = Math.min(CLUMSINESS_LIMIT, Math.exp(traits.clumsinessSpread * gaussian()));
   const newReaction = () => between(traits.reactionMin, traits.reactionMax) * clumsiness;
   let reaction = newReaction();
   let nextReaction = 1;

@@ -117,7 +117,9 @@ function play(night: number, tide: number, policy: Policy, seed: number, creatur
 }
 
 const runs = Number(process.argv[2] || 200);
+const ONLY = ["all", "idle", "bot", "human", "creatures"];
 const only = process.argv[3] ?? "all";
+if (!ONLY.includes(only)) throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
 const POLICIES = (["idle", "bot", "human"] as const).filter((policy) => only === "all" || only === policy);
 const SCENARIOS = [
   [1, 1],

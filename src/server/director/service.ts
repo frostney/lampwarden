@@ -12,6 +12,7 @@ import {
   parseProposal,
   rulesDirector,
 } from "@/game/director";
+import { engagementOf } from "@/game/engagement";
 import { type MubitClient, shortSha } from "../../../pipeline/mubit";
 import { checkStartLimits, visitorKey } from "../creatures/limits";
 import type { DirectorConfig } from "./config";
@@ -92,7 +93,9 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
   if (!found) return { kind: "no-play" };
   const play: StoredPlay = found;
 
-  const rules = rulesDirector(rulesTideAfter(play), play.legacy.night, play.id);
+  const engagementSummary = engagementOf(play);
+  const engagement = engagementSummary.kind;
+  const rules = rulesDirector(rulesTideAfter(play, engagement), play.legacy.night, play.id, engagement);
   const fallback = (reason: FallbackReason): DirectorResult => ({
     kind: "decision",
     decision: rules,
@@ -126,7 +129,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     }
     const limited = performance.now();
 
-    const summary = summarise(play, await previousReasoning(deps, play));
+    const summary = summarise(play, await previousReasoning(deps, play), engagementSummary);
     const session = /^[a-z0-9]{1,40}$/.test(play.session) ? play.session : "anon";
     const call = await model.call(
       TASK,
@@ -143,7 +146,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     );
     const answered = performance.now();
     const proposal = call.text === null ? null : parseProposal(call.text);
-    const decision = proposal && clampProposal(proposal, rules.rulesTide, play.legacy.night, play.id);
+    const decision = proposal && clampProposal(proposal, rules.rulesTide, play.legacy.night, play.id, engagement);
     const reason: FallbackReason | null =
       call.text === null ? failureReason(call.record.status, call.record.error) : decision ? null : "invalid";
 

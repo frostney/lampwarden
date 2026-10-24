@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { rejectionReason } from "./build-code";
 import type { CallRecord, ContentBlock, ModelCall, ModelMessage, MubitClient } from "./mubit";
-import type { Renderer, RendererName, RenderRequest, RenderResult, RenderStats } from "./render-types";
+import { RENDERED_WITH, type Renderer, type RenderRequest, type RenderResult, type RenderStats } from "./render-types";
 import { verifierImageBase64 } from "./verifier-image";
 
 const PASSING_SCORE = 7;
@@ -52,7 +52,7 @@ export interface SpriteRow {
   score?: number | null;
   passed?: boolean;
   issues?: string[];
-  rendered_with?: RendererName;
+  rendered_with?: string;
 }
 
 /** The loop's stages, as a caller that reports progress sees them. */
@@ -71,7 +71,6 @@ export interface LoopStore {
 export interface LoopCore {
   model: MubitClient;
   render: Renderer;
-  rendererName: RendererName;
   pose: string;
   generatorPrompt: string;
   verifierPrompt: string;
@@ -355,7 +354,7 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
   const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
     .slice(0, 34)
     .join("")}`;
-  const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: context.rendererName };
+  const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const messages: ModelMessage[] = [{ role: "user", content: `Brief: ${brief.text}` }];
   await context.onStage?.("drawing");
   const generation = await generate(context, "gen", messages, session, { ...logFields }, GENERATOR_MAX_TOKENS);
@@ -416,7 +415,7 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
   row.score = attempt.verdict.score;
   row.passed = attempt.verdict.pass;
   row.issues = attempt.verdict.issues;
-  row.rendered_with = context.rendererName;
+  row.rendered_with = RENDERED_WITH;
   const winner: LoopWinner = {
     which,
     name: attempt.name,
@@ -504,7 +503,7 @@ export async function runCandidateLoop(
   const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
     .slice(0, 34)
     .join("")}`;
-  const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: context.rendererName };
+  const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const spriteName = slugify(brief.id);
 
   await staging.context.onStage?.("drawing");
@@ -606,7 +605,7 @@ export async function runCandidateLoop(
   row.score = attempt.verdict.score;
   row.passed = attempt.verdict.pass;
   row.issues = attempt.verdict.issues;
-  row.rendered_with = context.rendererName;
+  row.rendered_with = RENDERED_WITH;
   const winner: LoopWinner = {
     which,
     name: attempt.name,

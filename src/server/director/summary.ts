@@ -5,7 +5,8 @@
 // is when each lamp went dark, how the crowd grew and how health fell.
 import { z } from "zod";
 import { recordedCreatureSchema } from "@/game/creature";
-import { directorFrom, tideRange } from "@/game/director";
+import { directorFrom, type EngagementKind, mayEase, tideRange } from "@/game/director";
+import { type Engagement, engagementOf, heldTide } from "@/game/engagement";
 import { levelsOf, UPGRADE_IDS } from "@/game/legacy";
 import { PLAY_ID } from "@/game/plays";
 import { LAMP_SPOTS, nightLength, rulesTide } from "@/game/sim";
@@ -29,6 +30,10 @@ export const storedPlaySchema = z.looseObject({
   // [second, kills, lampsLit, health, monsters, lampsLost]
   timeline: z.array(z.tuple([finite, finite, finite, finite, finite, finite])).max(1000),
   outcome: z.enum(["dawn", "dark", "fallen"]).nullable(),
+  // [step, moveX, moveY, strike, shot, aimX, aimY] when the input changed: what says whether the player was there
+  inputs: z.array(z.array(finite)).max(60_000),
+  steps: finite,
+  hiddenSeconds: z.number().min(0).max(86_400).optional(),
   stats: z.looseObject({
     kills: finite,
     lampsLost: finite,
@@ -49,8 +54,8 @@ export interface PreviousReasoning {
 const oneDecimal = (value: number) => Math.round(value * 10) / 10;
 
 /** The tide the rules would pick after this night, and the range the model may move it within. */
-export function rulesTideAfter(play: StoredPlay): number {
-  return rulesTide(play.legacy.tide, {
+export function rulesTideAfter(play: StoredPlay, engagement: EngagementKind = engagementOf(play).kind): number {
+  const next = rulesTide(play.legacy.tide, {
     outcome: play.outcome,
     kills: play.stats.kills,
     seconds: play.stats.time,
@@ -58,9 +63,15 @@ export function rulesTideAfter(play: StoredPlay): number {
     health: play.stats.hp,
     maxHealth: play.stats.maxHp,
   });
+  // the same rule the game applies at night end: no easing after a night nobody played
+  return heldTide(play.legacy.tide, next, engagement);
 }
 
-export function summarise(play: StoredPlay, previous: PreviousReasoning | null) {
+export function summarise(
+  play: StoredPlay,
+  previous: PreviousReasoning | null,
+  engagement: Engagement = engagementOf(play),
+) {
   const { legacy, stats, timeline } = play;
   const lampCount = LAMP_SPOTS.length;
   const minutes = Math.max(1 / 60, stats.time / 60);
@@ -110,7 +121,7 @@ export function summarise(play: StoredPlay, previous: PreviousReasoning | null) 
           note: "no model decision applied to this night (the rules set the tide, an even mix, creature share 0.25)",
         };
 
-  const rules = rulesTideAfter(play);
+  const rules = rulesTideAfter(play, engagement.kind);
   return {
     night: legacy.night,
     plannedSeconds: nightLength(legacy.night),
@@ -122,6 +133,8 @@ export function summarise(play: StoredPlay, previous: PreviousReasoning | null) 
       ? { archetype: play.creature.archetype, modifiers: play.creature.modifiers }
       : null,
     outcome: play.outcome ?? "abandoned",
+    // was the player there? (src/game/engagement.ts) A night that is not "engaged" is no evidence it was too hard
+    engagement: { ...engagement, afterThisNightNothingGetsEasier: !mayEase(engagement.kind) },
     kills: stats.kills,
     killsPerMinute: oneDecimal(stats.kills / minutes),
     lamps: {
@@ -146,7 +159,7 @@ export function summarise(play: StoredPlay, previous: PreviousReasoning | null) 
     previousDecision,
     ifTheRulesDecided: {
       tideForNextNight: rules,
-      allowedTideRange: tideRange(rules),
+      allowedTideRange: tideRange(rules, engagement.kind),
     },
   };
 }

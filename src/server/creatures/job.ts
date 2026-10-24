@@ -149,7 +149,6 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       {
         model: deps.model,
         render: deps.render,
-        rendererName: "vercel",
         pose: "",
         generatorPrompt: deps.prompts.generator,
         verifierPrompt: deps.prompts.verifier,

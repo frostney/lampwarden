@@ -5,6 +5,10 @@
     "allowJs": false,
     "skipLibCheck": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -19,7 +23,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     },
     "types": ["node", "bun"]
   },

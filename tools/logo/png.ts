@@ -10,7 +10,7 @@ const crcTable = Array.from({ length: 256 }, (_, index) => {
 
 function crc32(bytes: Uint8Array): number {
   let value = -1;
-  for (const byte of bytes) value = crcTable[(value ^ byte) & 255] ^ (value >>> 8);
+  for (const byte of bytes) value = (crcTable[(value ^ byte) & 255] ?? 0) ^ (value >>> 8);
   return (value ^ -1) >>> 0;
 }
 
@@ -69,9 +69,9 @@ export function decodePng(bytes: Buffer): PixelImage {
     const filter = filtered[y * (stride + 1)];
     const row = filtered.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
     for (let index = 0; index < stride; index++) {
-      const left = index >= 4 ? current[index - 4] : 0;
-      const above = previous[index];
-      const aboveLeft = index >= 4 ? previous[index - 4] : 0;
+      const left = index >= 4 ? (current[index - 4] ?? 0) : 0;
+      const above = previous[index] ?? 0;
+      const aboveLeft = index >= 4 ? (previous[index - 4] ?? 0) : 0;
       let predictor = 0;
       if (filter === 1) predictor = left;
       else if (filter === 2) predictor = above;
@@ -88,7 +88,7 @@ export function decodePng(bytes: Buffer): PixelImage {
               ? above
               : aboveLeft;
       }
-      current[index] = (row[index] + predictor) & 255;
+      current[index] = ((row[index] ?? 0) + predictor) & 255;
     }
     image.data.set(current, y * stride);
     previous.set(current);
@@ -98,23 +98,23 @@ export function decodePng(bytes: Buffer): PixelImage {
 
 /** An ICO file whose frames are square PNGs (size < 256). */
 export function encodeIco(frames: readonly PixelImage[]): Buffer {
-  const pngs = frames.map(encodePng);
+  const encoded = frames.map((frame) => ({ frame, png: encodePng(frame) }));
   const header = Buffer.alloc(6 + 16 * frames.length);
   header.writeUInt16LE(0, 0);
   header.writeUInt16LE(1, 2); // type: icon
   header.writeUInt16LE(frames.length, 4);
   let offset = header.length;
-  frames.forEach((frame, index) => {
+  encoded.forEach(({ frame, png }, index) => {
     const entry = 6 + 16 * index;
     header[entry] = frame.width;
     header[entry + 1] = frame.height;
     header.writeUInt16LE(1, entry + 4); // colour planes
     header.writeUInt16LE(32, entry + 6); // bits per pixel
-    header.writeUInt32LE(pngs[index].length, entry + 8);
+    header.writeUInt32LE(png.length, entry + 8);
     header.writeUInt32LE(offset, entry + 12);
-    offset += pngs[index].length;
+    offset += png.length;
   });
-  return Buffer.concat([header, ...pngs]);
+  return Buffer.concat([header, ...encoded.map(({ png }) => png)]);
 }
 
 export function decodeIco(bytes: Buffer): PixelImage[] {

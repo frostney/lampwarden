@@ -55,7 +55,7 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
           for (let x = 0; x < width; x++) {
             const sampleY = y * supersample + supersample / 2;
             const sampleX = x * supersample + supersample / 2;
-            const alpha = pixels[(sampleY * canvas.width + sampleX) * 4 + 3];
+            const alpha = pixels[(sampleY * canvas.width + sampleX) * 4 + 3] ?? 0;
             if (alpha > 20 && alpha < 235) ambiguousSamples++;
             row += alpha >= 128 ? "#" : ".";
           }
@@ -67,7 +67,7 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
     }, jobs);
     return results.map(({ rows, ambiguousSamples }, index) => {
       if (ambiguousSamples > 0) {
-        throw new Error(`"${requests[index].text}" is off the pixel grid (${ambiguousSamples} half-covered samples)`);
+        throw new Error(`"${requests[index]?.text}" is off the pixel grid (${ambiguousSamples} half-covered samples)`);
       }
       return cropToInk(rows);
     });
@@ -80,5 +80,7 @@ function cropToInk(rows: readonly string[]): TextMask {
   const inkRows = rows.flatMap((row, index) => (row.includes("#") ? [index] : []));
   const firstInk = Math.min(2, ...rows.filter((row) => row.includes("#")).map((row) => row.indexOf("#")));
   const lastInk = Math.max(...rows.map((row) => row.lastIndexOf("#")));
-  return rows.slice(inkRows[0], inkRows[inkRows.length - 1] + 1).map((row) => row.slice(firstInk, lastInk + 1));
+  const firstRow = inkRows[0] ?? 0;
+  const lastRow = inkRows.at(-1) ?? -1;
+  return rows.slice(firstRow, lastRow + 1).map((row) => row.slice(firstInk, lastInk + 1));
 }

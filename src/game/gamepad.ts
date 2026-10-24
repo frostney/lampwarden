@@ -2,11 +2,23 @@
 // During a night the pad drives the warden: left stick or d-pad moves (8-way, like the touch stick, so recordings stay
 // small), A strikes, B / X / right trigger shoot (along the right stick when it is held, else at the nearest monster),
 // and getting hurt rumbles. In the menus the d-pad or left stick moves focus between buttons and A / Start presses.
-import { press, type Controls } from "./controls";
+import { type Controls, press } from "./controls";
 import type { State } from "./sim";
 
 // standard-mapping button indices
-const BUTTON = { south: 0, east: 1, west: 2, north: 3, rightBumper: 5, rightTrigger: 7, start: 9, up: 12, down: 13, left: 14, right: 15 } satisfies Record<string, number>;
+const BUTTON = {
+  south: 0,
+  east: 1,
+  west: 2,
+  north: 3,
+  rightBumper: 5,
+  rightTrigger: 7,
+  start: 9,
+  up: 12,
+  down: 13,
+  left: 14,
+  right: 15,
+} satisfies Record<string, number>;
 const STICK_DEADZONE = 0.35;
 const AIM_DEADZONE = 0.5;
 const AIM_DISTANCE = 260;
@@ -14,7 +26,11 @@ const AIM_DISTANCE = 260;
 export type MenuAction = "previous" | "next" | "confirm" | "primary";
 
 // buttons held on the previous poll, so a press acts once
-export interface GamepadMemory { held: Set<number>; menuRepeatAt: number; wasHurt: boolean }
+export interface GamepadMemory {
+  held: Set<number>;
+  menuRepeatAt: number;
+  wasHurt: boolean;
+}
 export const newGamepadMemory = (): GamepadMemory => ({ held: new Set(), menuRepeatAt: 0, wasHurt: false });
 
 export function activeGamepad(): Gamepad | null {
@@ -28,7 +44,9 @@ const isPressed = (gamepad: Gamepad, index: number) => gamepad.buttons[index]?.p
 // buttons that went down since the last poll
 function newlyPressed(gamepad: Gamepad, memory: GamepadMemory): Set<number> {
   const pressedNow = new Set<number>();
-  gamepad.buttons.forEach((button, index) => { if (button.pressed) pressedNow.add(index); });
+  gamepad.buttons.forEach((button, index) => {
+    if (button.pressed) pressedNow.add(index);
+  });
   const fresh = new Set([...pressedNow].filter((index) => !memory.held.has(index)));
   memory.held = pressedNow;
   return fresh;
@@ -44,7 +62,10 @@ function eightWay(horizontal: number, vertical: number): [number, number] {
 // Called once per frame during a night, before the sim reads the controls.
 export function pollGamepadForPlay(controls: Controls, state: State, memory: GamepadMemory) {
   const gamepad = activeGamepad();
-  if (!gamepad) { controls.gamepadX = controls.gamepadY = 0; return; }
+  if (!gamepad) {
+    controls.gamepadX = controls.gamepadY = 0;
+    return;
+  }
   const padHorizontal = (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0);
   const padVertical = (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0);
   const [stickHorizontal, stickVertical] = eightWay(gamepad.axes[0] ?? 0, gamepad.axes[1] ?? 0);
@@ -53,8 +74,14 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
 
   const fresh = newlyPressed(gamepad, memory);
   if (fresh.has(BUTTON.south)) press(controls, "melee", state);
-  if (fresh.has(BUTTON.east) || fresh.has(BUTTON.west) || fresh.has(BUTTON.rightTrigger) || fresh.has(BUTTON.rightBumper)) {
-    const aimHorizontal = gamepad.axes[2] ?? 0, aimVertical = gamepad.axes[3] ?? 0;
+  if (
+    fresh.has(BUTTON.east) ||
+    fresh.has(BUTTON.west) ||
+    fresh.has(BUTTON.rightTrigger) ||
+    fresh.has(BUTTON.rightBumper)
+  ) {
+    const aimHorizontal = gamepad.axes[2] ?? 0,
+      aimVertical = gamepad.axes[3] ?? 0;
     if (Math.hypot(aimHorizontal, aimVertical) > AIM_DEADZONE) {
       // aim along the right stick: a point ahead of the warden in that direction (the ground is foreshortened 2:1)
       const length = Math.hypot(aimHorizontal, aimVertical);
@@ -67,7 +94,12 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
   }
 
   const hurt = state.hero.hurt > 0;
-  if (hurt && !memory.wasHurt) void gamepad.vibrationActuator?.playEffect("dual-rumble", { duration: 140, strongMagnitude: 0.7, weakMagnitude: 0.4 });
+  if (hurt && !memory.wasHurt)
+    void gamepad.vibrationActuator?.playEffect("dual-rumble", {
+      duration: 140,
+      strongMagnitude: 0.7,
+      weakMagnitude: 0.4,
+    });
   memory.wasHurt = hurt;
 }
 
@@ -78,10 +110,17 @@ export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuActi
   const fresh = newlyPressed(gamepad, memory);
   if (fresh.has(BUTTON.south)) return "confirm";
   if (fresh.has(BUTTON.start)) return "primary";
-  const vertical = (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) || Math.round(gamepad.axes[1] ?? 0);
-  const horizontal = (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0) || Math.round(gamepad.axes[0] ?? 0);
+  const vertical =
+    (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) ||
+    Math.round(gamepad.axes[1] ?? 0);
+  const horizontal =
+    (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0) ||
+    Math.round(gamepad.axes[0] ?? 0);
   const direction = vertical || horizontal;
-  if (!direction) { memory.menuRepeatAt = 0; return null; }
+  if (!direction) {
+    memory.menuRepeatAt = 0;
+    return null;
+  }
   if (now < memory.menuRepeatAt) return null;
   // first move at once, then repeat while held
   memory.menuRepeatAt = now + (memory.menuRepeatAt === 0 ? 350 : 140);

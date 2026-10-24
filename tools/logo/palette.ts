@@ -61,14 +61,18 @@ const glowRamp: readonly { readonly target: string; readonly opacity: number }[]
 
 const glowColours: readonly Rgba[] = glowRamp.map(({ target, opacity }) => {
   const targetColour = hexColour(target);
-  const channel = (index: number): number =>
+  const channel = (index: 0 | 1 | 2): number =>
     Math.max(0, Math.min(255, Math.round((targetColour[index] - (1 - opacity) * colours.night[index]) / opacity)));
   return [channel(0), channel(1), channel(2), Math.round(opacity * 255)];
 });
 
 /** Glow rings for the given radii (largest first); the innermost ring always takes the strongest ramp step. */
 export function glowRings(radii: readonly number[]): GlowRing[] {
-  return radii.map((radius, index) => ({ radius, colour: glowColours[index + glowColours.length - radii.length] }));
+  return radii.map((radius, index) => {
+    const colour = glowColours[index + glowColours.length - radii.length];
+    if (!colour) throw new Error(`${radii.length} glow rings, but the ramp has ${glowColours.length} steps`);
+    return { radius, colour };
+  });
 }
 
 export const stars: Readonly<Record<"bright" | "dim" | "blue", Rgba>> = {

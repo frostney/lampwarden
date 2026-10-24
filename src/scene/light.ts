@@ -3,8 +3,8 @@
 // once, and cached; a frame only picks which precomputed texture each sprite shows, from the scene clock (frozen by the
 // visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint.
 import { BufferImageSource, Rectangle, Texture } from "pixi.js";
+import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT, PLAZA_HALF_WIDTH } from "../game/sim";
 import { ANCHOR_Y } from "./assets";
-import { CX, CY, HALF_H, HALF_W } from "./sim";
 
 type Rgb = readonly [number, number, number];
 
@@ -19,7 +19,7 @@ export interface LightPiece {
 
 // 4x4 Bayer thresholds, anchored to the canvas so a moving light never makes the pattern swim
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const bayerThreshold = (x: number, y: number) => (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+const bayerThreshold = (x: number, y: number) => ((BAYER[(y & 3) * 4 + (x & 3)] ?? 0) + 0.5) / 16;
 // how much of a band the dither reaches into across each boundary (1 would dither the whole band)
 const DITHER_SPREAD = 0.4;
 
@@ -28,8 +28,9 @@ interface FlickerVariant {
   radiusStep: number;
   ditherShift: number;
 }
+const CALM: FlickerVariant = { radiusStep: 0, ditherShift: 0 };
 const FLICKER_VARIANTS: readonly FlickerVariant[] = [
-  { radiusStep: 0, ditherShift: 0 },
+  CALM,
   { radiusStep: 1, ditherShift: 1 },
   { radiusStep: 0, ditherShift: 2 },
   { radiusStep: -1, ditherShift: 3 },
@@ -38,7 +39,7 @@ const FLICKER_VARIANTS: readonly FlickerVariant[] = [
 const FLICKER_SEQUENCE = [0, 0, 1, 0, 2, 0, 0, 3, 0, 1, 0, 0, 2, 3, 0, 0];
 const FLICKER_FPS = 6;
 const flickerIndex = (clock: number, seed: number) =>
-  FLICKER_SEQUENCE[(Math.floor(clock * FLICKER_FPS) + seed * 5) % FLICKER_SEQUENCE.length];
+  FLICKER_SEQUENCE[(Math.floor(clock * FLICKER_FPS) + seed * 5) % FLICKER_SEQUENCE.length] ?? 0;
 
 // --- painting --------------------------------------------------------------------------------------------------
 
@@ -66,21 +67,22 @@ interface LightShape {
 }
 
 // the plaza's top face, tested at the pixel centre
-const onPlaza = (x: number, y: number) => Math.abs(x + 0.5 - CX) / HALF_W + Math.abs(y + 0.5 - CY) / HALF_H <= 1;
+const onPlaza = (x: number, y: number) =>
+  Math.abs(x + 0.5 - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y + 0.5 - CENTRE_Y) / PLAZA_HALF_HEIGHT <= 1;
 // a plaza pixel on its rim, where the stone meets the wall or the sea
 const onPlazaRim = (x: number, y: number) => onPlaza(x, y) && (!onPlaza(x, y + 1) || !onPlaza(x, y - 1));
 const PLAZA_WALL = 14; // the plaza's side walls, drawn under its front edges by drawGround
-const frontRimY = (x: number) => CY + HALF_H * (1 - Math.abs(x - CX) / HALF_W);
+const frontRimY = (x: number) => CENTRE_Y + PLAZA_HALF_HEIGHT * (1 - Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH);
 const onWall = (x: number, y: number) =>
-  Math.abs(x - CX) <= HALF_W && y > frontRimY(x) && y <= frontRimY(x) + PLAZA_WALL;
+  Math.abs(x - CENTRE_X) <= PLAZA_HALF_WIDTH && y > frontRimY(x) && y <= frontRimY(x) + PLAZA_WALL;
 const onSea = (x: number, y: number) => !onPlaza(x, y) && !onWall(x, y);
 
 // plaza coordinates: tile vertices sit where both are whole numbers (0 to 12), tile edges where either is
-const plazaU = (x: number, y: number) => ((x - CX) / 32 + (y - (CY - HALF_H)) / 16) / 2;
-const plazaV = (x: number, y: number) => ((y - (CY - HALF_H)) / 16 - (x - CX) / 32) / 2;
+const plazaU = (x: number, y: number) => ((x - CENTRE_X) / 32 + (y - (CENTRE_Y - PLAZA_HALF_HEIGHT)) / 16) / 2;
+const plazaV = (x: number, y: number) => ((y - (CENTRE_Y - PLAZA_HALF_HEIGHT)) / 16 - (x - CENTRE_X) / 32) / 2;
 const plazaPoint = (tileColumn: number, tileRow: number) => ({
-  x: Math.round(CX + 32 * (tileColumn - tileRow)),
-  y: Math.round(CY - HALF_H + 16 * (tileColumn + tileRow)),
+  x: Math.round(CENTRE_X + 32 * (tileColumn - tileRow)),
+  y: Math.round(CENTRE_Y - PLAZA_HALF_HEIGHT + 16 * (tileColumn + tileRow)),
 });
 const distanceToWhole = (value: number) => Math.abs(value - Math.round(value));
 
@@ -127,8 +129,9 @@ function paintLight(shape: LightShape, variant: FlickerVariant): LightPiece {
   for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
       const level = lightLevel(shape, shape.centerX - extentX + column, shape.centerY - extentY + row, variant);
-      if (level === 0) continue;
-      const [red, green, blue] = shape.palette[level - 1];
+      const colour = level > 0 ? shape.palette[level - 1] : undefined;
+      if (!colour) continue;
+      const [red, green, blue] = colour;
       const index = (row * width + column) * 4;
       pixels[index] = red;
       pixels[index + 1] = green;
@@ -162,7 +165,7 @@ const HERO_PALETTE: readonly Rgb[] = [
 // --- glints ----------------------------------------------------------------------------------------------------
 
 // One frame of a glint: a small additive shape, or nothing (between twinkles).
-export type GlintFrame = LightPiece | null;
+type GlintFrame = LightPiece | null;
 export interface Glint {
   x: number;
   y: number;
@@ -171,7 +174,7 @@ export interface Glint {
 }
 const GLINT_FPS = 10;
 export const glintFrame = (glint: Glint, clock: number) =>
-  glint.frames[(Math.floor(clock * GLINT_FPS) + glint.phase) % glint.frames.length];
+  glint.frames[(Math.floor(clock * GLINT_FPS) + glint.phase) % glint.frames.length] ?? null;
 
 // Glint shapes as pixel patterns, centred on their middle pixel. Stone and brass: a dim, b warm, c the white-hot core.
 // Water (amber, as the sea is already blue): w dim, x warm, y hot.
@@ -237,7 +240,10 @@ function glintPiece(shape: GlintShape): LightPiece {
 
 // a twinkle: dark for most of its period, then the shapes in turn
 function twinkle(shapes: readonly GlintShape[], period: number): GlintFrame[] {
-  return Array.from({ length: period }, (_, index) => (index < shapes.length ? glintPiece(shapes[index]) : null));
+  return Array.from({ length: period }, (_, index) => {
+    const shape = shapes[index];
+    return shape ? glintPiece(shape) : null;
+  });
 }
 
 // a short horizontal glint on the water, length pixels long: dim tips, warm middle, an optional hot centre
@@ -287,7 +293,11 @@ function seededRandom(seed: number): () => number {
 function shuffle<Item>(list: Item[], random: () => number) {
   for (let index = list.length - 1; index > 0; index--) {
     const other = Math.floor(random() * (index + 1));
-    [list[index], list[other]] = [list[other], list[index]];
+    const current = list[index];
+    const swapped = list[other];
+    if (current === undefined || swapped === undefined) continue;
+    list[index] = swapped;
+    list[other] = current;
   }
 }
 
@@ -349,11 +359,10 @@ export function lampLight(x: number, y: number, radius: number): LampLight {
 // Sparse points on the lit stone that catch the light in turn: tile corners flare into small stars, tile edges and
 // the plaza's rim into short bright dashes, and specks in the stone into single pixels. Brighter bands get more.
 function groundGlints(pool: LightShape, random: () => number): Glint[] {
-  const calm = FLICKER_VARIANTS[0];
   const area = pool.radiusX * pool.radiusY;
   const glints: Glint[] = [];
   const free = (x: number, y: number) => glints.every((glint) => Math.abs(glint.x - x) + Math.abs(glint.y - y) > 8);
-  const levelAt = (x: number, y: number) => lightLevel(pool, x, y, calm);
+  const levelAt = (x: number, y: number) => lightLevel(pool, x, y, CALM);
   const period = () => 10 + Math.floor(random() * 8);
   const add = (x: number, y: number, shapes: readonly GlintShape[]) => {
     const length = period();
@@ -466,7 +475,6 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
   const glints: Glint[] = [];
   const add = (x: number, y: number, length: number, bright: boolean) =>
     glints.push({ x, y, phase: Math.floor(random() * 8), frames: shimmer(length, bright) });
-  const calm = FLICKER_VARIANTS[0];
 
   // front rim: the lit chord of the rim above the wall
   let chordLeft = Infinity,
@@ -474,7 +482,7 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
   for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x++) {
     const rimY = Math.floor(frontRimY(x));
     for (let y = rimY - 1; y <= rimY; y++) {
-      if (onPlazaRim(x, y) && !onPlaza(x, y + 1) && lightLevel(pool, x, y, calm) >= 1) {
+      if (onPlazaRim(x, y) && !onPlaza(x, y + 1) && lightLevel(pool, x, y, CALM) >= 1) {
         chordLeft = Math.min(chordLeft, x);
         chordRight = Math.max(chordRight, x);
       }
@@ -497,10 +505,10 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
   const seaPixels: { x: number; y: number }[] = [];
   for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y += 3)
     for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2)
-      if (onSea(x, y) && bandLevel(pool, x, y, calm) >= 1) seaPixels.push({ x, y });
+      if (onSea(x, y) && bandLevel(pool, x, y, CALM) >= 1) seaPixels.push({ x, y });
   shuffle(seaPixels, random);
   for (const point of seaPixels.slice(0, Math.min(10, Math.round(seaPixels.length / 25))))
-    add(point.x, point.y, 2 + Math.floor(random() * 4), bandLevel(pool, point.x, point.y, calm) >= 2);
+    add(point.x, point.y, 2 + Math.floor(random() * 4), bandLevel(pool, point.x, point.y, CALM) >= 2);
   return glints;
 }
 
@@ -545,7 +553,7 @@ export function heroLight(centerX: number, centerY: number, clock: number): Ligh
         falloff: 1.2,
         groundOnly: false,
       },
-      FLICKER_VARIANTS[variantIndex],
+      FLICKER_VARIANTS[variantIndex] ?? CALM,
     );
     heroLights.set(key, piece);
   }

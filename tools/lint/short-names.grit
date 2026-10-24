@@ -4,7 +4,12 @@ language js
 // Allowed: x and y (coordinates) and id. Imported names belong to their library (zod's `z`).
 JsIdentifierBinding() as $binding where {
   $binding <: r"^[A-Za-z_$][A-Za-z0-9_$]?$",
-  not $binding <: or { `x`, `y`, `id`, `_` },
+  not $binding <: or {
+    `x`,
+    `y`,
+    `id`,
+    `_`
+  },
   not $binding <: within JsImport(),
   register_diagnostic(span=$binding, message="Use a descriptive name instead of a one- or two-letter identifier.", severity="error")
 }

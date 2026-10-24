@@ -1,7 +1,7 @@
 // 16x16 pixel icons for the upgrades, drawn as crisp SVG rects. One character per pixel; '.' is transparent.
-import type { UpgradeId } from "@/lib/legacy";
+import type { UpgradeId } from "@/game/legacy";
 
-const PAL: Record<string, string> = {
+const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline
   W: "#fff6d8", // highlight
   Y: "#ffd34a", // flame
@@ -114,13 +114,28 @@ const ART: Record<UpgradeId | "oil", string[]> = {
   ],
 };
 
+interface Pixel {
+  column: number;
+  row: number;
+  colour: string;
+}
+
+function pixelsOf(rows: readonly string[]): Pixel[] {
+  const pixels: Pixel[] = [];
+  for (const [row, line] of rows.entries())
+    for (const [column, symbol] of [...line].entries()) {
+      const colour = PALETTE[symbol];
+      if (colour) pixels.push({ column, row, colour });
+    }
+  return pixels;
+}
+
 export function Icon({ name, size = 32 }: { name: keyof typeof ART; size?: number }) {
-  const rows = ART[name];
-  const rects: React.ReactNode[] = [];
-  rows.forEach((row, y) => [...row].forEach((ch, x) => {
-    if (ch !== ".") rects.push(<rect key={`${x},${y}`} x={x} y={y} width={1} height={1} fill={PAL[ch]} />);
-  }));
   return (
-    <svg className="icon" viewBox="0 0 16 16" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true">{rects}</svg>
+    <svg className="icon" viewBox="0 0 16 16" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true">
+      {pixelsOf(ART[name]).map(({ column, row, colour }) => (
+        <rect key={`${column},${row}`} x={column} y={row} width={1} height={1} fill={colour} />
+      ))}
+    </svg>
   );
 }

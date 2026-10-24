@@ -1,13 +1,13 @@
 // Sprite list for the scene. Frame counts match pipeline/shotcup_main.py (FRAMES).
-export const SEXES = ["male", "female"] as const;
+const SEXES = ["male", "female"] as const;
 export type Sex = (typeof SEXES)[number];
-export const ANIMS = ["idle", "walk", "melee", "ranged"] as const;
-export type Anim = (typeof ANIMS)[number];
+const HERO_ANIMATIONS = ["idle", "walk", "melee", "ranged"] as const;
+export type HeroAnimation = (typeof HERO_ANIMATIONS)[number];
 
-export const FRAMES: Record<Anim, number> = { idle: 4, walk: 6, melee: 5, ranged: 5 };
-export const FPS: Record<Anim, number> = { idle: 6, walk: 10, melee: 14, ranged: 12 };
+export const FRAMES: Record<HeroAnimation, number> = { idle: 4, walk: 6, melee: 5, ranged: 5 };
+export const FRAMES_PER_SECOND: Record<HeroAnimation, number> = { idle: 6, walk: 10, melee: 14, ranged: 12 };
 
-export const SINGLE = [
+const SINGLE = [
   "satyr",
   "cyclops",
   "harpy",
@@ -49,17 +49,17 @@ export function anchorYFor(key: string): number {
   return 0.85;
 }
 
-export function heroKey(sex: Sex, anim: Anim, frame: number) {
-  return `hero/${sex}_${anim}${frame + 1}`;
+export function heroKey(sex: Sex, animation: HeroAnimation, frame: number) {
+  return `hero/${sex}_${animation}${frame + 1}`;
 }
 
 export function assetList(): { alias: string; src: string; data: { scaleMode: "nearest" } }[] {
   const list: { alias: string; src: string; data: { scaleMode: "nearest" } }[] = [];
   for (const key of SINGLE) list.push({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } });
   for (const sex of SEXES)
-    for (const anim of ANIMS)
-      for (let frame = 0; frame < FRAMES[anim]; frame++) {
-        const alias = heroKey(sex, anim, frame);
+    for (const animation of HERO_ANIMATIONS)
+      for (let frame = 0; frame < FRAMES[animation]; frame++) {
+        const alias = heroKey(sex, animation, frame);
         list.push({ alias, src: `/sprites/${alias}.png`, data: { scaleMode: "nearest" } });
       }
   return list;

@@ -37,25 +37,25 @@ export MUBIT_API_KEY=...         # read from the environment only; never printed
 python3 pipeline/run.py "Ionic marble column"            # writes public/sprites/ionic-marble-column.*
 python3 pipeline/run.py --file briefs.json               # {"id": ["category", "brief"], ...}
 python3 pipeline/run.py --render shotcup "brief"         # render on Shotcup instead of local bun
-npm run assets -- "brief"                                # same as run.py, via npm
+bun run assets -- "brief"                                # same as run.py, via bun
 ```
 
 Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--render local|shotcup`.
 
 Requirements for the local renderer: `python3` with Pillow, and [`bun`](https://bun.sh) on PATH. The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 
-Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames in `public/sprites/hero/` from deterministic builder code (no Mubit call; `--render local|shotcup`). Running it locally reproduces the committed frames byte-for-pixel (checked: 40/40 identical). `npm run kit` rebuilds `kit/kit.ts` from `kit/src/*.ts`.
+Other scripts: `hero_frames.py` regenerates the 40 plain hero animation frames in `public/sprites/hero/` from deterministic builder code (no Mubit call; `--render local|shotcup`). Running it locally reproduces the committed frames byte-for-pixel (checked: 40/40 identical). `bun run kit` rebuilds `kit/kit.ts` from `kit/src/*.ts`.
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `run.py` | the loop above |
-| `prompts/generator.md`, `prompts/verifier.md` | the two system prompts |
-| `kit/src/*.ts`, `kit/assemble.sh`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README) |
-| `render/run_local.ts`, `render/shim_canvas.ts`, `render/shim_plugin.ts` | local bun renderer; the shim maps the kit's `shotcup:canvas` import to a small PNG canvas |
-| `shotcup_main.py`, `shotcup_render.py` | Shotcup renderer (below) |
-| `hero_frames.py` | hero animation frames |
+| Path                                                                                                     | What                                                                                      |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `run.py`                                                                                                 | the loop above                                                                            |
+| `prompts/generator.md`, `prompts/verifier.md`                                                            | the two system prompts                                                                    |
+| `kit/src/*.ts`, `kit/assemble.sh`, `kit/kit.ts`, `kit/exports.json`, `kit/palette.json`, `kit/examples/` | the building kit (see top-level README)                                                   |
+| `render/run_local.ts`, `render/shim_canvas.ts`, `render/shim_plugin.ts`                                  | local bun renderer; the shim maps the kit's `shotcup:canvas` import to a small PNG canvas |
+| `shotcup_main.py`, `shotcup_render.py`                                                                   | Shotcup renderer (below)                                                                  |
+| `hero_frames.py`                                                                                         | hero animation frames                                                                     |
 
 ## `--render shotcup`
 

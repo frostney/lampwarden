@@ -59,6 +59,8 @@ export function heroView(octant: number): { drawn: DrawnDirection; mirrored: boo
   return { drawn, mirrored: drawn !== direction };
 }
 
+// The sprites the scene cannot do without: loading them fails the whole load. The hand-written building sprites are
+// here, as the stand-ins for the scenery below.
 const SINGLE = [
   "satyr",
   "cyclops",
@@ -67,17 +69,46 @@ const SINGLE = [
   "olive",
   "galley-dock",
   "trireme",
-  "temple",
-  "house",
   "lamp-lit",
   "lamp-unlit",
+  "temple-handwritten",
+  "house-handwritten",
+  "wall-handwritten",
+  "stall-handwritten",
+] as const;
+type SingleKey = (typeof SINGLE)[number];
+
+// The scenery: the buildings and decorations a model drew through Mubit (the manifest's rows with source "mubit"). They
+// load one by one, and one that fails to load is only missing: a building is drawn from its hand-written sprite instead
+// (`sceneryKeyFor`) and a decoration is left out.
+const SCENERY = [
+  "temple",
+  "house",
   "wall",
   "stall",
+  "house-ochre",
+  "olive-young",
+  "broken-column",
+  "votive-altar",
+  "amphora-stack",
 ] as const;
-export type SingleKey = (typeof SINGLE)[number];
+export type SceneryKey = (typeof SCENERY)[number];
 
-// Anchor y (fraction of the 128px frame) where each sprite's feet / base touch the ground.
-export const ANCHOR_Y: Record<SingleKey | "hero", number> = {
+// the buildings that have a hand-written sprite to fall back on, drawn from the same kit builder with the same look
+const HANDWRITTEN_BUILDINGS = ["temple", "house", "wall", "stall"] as const;
+const handwrittenKey = (building: (typeof HANDWRITTEN_BUILDINGS)[number]) => `${building}-handwritten` as const;
+function isHandwrittenBuilding(key: string): key is (typeof HANDWRITTEN_BUILDINGS)[number] {
+  return HANDWRITTEN_BUILDINGS.some((building) => building === key);
+}
+// the key whose texture draws a scenery sprite: its own, or for a building that did not load its hand-written one
+export function sceneryKeyFor(key: string, loaded: (key: string) => boolean): string {
+  return loaded(key) || !isHandwrittenBuilding(key) ? key : handwrittenKey(key);
+}
+
+// Anchor y (fraction of the 128px frame) where each sprite's feet / base touch the ground. The scenery's are measured
+// from the committed PNG's lowest opaque row (`anchorYFromBbox`, the rule the live creatures use), and a test holds
+// them to it; the other sprites' are tuned by eye.
+export const ANCHOR_Y: Record<SingleKey | SceneryKey | "hero", number> = {
   satyr: 0.8,
   cyclops: 0.82,
   harpy: 0.8,
@@ -85,12 +116,21 @@ export const ANCHOR_Y: Record<SingleKey | "hero", number> = {
   olive: 0.86,
   "galley-dock": 0.92,
   trireme: 0.9,
-  temple: 0.93,
-  house: 0.91,
   "lamp-lit": 0.82,
   "lamp-unlit": 0.82,
-  wall: 0.93,
+  "temple-handwritten": 0.95,
+  "house-handwritten": 0.92,
+  "wall-handwritten": 0.95,
+  "stall-handwritten": 0.88,
+  temple: 0.95,
+  house: 0.92,
+  wall: 0.95,
   stall: 0.88,
+  "house-ochre": 0.92,
+  "olive-young": 0.81,
+  "broken-column": 0.87,
+  "votive-altar": 0.9,
+  "amphora-stack": 0.89,
   hero: 0.82,
 };
 
@@ -143,4 +183,9 @@ export function assetList(): { alias: string; src: string; data: { scaleMode: "n
   for (const sex of SEXES)
     list.push({ alias: heroAtlasKey(sex), src: heroAtlasPath(sex), data: { scaleMode: "nearest" } });
   return list;
+}
+
+// the scenery's files, to load one at a time (see SCENERY)
+export function sceneryAssetList(): { alias: string; src: string; data: { scaleMode: "nearest" } }[] {
+  return SCENERY.map((key) => ({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } }));
 }

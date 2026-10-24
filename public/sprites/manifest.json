@@ -1,6 +1,6 @@
 {
  "setting": "greek",
- "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. temple, house, lamp-lit, lamp-unlit, wall and stall are hand-written examples calling the kit's building builders, not Mubit output (see their 'source' field).",
+ "note": "Pre-generated with the Lampwarden pipeline (Opus via Mubit: generator, verifier, one fix, best-of), rendered locally with bun (not Shotcup). Scores are the verifier's 0-10; >=7 passes. lamp-lit and lamp-unlit, and the temple-handwritten, house-handwritten, wall-handwritten and stall-handwritten fallbacks, are hand-written examples calling the kit's building builders, not Mubit output. Rows with source "mubit" (temple, house, wall, stall and the decorations) were drawn with three candidates, one fix and best-of, and are the ones the scene draws (see their 'source' field).",
  "sprites": {
   "hero-male-still": {
    "brief": "male hero warrior with a xiphos in hand and a bow slung on his back",
@@ -260,22 +260,93 @@
    "bbox": "48,43,105,107"
   },
   "temple": {
-   "brief": "Doric temple, 4x5 peristyle, terracotta roof (pipeline/kit/examples/ex_temple.ts, temple() builder)",
+   "brief": "Doric marble temple of the town, four columns across the front and five along each side, a sculpted pediment facing the viewer and a terracotta tiled roof",
    "file": "temple.png",
    "code": "temple.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "1,12,126,125",
+   "anchor_y": 0.95,
+   "session": "lampwarden-temple-Doric-marble-temple-of-the-town-fo",
+   "gen": "mreq_01a16fbb49a97a00be989a97a9c63a52",
+   "verify": [
+    "mreq_01a16fbb66677a82916db59bf1929cbd"
+   ],
+   "first_score": 8,
+   "candidate_scores": [
+    7.5,
+    8,
+    8
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbb49a57fd29b5d6b0ad7a606c3",
+    "mreq_01a16fbb49a97a00be989a97a9c63a52",
+    "mreq_01a16fbb49a876c187c034eaaf97ceb9"
+   ],
+   "final": "first",
+   "score": 8,
+   "passed": true,
+   "issues": [
+    "Pediment tympanum is flat aegean blue with evenly spaced white vertical bars; it reads as a railing or triglyph frieze, not sculpted figures",
+    "Pediment faces down-right, so the 'facing the viewer' front is only half-presented; the long side dominates the view",
+    "temple() is not in the builder API reference, so the result depends on an undocumented builder"
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "temple-handwritten": {
+   "brief": "Doric temple, 4x5 peristyle, terracotta roof (pipeline/kit/examples/ex_temple.ts, temple() builder)",
+   "file": "temple-handwritten.png",
+   "code": "temple-handwritten.ts",
    "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
    "passed": null,
-   "bbox": "1,12,126,125"
+   "bbox": "1,12,126,125",
+   "fallback_for": "temple"
   },
   "house": {
-   "brief": "whitewashed Greek island house with blue door and shutters (pipeline/kit/examples/ex_house.ts, house() builder)",
+   "brief": "whitewashed Greek island house with a blue door and blue shutters, flat roof with a low parapet, a chimney, flowering plant pots, an amphora by the door and bougainvillea over the door",
    "file": "house.png",
    "code": "house.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "17,38,111,121",
+   "anchor_y": 0.92,
+   "session": "lampwarden-house-whitewashed-Greek-island-house-wit",
+   "gen": "mreq_01a16fbb49ab7171a391e5f7ab05530b",
+   "verify": [
+    "mreq_01a16fbb63267052870ad958a7b1def5"
+   ],
+   "first_score": 8,
+   "candidate_scores": [
+    8,
+    8,
+    null
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbb49ab7171a391e5f7ab05530b",
+    "mreq_01a16fbb49ac77b2876f3ff1e4752ea1",
+    "mreq_01a16fbb49a572e2998b43b715e0b191"
+   ],
+   "final": "first",
+   "score": 8,
+   "passed": true,
+   "issues": [
+    "The amphora by the door is tiny and half hidden behind the flower pot, so it barely reads as an amphora at game zoom.",
+    "The bougainvillea sits as a purple clump on the left jamb rather than arching over the door lintel.",
+    "The chimney is a plain white box that reads more like a roof hatch than a chimney.",
+    "The code calls house(), which is not in the builder API reference; it rendered, but the generator should not rely on undocumented builders."
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "house-handwritten": {
+   "brief": "whitewashed Greek island house with blue door and shutters (pipeline/kit/examples/ex_house.ts, house() builder)",
+   "file": "house-handwritten.png",
+   "code": "house-handwritten.ts",
    "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
    "passed": null,
-   "bbox": "17,38,111,121"
+   "bbox": "17,38,111,121",
+   "fallback_for": "house"
   },
   "lamp-lit": {
    "brief": "bronze town lampstand, lantern lit (pipeline/kit/examples/ex_lamp_lit.ts, lampstand() builder)",
@@ -296,22 +367,286 @@
    "bbox": "49,11,78,106"
   },
   "wall": {
-   "brief": "stone sea wall segment with merlons and an arched gate (pipeline/kit/examples/ex_wall.ts, wall() builder)",
+   "brief": "stone sea wall segment of the harbour town, ashlar masonry with merlons along the top and an arched gate with plank doors, a weedy wet foot and bronze mooring rings",
    "file": "wall.png",
    "code": "wall.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "14,35,113,124",
+   "anchor_y": 0.95,
+   "session": "lampwarden-wall-stone-sea-wall-segment-of-the-harb",
+   "gen": "mreq_01a16fbb49ab7713b0a6084fed3a3e92",
+   "verify": [
+    "mreq_01a16fbb6b947810a3973f9f5e482315"
+   ],
+   "first_score": 8,
+   "candidate_scores": [
+    8,
+    8,
+    8
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbb49ab7713b0a6084fed3a3e92",
+    "mreq_01a16fbb49a97a00be989aa39c406f73",
+    "mreq_01a16fbb49a3705385bd1b8b182d05ea"
+   ],
+   "final": "first",
+   "score": 8,
+   "passed": true,
+   "issues": [
+    "The 'wet' foot does not read: the weeds show, but there is no darker damp or water-stained band at the base of the wall.",
+    "The mooring rings read as bright gold rather than bronze and are small at game zoom.",
+    "The iron-studded arched door leans slightly medieval-castle; this is acceptable but not strongly Greek.",
+    "wall() is not in the builder API reference, so the code relies on an undocumented builder."
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "wall-handwritten": {
+   "brief": "stone sea wall segment with merlons and an arched gate (pipeline/kit/examples/ex_wall.ts, wall() builder)",
+   "file": "wall-handwritten.png",
+   "code": "wall-handwritten.ts",
    "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
    "passed": null,
-   "bbox": "14,35,113,124"
+   "bbox": "14,35,113,124",
+   "fallback_for": "wall"
   },
   "stall": {
-   "brief": "market stall with a crimson striped awning and fruit (pipeline/kit/examples/ex_stall.ts, stall() builder)",
+   "brief": "harbour market stall with a crimson and linen striped awning, a plank counter, a bronze balance and baskets of fruit",
    "file": "stall.png",
    "code": "stall.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "31,40,96,116",
+   "anchor_y": 0.88,
+   "session": "lampwarden-stall-harbour-market-stall-with-a-crimso",
+   "gen": "mreq_01a16fbb49a470c2b59adc02f443b0db",
+   "verify": [
+    "mreq_01a16fbb64bf7282af3554d70aa3f358",
+    "mreq_01a16fbb8ad57ea2a531955964872a7f"
+   ],
+   "first_score": 6,
+   "candidate_scores": [
+    6,
+    6,
+    6
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbb49a470c2b59adc02f443b0db",
+    "mreq_01a16fbb49ab7171a391e5e891ac87bc",
+    "mreq_01a16fbb49a37af3b6c2f98383d95778"
+   ],
+   "fix": "mreq_01a16fbbbc3c7441b0718e6bdcf96aa6",
+   "fixed_verify": [
+    "mreq_01a16fbbecec74a19391ccecda0a1330",
+    "mreq_01a16fbc2b9273d08cb293c1a3c9ecee"
+   ],
+   "fixed_score": 5.5,
+   "final": "first",
+   "score": 6,
+   "passed": false,
+   "issues": [
+    "The bronze balance does not read: only a small gold glint behind the red fruit near the back post, with no visible beam or hanging pans.",
+    "The fruit baskets on the counter occlude the counter-top props, so the balance is lost behind them.",
+    "stall() is not in the builder API reference, so the generator relies on an undocumented builder it cannot parameterise for the balance.",
+    "There is no harbour cue, but this is minor; the crimson and linen awning, plank counter and fruit baskets all read well."
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "stall-handwritten": {
+   "brief": "market stall with a crimson striped awning and fruit (pipeline/kit/examples/ex_stall.ts, stall() builder)",
+   "file": "stall-handwritten.png",
+   "code": "stall-handwritten.ts",
    "source": "hand-written example calling kit builders (not Mubit output, not verifier-scored)",
    "score": null,
    "passed": null,
-   "bbox": "31,40,96,116"
+   "bbox": "31,40,96,116",
+   "fallback_for": "stall"
+  },
+  "broken-column": {
+   "brief": "broken Doric marble column standing alone, snapped off at about half its height with a jagged top",
+   "file": "broken-column.png",
+   "code": "broken-column.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "35,34,92,114",
+   "anchor_y": 0.87,
+   "session": "lampwarden-broken-column-broken-Doric-marble-column-standin",
+   "gen": "mreq_01a16fbbc1d07ca2a13e60ad2c4825ae",
+   "verify": [
+    "mreq_01a16fbbd4cd7842b03bf2408a92764d"
+   ],
+   "first_score": 8,
+   "candidate_scores": [
+    7,
+    8,
+    8
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbbc1d07ca2a13e609bd4e922e4",
+    "mreq_01a16fbbc1d07ca2a13e60ad2c4825ae",
+    "mreq_01a16fbbc1d47282a7fb871adfbfd538"
+   ],
+   "final": "first",
+   "score": 8,
+   "passed": true,
+   "issues": [
+    "Break reads as a smooth diagonal slice with only faint chipping, not strongly jagged at game zoom",
+    "No fallen fragments or rubble to sell the 'snapped off' story"
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "olive-young": {
+   "brief": "young olive tree with a straight slender trunk and a round, full silver-green canopy",
+   "file": "olive-young.png",
+   "code": "olive-young.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "26,13,106,107",
+   "anchor_y": 0.81,
+   "session": "lampwarden-olive-young-young-olive-tree-with-a-straight-s",
+   "gen": "mreq_01a16fbb8bd17513a5336cb89c201dcb",
+   "verify": [
+    "mreq_01a16fbba4b27df095d338fa0756fd76",
+    "mreq_01a16fbbd2707cb282b883c14045b932"
+   ],
+   "first_score": 6,
+   "candidate_scores": [
+    5,
+    6,
+    6
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbb8bb07561a19411c6e777fc5e",
+    "mreq_01a16fbb8bd17513a5336cb89c201dcb",
+    "mreq_01a16fbb8bd17513a5336ca51eaab7e4"
+   ],
+   "fix": "mreq_01a16fbbfdf475408839bbbc843f8c8e",
+   "fixed_verify": [
+    "mreq_01a16fbc25b27a41baf5290f1e8e02fe"
+   ],
+   "fixed_score": 5,
+   "final": "first",
+   "score": 6,
+   "passed": false,
+   "issues": [
+    "Canopy reads yellow-khaki, not silver-green, so the tree reads as a generic deciduous tree rather than an olive",
+    "Canopy is three lumpy blobs lopsided to the right, not a single round full crown",
+    "Trunk is short and stubby with a wide flared base, not straight and slender",
+    "Nothing olive-specific is visible (no silvery foliage), so the setting fit is weak"
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "votive-altar": {
+   "brief": "small marble votive altar with a bronze oil bowl burning a low flame on top",
+   "file": "votive-altar.png",
+   "code": "votive-altar.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "26,39,101,118",
+   "anchor_y": 0.9,
+   "session": "lampwarden-votive-altar-small-marble-votive-altar-with-a-b",
+   "gen": "mreq_01a16fbc09317c60b8c73d0455a61854",
+   "verify": [
+    "mreq_01a16fbc2dbe77b2bb9a91fbf2dc4b8e",
+    "mreq_01a16fbc54e670e08627650b40f7354b"
+   ],
+   "first_score": 7,
+   "candidate_scores": [
+    6,
+    7,
+    6.5
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbc09327512bd0029545c5c7689",
+    "mreq_01a16fbc09317c60b8c73d0455a61854",
+    "mreq_01a16fbc093477909140dbeec0a3b65e"
+   ],
+   "final": "first",
+   "score": 7,
+   "passed": true,
+   "issues": [
+    "Oil bowl reads as a wide, flat gold platter rather than a deep bronze bowl, and it overhangs the altar top",
+    "Flame is a smooth solid cone with little flicker, so it reads a little like a candy-corn spike",
+    "Bronze looks pale gold at this size, which weakens the 'bronze' read"
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "house-ochre": {
+   "brief": "two-storey Greek town house with ochre walls, a terracotta tiled gable roof, green shutters, flowering plant pots and a striped awning over the door",
+   "file": "house-ochre.png",
+   "code": "house-ochre.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "24,25,103,121",
+   "anchor_y": 0.92,
+   "session": "lampwarden-house-ochre-two-storey-Greek-town-house-with-o",
+   "gen": "mreq_01a16fbc43237dd291608c13c13c6ded",
+   "verify": [
+    "mreq_01a16fbc58a9757194a4f8b3f33baafc"
+   ],
+   "first_score": 8,
+   "candidate_scores": [
+    8,
+    6.5,
+    6.5
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbc43237dd291608c13c13c6ded",
+    "mreq_01a16fbc432175b382cf4d9a4db1f57d",
+    "mreq_01a16fbc43227391a7619b48ad10ffb4"
+   ],
+   "final": "first",
+   "score": 8,
+   "passed": true,
+   "issues": [
+    "Walls read as pale sandy beige rather than a warm ochre.",
+    "The door is hidden under the awning; only the awning posts show, so the entrance does not read.",
+    "Glazed, paned windows look slightly modern-Mediterranean rather than ancient Greek.",
+    "house() and the material 'ochre' are not in the builder reference, so the wall colour fell back to an unintended ramp."
+   ],
+   "rendered_with": "vercel-sandbox"
+  },
+  "amphora-stack": {
+   "brief": "stack of terracotta amphorae leaning together against each other, black-figure painted, as left on a quay",
+   "file": "amphora-stack.png",
+   "code": "amphora-stack.ts",
+   "source": "mubit",
+   "flags": "ok",
+   "bbox": "26,27,101,117",
+   "anchor_y": 0.89,
+   "session": "lampwarden-amphora-stack-stack-of-terracotta-amphorae-leani",
+   "gen": "mreq_01a16fbc1759796087495d1c84fe6513",
+   "verify": [
+    "mreq_01a16fbc48e276429cba6b06b3512127",
+    "mreq_01a16fbc748278b29418535400367c82"
+   ],
+   "first_score": 6,
+   "candidate_scores": [
+    0,
+    6,
+    6
+   ],
+   "candidate_gen": [
+    "mreq_01a16fbc17587752b105337d242e0a85",
+    "mreq_01a16fbc1759796087495d1c84fe6513",
+    "mreq_01a16fbc175a73d0905b8cef7188b825"
+   ],
+   "fix": "mreq_01a16fbcb32071f1a1353fcf450b996b",
+   "fixed_verify": [
+    "mreq_01a16fbcd3ac76b1b5a158b3630d6b69"
+   ],
+   "fixed_score": 4,
+   "final": "first",
+   "score": 6,
+   "passed": false,
+   "issues": [
+    "All five amphorae stand perfectly upright; none leans against another, so the 'leaning together' part of the brief is missing",
+    "Jars sit in a spread grid on separate spots instead of a tight propped stack touching at the shoulders",
+    "Quay context is weak: the white linen k.ring reads as a donut, not a coiled rope, and there is no stone ground",
+    "The small terracotta ellipsoid shard reads as a loose blob"
+   ],
+   "rendered_with": "vercel-sandbox"
   }
  },
  "hero_frames": {

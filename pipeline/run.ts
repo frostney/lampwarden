@@ -1,11 +1,12 @@
 // Lampwarden asset pipeline: brief -> generator (Opus via Mubit) -> render -> verifier (Opus via Mubit, image) -> one fix
 // -> best-of -> public/sprites.
 //
-// usage: MUBIT_API_KEY=... VERCEL_SANDBOX_SNAPSHOT_ID=... bun --no-env-file pipeline/run.ts [--out public/sprites]
-//                                                            [--pose idle] [--concurrency 4] [--no-prompt-caching] "brief one" ...
-//        bun --no-env-file pipeline/run.ts --file briefs.json      # {"id": ["category", "brief"], ...}
-// Every render runs in the Vercel Sandbox (docs/tooling.md, "Rendering needs Vercel auth"). The keys (MUBIT_API_KEY, the
-// Vercel OIDC token) are read from the environment only; they are never printed, logged or written to disk.
+// usage: bun run assets -- [--out public/sprites] [--pose idle] [--concurrency 4] [--no-prompt-caching] "brief one" ...
+//        bun run assets -- --file briefs.json      # {"id": ["category", "brief"], ...}
+// `bun run assets` is `varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/run.ts`: the variables
+// tagged `pipeline` in .env.schema (MUBIT_API_KEY, VERCEL_SANDBOX_SNAPSHOT_ID, VERCEL_OIDC_TOKEN) reach this process and
+// nothing else. Every render runs in the Vercel Sandbox (docs/tooling.md, "Rendering needs Vercel auth"). The keys are read
+// from the environment only; they are never printed, logged or written to disk.
 // Every Mubit call (request id, status, tokens, verdict) is appended to pipeline/runs/run.jsonl (no key, no headers).
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -58,7 +59,10 @@ const briefs: Brief[] = values.file
   : positionals.map((text) => ({ id: slugify(text), category: "brief", text }));
 if (briefs.length === 0) throw new Error("give at least one brief");
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey) throw new Error("MUBIT_API_KEY is not set (export it in your shell; do not put it in files)");
+if (!apiKey)
+  throw new Error(
+    "MUBIT_API_KEY is not set (export it in your shell, or resolve it from .env.local; see docs/tooling.md)",
+  );
 
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
 const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8");

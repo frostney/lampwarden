@@ -38,13 +38,13 @@ The Good/Bad button in the Mubit console rates a model output. It is feedback on
 ## Running it
 
 ```bash
-export MUBIT_API_KEY=...         # read from the environment only; never printed or written to disk
-export VERCEL_SANDBOX_SNAPSHOT_ID=snap_...   # from `bun run sandbox:snapshot`; needs `vercel link` first (docs/tooling.md)
+export MUBIT_API_KEY=...         # or resolve it in .env.local (docs/tooling.md, "Environment"); never printed or written to disk
+export VERCEL_SANDBOX_SNAPSHOT_ID=snap_...   # or in .env.local; from `bun run sandbox:snapshot`, which needs `vercel link` first
 bun run assets -- "Ionic marble column"            # writes public/sprites/ionic-marble-column.*
 bun run assets -- --file briefs.json               # {"id": ["category", "brief"], ...}
 ```
 
-`bun run assets` is `bun --no-env-file pipeline/run.ts`: bun does not load `.env` files into the process, so a token that happens to sit in one never reaches the pipeline; export what a run needs.
+`bun run assets` is `varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/run.ts`: bun does not load `.env` files into the process, and Varlock gives it only the variables tagged `pipeline` in `.env.schema` (the Mubit key and the Vercel sandbox settings), so nothing else that sits in your shell or in `.env.local` reaches the pipeline. The model-written build code runs in a sandbox VM that never inherits any of them.
 
 Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses such as `walk3`), `--file briefs.json`, `--no-prompt-caching`, `--concurrency N` (briefs in flight; default 4, each with its own sandbox per render). The manifest rows and PNGs are overwritten per id; commit the ones you want to keep.
 

@@ -12,7 +12,7 @@ export function checkoutSandboxOptions(overrides: Partial<RenderSandboxOptions> 
   const snapshotId = process.env.VERCEL_SANDBOX_SNAPSHOT_ID;
   if (!snapshotId) {
     throw new Error(
-      "VERCEL_SANDBOX_SNAPSHOT_ID is not set: run `bun run sandbox:snapshot` (after `vercel link`) and export the id it prints",
+      "VERCEL_SANDBOX_SNAPSHOT_ID is not set: run `bun run sandbox:snapshot` (after `vercel link`) and put the id it prints in .env.local (or export it)",
     );
   }
   checkoutBundleSha ??= runnerBundleSha(readRunnerFiles(import.meta.dir));

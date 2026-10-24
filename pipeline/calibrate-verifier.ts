@@ -1,7 +1,7 @@
 // Scores our own committed art with the verifier exactly as the creature job does (same prompt, same message, the
 // borderline double-take), so the acceptance bar can be set against it: the score that most of our own sprites reach.
 //
-// usage: MUBIT_API_KEY=... VERCEL_SANDBOX_SNAPSHOT_ID=... bun --no-env-file pipeline/calibrate-verifier.ts [--out scores.json]
+// usage: bun run calibrate:verifier -- [--out scores.json]
 //        [--repeat 1] [--concurrency 4]
 // Every sprite is re-rendered from its committed build code, all of them in one Vercel Sandbox batch (the PNG is
 // byte-identical to the committed one), so the verifier gets the same engine stats it would in a job. Needs Vercel auth

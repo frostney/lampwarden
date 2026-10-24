@@ -4,11 +4,12 @@
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun install`                          | Installs dependencies from `bun.lock` and installs the Lefthook hooks (`prepare`).                                                                                           |
 | `bun run dev` / `build` / `start`      | Next.js dev server, production build, production server.                                                                                                                     |
-| `bun run check`                        | The gate: `lint`, `typecheck`, `bun test`, `knip`, `build`, in that order.                                                                                                   |
+| `bun run check`                        | The gate: `lint`, `typecheck`, `bun test`, `knip`, `scan`, `build`, in that order.                                                                                           |
 | `bun run lint` / `format`              | Biome check, and Biome check with fixes (format, lint fixes, import order).                                                                                                  |
-| `bun run typecheck`                    | `tsc --noEmit` with the strict flags from `typescript-stack`.                                                                                                                |
+| `bun run typecheck`                    | Generates `env.d.ts` from `.env.schema` (`varlock codegen`), then `tsc --noEmit` with the strict flags from `typescript-stack`.                                              |
 | `bun test`                             | Unit tests, co-located with source under `src/` (`*.test.ts`).                                                                                                               |
-| `bun run knip`                         | Unused files, exports and dependencies.                                                                                                                                      |
+| `bun run knip`                         | Unused files, exports and dependencies (run under `varlock run`, because Knip loads `next.config.ts`).                                                                       |
+| `bun run scan`                         | `varlock scan`: fails when the value of a secret declared in `.env.schema` that this machine can resolve sits in plaintext in a tracked or unignored file (Environment).     |
 | `bun run verify:visual -- --url <url>` | The end-to-end check, `e2e/verify-visual.mjs`: a headed visual verifier (desktop Chromium, iPhone profiles in WebKit, a mocked gamepad); writes `verify-out/`.               |
 | `bun run walkthrough -- <script.ts>`   | Records a pull request's narrated, subtitled walkthrough, `e2e/walkthrough.ts`, from a script of segments (example: `e2e/walkthroughs/title.ts`); writes `walkthrough-out/`. |
 | `bun run balance`                      | Plays nights headlessly with an idle and a bot warden (`-- --director`: under stub director decisions).                                                                      |
@@ -33,9 +34,44 @@ Lefthook runs `biome check --write` on staged files before each commit and re-st
 
 ## Environment
 
-`.env.local` (from `vercel env pull`) holds `BLOB_READ_WRITE_TOKEN` for recorded plays. The asset pipeline reads
-`MUBIT_API_KEY` and `VERCEL_SANDBOX_SNAPSHOT_ID` from the shell environment only, and runs under `bun --no-env-file` so
-bun does not load `.env` files into the process.
+[Varlock](https://varlock.dev) owns the environment. `.env.schema` lists every variable the code reads, with its type,
+what it is for, where it is required and whether it is secret; it holds no secret values and is committed. Nothing
+reads a variable that is not declared there (AGENTS.md). `bunx varlock load` prints what the schema resolves to on
+this machine (secrets redacted), and `APP_ENV=production bunx varlock load` what a production build would demand.
+
+**Where values come from**, highest first: the process environment (Vercel's project settings, or your shell), then
+`.env.local` (git-ignored), then the defaults written in `.env.schema`. `APP_ENV` is the environment flag: Vercel's
+`VERCEL_ENV` (`preview` or `production`) there, `development` anywhere else. The Mubit key, the sandbox snapshot, the
+creature rate salt and the Blob token are required in `preview` and `production` and optional in `development`: the
+code turns live generation off without them and still serves the gallery, so a local run needs none of them, and a
+deployment that lacks one fails its build instead of quietly generating nothing. The director's variables are all
+optional (without a key or salt every answer is the rules').
+
+**Next.js** loads the schema through `@varlock/nextjs-integration`, which `package.json` `overrides` in place of
+`@next/env`, plus `varlockNextConfigPlugin` in `next.config.ts`. `next dev` and `next build` print
+`✨ loaded by varlock ✨` when it is active; without that banner the override did not apply (delete `node_modules` and
+`bun.lock`, then `bun install`). It validates the environment before the build starts, redacts sensitive values from
+`console` output, fails a build whose prerendered output holds a sensitive value, and stops a route from returning one
+in a response. Server code reads `ENV` from `varlock/env`, typed by `env.d.ts`, which `varlock codegen` writes from the
+schema; it is git-ignored, and `typecheck`, `next dev` and `next build` regenerate it (run `bunx varlock codegen` once after cloning, for the editor). Two reads stay on `process.env`
+on purpose: `NEXT_PUBLIC_SIM_FINGERPRINT` in `src/game/plays.ts`, which `next.config.ts` computes and inlines and which
+`bun test` also reads, and the scripts below, which receive plain variables.
+
+**Scripts and the pipeline** run as `varlock run --inject vars --filter=<what it needs> -- bun --no-env-file <script>`
+(`package.json`). `--no-env-file` keeps bun from loading any `.env` file into the process, as before. `--filter` gives
+the script only the variables it needs, removes every other schema variable from its environment (even one exported in
+your shell) and does not resolve the rest at all, so `bun run plays` never asks for the Mubit key. `--inject vars`
+leaves out the `__VARLOCK_ENV` blob, which holds every resolved value.
+
+| Command                                         | Receives                                                                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `bun run assets`                                | The variables tagged `pipeline` in `.env.schema`: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`. |
+| `bun run calibrate:verifier`                    | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (it renders the committed art in the sandbox).     |
+| `bun run check:pixels`, `assets:hero`, `render` | `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`.                                                                    |
+| `bun run sandbox:snapshot`                      | `VERCEL_OIDC_TOKEN` (or the Vercel CLI login of a `vercel link`ed project).                                              |
+| `bun run plays`                                 | `BLOB_READ_WRITE_TOKEN`.                                                                                                 |
+
+`kit`, `logo` and `balance` need no variable and get none.
 
 ## Rendering needs Vercel auth
 
@@ -44,11 +80,12 @@ Vercel Sandbox is the only way to render and the source of truth for every pixel
 1. **A Vercel login and a linked project.** `bunx vercel login`, then `bunx vercel link` in the checkout (pick the
    `lampwarden` project; non-interactively: `vercel link --yes --project lampwarden --scope <team>`). That writes the
    git-ignored `.vercel/project.json`, and the sandbox SDK then refreshes an OIDC token from the CLI login by itself.
-   Alternatives: export `VERCEL_OIDC_TOKEN` (from `vercel env pull`; it expires after 12 hours) or `VERCEL_TOKEN` +
-   `VERCEL_TEAM_ID` + `VERCEL_PROJECT_ID`. The token never enters the VM and is never printed.
+   Alternatively `vercel env pull .env.local` writes `VERCEL_OIDC_TOKEN` (it expires after 12 hours). The SDK reads no
+   `VERCEL_TOKEN`. The token never enters the VM and is never printed.
 2. **A snapshot.** `bun run sandbox:snapshot` boots a VM, installs the pinned Bun 1.4.4 (checked against a SHA-256), cuts
    the network, copies in the kit and runner with a `SNAPSHOT.json` manifest, renders `lamp-lit` and requires it to match
-   the committed PNG byte for byte, and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Export that id in your shell.
+   the committed PNG byte for byte, and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Put that in `.env.local` (or
+   export it in your shell).
 3. **A snapshot that matches the checkout.** A change to `pipeline/kit/kit.ts` or anything in `pipeline/render/` needs a
    new snapshot. Every render reads the manifest first; `check:pixels` exits 3 with "the sandbox snapshot holds a
    different kit or runner than this checkout ... run `bun run sandbox:snapshot`" when it does not match, and a render
@@ -56,11 +93,54 @@ Vercel Sandbox is the only way to render and the source of truth for every pixel
 
 Renders go out as batches (`pipeline/render-vercel-sandbox.ts`): one VM renders many builds, one process each with its
 own deadline, so one build that throws or hangs fails only itself. Items in a batch share a VM, so a batch holds builds
-from one trust domain (one creature's frames, or this repository's own sprites). Deployed, the function authenticates with
-the deployment's OIDC token and needs only `VERCEL_SANDBOX_SNAPSHOT_ID` (README, "Deploying"). Snapshots are created
-without an expiry; delete old ones with `vercel sandbox snapshots` when they pile up.
+from one trust domain (one creature's frames, or this repository's own sprites). Deployed, the function authenticates
+with the deployment's OIDC token and needs only `VERCEL_SANDBOX_SNAPSHOT_ID` (README, "Deploying"). Snapshots are
+created without an expiry; delete old ones with `vercel sandbox snapshots` when they pile up.
 
-The deployed director route reads `MUBIT_API_KEY`, `DIRECTOR_RATE_SALT` (or `CREATURE_RATE_SALT`) and the optional `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX` and `DIRECTOR_PLAYS_PREFIX` (README, "Deploying"). The deployed creature routes read `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` and the optional `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY` and `CREATURE_BLOB_PREFIX` from the project's environment (README, "Deploying").
+Model-written build code never sees any of the environment: the sandbox runs it with `KIT_OUT` only. The Vercel Sandbox
+SDK authenticates with the platform's OIDC token on Vercel (it arrives with the request) and locally with
+`VERCEL_OIDC_TOKEN` or the CLI login of a linked project.
+
+**Keys on your machine** go in `.env.local` (git-ignored), resolved from a store instead of written as plaintext.
+A key kept in a file, such as `~/.config/mubit/api_key`:
+
+```
+# .env.local
+MUBIT_API_KEY=exec(`cat ~/.config/mubit/api_key`)
+```
+
+`exec()` runs the command in a shell each time the schema loads and trims the newline; `bunx varlock load` shows
+whether it worked. On macOS the Keychain works too, behind Touch ID:
+
+```
+# .env.local
+MUBIT_API_KEY=keychain("lampwarden-mubit")
+```
+
+(`bunx varlock keychain set MUBIT_API_KEY --profile dev --write-to .env.local` stores a key at a masked prompt and
+writes the matching reference.) `keychain()` resolves whenever Varlock loads the schema (`next dev`, `next build`,
+the commit hook below), so each of those can prompt, unless the command filters the variable out, as the scripts do.
+Never write a key into `.env.local` as plaintext, and never into `.env.schema`. `vercel env pull .env.local` writes
+plaintext values (the Blob token, the OIDC token); that file is git-ignored too.
+
+**Leaks are checked at three points.** At build, Varlock fails `next build` when a sensitive value is in prerendered
+output (a client component that renders `ENV.MUBIT_API_KEY` fails the build with `DETECTED LEAKED SENSITIVE CONFIG`),
+and at run time it replaces a sensitive value in `console` output with `▒▒▒▒▒` and refuses a `Response.json` that
+holds one. At commit, Lefthook runs `varlock scan --staged` next to Biome, and `bun run scan` (part of `check`) scans
+the tree: both look for the actual values of the secrets this machine can resolve, so with no key in `.env.local`
+they have nothing to look for and say so. gitleaks looks for key-shaped strings whatever their value, so it stays:
+run `gitleaks git --redact .` before every push (AGENTS.md).
+
+**Vercel.** Varlock reads the project's environment variables during the build and writes the resolved values into the
+server output, which is how the functions get them. That output is encrypted (AES-256-GCM) with `_VARLOCK_ENV_KEY`, a
+sensitive variable set for `preview` and `production`; `# @encryptInjectedEnv=forEnv(preview, production)` in the
+header of `.env.schema` makes a build without the key fail instead of shipping the values as plaintext JSON. To set up
+a new project, or replace a key:
+
+```
+bunx varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY preview --sensitive
+bunx varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive
+```
 
 ## Visual verifier
 

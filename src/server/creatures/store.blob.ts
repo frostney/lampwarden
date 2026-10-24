@@ -3,12 +3,14 @@
 // Layout under a configurable prefix (default "creatures"; live tests use another so the real gallery stays clean):
 //   <prefix>/records/<id>.json        accepted creatures (ids start with their creation time, so a sort is newest-first)
 //   <prefix>/sprites/<id>.png|.ts     the sprite and the build code that drew it
+//   <prefix>/sprites/<id>.atlas.png   the animation atlas, for a creature whose record has `frames`
 //   <prefix>/jobs/<jobId>.json        job status, rewritten at every step
 //   <prefix>/state/running.json       the global "one job at a time" mark, claimed with a conditional write
 //   <prefix>/starts/...               one tiny blob per job start, counted for the rate limits
 import { BlobError, BlobPreconditionFailedError, get, list, put } from "@vercel/blob";
 import { z } from "zod";
-import { type Creature, type CreatureJob, creatureSchema, JOB_STEPS } from "@/game/creature";
+import { type CreatureJob, JOB_STEPS } from "@/game/creature";
+import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import type { CreatureStore, RunningLock } from "./store";
 
 const RECORD_ID = /^[a-z0-9-]{8,80}$/;
@@ -16,7 +18,7 @@ const RECORD_ID = /^[a-z0-9-]{8,80}$/;
 const jobSchema = z.object({
   jobId: z.string(),
   step: z.enum(JOB_STEPS),
-  creature: creatureSchema.optional(),
+  creature: creatureRecordSchema.optional(),
   error: z.string().optional(),
   updatedAt: z.string(),
 });
@@ -28,6 +30,7 @@ export function createBlobStore(prefix: string): CreatureStore {
   const path = {
     record: (id: string) => `${prefix}/records/${id}.json`,
     sprite: (id: string) => `${prefix}/sprites/${id}.png`,
+    atlas: (id: string) => `${prefix}/sprites/${id}.atlas.png`,
     code: (id: string) => `${prefix}/sprites/${id}.ts`,
     job: (jobId: string) => `${prefix}/jobs/${jobId}.json`,
     running: `${prefix}/state/running.json`,
@@ -70,7 +73,7 @@ export function createBlobStore(prefix: string): CreatureStore {
       const stored = await readText(path.record(id));
       if (!stored) return null;
       try {
-        const parsed = creatureSchema.safeParse(JSON.parse(stored.text));
+        const parsed = creatureRecordSchema.safeParse(JSON.parse(stored.text));
         return parsed.success ? parsed.data : null;
       } catch {
         return null;
@@ -82,9 +85,15 @@ export function createBlobStore(prefix: string): CreatureStore {
       return blob?.statusCode === 200 ? blob.stream : null;
     },
 
-    async putCreature(creature: Creature, png, code) {
+    async getAtlas(id) {
+      const blob = await get(path.atlas(id), { access: "private" });
+      return blob?.statusCode === 200 ? blob.stream : null;
+    },
+
+    async putCreature(creature: CreatureRecord, png, code, atlas) {
       const write = { access: "private", addRandomSuffix: false } as const;
       await put(path.sprite(creature.id), Buffer.from(png), { ...write, contentType: "image/png" });
+      if (atlas) await put(path.atlas(creature.id), Buffer.from(atlas), { ...write, contentType: "image/png" });
       await put(path.code(creature.id), code, { ...write, contentType: "text/plain" });
       await put(path.record(creature.id), JSON.stringify(creature), { ...write, contentType: "application/json" });
     },

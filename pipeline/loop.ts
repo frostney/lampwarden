@@ -432,7 +432,7 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
 const CANDIDATE_HINTS = [
   "",
   "\n\nAim for a clear silhouette: turn the figure so its defining parts face the viewer (facing 40), and keep everything well inside the frame.",
-  "\n\nDraw it in a lively pose (an attack or walking pose) at facing 10, with the key parts turned towards the viewer, and keep everything well inside the frame.",
+  "\n\nTurn the figure to a three-quarter view at facing 10, with the key parts turned towards the viewer, and keep everything well inside the frame.",
   "\n\nKeep it as simple as possible: the builder's own defaults wherever the brief does not say otherwise, and only the parameters the brief names.",
   "\n\nGive each named part a strong, contrasting colour so it stands out from the body.",
 ];

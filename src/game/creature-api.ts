@@ -4,28 +4,27 @@
 import { z } from "zod";
 import {
   CREATURE_API,
-  type Creature,
   type CreatureJob,
   creatureJobPath,
-  creatureSchema,
   JOB_STEPS,
   type NextCreatureRequest,
   type NextCreatureResponse,
 } from "./creature";
+import { type CreatureRecord, creatureRecordSchema } from "./creature-frames";
 
 const REQUEST_TIMEOUT = 8000; // ms: the server answers from its gallery or starts a job, never waits for one
 
-// What the game reads of the contract's answers (the compiler holds these to the shapes in creature.ts). A job id goes
-// into a URL, so it has to look like one.
+// What the game reads of the contract's answers (the compiler holds these to the shapes in creature.ts). A creature is
+// read with its frame counts, when it has them (creature-frames.ts). A job id goes into a URL, so it has to look like one.
 const nextCreatureAnswer: z.ZodType<NextCreatureResponse> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("ready"), creature: creatureSchema }),
+  z.object({ kind: z.literal("ready"), creature: creatureRecordSchema }),
   z.object({ kind: z.literal("generating"), jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/) }),
   z.object({ kind: z.literal("none"), reason: z.enum(["rate-limited", "unavailable"]) }),
 ]);
 
-type JobAnswer = Pick<CreatureJob, "step" | "creature">;
+type JobAnswer = Pick<CreatureJob, "step"> & { creature?: CreatureRecord };
 const jobAnswer: z.ZodType<JobAnswer> = z
-  .object({ step: z.enum(JOB_STEPS), creature: creatureSchema.optional() })
+  .object({ step: z.enum(JOB_STEPS), creature: creatureRecordSchema.optional() })
   .transform(({ step, creature }) => (creature ? { step, creature } : { step }));
 
 async function read<Schema extends z.ZodType>(
@@ -72,7 +71,7 @@ interface WaitOptions {
 
 // Follows a job every couple of seconds until it finishes: the creature when it is done, null when it failed, was
 // let go, took too long, or stopped mattering.
-export async function waitForJob(jobId: string, options: WaitOptions): Promise<Creature | null> {
+export async function waitForJob(jobId: string, options: WaitOptions): Promise<CreatureRecord | null> {
   const { onStep, isCurrent, pollInterval = POLL_INTERVAL, giveUpAfter = GIVE_UP_AFTER } = options;
   const deadline = Date.now() + giveUpAfter;
   let misses = 0;

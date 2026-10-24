@@ -79,6 +79,8 @@ Other scripts:
 
 Every renderer returns the same thing, so the loop does not care which one ran: a `RenderResult` is `{ ok: true, stats, png }` or `{ ok: false, error }`, and a renderer never throws. The stats line a runner prints is validated with Zod once, in `render-types.ts`. Build names and poses may only contain letters, digits, `_` and `-`, because they end up in file paths, generated Shotcup source and a boat shell command.
 
+Timings, parallelism limits, cost and isolation probes for the three sandboxes, and Mubit latency and caching, are in [`docs/LIVE_GENERATION.md`](../docs/LIVE_GENERATION.md).
+
 ## `--render vercel`
 
 `render-vercel-sandbox.ts` runs each build in its own [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) Firecracker microVM: it creates the VM (default image, which ships bun; 1 vCPU; `networkPolicy: "deny-all"`; `persistent: false`), uploads `kit/kit.ts`, `render/run_local.ts` and the shims plus the build, runs the same `bun run_local.ts` as the local renderer with a 30 s limit, reads the PNG back and stops the VM. Nothing is passed into the VM except `KIT_OUT`. The whole render has a 180 s deadline; set `VERCEL_SANDBOX_SNAPSHOT_ID` to boot from a snapshot that already holds the kit (`createRunnerSnapshot`).

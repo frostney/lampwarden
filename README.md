@@ -110,7 +110,7 @@ Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
 - Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
 - `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip (generate, render, verify, fix) has been run through it.
-- **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`.
+- **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`; [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md) compares them for a live generation route, with measured timings, parallelism limits and Mubit latency.
 
 ## Deploy on Vercel
 

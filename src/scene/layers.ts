@@ -32,6 +32,7 @@ import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { cutCharacterFrames, isCharacterKey, splitPaintedShadow, withoutPaintedShadow } from "./rim";
 import { VIGNETTE_STRENGTHS, vignetteTexture } from "./vignette";
+import { SEA_COLOUR } from "./water";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -263,6 +264,13 @@ export function nightTint(progress: number) {
   return dawning < 0.6
     ? mixColours(0x46559a, 0xd08a7a, dawning / 0.6)
     : mixColours(0xd08a7a, 0xffffff, (dawning - 0.6) / 0.4);
+}
+// the open sea under the night tint, which the canvas clears to: the sea covers the stage once the scene draws, so
+// clearing to its own colour keeps the canvas from showing a brighter blue while the textures load
+export const NIGHT_SEA = multiplyColours(SEA_COLOUR, nightTint(0));
+function multiplyColours(colour: number, tint: number) {
+  const channel = (shift: number) => Math.round((((colour >> shift) & 255) * ((tint >> shift) & 255)) / 255);
+  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 // how far the night has run, 0 to 1
 export const nightProgress = (state: State) => Math.min(1, state.elapsed / state.length);

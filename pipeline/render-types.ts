@@ -80,3 +80,20 @@ export function lastErrorLine(standardError: string): string {
   const errorLine = lines.findLast((line) => /^(\w*Error|error)\b/.test(line)) ?? lines.at(-1);
   return errorLine || "error";
 }
+
+/** Rejects with `message` when `work` has not settled after `milliseconds`; `work` itself is left to clean up after itself. */
+export async function withDeadline<Result>(
+  work: Promise<Result>,
+  milliseconds: number,
+  message: string,
+): Promise<Result> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    return await Promise.race([work, expiry]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

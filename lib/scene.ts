@@ -81,6 +81,8 @@ export interface SceneHandle {
   setPaused(p: boolean): void;
   setSpeed(x: number): void;
   freezeClock(c: number | null): void;   // visual verifier: fixed flicker/pulse phase
+  stick(dx: number, dy: number): void;   // touch controls
+  press(k: "melee" | "ranged"): void;
   destroy(): void;
 }
 
@@ -92,6 +94,7 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
 
   let state: State | null = null, sex: Sex = "male", paused = true;
   let driver: Driver | null = null, stepN = 0, acc = 0, speed = 1, frozen: number | null = null;
+  let stickX = 0, stickY = 0;
   const ground = new Graphics(); drawGround(ground);
   const world = new Container({ sortableChildren: true });
   const fx = new Graphics();
@@ -111,6 +114,7 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
   for (const [k, x, y] of PROPS) sprite(k, x, y);
   const trireme = sprite("trireme", 130, 440);
   const hero = sprite("hero/male_idle1", 0, 0);
+  hero.anchor.set(0.5, ANCHOR_Y.hero);   // the texture key is a frame name, so sprite() can't look the anchor up
   const lamps: Sprite[] = [];
   const glows: Sprite[] = [];
   const heads: Sprite[] = [];
@@ -149,8 +153,8 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
       // fixed 60 Hz sim step, so a recorded night replays exactly
       acc += dt * speed;
       let live: Input = quantise({
-        dx: (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0),
-        dy: (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0),
+        dx: Math.max(-1, Math.min(1, (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0) + stickX)),
+        dy: Math.max(-1, Math.min(1, (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0) + stickY)),
         melee: pend.melee, ranged: pend.ranged, aim: pend.aim,
       });
       while (acc >= STEP && !s.outcome) {
@@ -244,9 +248,22 @@ export async function createScene(host: HTMLElement, onTick: (s: State) => void)
 
   return {
     setState(s, sx, d) { state = s; sex = sx; driver = d ?? null; stepN = 0; acc = 0; keys.clear(); },
-    setPaused(p) { paused = p; if (p) keys.clear(); },
+    setPaused(p) { paused = p; if (p) { keys.clear(); stickX = stickY = 0; } },
     setSpeed(x) { speed = x; },
     freezeClock(c) { frozen = c; if (c !== null) clock = c; },
+    stick(dx, dy) { stickX = dx; stickY = dy; },
+    press(k) {
+      if (k === "melee") { pend.melee = true; return; }
+      // no cursor on touch: aim at the nearest monster's body, or along the facing when there is none
+      pend.ranged = true; pend.aim = null;
+      const s = state;
+      if (!s) return;
+      let best = Infinity;
+      for (const m of s.monsters) {
+        const d = Math.hypot(m.x - s.hero.x, (m.y - s.hero.y) * 2);
+        if (d < best) { best = d; pend.aim = { x: m.x, y: m.y - (MONSTER[m.kind].fly ? 56 : 32) }; }
+      }
+    },
     destroy() {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);

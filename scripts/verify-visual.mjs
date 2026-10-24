@@ -6,7 +6,7 @@
 //   verify-out/latest/*.png   this pass        verify-out/baseline/*.png   last approved pass (--update copies latest there)
 //   verify-out/sheet.png      contact sheet    verify-out/report.json      checks and diffs
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
-import { chromium } from "playwright";
+import { chromium, devices, webkit } from "playwright";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -17,7 +17,7 @@ const OUT = "verify-out";
 for (const d of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(d, { recursive: true });
 
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
-const page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
 const lab = await browser.newPage();   // blank page used to decode and compare PNGs
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
@@ -34,9 +34,9 @@ async function freeze() {
   await page.evaluate(() => { const sc = window.lampwarden.scene(); sc.setPaused(true); sc.freezeClock(1.25); });
   await page.waitForTimeout(120); await settle();
 }
-async function shoot(name) {
+async function shoot(name, whole = false) {
   const file = `${OUT}/latest/${name}.png`;
-  await page.locator(".stage").screenshot({ path: file });
+  if (whole) await page.screenshot({ path: file }); else await page.locator(".stage").screenshot({ path: file });
   shots.push(name);
   return readFileSync(file).toString("base64");
 }
@@ -88,6 +88,14 @@ await settle();
 let b = await shoot("01-title");
 let st = await stats(b);
 check("title", "canvas is not blank", st.sd > 12, `luminance sd ${st.sd.toFixed(1)}`);
+const fontsOk = () => page.evaluate(async () => {
+  await document.fonts.ready;
+  const fams = (el) => getComputedStyle(el).fontFamily.split(",").map((f) => f.trim().replace(/["']/g, ""));
+  const want = [...fams(document.querySelector(".logo")).slice(0, 1), ...fams(document.body).slice(0, 1)];
+  return want.map((f) => ({ f, ok: [...document.fonts].some((ff) => ff.family.replace(/["']/g, "") === f && ff.status === "loaded") }));
+});
+const fl = await fontsOk();
+check("title", "pixel fonts loaded (title, UI)", fl.every((x) => x.ok), fl.map((x) => `${x.f}:${x.ok ? "loaded" : "MISSING"}`).join(" "));
 check("title", "logo and start button", (await text(".logo")).join("").includes("LAMPWARDEN") && await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 
 // 2 night start: all five lamps lit
@@ -171,6 +179,71 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
+// --- mobile: WebKit (Safari's engine) on phone profiles, with touch ------------------------------------------
+const wk = await webkit.launch({ headless: HEADLESS });
+const boxes = (sel) => page.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, sel: e.className }; }), sel);
+const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const inView = (b, vw, vh) => { const w = b.w ?? b.width, h = b.h ?? b.height; return b.x >= -1 && b.y >= -1 && b.x + w <= vw + 1 && b.y + h <= vh + 1; };
+for (const [tag, dev] of [["phone-land", devices["iPhone 14 landscape"]], ["phone-port", devices["iPhone 14"]]]) {
+  const ctx = await wk.newContext({ ...dev });
+  page = await ctx.newPage();
+  page.on("pageerror", (e) => errors.push(`${tag}: ${e}`));
+  const { width: vw, height: vh } = dev.viewport;
+  await page.goto(URL_ + "/?verify=1");
+  await page.evaluate(() => localStorage.clear()); await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
+  const ff = await fontsOk();
+  check(tag, "pixel fonts loaded", ff.every((x) => x.ok), ff.map((x) => `${x.f}:${x.ok ? "ok" : "MISSING"}`).join(" "));
+  const [stage] = await boxes(".stage");
+  check(tag, "canvas fits the screen", inView(stage, vw, vh), `${Math.round(stage.w)}x${Math.round(stage.h)} in ${vw}x${vh}`);
+  const [startBtn] = await boxes(".btn.big");
+  check(tag, "start button on screen", inView(startBtn, vw, vh));
+  await shoot(`${tag}-1-title`, true);
+  await page.getByRole("button", { name: "Light the lamps" }).tap();
+  await page.waitForSelector('[data-phase="night"]');
+  await page.waitForTimeout(200);
+  const hudB = await boxes(".hud .stats, .hud .nightbar, .hud .lamps");
+  const ctl = await boxes(".stick, .tbtn");
+  check(tag, "touch controls shown", ctl.length === 3 && ctl.every((b) => b.w > 40 && inView(b, vw, vh)), ctl.map((b) => `${Math.round(b.w)}px`).join(" "));
+  const hudClash = hudB.flatMap((a, i) => hudB.slice(i + 1).filter((b) => overlap(a, b)).map((b) => `${a.sel}×${b.sel}`));
+  check(tag, "HUD blocks don't overlap", hudClash.length === 0, hudClash.join(" "));
+  const ctlClash = ctl.flatMap((c) => hudB.filter((h) => overlap(c, h)).map((h) => `${c.sel}×${h.sel}`));
+  check(tag, "controls clear of the HUD", ctlClash.length === 0, ctlClash.join(" "));
+  const hudPx = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".hud")).fontSize));
+  check(tag, "HUD text at least 10 px", hudPx >= 10, `${hudPx}px`);
+  // stick: hold right for half a second, the warden must move right
+  const x0 = await page.evaluate(() => window.lampwarden.state().hero.x);
+  const st = ctl.find((b) => b.sel.includes("stick"));
+  const cdp = { x: st.x + st.w / 2, y: st.y + st.h / 2 };
+  await page.dispatchEvent(".stick", "pointerdown", { pointerId: 7, clientX: cdp.x, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
+  await page.dispatchEvent(".stick", "pointermove", { pointerId: 7, clientX: cdp.x + 50, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
+  await page.waitForTimeout(500);
+  await page.dispatchEvent(".stick", "pointerup", { pointerId: 7, clientX: cdp.x + 50, clientY: cdp.y, isPrimary: true, pointerType: "touch" });
+  const x1 = await page.evaluate(() => window.lampwarden.state().hero.x);
+  check(tag, "stick moves the warden", x1 - x0 > 30, `Δx ${(x1 - x0).toFixed(0)}`);
+  await page.dispatchEvent(".tbtn.melee", "pointerdown", { pointerId: 8, pointerType: "touch", isPrimary: true });
+  await page.waitForTimeout(60);
+  const anim = await page.evaluate(() => window.lampwarden.state().hero.anim);
+  check(tag, "Strike button strikes", anim === "melee", anim);
+  await page.evaluate(() => { const s = window.lampwarden.state(); s.monsters = []; window.lampwarden.scene().freezeClock(1.25); });
+  await page.waitForTimeout(400); await settle();
+  await shoot(`${tag}-2-night`, true);
+  await page.evaluate(() => { const s = window.lampwarden.state(); s.elapsed = s.length - 0.01; s.oilEarned = 40; });
+  await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25)); await settle();
+  await shoot(`${tag}-3-dawn`, true);
+  // every shop button and the continue button can be scrolled to and tapped
+  const n = await page.locator(".btn.up").count();
+  let reach = 0;
+  for (let i = 0; i < n; i++) { const b = page.locator(".btn.up").nth(i); await b.scrollIntoViewIfNeeded(); const r = await b.boundingBox(); if (r && inView(r, vw, vh)) reach++; }
+  const cont = page.getByRole("button", { name: /Into night/ }); await cont.scrollIntoViewIfNeeded();
+  const cr = await cont.boundingBox();
+  check(tag, "shop and continue reachable", reach === 4 && cr && inView(cr, vw, vh), `${reach}/4 upgrades`);
+  await ctx.close();
+}
+await wk.close();
+
 // --- diffs against the last approved pass, contact sheet ----------------------------------------------------
 const diffs = {};
 for (const n of shots) {
@@ -184,8 +257,8 @@ const cells = shots.map((n) => {
   const d = diffs[n] === undefined ? "new" : `${(diffs[n] * 100).toFixed(1)}% changed`;
   return `<figure><img src="data:image/png;base64,${readFileSync(`${OUT}/latest/${n}.png`).toString("base64")}"><figcaption>${n} · ${d}${fails ? ` · <b>${fails} FAILED</b>` : ""}</figcaption></figure>`;
 }).join("");
-await sheet.setContent(`<style>body{margin:0;background:#111;color:#eee;font:13px monospace;display:grid;grid-template-columns:repeat(4,480px);gap:4px;padding:4px}
-figure{margin:0}img{width:480px;image-rendering:pixelated;display:block}figcaption{padding:2px 0}b{color:#ff6b5b}</style>${cells}`);
+await sheet.setContent(`<style>body{margin:0;background:#111;color:#eee;font:13px monospace;display:grid;grid-template-columns:repeat(4,480px);align-items:start;gap:4px;padding:4px}
+figure{margin:0}img{max-width:480px;max-height:520px;image-rendering:pixelated;display:block}figcaption{padding:2px 0}b{color:#ff6b5b}</style>${cells}`);
 await sheet.screenshot({ path: `${OUT}/sheet.png`, fullPage: true });
 
 const failed = checks.filter((c) => !c.ok);

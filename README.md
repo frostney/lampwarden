@@ -46,7 +46,7 @@ The kit in `pipeline/kit/` is a small isometric renderer and a set of builders (
 Hard rules: every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5` and never sends `temperature`. Pixel art is made by code in this repository. The Mubit console's Good/Bad button rates one output and does not feed this loop; the verifier does.
 
 ```bash
-export MUBIT_API_KEY=...   # from the environment only
+export MUBIT_API_KEY=...   # or resolve it in .env.local (docs/tooling.md); never in a committed file
 bun run assets -- "Ionic marble column"
 ```
 
@@ -98,7 +98,7 @@ After each night, `POST /api/director` (`src/app/api/director/`) sends that nigh
 
 ## Deploying
 
-Playing needs no keys: the sprites are static files. Recorded plays and the creature gallery need a Blob token, and live creatures need the Mubit and sandbox settings below. Keys come from the environment only and are never committed; the pipeline commands run under `bun --no-env-file`.
+Playing needs no keys: the sprites are static files. Recorded plays and the creature gallery need a Blob token, and live creatures need the Mubit and sandbox settings below. Every variable is declared in [`.env.schema`](.env.schema) (type, where it is required, which are secret), which [Varlock](https://varlock.dev) validates and loads for `next dev` and `next build`; keys come from the environment only and are never committed. The table lists what to set on the Vercel project (Production and Preview). The pipeline commands run under `varlock run` and `bun --no-env-file`, so each gets only the variables it needs ([`docs/tooling.md`](docs/tooling.md), "Environment").
 
 | Variable                                                                                                                 | For                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -110,7 +110,7 @@ Playing needs no keys: the sprites are static files. Recorded plays and the crea
 | `DIRECTOR_RATE_SALT` (else `CREATURE_RATE_SALT`)                                                                         | Live director: at least 16 characters; without a salt, or without `MUBIT_API_KEY`, every answer is the rules'.                                    |
 | `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX`, `DIRECTOR_PLAYS_PREFIX` | Optional: defaults 40, 2000, `director` (where decisions are logged) and `plays` (where it reads recorded plays; a test run points it elsewhere). |
 
-Without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment.
+A build for `preview` or `production` fails when `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, `CREATURE_RATE_SALT` or `BLOB_READ_WRITE_TOKEN` is missing, so a deployment never ships with generation silently off. Locally, without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment. Varlock writes the project's resolved values into the build output, encrypted with `_VARLOCK_ENV_KEY`, and a build without that key fails ("Vercel" in [`docs/tooling.md`](docs/tooling.md)).
 
 ## Recorded plays and replays
 

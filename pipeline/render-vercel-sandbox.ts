@@ -10,10 +10,10 @@
 // passes the runner files (render-vercel-cli.ts) or the expected bundle digest (the function's renderer).
 //
 // Authentication is the SDK's: on Vercel, the deployment's OIDC token; locally VERCEL_OIDC_TOKEN from the environment
-// (`vercel env pull` writes it to .env.local), or VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID, or, with neither,
-// an OIDC token the SDK refreshes from the Vercel CLI login and the linked project (.vercel/project.json from `vercel
-// link`). None of it enters the VM, is printed or logged. Run the pipeline with `bun --no-env-file` so bun does not
-// load .env files into the process.
+// (`vercel env pull` writes it to .env.local) or, without it, an OIDC token the SDK refreshes from the Vercel CLI login
+// and the linked project (.vercel/project.json from `vercel link`); SDK 3.9.0 reads no VERCEL_TOKEN from the environment.
+// None of it enters the VM, is printed or logged. The pipeline scripts run as `varlock run ... -- bun --no-env-file`
+// (package.json): bun loads no .env file, and varlock hands the script only the variables it needs from .env.schema.
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox";
 import {
   invalidRequestReason,

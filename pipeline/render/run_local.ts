@@ -1,4 +1,4 @@
-// bun --preload ./shim_plugin.ts run_local.ts <build.ts> <name> [pose]   (RIG_OUT = output dir, default ./out)
+// bun --preload ./shim_plugin.ts run_local.ts <build.ts> <name> [pose]   (KIT_OUT = output dir, default ./out)
 import { createCanvas } from './shim_canvas.ts';
 import * as K from '../kit/kit.ts';
 import { readFileSync } from 'node:fs';

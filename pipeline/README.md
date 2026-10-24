@@ -19,7 +19,7 @@ brief ──► generator (Opus via Mubit) ──► build(k) code ──► ren
 4. **Fix.** If not passed, one fix call goes back to the generator (same Mubit session) with the verifier's issues and fix text. The fixed code is rendered and verified the same way.
 5. **Best-of.** The higher-scoring attempt is kept (ties go to the first attempt). Its PNG, builder code and manifest row (brief, score, issues, request ids) are written to `public/sprites/`.
 
-Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. The generated code is rendered in a subprocess that does not get `MUBIT_API_KEY`.
+Details: max tokens are 1500 for generation (one retry at 4000 on truncation), 3000 for the fix and 1800 for the verifier; one retry on 429/5xx/timeout; no `temperature` is sent. Model code that mentions `import`, `require`, `process`, `Bun`, `fetch`, `eval`, `Function`, `globalThis`, `XMLHttpRequest` or `Deno` is rejected before it runs. That regex is a tripwire, not a sandbox (string-built names get past it), so the generated code is rendered in a subprocess whose environment is an allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `KIT_OUT`; see `local_render.py`): no API key or other secret from your shell reaches it. It still runs with your user's file and network access; use the Shotcup renderer when that matters.
 
 ### Mubit
 

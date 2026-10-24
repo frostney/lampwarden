@@ -9,6 +9,8 @@ Every Mubit call (request id, status, tokens, verdict) is appended to pipeline/r
 import json, os, re, sys, time, subprocess, hashlib, base64, io, argparse, urllib.request, urllib.error, threading
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from local_render import render_file
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 URL = "https://api.mubit.ai/anthropic/v1/messages"; MODEL = "claude-opus-5-5"
 sha = lambda s: hashlib.sha256(s.encode()).hexdigest()[:12]
@@ -42,7 +44,7 @@ def call(task, system, messages, sess, meta, max_tokens):
     st, rid, ms, js, err = raw_call(system, messages, sess, max_tokens); first = None
     if st in RETRY or st is None:   # one retry
         first = {"status": st, "rid": rid, "ms": ms, "error": err}; time.sleep(5); st, rid, ms, js, err = raw_call(system, messages, sess, max_tokens)
-    rec = {"ts": time.strftime("%H:%M:%S"), "task": task, "status": st, "rid": rid, "ms": ms, "session": sess, "model": MODEL, "system_sha": sha(system if task in ("gen", "fix") else system), **meta}
+    rec = {"ts": time.strftime("%H:%M:%S"), "task": task, "status": st, "rid": rid, "ms": ms, "session": sess, "model": MODEL, "system_sha": sha(system), **meta}
     if first: rec["first_try"] = first
     txt = None
     if js is None: rec["error"] = err
@@ -93,11 +95,7 @@ def gen(task, msgs, sess, meta, mt):
 # ---- renderers: both return (stats dict, None) or (None, error). The PNG lands in out/<name>.png ----
 def render_local(code, name, out, pose=""):
     src = os.path.join(out, name + ".ts"); open(src, "w").write(code + "\n")
-    env = {k: v for k, v in os.environ.items() if k != "MUBIT_API_KEY"}; env["RIG_OUT"] = out   # generated code never sees the key
-    try: p = subprocess.run(["bun", "--preload", "./shim_plugin.ts", "run_local.ts", src, name, pose], cwd=os.path.join(HERE, "render"), env=env, capture_output=True, text=True, timeout=30)
-    except subprocess.TimeoutExpired: return None, "render timed out"
-    if p.returncode != 0: return None, (p.stderr.strip().splitlines() or ["error"])[-1][:300]
-    return json.loads(p.stdout.strip().splitlines()[-1]), None
+    return render_file(src, name, out, pose)   # allowlisted env: generated code never sees MUBIT_API_KEY or any other secret
 
 def render(code, name, out, mode, pose=""):
     if BANNED.search(code): return None, "rejected: banned identifier " + BANNED.search(code).group(0)

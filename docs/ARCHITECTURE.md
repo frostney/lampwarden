@@ -24,7 +24,7 @@ docs/ARCHITECTURE.md this file
 ## Sprite flow
 
 1. `npm run assets -- "your brief"`, or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && RIG_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how `temple` and `house` were made; re-running it for `ex_house.ts` reproduces the committed `house.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
+   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how `temple` and `house` were made; re-running it for `ex_house.ts` reproduces the committed `house.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `lib/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `Game.tsx` (static props are listed in the scene's depth-sorted entity list) or in `lib/sim.ts` (`MonsterKind` + `MONSTER` stats + spawn logic) if it should move.

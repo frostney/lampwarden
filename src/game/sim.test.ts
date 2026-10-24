@@ -9,6 +9,7 @@ import {
   type MonsterKind,
   NO_INPUT,
   newNight,
+  nextTide,
   PLAZA_HALF_HEIGHT,
   PLAZA_HALF_WIDTH,
   type State,
@@ -425,5 +426,79 @@ describe("the upgrades", () => {
     expect(upgraded.spread).toBe(true);
     expect(upgraded.lightRadius).toBe(base.lightRadius + 24);
     expect(upgraded.snuffMultiplier).toBeGreaterThan(base.snuffMultiplier);
+  });
+});
+
+describe("the pace of the sea", () => {
+  // The seconds between the first spawns of a night, from a warden who cannot be hurt and stands still.
+  function spawnGaps(night: number, tide = 1): number[] {
+    const legacy = newLegacy(1);
+    legacy.night = night;
+    legacy.tide = tide;
+    const state = newNight(legacy, 1);
+    state.hero.health = Number.POSITIVE_INFINITY;
+    const seen = new Set<number>();
+    const times: number[] = [];
+    while (times.length < 4 && !state.outcome) {
+      step(state, STEP, NO_INPUT);
+      for (const monster of state.monsters)
+        if (!seen.has(monster.id)) {
+          seen.add(monster.id);
+          times.push(state.elapsed);
+        }
+    }
+    return times.slice(1).map((time, index) => time - (times[index] ?? 0));
+  }
+  const gap = (night: number, tide = 1) => spawnGaps(night, tide).reduce((total, next) => total + next, 0) / 3;
+
+  test("each night sends monsters faster than the last", () => {
+    for (let night = 2; night <= 7; night++) expect(gap(night)).toBeLessThan(gap(night - 1));
+  });
+
+  test("the first three nights are gentle: the third is less than a quarter quicker than the first", () => {
+    expect(gap(3)).toBeGreaterThan(gap(1) * 0.75);
+    expect(gap(2)).toBeGreaterThan(gap(1) * 0.85);
+  });
+
+  test("from the fourth night the sea quickens fast: the fourth is over 15% quicker than the third, the seventh more than twice as quick as the first", () => {
+    expect(gap(4)).toBeLessThan(gap(3) * 0.85);
+    expect(gap(7)).toBeLessThan(gap(1) * 0.45);
+  });
+
+  test("a higher tide sends them faster in proportion", () => {
+    expect(gap(2, 1.5)).toBeCloseTo(gap(2) / 1.5, 1);
+  });
+});
+
+describe("the tide after a night", () => {
+  // A night that ended at dawn with the lamps and the warden's health kept, killing `kills` monsters in 40 s.
+  function cleanDawn(night: number, kills: number): State {
+    const legacy = newLegacy(1);
+    legacy.night = night;
+    const state = newNight(legacy, 1);
+    state.outcome = "dawn";
+    state.stats.kills = kills;
+    state.stats.time = 40;
+    return state;
+  }
+
+  test("a clean dawn raises it, and a quick warden's raises it further", () => {
+    expect(nextTide(1, cleanDawn(3, 10))).toBeGreaterThan(1);
+    expect(nextTide(1, cleanDawn(3, 25))).toBeGreaterThan(nextTide(1, cleanDawn(3, 10)));
+  });
+
+  test("the first two nights raise it less, while the warden is still learning", () => {
+    for (const kills of [10, 25]) {
+      expect(nextTide(1, cleanDawn(2, kills))).toBeGreaterThan(1);
+      expect(nextTide(1, cleanDawn(2, kills))).toBeLessThan(nextTide(1, cleanDawn(3, kills)));
+    }
+  });
+
+  test("a night lost eases it off, whatever the night", () => {
+    for (const night of [1, 4]) {
+      const lost = cleanDawn(night, 10);
+      lost.outcome = "fallen";
+      expect(nextTide(1, lost)).toBeLessThan(1);
+    }
   });
 });

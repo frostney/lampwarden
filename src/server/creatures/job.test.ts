@@ -4,6 +4,7 @@ import {
   briefJson,
   CLEAN_STATS,
   fakeClock,
+  fakeFrameBatch,
   fakeModel,
   fakeRenderer,
   fenced,
@@ -11,6 +12,7 @@ import {
   spritePng,
   verdictJson,
 } from "../../../pipeline/fakes";
+import { decodePng } from "../../../tools/logo/png";
 import { anchorYFromBbox, creatureId, isAccepted, type JobDeps, runCreatureJob } from "./job";
 import { createMemoryStore } from "./store.memory";
 
@@ -57,12 +59,17 @@ describe("ids", () => {
 
 function jobWith(
   replies: Parameters<typeof fakeModel>[0],
-  options: { render?: ReturnType<typeof fakeRenderer>; candidates?: number } = {},
+  options: {
+    render?: ReturnType<typeof fakeRenderer>;
+    renderBatch?: ReturnType<typeof fakeFrameBatch>;
+    candidates?: number;
+  } = {},
 ) {
   const store = createMemoryStore();
   const clock = fakeClock();
   const model = fakeModel(replies);
   const renderer = options.render ?? fakeRenderer();
+  const frameBatch = options.renderBatch ?? fakeFrameBatch();
   const steps: string[] = [];
   const events: Array<Record<string, unknown>> = [];
   const originalPut = store.putJob;
@@ -75,20 +82,21 @@ function jobWith(
     now: clock.now,
     model: model.client,
     render: renderer.render,
+    renderBatch: frameBatch.render,
     prompts: { creature: "CREATURE PROMPT", generator: "GENERATOR PROMPT", verifier: "VERIFIER PROMPT" },
     entropy: () => "abc123",
     budgetMilliseconds: 5000,
     candidates: options.candidates ?? 1,
     log: (event) => events.push(event),
   };
-  return { deps, store, model, renderer, steps, events };
+  return { deps, store, model, renderer, frameBatch, steps, events };
 }
 
 describe("a creature job", () => {
   test("goes through its steps, stores the sprite and the record, and ends done", async () => {
     const { deps, store, steps, renderer } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
     const job = await runCreatureJob(deps, "job-one-aaaa");
-    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "done"]);
+    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "rendering", "done"]);
     expect(job.step).toBe("done");
     expect(renderer.requests).toHaveLength(1);
 
@@ -122,7 +130,17 @@ describe("a creature job", () => {
       verdictJson(7.5),
     ]);
     const job = await runCreatureJob(deps, "job-two-bbbb");
-    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "fixing", "rendering", "judging", "done"]);
+    expect(steps).toEqual([
+      "writing",
+      "drawing",
+      "rendering",
+      "judging",
+      "fixing",
+      "rendering",
+      "judging",
+      "rendering",
+      "done",
+    ]);
     expect(job.creature?.score).toBe(7.5);
     expect(await store.listCreatureIds()).toHaveLength(1);
   });
@@ -262,7 +280,7 @@ describe("a job with several candidates", () => {
     expect(renderer.requests).toHaveLength(3);
     expect(model.sent).toHaveLength(7); // brief, 3 generators, 3 verifiers
     // each stage is reported once, not once per candidate
-    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "done"]);
+    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "rendering", "done"]);
     const [id] = await store.listCreatureIds();
     expect(store.codes.get(id ?? "")).toContain("// candidate 1");
   });
@@ -277,7 +295,17 @@ describe("a job with several candidates", () => {
     expect(fixRequest).toContain("// candidate 1");
     expect(fixRequest).not.toContain("// candidate 0");
     expect(fixRequest).not.toContain("// candidate 2");
-    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "fixing", "rendering", "judging", "done"]);
+    expect(steps).toEqual([
+      "writing",
+      "drawing",
+      "rendering",
+      "judging",
+      "fixing",
+      "rendering",
+      "judging",
+      "rendering",
+      "done",
+    ]);
   });
 
   test("a best candidate that is accepted without a verifier pass gets no fix turn", async () => {
@@ -306,5 +334,87 @@ describe("a job with several candidates", () => {
     const { deps } = jobWith([briefJson(), null, null, null, null], { candidates: 2 });
     const job = await runCreatureJob(deps, "job-cand-dddd");
     expect(job).toMatchObject({ step: "failed", error: "no sprite could be drawn" });
+  });
+});
+
+describe("a job animates what it accepts", () => {
+  const staticCode = `// STATIC\n${GOOD_CODE}`;
+
+  test("renders the accepted code in every pose in one batch and stores the atlas with the record", async () => {
+    const { deps, store, frameBatch, steps } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    const job = await runCreatureJob(deps, "job-anim-aaaa");
+    expect(job.step).toBe("done");
+    expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "rendering", "done"]);
+    // one batch: idle 4, walk 6, attack 5, each named and posed alike, from the code that was judged
+    expect(frameBatch.batches).toHaveLength(1);
+    const [batch] = frameBatch.batches;
+    expect(batch?.map((request) => request.pose)).toEqual([
+      "idle1",
+      "idle2",
+      "idle3",
+      "idle4",
+      "walk1",
+      "walk2",
+      "walk3",
+      "walk4",
+      "walk5",
+      "walk6",
+      "attack1",
+      "attack2",
+      "attack3",
+      "attack4",
+      "attack5",
+    ]);
+    expect(batch?.every((request) => request.code === GOOD_CODE && request.name === request.pose)).toBe(true);
+    const [id] = await store.listCreatureIds();
+    const record = await store.getCreature(id ?? "");
+    expect(record?.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
+    const atlas = store.atlases.get(id ?? "");
+    expect(atlas).toBeDefined();
+    const picture = decodePng(Buffer.from(atlas ?? new Uint8Array()));
+    expect([picture.width, picture.height]).toEqual([768, 384]);
+    expect(await store.getAtlas(id ?? "")).not.toBeNull();
+  });
+
+  test("refuses a builder that ignores its pose, and animates the next best accepted candidate instead", async () => {
+    let generated = 0;
+    const model = (request: { system: string; messages: unknown[] }): string | null => {
+      if (request.system.startsWith("CREATURE")) return briefJson();
+      if (request.system.startsWith("GENERATOR"))
+        return fenced(generated++ === 0 ? `// candidate 0\n${GOOD_CODE}` : `// candidate 1 ${staticCode}`);
+      return verdictJson(JSON.stringify(request.messages).includes("candidate 1") ? 8 : 7);
+    };
+    const { deps, store, frameBatch, events } = jobWith(model, { candidates: 2 });
+    const job = await runCreatureJob(deps, "job-anim-bbbb");
+    expect(job.step).toBe("done");
+    expect(job.creature?.score).toBe(7);
+    expect(frameBatch.batches).toHaveLength(2);
+    const [id] = await store.listCreatureIds();
+    expect(store.codes.get(id ?? "")).toContain("// candidate 0");
+    expect(store.atlases.has(id ?? "")).toBe(true);
+    expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
+      animated: true,
+      refused: ["static"],
+    });
+  });
+
+  test("fails, storing nothing, when no accepted candidate can be animated", async () => {
+    const { deps, store } = jobWith([briefJson(), fenced(staticCode), verdictJson(8)]);
+    const job = await runCreatureJob(deps, "job-anim-cccc");
+    expect(job).toMatchObject({ step: "failed", error: "it could not be animated" });
+    expect(await store.listCreatureIds()).toEqual([]);
+    expect(store.sprites.size).toBe(0);
+    expect(store.atlases.size).toBe(0);
+  });
+
+  test("fails when a pose does not render, and logs only the kind of refusal", async () => {
+    const { deps, events } = jobWith([briefJson(), fenced(`// BROKEN\n${GOOD_CODE}`), verdictJson(8)]);
+    const job = await runCreatureJob(deps, "job-anim-dddd");
+    expect(job).toMatchObject({ step: "failed", error: "it could not be animated" });
+    expect(JSON.stringify(events)).not.toContain("boom");
+    expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
+      animated: false,
+      refused: ["render"],
+    });
   });
 });

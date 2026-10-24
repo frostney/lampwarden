@@ -4,10 +4,19 @@
 import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
 import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
+  CREATURE_FRAME_COUNTS,
+  CREATURE_FRAME_SIZE,
+  type CreatureFrames,
+  creatureAtlasLayout,
+  creatureAtlasPath,
+  creaturePoseName,
+} from "../game/creature-frames";
+import {
   CENTRE_X,
   CENTRE_Y,
   type HandMadeKind,
   MONSTER,
+  type Monster,
   type MonsterKind,
   monsterStats,
   PLAZA_HALF_HEIGHT,
@@ -28,6 +37,7 @@ import {
   octantVector,
   SEXES,
 } from "./assets";
+import { creatureFrameKey, creatureFrameOf } from "./creature-animation";
 import type { Point } from "./extent";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
@@ -82,7 +92,7 @@ function prepared(alias: string, texture: Texture): Texture {
 }
 
 // the white copy of a monster's sprite that shows for the first frames after a blow (`key` is a sprite key, see monsterLook)
-export const flashKey = (key: string) => `flash/${key}`;
+const flashKey = (key: string) => `flash/${key}`;
 
 // --- the creature from the sea ------------------------------------------------------------------------------------
 // Its sprite is a PNG on the gallery's server, loaded when the night is about to start. Its keys start with "creature/".
@@ -91,9 +101,17 @@ const creatureKey = (id: string) => `creature/${id}`;
 const CREATURE_SPRITE_SIZE = 128; // every sprite is a 128 px frame; the anchor is a fraction of it
 const creatureLoads = new Map<string, Promise<TextureMap | null>>();
 
+// The frame counts of the creatures whose atlas loaded, so the scene knows which creature animates and how many frames
+// each animation has.
+const animatedCreatures = new Map<string, CreatureFrames>();
+
 // The creature's sprite and its white flash, by key; null when the sprite does not load or is not a 128 px frame, which
-// is how a night learns to go without it.
-export function loadCreatureTextures(id: string): Promise<TextureMap | null> {
+// is how a night learns to go without it. A creature with `frames` (its record says it has an atlas) also gets one
+// texture for each frame of its animations, cut from the atlas the way the warden's are; `null` says it has none (no
+// atlas is asked for), and a replay, which does not know the record (`undefined`), looks for the atlas with the usual
+// counts. If the atlas is missing or is not the size the counts make, the creature keeps its single sprite and stands
+// still.
+export function loadCreatureTextures(id: string, frames?: CreatureFrames | null): Promise<TextureMap | null> {
   let load = creatureLoads.get(id);
   if (!load) {
     load = (async () => {
@@ -110,6 +128,7 @@ export function loadCreatureTextures(id: string): Promise<TextureMap | null> {
         const textures: TextureMap = { [key]: texture };
         const white = silhouette(texture);
         if (white) textures[flashKey(key)] = white;
+        if (frames !== null) Object.assign(textures, await loadCreatureFrames(id, frames ?? CREATURE_FRAME_COUNTS));
         return textures;
       } catch {
         creatureLoads.delete(id); // a later night may try again
@@ -119,6 +138,40 @@ export function loadCreatureTextures(id: string): Promise<TextureMap | null> {
     creatureLoads.set(id, load);
   }
   return load;
+}
+
+// One texture for each frame of a creature's animations, cut out of its atlas; empty when it has no usable atlas.
+async function loadCreatureFrames(id: string, frames: CreatureFrames): Promise<TextureMap> {
+  const layout = creatureAtlasLayout(frames);
+  let atlas: Texture;
+  try {
+    atlas = await Assets.load({
+      alias: `creature-atlas/${id}`,
+      src: creatureAtlasPath(id),
+      data: { scaleMode: "nearest" },
+    });
+  } catch {
+    return {};
+  }
+  if (atlas.source.pixelWidth !== layout.width || atlas.source.pixelHeight !== layout.height) return {};
+  atlas.source.scaleMode = "nearest";
+  const cells = layout.cells.map((cell) => ({
+    key: creatureFrameKey(id, cell.animation, cell.frame),
+    label: `/api/creatures/${id}/${creaturePoseName(cell.animation, cell.frame)}`,
+    x: cell.x,
+    y: cell.y,
+  }));
+  const cut = cutCharacterFrames(atlas, CREATURE_FRAME_SIZE, cells);
+  const textures: TextureMap = {};
+  for (const cell of cells)
+    textures[cell.key] =
+      cut?.get(cell.key) ??
+      new Texture({
+        source: atlas.source,
+        frame: new Rectangle(cell.x, cell.y, CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE),
+      });
+  animatedCreatures.set(id, frames);
+  return textures;
 }
 
 // What a replay draws when a creature's sprite is gone: the hand-made monster that plays like its archetype.
@@ -141,6 +194,36 @@ export function monsterLook(state: Pick<State, "creature">, kind: MonsterKind): 
     return { key: creatureKey(state.creature.id), anchorY: state.creature.anchorY };
   const handMade = kind === "creature" ? "satyr" : kind;
   return { key: handMade, anchorY: anchorYFor(handMade) };
+}
+
+// The texture key a monster is drawn with now: its one sprite, or, for a creature that has frames, the frame its
+// animation is at (src/scene/creature-animation.ts).
+export function monsterTextureKey(
+  state: Pick<State, "creature" | "hero">,
+  monster: Monster,
+  textures: TextureMap,
+): string {
+  const look = monsterLook(state, monster.kind);
+  const frames = monster.kind === "creature" && state.creature ? animatedCreatures.get(state.creature.id) : undefined;
+  if (!state.creature || !frames) return look.key;
+  const { animation, frame } = creatureFrameOf(monster, state.hero, frames);
+  const key = creatureFrameKey(state.creature.id, animation, frame);
+  return textures[key] ? key : look.key;
+}
+
+// The key of the frame a creature hangs on when it is struck down: an idle frame, at the pace it idled.
+export function ghostTextureKey(state: Pick<State, "creature">, kind: MonsterKind, age: number): string {
+  const look = monsterLook(state, kind);
+  const frames = kind === "creature" && state.creature ? animatedCreatures.get(state.creature.id) : undefined;
+  if (!state.creature || !frames) return look.key;
+  const held = { x: 0, y: 0, age, snuff: 0, attackCooldown: 0, stun: 1 };
+  return creatureFrameKey(state.creature.id, "idle", creatureFrameOf(held, { x: 0, y: 0 }, frames).frame);
+}
+
+// The white silhouette of a monster's drawn sprite: the creature's frames get theirs made when a blow first shows them,
+// like the warden's; the other sprites have one ready.
+export function monsterFlashTexture(textures: TextureMap, spriteKey: string): Texture {
+  return textures[flashKey(spriteKey)] ?? heroFlashTexture(textures, spriteKey) ?? Texture.EMPTY;
 }
 
 // the white copy of a warden frame, made the first time a blow shows it and kept (there are many frames, and a blow

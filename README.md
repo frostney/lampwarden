@@ -1,128 +1,109 @@
 # Lampwarden
 
-A night-defence roguelite built at the Mubit Night Shift hackathon (London, 24 Oct 2026). Every night the sea sends its creatures to put out the lamps of Lychnos, a Greek harbour town. You are its lampwarden: strike them down, relight the lamps they snuff, and keep at least one burning until dawn. When a warden falls, an heir takes up the lamp and keeps the oil the line has saved.
+<img src="public/logo/logo.png" alt="Lampwarden" width="204">
 
-The sprites are generated, verified and corrected through [Mubit](https://mubit.ai): a model writes small builder scripts against a fixed isometric renderer, a second model call looks at the rendered image and scores it, and its feedback drives one fix pass.
-
-**Status: a playable one-screen night loop plus the asset pipeline.** See "What's built" below. Live at https://lampwarden.vercel.app (the deployment may lag behind `main`).
-
-## Stack
-
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is TypeScript run with [bun](https://bun.sh).
-
-## Run
+A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea sends creatures to put out the town's lamps; you strike them down, relight the lamps and keep one burning until dawn. When a warden falls, an heir takes up the lamp. The sprites are code written by a model through Mubit, then rendered, judged and corrected.
 
 ```bash
-bun install
-bun run dev        # http://localhost:3000
-bun run build      # production build
-bun run balance    # headless balance check: an idle and a bot warden play nights 1-7
-bun run verify:visual -- --url http://localhost:3000   # visual verifier (needs `bun run start` running), see below
+bun install && bun run dev
 ```
 
-## Checking a change visually
+Opens at http://localhost:3000. Live at https://lampwarden.vercel.app (it may lag behind `main`). Built at the Mubit Night Shift hackathon, London, 24 October 2026.
 
-`e2e/verify-visual.mjs` drives the real game in a **headed** Chromium into fixed scenarios (title, night start, combat, dark lamps, near dawn, dawn shop, heir choice, replay) with the sim paused and the clock frozen, screenshots each, and checks pixels and DOM: every lit lantern glows, dark lamps have no light pool, monsters are drawn where they stand, no stray strokes cross the sky, the scene brightens towards dawn, each upgrade has its icon, no console errors or failed requests. Each pass is diffed against the last approved one and laid out in `verify-out/sheet.png` (git-ignored); look at the sheet after every change. `--update` approves the current pass as the new baseline. `--headless` exists but the report then says the pass was not visual.
+## Play
 
-## Recorded plays
+Next.js 16 (App Router), React 19 and Pixi 8 through `@pixi/react`, run with Bun. The numbers below are read from `src/game/`.
+1. **The night.** Five lamps ring the plaza. Night 1 lasts 40 s and each later night 6 s more, up to 76 s from night 7. Satyrs and harpies come out of the sea, cyclops from night 2, and each night monsters move 5% faster. They go for the nearest lit lamp and claw it out; lit lamps slow them to 70% of their speed. A monster that gets within reach of the warden turns on him.
+2. **Hits.** The warden has 100 health. A monster's blow wounds him, throws him back, flashes him white then red, pulses a red vignette and shakes the screen; he cannot be wounded again for 0.5 s. His own strike reaches the 120 degrees in front of him and stuns and throws back every monster it hits (a shot does less); a cyclops, being heavy, is thrown less far than a harpy. He faces one of eight directions, and the strike and any keyboard shot follow it.
+3. **Relighting.** Stand beside a dark lamp for a second to relight it. A night is lost when every lamp is dark or the warden falls.
+4. **Dawn.** Survive the timer and the sun burns the stragglers away. A kill leaves oil 30% of the time (one for a satyr or harpy, two for a cyclops), and dawn pays 2 oil plus 1 for each lamp still burning.
+5. **The shop.** After every night it offers three upgrades drawn from nine: brighter wicks, a keener blade, a deeper quiver, a warden's heart, thick hide, heavy blows, an oil seeker, quick tinder and light sandals. Each has three levels, costing 12, 26 and 45 oil. Offers come from a seed saved with the legacy, so a reload does not reroll them. Everything but thick hide outlives the warden.
+6. **Heirs and traits.** When the warden falls the line restarts from night 1, keeping oil and upgrades (not thick hide), and you pick one of three heirs, each with a trait: swift, stout, lamplighter, long-armed or keen-eyed. The son fights with a sword and bow, the daughter with a spear and sling; the rules are the same and you choose which on the title screen.
+7. **The tide.** A director reads each night (kills per minute, lamps lost, health kept) and sets the next night's tide between 0.6 and 2: calm, restless, rising or raging. A clean dawn raises it, a lost night lowers it; it scales how often monsters spawn and how many are alive at once. Nothing is asked of the player.
+8. **Creatures from the sea.** Before each night the title screen and the dawn and heir panels announce "Tonight the sea sends…" with the newest creature from a shared gallery that this player has not met, or say that one is still being made. The night never waits for it. From 8 s in, about a quarter of the spawns are that creature, at most two at once. Its stats come from an archetype (skulker, brute or flyer, playing like the satyr, cyclops or harpy) and four modifiers of -1, 0 or 1, never from numbers the model wrote.
 
-Every night is recorded and sent to `/api/plays`, which stores it as a private blob in the `lampwarden-plays` Vercel Blob store (London). A recording holds the night's seed, the legacy it started from, the warden's input changes at the fixed 60 Hz sim step, and a per-second timeline (kills, lamps lit, health, monsters, lamps lost): about 2.5 KB for a 40 s night, no personal data, a random per-browser session id. The title screen says so.
-- Watch one: `/?replay=<id>` (or `/?replay=last` for your own last night), at 1×, 2× or 4×. The end screen says whether the replay ended exactly where the live night did.
-- Balance report: `vercel env pull .env.local` once, then `bun scripts/plays.ts [--since 2026-10-24] [--verify]`: outcomes, length, kills per minute, lamps and health lost per night number, and when lost nights go dark.
-- `bun scripts/replay-check.ts` records bot nights and checks that every replay ends identically (30/30 when last run).
-- The visual verifier opens the game with `?verify=1`, and those nights are not uploaded.
+Progress (generation, night, oil, upgrades, tide, the creatures met) is saved in `localStorage`.
 
-Controls: **WASD / arrows** move, **J / Space** melee (hits the arc in front of you: hold a direction while striking to turn), **K / click** ranged shot (towards the cursor on click). Stand next to a dark lamp to relight it.
+### Controls
 
-## The loop
+|        | Keyboard and mouse                                 | Gamepad                                                                   | Touch                                    |
+| ------ | -------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------- |
+| Move   | W A S D or the arrow keys                          | Left stick or d-pad, in eight directions                                  | The on-screen stick, in eight directions |
+| Strike | J or Space; hold a direction to turn               | A                                                                         | The Strike button                        |
+| Shoot  | K along the way he faces; click towards the cursor | B, X, right trigger or right bumper; the right stick aims                 | The Shoot button, at the nearest monster |
+| Menus  | Click                                              | D-pad or left stick moves focus, A presses, Start presses the main button | Tap                                      |
 
-1. **Night.** Five lamps ring the plaza. Satyrs, harpies and (from night 2) cyclops come out of the sea and go for the nearest lit lamp; a monster at a lamp claws it out over a second or two (a red ring shows how far it has got). Lit lamps slow anything in their light. Monsters that get close to the warden turn on them instead.
-2. **Relight.** Standing by a dark lamp relights it (gold ring). The night is lost when every lamp is out or the warden falls.
-3. **Dawn.** Survive the night timer and the sun burns the stragglers away. Slain monsters sometimes leave **oil**, and the lamps still burning pay a little more. At the end of every night the shop offers three upgrades drawn from a pool of nine (brighter wicks, a keener blade, a deeper quiver, a warden's heart, thick hide, heavy blows, an oil seeker, quick tinder, light sandals); all but thick hide last for the whole bloodline.
-4. **Heirs.** When a night is lost, the warden is gone and the line starts again from night 1 with the oil and upgrades kept. You pick one of three heirs (male: sword and bow, female: spear and sling), each with a trait (swift, stout, lamplighter, long-armed, keen-eyed).
-5. **The tide.** A director reads each night as implicit feedback (kill rate, lamps lost, health kept) and makes the next night's sea calmer or rougher. Nothing is asked of the player.
+A pad rumbles when the warden is wounded. Without the right stick held, a pad's shot goes to the nearest monster.
 
-Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`.
-
-## How the sprites are made (the Mubit loop)
+## How the sprites are made
 
 ```
-brief → Opus via Mubit → build(k) code → render → verifier (Opus via Mubit, sees the image) → one fix → best-of → PNG + code + manifest
+brief → generator → build(k) code → render → verifier → one fix → best-of
 ```
 
-Details, options and the four renderers (local, Shotcup, Vercel Sandbox, boat.dev) are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
+The kit in `pipeline/kit/` is a small isometric renderer and a set of builders (humanoids, beasts, props, buildings). A model, Opus through [Mubit](https://mubit.ai), is given the kit's API and a brief and writes one function, `build(k)`. That code is run only by a renderer: a subprocess with an allowlisted environment, or a sandbox (Vercel Sandbox, Shotcup or boat.dev). Four engine checks (clipped at the edge, too small, too big, too short) score a sprite 0 without a model call. Otherwise a second model call sees the sprite magnified 4 times and returns a score, issues and a fix; 7 passes, and a score of 6 or 7 is judged twice and averaged. If it did not pass, one fix call sends the issues back, and the higher-scoring attempt is kept.
 
-### Regenerate assets
+Hard rules: every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5` and never sends `temperature`. Pixel art is made by code in this repository. The Mubit console's Good/Bad button rates one output and does not feed this loop; the verifier does.
 
 ```bash
-export MUBIT_API_KEY=...        # environment only; never committed (see .env.example)
+export MUBIT_API_KEY=...   # from the environment only
 bun run assets -- "Ionic marble column"
-# or: MUBIT_API_KEY=... bun run assets -- "brief one" "brief two"
 ```
 
-This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs only `bun`.
-
-## Building kit
-
-The kit is the renderer plus every builder the model may call. It lives in `pipeline/kit/`:
-
-| File                   | Purpose                                                                                                                                                                                                               |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/kit_core.ts`      | vector maths, `PALETTE`/`MATS` (29 materials, also in `palette.json`), light/view constants, signed-distance shapes `S`, `Frame`                                                                                      |
-| `src/kit_render.ts`    | `Kit` class (`k`), z-buffer renderer, outline/shadow, `post()` QA flags, image helpers (`text`, `blank`, `blit`, `onBg`, `montage`)                                                                                   |
-| `src/kit_build.ts`     | `pose()`, `POSE_NAMES`, `humanoidCore`, `winged`                                                                                                                                                                      |
-| `src/kit_anat.ts`      | `spartan`, `cyclops`, `minotaur`, `satyr`, `harpy`                                                                                                                                                                    |
-| `src/kit_beasts.ts`    | `quadruped`, `centaur`                                                                                                                                                                                                |
-| `src/kit_props.ts`     | `column`, `amphora`, `brazier`, `altar`, `statueBase`                                                                                                                                                                 |
-| `src/kit_buildings.ts` | `temple`, `house`, `lampstand`, `wall`, `stall`, plus their internal helpers (local building frame, uniform scale-to-fit, ashlar masonry texture, tiled gable roof)                                                   |
-| `src/kit_figures.ts`   | `humanoid`, `tree`, `hydra`                                                                                                                                                                                           |
-| `src/kit_themes.ts`    | `THEMES`/`theme()`, `hero`, `ship`                                                                                                                                                                                    |
-| `../assemble-kit.ts`   | `bun run kit`: concatenates the 9 modules into `kit.ts` (rewrites `** 2` to `sq(...)`, asserts no `**`, `==`, `!=` remain). Re-running it reproduces the committed `kit.ts` exactly (checked, sha256 `335b0f4040a7…`) |
-| `kit.ts`               | the assembled single file the renderers import (225,487 bytes)                                                                                                                                                        |
-| `exports.json`         | the 58 names destructured into model code                                                                                                                                                                             |
-| `palette.json`         | material ramps (identical to the kit's `PALETTE`; checked)                                                                                                                                                            |
-| `examples/`            | `ex_column.ts`, `ex_hoplite.ts` (ported); `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts`, `ex_stall.ts` (hand-written calls to the building builders, see below)                   |
-
-Related: `pipeline/prompts/generator.md` (the API doc given to the model) and `verifier.md`, and `pipeline/render/` (local bun runner and the `shotcup:canvas` shim).
-
-A build script is `export function build(k) { ... }`. Space is u/v ground, z up, origin `[0,0]` at the tile centre; sprites are 128×128 and auto-scaled to fit. Options below were read from the kit source and `generator.md`; anything omitted falls back to a default.
-
-**Builders (all take `(k, params)`)**
-- `hero` `{sex:'male'|'female', melee:'xiphos'|'sword'|'spear'|'axe'|'club'|'hammer', ranged:'bow'|'sling'|'javelin'|'throwspear', ready:'melee'|'ranged', pose, at, facing, setting:'greek', helmet:'none'|'corinthian'|'attic', cape, height, build, palette:{cloth,accent,hair,skin,metal}}`. Poses: `idle`, `idle1-4`, `walk1-6`, `melee1-5`, `ranged1-5`, `hurt`, `death`.
-- `humanoid` `{gender, material, robe, ...}` and `humanoidCore`/`spartan`/`cyclops`/`minotaur`/`satyr`/`harpy`/`winged` share the humanoid params: `at, facing, height, build:'slim'|'average'|'heavy'|'giant', pose, skin, head:{type,hair,helmet,helmetMat,crest,beard,eyes,hairStyle}, torso:{armour,colour,trim,skirtColour}, legs:{greaves,sandals,lower,colour}, arms:{bracers,colour}, weapon, weaponMat, shield, stow, fem, skirt, cape, capeStyle, wings:{type,colour,span}`. `harpy`/`winged` also take `span`. Poses also include `attack1-5` for monsters.
-- `quadruped` `{at, facing, kind:'horse'|'bull'|'lion'|'dog'|'boar'|'goat', colour, mane, size, pose, rider}`; `centaur` `{at, facing, colour, pose, upper}`; `hydra` `{at, facing, heads, colour}`.
-- `ship` `{at, facing, kind:'trireme'|'galley', sail, oars, dock, setting}`; `tree` `{at, kind:'olive'|'cypress'|'laurel', height, leaf}`.
-- Props: `column` `{at, order:'doric'|'ionic', height, mat, broken}`; `amphora` `{at, height, style:'black-figure'|'red-figure'|'plain', mat, figure:'warriors'|'horses'|'rider', border:'meander'|'palmette'}`; `brazier` `{at, height, mat, fire}`; `altar` `{at, w, h, mat, fire}`; `statueBase` `{at, w, h, mat}` returns its top z.
-- Buildings: `temple` `{at, order:'doric'|'ionic', cols, depth, mat, roof:'terracotta'|'marble', ruined, front:'u'|'v', setting}`; `house` `{at, w, d, storeys:1|2, wall:'whitewash'|'ochre'|'sand'|'stone'|'rose', roof:'flat'|'tiled', door:'u'|'v'|'none', doorColour, windows, shutters, extras:['pots','amphora','chimney','awning','stair','bougainvillea']}`; `lampstand` `{at, height, mat, lit, base:'tripod'|'column', head:'lantern'|'bowl'}`; `wall` `{at, len, height, thick, mat, crenels, gate, sea, axis:'u'|'v'}`; `stall` `{at, w, d, awning, stripe, goods:'fruit'|'fish'|'amphorae'}`. Unlike the other builders they scale themselves down to fit the 128 px frame.
-- Low level (`k.*`): `sphere`, `ellipsoid`, `capsule`, `box`, `cyl`, `lathe`, `plate`, `ring` (each `(…, material, {shift, glow, tex})`), and the shape algebra `S.sphere/ellipsoid/capsule/box/obox/cyl/lathe/plate/ring/half/limb/tube/fold/drape/union/smooth/sub/inter` for `k.solid(shape, mat)`.
-- Themes: only `greek` exists in `THEMES` (`kit_themes.ts`).
-
-**Buildings come from `kit_buildings.ts`.** `temple`, `house`, `lampstand`, `wall` and `stall` build detailed, parametric structures (stylobate, peristyle of `column()` builders, triglyph or sculpted frieze, sculpted pediment and tiled roof; recessed framed doors and shuttered windows; ashlar masonry; striped awnings; a lit or unlit lantern), and they are documented for the model in `generator.md`. The six examples `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts` call them and render to `public/sprites/temple.png`, `house.png`, `lamp-lit.png`, `lamp-unlit.png`, `wall.png` and `stall.png`. Only `temple` and `house` are placed in the scene so far. These examples were hand-written for this repo: they are **not** Mubit output and were never scored by the verifier (their manifest rows say so). No Mubit run has used the building builders yet. Nothing from the earlier v2/v3 prop kit was dropped in the port; the export names were compared.
-
-## What's built, what isn't
-
-Built and run:
-- Next app with a client-only Pixi scene: the Lychnos plaza at night (multiplied night tint warming to dawn; lamp light drawn as pixel art in `src/scene/light.ts`: stepped amber bands with ordered dithering, lit tile bevels, twinkling glints on the stone and the brass lanterns, reflections on the sea), the loop above (nights, lamps, relighting, dawn upgrades, heirs and traits, tide director, persistence), hero (male/female) with idle/walk/melee/ranged animation. `next build` passes; checked in headless Chrome against `next start` with a scripted warden: a full night to dawn (16 kills, all lamps kept, no console errors) and an idle warden losing the lamps to the heir screen.
-- Balance from `bun run balance` (seeded, 1000 runs per night): an idle warden loses night 1 in about 20 s; the bot warden (perfect information, 150 ms reaction, aims every swing, no upgrades) holds nights 1-3 every time, night 5 about 40% and night 7 never. Playing nights 1-8 in a row and buying the cheapest level it can afford, it earns about 12 oil on night 1 and buys about 1.2 levels a night over nights 1-3, with no upgrade at its top level before night 6. Human play-testing has not been done.
-- Asset pipeline (`pipeline/`), kit, 12 sprites from earlier Mubit loop runs (2 hero stills, trireme, galley-dock, lion, olive, Zeus statue, cyclops, satyr, harpy, hydra, Hephaestus), 200 hero animation frames (20 per sex from five directions, the other three mirrored, packed into one atlas a sex; deterministic builder code, no model call), and 6 hand-written building sprites from the kit's building builders (temple, house, lit and unlit lamp, wall, stall), all in the scene.
-
-Not built / not claimed:
-- Audio, mobile controls, automated tests (the balance script is a check, not a test suite).
-- Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
-- `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip has been run through the command line. The same loop (`pipeline/loop.ts`) has run end to end, live, behind the creature route: see `docs/LIVE_GENERATION.md`.
-- **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`; [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md) compares them for a live generation route, with measured timings, parallelism limits and Mubit latency.
-
-## Deploy on Vercel
-
-Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The game itself needs no environment variables: its sprites are static files under `public/sprites/`, and recorded plays use `BLOB_READ_WRITE_TOKEN`. `SHOTCUP_API_KEY` and `BOAT_API_KEY` are only for the offline asset pipeline; do not set them on the deployment.
+This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the temple, house, lamp, wall and stall, which are hand-written calls to the building builders, and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
 
 ### Live creatures
 
-`/api/creatures/*` makes a new sea creature through Mubit when a player has met every one in the gallery, draws it in a Vercel Sandbox and keeps it in the private Blob store for every player (design, limits, races and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), "The route"). To turn it on:
-1. `vercel link`, then `bun run sandbox:snapshot`: builds the sandbox snapshot (Bun 1.4.4, the kit and the runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID=snap_...`. Rebuild it whenever `pipeline/kit/kit.ts` or `pipeline/render/` changes; a render refuses a snapshot that does not match the deployed kit.
-2. Set on the Vercel project: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID`, and `CREATURE_RATE_SALT` (at least 16 random characters, e.g. `openssl rand -hex 24`; it keys the per-visitor limit and changing it resets the counts). Optional: `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR` (default 3), `CREATURE_MAX_STARTS_PER_DAY` (default 40, site-wide per UTC day), `CREATURE_CANDIDATES` (default 3 candidate sprites per job, at most 5), `CREATURE_BLOB_PREFIX` (default `creatures`).
-3. Without these the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` when a player has met everything.
+`POST /api/creatures/next` (`src/app/api/creatures/`) returns the newest gallery creature the player has not met. If there is none, it starts a job, or joins the one already running, and the game follows it at `GET /api/creatures/jobs/:jobId`; `GET /api/creatures/:id/sprite.png` serves a sprite. A job runs the loop above after the response has gone out:
+- one Mubit call writes the creature (name, lore, sprite brief, archetype, modifiers), validated by the contract in `src/game/creature.ts`;
+- three candidates are drawn from that brief (`CREATURE_CANDIDATES`, at most 5), each rendered in its own Vercel Sandbox booted from a pinned snapshot, with no network;
+- the verifier judges each; a fix turn runs only if the best is not already accepted;
+- a creature is accepted on a verifier pass, or on a score of at least 6 with no engine flag, and is then stored in a private Vercel Blob store, so every player draws from one gallery. Anything else fails and stores nothing.
 
-## More
+Starting a job is rate limited, to 3 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): directory map, sprite flow, how to add a sprite or setting. [`PROGRESS.md`](PROGRESS.md): build log.
+Not on `main`: rendering in-process with QuickJS in WebAssembly is an open proposal ([#33](https://github.com/frostney/lampwarden/pull/33)), and drawing creatures as code in the browser is still being built.
+
+## Run it
+
+| Command                                | What it does                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                |
+| `bun run dev`                          | Dev server on port 3000.                                                                                        |
+| `bun run build`, `bun run start`       | Production build and server.                                                                                    |
+| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                    |
+| `bun run balance`                      | Plays nights headlessly with an idle warden and a bot (200 runs a night, seeded).                               |
+| `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                 |
+| `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say`); example: `e2e/walkthroughs/title.ts`. |
+| `bun run check:pixels`                 | Re-renders every committed sprite and hero frame locally and compares pixels.                                   |
+| `bun run assets -- "brief"`            | The sprite pipeline above; needs `MUBIT_API_KEY`.                                                               |
+| `bun run plays`                        | Balance report from recorded plays; needs `BLOB_READ_WRITE_TOKEN`.                                              |
+
+All commands, including `kit`, `logo` and `sandbox:snapshot`, are in [`docs/tooling.md`](docs/tooling.md).
+
+## Deploying
+
+Playing needs no keys: the sprites are static files. Recorded plays and the creature gallery need a Blob token, and live creatures need the Mubit and sandbox settings below. Keys come from the environment only and are never committed; the pipeline commands run under `bun --no-env-file`.
+
+| Variable                                                                                                                 | For                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BLOB_READ_WRITE_TOKEN`                                                                                                  | Recorded plays and the creature gallery (a private Vercel Blob store).                                                                          |
+| `MUBIT_API_KEY`                                                                                                          | Live creatures: the brief writer, generator and verifier.                                                                                       |
+| `VERCEL_SANDBOX_SNAPSHOT_ID`                                                                                             | Live creatures: printed by `bun run sandbox:snapshot` after `vercel link`; rebuild it when `pipeline/kit/kit.ts` or `pipeline/render/` changes. |
+| `CREATURE_RATE_SALT`                                                                                                     | Live creatures: at least 16 random characters, for example `openssl rand -hex 24`. Changing it resets the per-visitor counts.                   |
+| `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY`, `CREATURE_CANDIDATES`, `CREATURE_BLOB_PREFIX` | Optional: defaults 3, 40, 3 (at most 5) and `creatures`.                                                                                        |
+
+Without all three of `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `CREATURE_RATE_SALT`, the gallery is still served and `POST /api/creatures/next` answers `{"kind":"none","reason":"unavailable"}` once a player has met every creature in it. The offline pipeline also reads `SHOTCUP_API_KEY` (`--render shotcup`) and `BOAT_API_KEY` (`--render boat`); do not set those on the deployment.
+
+## Recorded plays and replays
+
+Every night is recorded and sent to `/api/plays`: its seed, the legacy it started from, the creature it met, the warden's input changes at the fixed 60 Hz step, and a per-second timeline. There is no personal data, only a random per-browser session id, and the title screen says so. The sim is deterministic, so a recording replays exactly.
+- Watch one at `/?replay=<id>`, or `/?replay=last` for your own last night, at 1x, 2x or 4x. The end screen says whether the replay ended where the live night did.
+- `bun run plays [--since 2026-10-24] [--build <sha>] [--verify]` reports outcomes, length and kills per minute from the store; `--verify` replays every finished night.
+- Nights opened with `?verify=1`, as the visual verifier does, are not uploaded.
+
+## Contributing
+
+`bun run check` is the gate; the rules for contributors and agents are in [`AGENTS.md`](AGENTS.md).
+
+More: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (directory map, sprite flow), [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), [`docs/tooling.md`](docs/tooling.md) and [`pipeline/README.md`](pipeline/README.md).

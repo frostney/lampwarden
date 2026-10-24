@@ -14,6 +14,7 @@ import {
   SWING_HALF_ARC,
 } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { isCharacterKey, withoutPaintedShadow } from "./rim";
 
@@ -51,6 +52,13 @@ export const flashKey = (kind: MonsterKind | string) => `flash/${kind}`;
 // the flash stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
 function silhouette(texture: Texture): Texture | null {
   const resource = texture.source.resource;
+  // the character sprites are pixel buffers once their painted shadow is taken out (rim.ts): premultiplied, so white
+  // at alpha a is (a, a, a, a)
+  if (resource instanceof Uint8Array) {
+    const white = new Uint8Array(resource.length);
+    for (let index = 0; index < resource.length; index += 4) white.fill(resource[index + 3] ?? 0, index, index + 4);
+    return bufferTexture(white, texture.source.pixelWidth, texture.source.pixelHeight);
+  }
   if (!(resource instanceof HTMLImageElement || resource instanceof ImageBitmap)) return null;
   const canvas = document.createElement("canvas");
   canvas.width = resource.width;

@@ -14,7 +14,9 @@ components/
   TouchControls.tsx  on-screen stick and buttons for touch devices
 lib/
   assets.ts          sprite keys, frame counts/fps, ground anchors, asset list for Assets.load
-  scene.ts           what the scene looks like, plain Pixi: textures, ground, props, glow, night tint, per-frame strokes
+  scene.ts           what the scene looks like, plain Pixi: textures, ground, props, night tint, per-frame strokes
+  light.ts           the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
+                     halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
   controls.ts        keyboard, click, stick and button input between frames, turned into the next sim step's input
   sim.ts             one night, no Pixi: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director
   replay.ts          fixed step, input quantisation, Recorder/Replayer for recorded plays

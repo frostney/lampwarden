@@ -8,7 +8,7 @@ The sprites are generated, verified and corrected through [Mubit](https://mubit.
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is TypeScript run with [bun](https://bun.sh).
 
 ## Run
 
@@ -50,7 +50,7 @@ Progress (generation, night, oil, upgrades, tide) is saved in `localStorage`. Th
 brief → Opus via Mubit → build(k) code → render → verifier (Opus via Mubit, sees the image) → one fix → best-of → PNG + code + manifest
 ```
 
-Details, options and the Shotcup renderer are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
+Details, options and the four renderers (local, Shotcup, Vercel Sandbox, boat.dev) are in [`pipeline/README.md`](pipeline/README.md). The Mubit console's Good/Bad button rates a single model output; the improvement loop here is the verifier's score and issues, fed into the fix call.
 
 ### Regenerate assets
 
@@ -60,7 +60,7 @@ bun run assets -- "Ionic marble column"
 # or: MUBIT_API_KEY=... bun run assets -- "brief one" "brief two"
 ```
 
-This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs `python3` with Pillow and `bun` on PATH.
+This overwrites/adds files in `public/sprites/` and `public/sprites/manifest.json`. Needs only `bun`.
 
 ## Building kit
 
@@ -108,13 +108,13 @@ Built and run:
 
 Not built / not claimed:
 - Norse and Egyptian settings (buttons only), audio, mobile controls, automated tests (the balance script is a check, not a test suite).
-- Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `run.py`.
-- `pipeline/run.py` was ported and its local render path was exercised (render, flags, no-key shotcup error), but no full Mubit round trip was run from this repo.
-- **Shotcup:** the kit was rendered on Shotcup 11 times through its MCP server with pixel-identical output to local, but it was much slower than local (see `pipeline/README.md`), and the Python REST client (`pipeline/shotcup_render.py`) has never been run against the API.
+- Several Mubit sprites scored under the verifier's pass mark and are weak: lion 5, cyclops 5.5, hydra 5, Zeus statue 6 (marble bolt), satyr 6.5, harpy 6; hero heads and weapons are small. Scores are in `public/sprites/manifest.json`. Pre-generated sprites come from earlier loop runs, not from a run of this repo's `pipeline/run.ts`.
+- `pipeline/run.ts` is tested with a fake Mubit and a fake renderer (request shape, retries, fix turn, manifest), and its requests match the earlier Python loop's, but no full Mubit round trip (generate, render, verify, fix) has been run through it.
+- **Renderers:** local renders reproduce the committed sprites byte for byte. The Shotcup, Vercel Sandbox and boat.dev renderers are described, with what was and was not run live, in `pipeline/README.md`.
 
 ## Deploy on Vercel
 
-Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY` and `SHOTCUP_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
+Deployed at https://lampwarden.vercel.app as a standard Next.js app (framework preset "Next.js", default build). The Vercel project has no environment variables, and none are needed for the game. `MUBIT_API_KEY`, `SHOTCUP_API_KEY` and `BOAT_API_KEY` are only for the offline asset pipeline; do not set them on the deployment. Sprites are static files under `public/sprites/`.
 
 ## More
 

@@ -29,4 +29,4 @@
 
 Built: pipeline + kit + sprites, Pixi scene with the night/lamp/heir loop and persistence, settings stub, docs above. Deployed (initial version) at lampwarden.vercel.app.
 Not built: Norse/Egyptian, audio, tests. Balance checked with a bot only, not human-tested. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.
-Not verified: run.py end-to-end against Mubit from this repo; shotcup_render.py against the API.
+Not verified: the pipeline end-to-end against Mubit from this repo; the Shotcup renderer against the API (the earlier Python client was, the TypeScript one was not).

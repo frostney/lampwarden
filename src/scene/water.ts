@@ -12,7 +12,8 @@ import { shoreDistance } from "./plaza";
 // navy to teal, deepest first, and the surf
 const DEEP = hexRgb(0x0f3156);
 const OPEN = hexRgb(0x16476f);
-const SEA = hexRgb(0x1e5f8a);
+export const SEA_COLOUR = 0x1e5f8a; // the open sea, the commonest tone
+const SEA = hexRgb(SEA_COLOUR);
 const SHALLOW = hexRgb(0x2c7f9c);
 const CREST = hexRgb(0x68c0d0);
 const FOAM = hexRgb(0xeafcf6);

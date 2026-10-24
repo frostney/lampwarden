@@ -14,6 +14,7 @@ Conventions come from the project-local skills in `.agents/skills/` (`project-st
 - `bun run check` is the gate: Biome, TypeScript, `bun test`, Knip, `next build`.
 - `bun run verify:visual -- --url http://localhost:3000` against `bun run build && bun run start`: the headed visual
   verifier. Run it and look at `verify-out/sheet.png` after every change that can show on screen.
+- Rendering a sprite needs Vercel auth and a snapshot: `docs/tooling.md`, "Rendering needs Vercel auth".
 - `bun run balance` plays nights headlessly; `bun run plays` reports from recorded plays (needs `vercel env pull`).
 
 ## Deviations from the skills
@@ -47,12 +48,16 @@ Follow `.agents/skills/git-workflow` and `.agents/skills/create-pr` / `update-pr
 
 ## Hard rules
 
-- Never print, log or commit `MUBIT_API_KEY`, `SHOTCUP_API_KEY`, `BOAT_API_KEY`, `BLOB_READ_WRITE_TOKEN` or any token.
+- Never print, log or commit `MUBIT_API_KEY`, `BLOB_READ_WRITE_TOKEN` or any token (a Vercel OIDC token included).
   Read keys from the environment only; run `gitleaks git --redact .` before every push.
+- Environment variables are declared in `.env.schema` (Varlock): name, type, where required, `@sensitive` for every key,
+  token and salt. Read them through `ENV` from `varlock/env` in server code, or from the environment a `varlock run`
+  script gets; never add a variable without declaring it, never put a value in `.env.schema`, and keep local keys in the
+  git-ignored `.env.local` as `exec()` or `keychain()` references (docs/tooling.md, "Environment"). Pipeline scripts get
+  only the variables they `--filter`; model-written code never gets any.
 - Every Mubit call goes to `https://api.mubit.ai/anthropic/v1/messages` with model `claude-opus-5-5`; never send
   `temperature`.
-- Model-generated build code runs only in a sandbox (Shotcup, Vercel Sandbox, boat.dev) or the local renderer with an
-  allowlisted environment (`pipeline/render-local.ts`); never `eval` it in the app or a server route.
+- Model-generated build code runs only in Vercel Sandbox.
 - The repository has no Python of its own: scripts are TypeScript run with Bun, and types are shared between them.
 - Pixel art is made by code that lives in this repo (kit builders, `tools/logo`, `src/scene/projectiles.ts`,
   `src/components/Icon.tsx`). Don't commit hand-made or externally generated images.

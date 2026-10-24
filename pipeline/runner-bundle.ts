@@ -1,6 +1,6 @@
 // What a render sandbox must hold: the kit, the runner and its shims (the "runner bundle"), and the Bun that runs them.
 // The snapshot script (sandbox-snapshot.ts) puts both into a Vercel Sandbox snapshot and records a manifest beside
-// them; a render refuses a snapshot whose manifest does not match the code that is deployed (see render-vercel-sandbox.ts).
+// them; a render refuses a snapshot whose manifest does not match the code it runs from (see render-vercel-sandbox.ts).
 // Nothing here locates itself with `import.meta`: callers pass the pipeline directory, so a Next.js function and the
 // Bun scripts can both use it.
 import { createHash } from "node:crypto";
@@ -9,7 +9,13 @@ import { join } from "node:path";
 import { z } from "zod";
 
 /** The files of the runner bundle, relative to the pipeline directory. Their order is part of the bundle's digest. */
-export const RUNNER_FILES = ["kit/kit.ts", "render/run_local.ts", "render/shim_canvas.ts", "render/shim_plugin.ts"];
+export const RUNNER_FILES = [
+  "kit/kit.ts",
+  "render/runner.ts",
+  "render/batch.ts",
+  "render/shim_canvas.ts",
+  "render/shim_plugin.ts",
+];
 
 /** Where the bundle lives in a render sandbox. */
 export const SANDBOX_PIPELINE_DIRECTORY = "/vercel/sandbox/pipeline";
@@ -63,11 +69,13 @@ export function kitSha(files: readonly RunnerFile[]): string {
   return sha256(kit.content);
 }
 
-/** Why a snapshot's manifest does not fit the deployed bundle, or null when it does. */
+const REBUILD_HINT = "run `bun run sandbox:snapshot` and set VERCEL_SANDBOX_SNAPSHOT_ID to the id it prints";
+
+/** Why a snapshot's manifest does not fit the bundle that is running, or null when it does. */
 export function snapshotMismatch(manifest: SnapshotManifest, expectedBundleSha: string): string | null {
   if (manifest.bundleSha !== expectedBundleSha)
-    return "the sandbox snapshot holds a different kit than this deployment";
+    return `the sandbox snapshot holds a different kit or runner than this checkout (bundle ${manifest.bundleSha.slice(0, 12)}, expected ${expectedBundleSha.slice(0, 12)}); ${REBUILD_HINT}`;
   if (manifest.bunVersion !== PINNED_BUN_VERSION)
-    return `the sandbox snapshot has bun ${manifest.bunVersion}, not ${PINNED_BUN_VERSION}`;
+    return `the sandbox snapshot has bun ${manifest.bunVersion}, not ${PINNED_BUN_VERSION}; ${REBUILD_HINT}`;
   return null;
 }

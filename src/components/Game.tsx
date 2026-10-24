@@ -14,6 +14,7 @@ import { useTonight } from "@/components/useTonight";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
 import { askDirector } from "@/game/director-api";
+import { engagementOf, heldTide } from "@/game/engagement";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   applyDirector,
@@ -58,13 +59,13 @@ import {
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { HERO_FRAME_SIZE, heroAtlasCell, heroAtlasKey, SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
-import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
+import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
   width: STAGE_WIDTH,
   height: STAGE_HEIGHT,
-  background: 0x1e5f8a,
+  background: NIGHT_SEA,
   antialias: false,
   roundPixels: true,
   resolution: 1,
@@ -135,6 +136,7 @@ interface Report {
 // A recorded night on its way to the server: its id, and whether the upload went through.
 interface SentPlay {
   id: string;
+  play: Play;
   uploaded: Promise<boolean>;
 }
 
@@ -182,6 +184,7 @@ export default function Game() {
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
   const [frozenClock, freezeClock] = useState<number | null>(null);
+  const [drawn, setDrawn] = useState(false); // the canvas has shown a frame; before that it is hidden, not black
   const [controls] = useState(newControls);
   const lastHudRef = useRef<Hud | null>(null);
   const legacyRef = useRef<Legacy>(newLegacy());
@@ -217,7 +220,7 @@ export default function Game() {
     }
     // the visual verifier's nights are not real plays, so they are not uploaded (a stubbed server answers for them)
     const verifying = new URLSearchParams(location.search).has("verify");
-    return { id: play.id, uploaded: verifying ? Promise.resolve(true) : upload(play) };
+    return { id: play.id, play, uploaded: verifying ? Promise.resolve(true) : upload(play) };
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -254,7 +257,11 @@ export default function Game() {
       const bonus = outcome === "dawn" ? dawnBonus(state) : 0;
       const tideBefore = legacy.tide;
       legacy.oil += state.oilEarned + bonus;
-      setRulesDirector(legacy, nextTide(legacy.tide, state), state.night, sent?.id); // the live director may replace it
+      // a night the player was not there for (idle, tab away, left) is no evidence it was too hard: the tide does not ease
+      // (a night with no recording cannot be judged, and is held the same way)
+      const engagement = sent ? engagementOf(sent.play).kind : "idle";
+      const nextRulesTide = heldTide(legacy.tide, nextTide(legacy.tide, state), engagement);
+      setRulesDirector(legacy, nextRulesTide, state.night, sent?.id, engagement); // the live director may replace it
       const nightReport: Report = {
         outcome,
         night: state.night,
@@ -328,6 +335,8 @@ export default function Game() {
   const onReady = useCallback(() => setReady(true), []);
   const onInit = useCallback((app: PixiApp) => {
     appRef.current = app;
+    // the ticker renders after this callback, and the frame is on screen by the next animation frame
+    app.ticker.addOnce(() => requestAnimationFrame(() => setDrawn(true)));
   }, []);
 
   // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
@@ -583,7 +592,7 @@ export default function Game() {
       data-lit={hud?.lit}
       data-kills={hud?.kills}
     >
-      <div className="canvas">
+      <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
           {textures && night && (
             <Scene

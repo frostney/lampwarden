@@ -20,6 +20,9 @@
 13:30 Fonts applied (Ithaca titles, Tiny5 UI). Mobile: touch controls, scaled HUD, full-screen menus, both orientations. Verifier: font checks + iPhone landscape/portrait in WebKit; 38/38. Hero anchor fix.
 13:30 Dev series (Knips, ~/Movies/knips/lampwarden-series): ep1 the spike (7.0 s), ep2 keep the lamps lit (8.0 s, dawn fast-forwarded via the debug hook), ep3 every night recorded (7.8 s, real night replayed at 4x). A first ep2 take was discarded: another agent's headed browser overlapped the capture region.
 
+13:45 Logo: three pixel options made (emblem+wordmark, lit letter, badge); option 1 (Greek oil lamp over an Ithaca-grid wordmark) applied to the title screen, favicon, apple icon and OG/Twitter image. Verifier 39/39.
+13:50 Dev series ep4 (logo + fonts, a real night 3; 7.7 s) and ep5 (phone landscape in WebKit with the touch stick; 7.1 s, captured as a window with Knips, Playwright toolbar cropped with ffmpeg). A first ep5 take captured the wrong screen region and was deleted.
+
 ## Built vs not
 Built: pipeline + kit + sprites, Pixi scene with the night/lamp/heir loop and persistence, settings stub, docs above. Deployed (initial version) at lampwarden.vercel.app.
 Not built: Norse/Egyptian, audio, tests. Balance checked with a bot only, not human-tested. Weak sprites: lion 5, cyclops 5.5, hydra 5, Zeus 6, satyr 6.5, harpy 6.

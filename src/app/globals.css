@@ -818,7 +818,8 @@ h1 {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
 }
-/* hero choice: the idle frame cropped to the warden (80 x 88 of the 128 px frame) at a whole multiple */
+/* hero choice: the warden drawn into a canvas the size of the portrait window (PORTRAIT in scene/portrait.ts, 80 art pixels wide,
+   his body in the middle of it) at a whole multiple */
 .hero-cards {
   display: flex;
   gap: 8px;
@@ -848,19 +849,12 @@ h1 {
     0 var(--edge) 0 var(--edge-colour);
 }
 .hero-portrait {
-  position: relative;
   display: block;
-  overflow: hidden;
-  width: calc(80px * var(--portrait));
-  height: calc(88px * var(--portrait));
 }
 .hero-sprite {
-  position: absolute;
-  left: calc(-37px * var(--portrait));
-  top: calc(-20px * var(--portrait));
   display: block;
-  width: calc(128px * var(--portrait));
-  height: calc(128px * var(--portrait));
+  width: calc(80px * var(--portrait)); /* PORTRAIT.width; the canvas's own proportions give the height */
+  height: auto;
   image-rendering: pixelated;
 }
 .hero-card:not(.chosen) .hero-sprite {

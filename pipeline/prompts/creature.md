@@ -11,16 +11,18 @@ MODIFIERS. Four integers, each exactly -1, 0 or 1, that nudge the archetype's ba
 
 THE SPRITE BRIEF. A separate model draws the sprite by calling a fixed set of 3D builders (isometric, 128 by 128 pixels, rendered from code), and a strict art director then judges the picture against your brief, one detail at a time. A detail the builders cannot draw is a detail the art director marks missing, so the brief must stay inside what the builders draw well. The creatures that have drawn well are tiny recipes: "satyr with goat legs, a goat head with horns and pipes", "one-eyed cyclops giant with a club and a fur cape", "harpy with feathered wings, bird talons and a human face". Build yours the same way: choose ONE body plan below, then name two to four concrete parts from its list. Nothing else: no kelp, barnacles, scales on a body, glowing, dripping, fog, water, fins or tentacles, no small items the builders have no part for, nothing a viewer could not point at in a 128 pixel sprite.
 
+The game animates the creature by drawing the same builder again in a walk, an attack and an idle pose, so the body plan decides whether it moves. Prefer the plans that animate fully: satyr, cyclops, minotaur, harpy, winged humanoid, humanoid and centaur (they walk, strike and idle with their whole body, weapon included). A four-legged animal animates idle, walk and attack but its limbs are plain. Avoid hydra: it has no pose and would stand frozen. Avoid a lamia, a serpent tail, and other legless bodies: the tail barely moves. Give a creature that is not on legs a different body, such as a winged humanoid.
+
 Body plans (pick one):
 - satyr: small goat-legged figure; goat head with horns, fur or skin colours, a weapon (pipes, club, javelin, sling, staff) .
 - cyclops: giant, one big eye; weapon (club, axe, hammer, staff), cape, bare chest or armour.
 - minotaur: giant with a bull head; weapon (labrys, axe, club), armour, cape.
 - harpy: human face and feathered torso, feather wings, bird talons; skin colour.
 - winged humanoid: any humanoid below plus wings (feather or bat), span small to large.
-- humanoid: build slim, average, heavy or giant. Head: human (hair, beard, helmet corinthian or attic with crest), bull, goat, cyclops, gorgon (snake hair), or skull (a skeleton). Legs: human, goat, bird talons, or a coiled serpent tail (lamia, siren, sea-nymph). Torso: muscle cuirass, linen cuirass, chiton, long robe, or bare. Weapon: spear, trident, staff, torch, sword, kopis, axe, club, hammer, javelin, bow, sling. Shield: round hoplon or small pelte. Cape.
+- humanoid: build slim, average, heavy or giant. Head: human (hair, beard, helmet corinthian or attic with crest), bull, goat, cyclops, gorgon (snake hair), or skull (a skeleton). Legs: human, goat or bird talons (a coiled serpent tail, as on a lamia or a siren, barely moves: avoid it). Torso: muscle cuirass, linen cuirass, chiton, long robe, or bare. Weapon: spear, trident, staff, torch, sword, kopis, axe, club, hammer, javelin, bow, sling. Shield: round hoplon or small pelte. Cape.
 - centaur: horse body, humanoid upper body with any weapon.
 - four-legged animal: horse, bull, lion, dog, boar or goat, with a body colour and, for lion and horse, a mane colour. It carries nothing else and reads as a plain animal, which is what the verifier has scored lowest, so choose it rarely.
-- hydra: two to seven serpent heads on a stubby body.
+- hydra: two to seven serpent heads on a stubby body. It never moves: do not choose it.
 
 Colours and materials: only these exist, so name colours from them and nothing else: marble, limestone, bronze, gold, iron, terracotta, black, olive, laurel (green), aegean (blue), crimson, purple, linen, leather, bone, wood, fire, snake (green scales), feather, fur, fur_dark, and the skins skin, skin_olive, skin_dark, skin_pale, skin_green, skin_grey. Sea creatures read well in skin_green, skin_grey, aegean, laurel, bone and bronze.
 

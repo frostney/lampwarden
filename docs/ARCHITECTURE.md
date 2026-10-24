@@ -31,12 +31,13 @@ src/
                      night starts or a monster spawns or dies. Layers, bottom to top: sky, the tinted sea and ground, the
                      lights that lie on the ground (pools, the warden's light, stone and sea glints), the characters'
                      shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
-                     sorted with its lamp), the melee sweep, shots and marks
+                     sorted with its lamp), the melee sweep, shots, white blow flashes, marks and the wound vignette
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide director; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
-                     the night's creature from the sea (kind "creature": its stats via monsterStats, sent with a share of
-                     the spawns from 8 s in, drawn from rand(state) only when it can come)
+                     a monster's blow on the warden (his hit-stop, knockback and mercy frames); the night's creature from
+                     the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from 8 s in,
+                     drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Recorder/Replayer for recorded plays (replay.test.ts: determinism)
     legacy.ts        what outlives a warden: oil, the nine upgrades (three levels each, one cost table), the shop's offers
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
@@ -85,6 +86,8 @@ src/
     paint.ts         shared by the painted pixel art: RGBA buffers to nearest-sampled textures, Bayer dither, seeded random
     plaza.ts         the plaza's outline in pixels: its top face, its walls, and how far a point of sea lies from it
     projectiles.ts   arrow and sling-stone pixel art
+    vignette.ts      the red vignette that pulses at the screen's edges when the warden is wounded: a dithered ring of hard pixels
+                     in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun

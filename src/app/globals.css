@@ -106,6 +106,62 @@ h1 {
 .dawnbar > i {
   background: linear-gradient(90deg, #6a5acd, #f2a65a);
 }
+/* a blow on the warden: the bar flashes white and jolts for a moment (the element is new for each blow, so this plays
+   once from the start) */
+.bar.struck {
+  animation: bar-struck 400ms steps(1, end);
+}
+.bar.struck > i {
+  animation: bar-struck-fill 400ms steps(1, end);
+}
+@keyframes bar-struck {
+  0%,
+  20% {
+    transform: translate(calc(3 * var(--hu)), 0);
+    border-color: #ff5a4a;
+  }
+  10%,
+  30% {
+    transform: translate(calc(-3 * var(--hu)), 0);
+    border-color: #ff5a4a;
+  }
+  40%,
+  60% {
+    transform: translate(calc(2 * var(--hu)), 0);
+    border-color: #ff5a4a;
+  }
+  50%,
+  70% {
+    transform: translate(calc(-2 * var(--hu)), 0);
+    border-color: #ff5a4a;
+  }
+  80% {
+    transform: none;
+    border-color: #ff5a4a;
+  }
+}
+@keyframes bar-struck-fill {
+  0%,
+  39% {
+    background: #fff2e0;
+  }
+  40%,
+  69% {
+    background: #ff6a5a;
+  }
+}
+/* reduced motion: no jolt, only the colours */
+@keyframes bar-struck-calm {
+  from,
+  to {
+    border-color: #ff5a4a;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar.struck {
+    animation-name: bar-struck-calm;
+  }
+}
 .help {
   bottom: calc(10 * var(--hu));
   left: calc(14 * var(--hu));

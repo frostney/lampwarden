@@ -39,6 +39,7 @@ function recordNight(
   tide: number,
   seed: number,
   creature: RecordedCreature | null = null,
+  policy: (state: State) => Input = botInput,
 ): { live: State; play: Play } {
   const legacy = newLegacy();
   legacy.night = night;
@@ -47,7 +48,7 @@ function recordNight(
   const recorder = new Recorder(legacy, seed, "test", creature);
   let input = NO_INPUT;
   for (let stepIndex = 0; !live.outcome; stepIndex++) {
-    input = stepIndex % 9 === 0 ? botInput(live) : { ...input, melee: false, ranged: false };
+    input = stepIndex % 9 === 0 ? policy(live) : { ...input, melee: false, ranged: false };
     const quantised = quantise(input);
     recorder.input(stepIndex, quantised, live);
     step(live, STEP, quantised);
@@ -73,6 +74,15 @@ describe("recorded nights", () => {
     const replayed = verifyPlay(play);
     expect(replayed.endsMatch).toBe(true);
     expect(replayed.state.stats).toEqual(live.stats);
+  });
+
+  test("a night of wounds replays the knockback, hit-stop and mercy frames exactly", () => {
+    // a warden who only stands his ground is clawed again and again
+    const { live, play } = recordNight(3, 1.1, 4242, null, () => NO_INPUT);
+    expect(live.hero.hits).toBeGreaterThan(1);
+    const replayed = verifyPlay(play);
+    expect(replayed.endsMatch).toBe(true);
+    expect(replayed.state.hero).toEqual(live.hero);
   });
 
   test("a recording stays small", () => {

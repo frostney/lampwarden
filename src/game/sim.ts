@@ -43,6 +43,16 @@ export const HURT_TIME = 0.25;
 export const FLASH_TIME = 0.06;
 export const GHOST_TIME = 0.16; // a killed monster's white silhouette is flung back for this long
 
+// How a monster's blow lands on the warden, with the same weight as the warden's on a monster: a hit-stop of `stun`
+// seconds, then a push of `push` ground px/s away from the attacker (about 33 px). The mercy frames after a blow keep a
+// crowd from chain-hitting: nothing wounds the warden again until they are over.
+const HERO_BLOW = { push: 300, stun: 0.07 };
+export const MERCY_TIME = 0.5;
+// The warden flashes white for the first HERO_FLASH_TIME of HERO_HURT_TIME after a blow, then red until it fades.
+export const HERO_HURT_TIME = 0.4;
+export const HERO_FLASH_TIME = 0.08;
+const HERO_KNOCK_LIMIT = 0.92; // the plaza's walking margin (inPlaza)
+
 // The creature the sea sends this night, when there is one (src/game/creature.ts). It is part of the night's setup, so a
 // recording carries it and a replay builds the same night. Its stats follow from its archetype and modifiers, never
 // from the model; anchorY is for the scene.
@@ -129,9 +139,14 @@ export interface Hero {
   aim: { x: number; y: number } | null;
   health: number;
   maxHealth: number;
-  hurt: number;
+  hurt: number; // counts down from HERO_HURT_TIME after a blow: the flash, then the red tint
   shotCooldown: number;
   hold: number; // the animation waits a beat after a swing connects
+  hits: number; // blows taken this night (the scene reads it to start the shake and the HUD flash)
+  stun: number; // hit-stop: frozen by a blow
+  mercy: number; // mercy frames: no further blow lands while this runs
+  knockX: number; // thrown by a blow: ground velocity, px/s
+  knockY: number;
 }
 export type Outcome = "dawn" | "dark" | "fallen";
 interface Stats {
@@ -220,6 +235,11 @@ export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreatu
       hurt: 0,
       shotCooldown: 0,
       hold: 0,
+      hits: 0,
+      stun: 0,
+      mercy: 0,
+      knockX: 0,
+      knockY: 0,
     },
     monsters: [],
     shots: [],
@@ -369,8 +389,12 @@ export function step(state: State, deltaTime: number, input: Input) {
   const hero = state.hero;
   const rules = state.rules;
   hero.hurt = Math.max(0, hero.hurt - deltaTime);
+  hero.mercy = Math.max(0, hero.mercy - deltaTime);
   hero.shotCooldown = Math.max(0, hero.shotCooldown - deltaTime);
-  const busy = hero.animation === "melee" || hero.animation === "ranged";
+  const stunned = hero.stun > 0;
+  hero.stun = Math.max(0, hero.stun - deltaTime);
+  if (hero.knockX !== 0 || hero.knockY !== 0) knock(hero, deltaTime, HERO_KNOCK_LIMIT);
+  const busy = stunned || hero.animation === "melee" || hero.animation === "ranged";
 
   if (!busy && input.melee) {
     hero.animation = "melee";
@@ -385,7 +409,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   const attacking = hero.animation === "melee" || hero.animation === "ranged";
-  if (!attacking) {
+  if (!attacking && !stunned) {
     if (turn(hero, input.moveX, input.moveY)) {
       const unitX = hero.directionX;
       const unitY = hero.directionY;
@@ -407,7 +431,7 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   hero.hold = Math.max(0, hero.hold - deltaTime);
-  if (hero.hold <= 0) hero.frameTime += deltaTime;
+  if (hero.hold <= 0 && !stunned) hero.frameTime += deltaTime;
   const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
   if (attacking && frame >= FRAMES[hero.animation]) {
     hero.animation = "idle";
@@ -541,12 +565,10 @@ export function step(state: State, deltaTime: number, input: Input) {
     const distance = Math.hypot(towardX, towardY) || 1;
     if (!lamp && distance < 26) {
       // claw the warden
-      if (monster.attackCooldown <= 0) {
+      // mercy frames: while they run the monster waits, and claws the moment they end
+      if (monster.attackCooldown <= 0 && hero.mercy <= 0) {
         monster.attackCooldown = 1.1;
-        hero.health = Math.max(0, hero.health - stats.damage);
-        hero.hurt = 0.35;
-        state.stats.hpLost += stats.damage;
-        addPuff(state, hero.x, hero.y - 30, "hurt");
+        wound(state, stats.damage, towardX / distance, towardY / distance);
       }
       continue;
     }
@@ -628,12 +650,35 @@ function strike(state: State, monster: Monster, blow: Blow) {
   if (rand(state) < state.rules.oilChance) state.oilEarned += monsterStats(state, monster.kind).oil;
 }
 
-// Slides a thrown monster along its push and lets the push die away. It never ends up farther out than the rim it was
-// on (or the plaza's edge), so the sea stays where it is; against the edge it slides along it.
-function knock(monster: Monster, deltaTime: number) {
+// A monster's blow on the warden: damage, a hit-stop, a push, mercy frames and the impact burst. (blowX, blowY) is the
+// unit direction of the blow on the ground, from the attacker through the warden.
+function wound(state: State, damage: number, blowX: number, blowY: number) {
+  const hero = state.hero;
+  hero.health = Math.max(0, hero.health - damage);
+  hero.hurt = HERO_HURT_TIME;
+  hero.hits++;
+  hero.stun = HERO_BLOW.stun;
+  hero.mercy = MERCY_TIME;
+  hero.knockX = blowX * HERO_BLOW.push;
+  hero.knockY = blowY * HERO_BLOW.push;
+  state.stats.hpLost += damage;
+  // the burst is where the claw lands, on the near side of the warden's chest, thrown along the blow
+  addPuff(state, hero.x - blowX * 8, hero.y - 30 - blowY * 4, "hurt", { directionX: blowX, directionY: blowY });
+}
+
+// Slides a thrown body (a monster, or the warden) along its push and lets the push die away. It never ends up farther
+// out than the rim it was on (or `edge`, how near the plaza's rim it may be left), so the sea stays where it is;
+// against the edge it slides along it.
+interface Thrown {
+  x: number;
+  y: number;
+  knockX: number;
+  knockY: number;
+}
+function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
   const nextX = monster.x + monster.knockX * deltaTime;
   const nextY = monster.y + monster.knockY * deltaTime * 0.5;
-  const limit = Math.max(KNOCK_LIMIT, plazaRim(monster.x, monster.y));
+  const limit = Math.max(edge, plazaRim(monster.x, monster.y));
   if (plazaRim(nextX, nextY) <= limit) {
     monster.x = nextX;
     monster.y = nextY;

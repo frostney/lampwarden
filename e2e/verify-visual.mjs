@@ -819,6 +819,176 @@ await page.evaluate(() => {
   window.lampwarden.state().hero.y = 360;
 });
 
+// 4c a monster's blow on the warden: a white flash frame, the red vignette, the burst at the claw, a jolt of the screen
+// and the health bar, then the warden thrown away from the attacker. The sim is slowed to a tenth and stopped at each
+// step of the hurt, so every stage can be looked at.
+const woundedSprites = () =>
+  page.evaluate(() => {
+    const found = { flash: [], vignette: [] };
+    const visit = (node) => {
+      const label = node.texture?.source?.label ?? "";
+      if (node.visible && node.alpha > 0 && label.startsWith("flash:") && label.includes("/hero/"))
+        found.flash.push({ label, x: node.x, y: node.y, scaleX: node.scale.x });
+      if (node.visible && node.alpha > 0 && label.startsWith("vignette/")) found.vignette.push(label);
+      for (const child of node.children ?? []) visit(child);
+    };
+    const app = window.lampwarden.app();
+    if (app) visit(app.stage);
+    return found;
+  });
+// runs the sim at a tenth speed until the warden has been hit and his hurt has run down to `limit`, then stops it;
+// reports the largest the screen's jolt got meanwhile
+const runHurtTo = (limit) =>
+  page.evaluate(async (limit) => {
+    const scene = window.lampwarden.scene();
+    const state = window.lampwarden.state();
+    const app = window.lampwarden.app();
+    let jolt = 0;
+    scene.setSpeed(0.1);
+    scene.setPaused(false);
+    await new Promise((resolve) => {
+      const watch = () => {
+        jolt = Math.max(jolt, Math.abs(app.stage.position.x), Math.abs(app.stage.position.y));
+        if (state.hero.hits > 0 && state.hero.hurt <= limit) {
+          scene.setPaused(true);
+          resolve();
+        } else requestAnimationFrame(watch);
+      };
+      watch();
+    });
+    scene.setSpeed(1);
+    return jolt;
+  }, limit);
+const placeClawer = (heroX, heroY) =>
+  page.evaluate(
+    ([heroX, heroY]) => {
+      const state = window.lampwarden.state();
+      state.shots = [];
+      state.monsters = [];
+      state.hero.x = heroX;
+      state.hero.y = heroY;
+      state.hero.animation = "idle";
+      state.hero.frameTime = 0;
+      state.hero.left = false;
+      state.monsters.push({
+        id: state.nextId++,
+        kind: "satyr",
+        x: heroX + 20,
+        y: heroY,
+        health: 1,
+        age: 0,
+        wobble: 0,
+        snuff: 0,
+        attackCooldown: 99, // it waits until the scene is set
+        hurt: 0,
+        stun: 0,
+        knockX: 0,
+        knockY: 0,
+      });
+    },
+    [heroX, heroY],
+  );
+{
+  const woundX = 560;
+  const woundY = 360;
+  await placeClawer(woundX, woundY);
+  await settle();
+  await page.waitForTimeout(80);
+  const unhurt = (await page.locator(".stage").screenshot()).toString("base64");
+  const unhurtSprites = await woundedSprites();
+  check(
+    "hero-hit",
+    "an unhurt warden shows no flash and no vignette",
+    unhurtSprites.flash.length === 0 && unhurtSprites.vignette.length === 0,
+  );
+  await page.evaluate(() => {
+    window.lampwarden.state().monsters[0].attackCooldown = 0;
+  });
+  const jolt = await runHurtTo(0.39);
+  await settle();
+  const struck = await page.evaluate(() => {
+    const { hero } = window.lampwarden.state();
+    return { hits: hero.hits, hurt: hero.hurt, mercy: hero.mercy, health: hero.health, maxHealth: hero.maxHealth };
+  });
+  const flashing = await woundedSprites();
+  const flashShot = await shoot("04c-hero-hit-1-flash");
+  check("hero-hit", "a monster's claw wounds the warden once", struck.hits === 1 && struck.health < struck.maxHealth);
+  check(
+    "hero-hit",
+    "the warden is a white flash frame, on his own frame, where he stands",
+    flashing.flash.length === 1 &&
+      Math.abs(flashing.flash[0].x - woundX) < 40 &&
+      /\/hero\/male_idle\d/.test(flashing.flash[0].label),
+    JSON.stringify(flashing.flash),
+  );
+  const white = await changedColour(flashShot, unhurt, [woundX - 22, woundY - 90, 44, 90]);
+  check(
+    "hero-hit",
+    "the flash is white pixels on the warden",
+    white.count > 150 && Math.min(...white.colour) > 205,
+    `${white.count} pixels, mean rgb ${white.colour.map((level) => level.toFixed(0)).join(",")}`,
+  );
+  check(
+    "hero-hit",
+    "the vignette is on at full strength",
+    flashing.vignette.length === 1 && flashing.vignette[0] === "vignette/3",
+    flashing.vignette.join(" "),
+  );
+  const edge = await changedColour(flashShot, unhurt, [0, 150, 40, 300]);
+  check(
+    "hero-hit",
+    "the vignette reddens the screen's edge",
+    edge.count > 300 && edge.colour[0] > edge.colour[2] * 1.4,
+    `${edge.count} pixels, mean rgb ${edge.colour.map((level) => level.toFixed(0)).join(",")}`,
+  );
+  const burst = await changedColour(flashShot, unhurt, [woundX - 24, woundY - 70, 60, 30]);
+  check("hero-hit", "an impact burst at the claw", burst.count > 60, `${burst.count} pixels changed at the chest`);
+  check("hero-hit", "the health bar flashes and jolts", (await page.locator(".bar.struck").count()) === 1);
+  check("hero-hit", "the screen jolts harder than a kill does", jolt >= 3, `${jolt}px`);
+  await runHurtTo(0.3);
+  await settle();
+  await shoot("04c-hero-hit-2-red");
+  await runHurtTo(0.2);
+  await settle();
+  const fading = await woundedSprites();
+  await shoot("04c-hero-hit-3-fading");
+  check(
+    "hero-hit",
+    "the flash is over after its first frames, the vignette thinner",
+    fading.flash.length === 0 && fading.vignette.length === 1 && fading.vignette[0] === "vignette/2",
+    `${fading.flash.length} flash, ${fading.vignette.join(" ")}`,
+  );
+  await runHurtTo(0.1);
+  await settle();
+  await shoot("04c-hero-hit-4-fading");
+  await runHurtTo(0);
+  await settle();
+  await page.waitForTimeout(80);
+  const over = await woundedSprites();
+  const after = await page.evaluate(() => {
+    const { hero } = window.lampwarden.state();
+    return { x: hero.x, y: hero.y, stun: hero.stun, hits: hero.hits };
+  });
+  await shoot("04c-hero-hit-5-over");
+  check(
+    "hero-hit",
+    "when the hurt is over the flash and the vignette are gone",
+    over.flash.length === 0 && over.vignette.length === 0,
+  );
+  check(
+    "hero-hit",
+    "the warden was thrown away from the attacker",
+    woundX - after.x > 15,
+    `${(woundX - after.x).toFixed(0)}px`,
+  );
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.monsters = [];
+    Object.assign(state.hero, { hurt: 0, mercy: 0, stun: 0, knockX: 0, knockY: 0, x: 560, y: 360 });
+  });
+  await settle();
+}
+
 // 5 just before dawn: the tint has warmed
 await page.evaluate(() => {
   const state = window.lampwarden.state();
@@ -1295,6 +1465,28 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const mainPage = page;
   page = reducedPage;
   await checkTitleScroll("reduced-motion", 1000, 640);
+  // a blow on the warden with reduced motion: the screen does not shake and the bar does not jolt; the vignette stays,
+  // steady
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.getByRole("button", { name: "Light the lamps" }).click();
+  await page.waitForSelector('[data-phase="night"]');
+  await freeze();
+  await placeClawer(560, 360);
+  await page.evaluate(() => {
+    window.lampwarden.state().monsters[0].attackCooldown = 0;
+  });
+  const calmJolt = await runHurtTo(0.39);
+  await settle();
+  const calmSprites = await woundedSprites();
+  check("reduced-motion", "a blow does not shake the screen", calmJolt === 0, `${calmJolt}px`);
+  check(
+    "reduced-motion",
+    "the vignette and the flash still mark the blow",
+    calmSprites.vignette.length === 1 && calmSprites.flash.length === 1,
+    `${calmSprites.vignette.join(" ")}, ${calmSprites.flash.length} flash`,
+  );
   page = mainPage;
   await reducedContext.close();
 }

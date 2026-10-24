@@ -20,6 +20,7 @@ import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } 
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { isCharacterKey, withoutPaintedShadow } from "./rim";
+import { VIGNETTE_STRENGTHS, vignetteTexture } from "./vignette";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -36,6 +37,8 @@ export function loadTextures(): Promise<TextureMap> {
       if (!texture) continue;
       textures[asset.alias] = prepared(asset.alias, texture);
     }
+    // the vignette's pictures are painted now, not in the frame of the first blow
+    for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) vignetteTexture(strength);
     for (const kind of Object.keys(MONSTER)) {
       const base = textures[kind];
       const white = base && silhouette(base);
@@ -115,8 +118,23 @@ export function monsterLook(state: Pick<State, "creature">, kind: MonsterKind): 
   return { key: handMade, anchorY: anchorYFor(handMade) };
 }
 
-// A texture with the same alpha as `texture` and every pixel white. Made at load by drawing the sprite to a canvas, so
-// the flash stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
+// the white copy of a warden frame, made the first time a blow shows it and kept (there are many frames, and a blow
+// shows few of them)
+const heroSilhouettes = new WeakMap<Texture, Texture | null>();
+export function heroFlashTexture(textures: TextureMap, key: string): Texture | null {
+  const base = textures[key];
+  if (!base) return null;
+  let white = heroSilhouettes.get(base);
+  if (white === undefined) {
+    white = silhouette(base);
+    if (white) white.source.label = `flash:${base.source.label}`;
+    heroSilhouettes.set(base, white);
+  }
+  return white;
+}
+
+// A texture with the same alpha as `texture` and every pixel white. Made by drawing the sprite to a canvas, so the flash
+// stays hard-edged pixel art (a tint cannot go brighter than the sprite, and a filter would blur).
 function silhouette(texture: Texture): Texture | null {
   const resource = texture.source.resource;
   // the character sprites are pixel buffers once their painted shadow is taken out (rim.ts): premultiplied, so white
@@ -287,7 +305,7 @@ const TRAIL: [number, number][] = [
   [0.04, 0.3],
   [0.052, 0.15],
 ];
-const PUFF_COLOURS = { snuff: 0x9aa0b0, hurt: 0xff5050, light: 0xffe6a0, kill: 0xf2c14e };
+const PUFF_COLOURS = { snuff: 0x9aa0b0, light: 0xffe6a0, kill: 0xf2c14e };
 
 // sparks thrown from the point of contact: angle off the blow (radians) and speed (px/s)
 const SPARKS: [number, number][] = [
@@ -303,8 +321,11 @@ const SPARKS: [number, number][] = [
 const SPARK_COLOURS = [0xffffff, 0xfff2c0, 0xf2c14e];
 const IMPACT_TIME = 0.24;
 
+// the sparks of a monster's blow on the warden cool from pink through red to dark red, and are a pixel larger
+const WOUND_SPARK_COLOURS = [0xffb0a0, 0xe84040, 0x9a1c28];
+
 // The impact burst of a blow, pixel squares only: a white four-armed flash for the first three frames, then sparks
-// that fly along the blow, shrink and cool from white to gold.
+// that fly along the blow, shrink and cool from white to gold (a blow on the warden: from pink to dark red).
 function drawImpact(graphics: Graphics, puff: Puff) {
   if (puff.age > IMPACT_TIME) return;
   const centreX = Math.round(puff.x);
@@ -315,9 +336,10 @@ function drawImpact(graphics: Graphics, puff: Puff) {
     graphics.rect(centreX - 1, centreY - arm, 3, arm * 2 + 1).fill(0xffffff);
   }
   const progress = puff.age / IMPACT_TIME;
-  const size = progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2;
-  const colour =
-    SPARK_COLOURS[Math.min(SPARK_COLOURS.length - 1, Math.floor(progress * SPARK_COLOURS.length))] ?? 0xffffff;
+  const wound = puff.kind === "hurt";
+  const size = (progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2) + (wound ? 1 : 0);
+  const colours = wound ? WOUND_SPARK_COLOURS : SPARK_COLOURS;
+  const colour = colours[Math.min(colours.length - 1, Math.floor(progress * colours.length))] ?? 0xffffff;
   const base = Math.atan2(puff.directionY / 2, puff.directionX);
   for (const [offset, speed] of SPARKS) {
     const angle = base + offset;
@@ -340,7 +362,7 @@ export function drawMarks(graphics: Graphics, state: State, clock: number) {
         .fill({ color: 0xfff2c0, alpha });
   }
   for (const puff of state.puffs) {
-    if (puff.kind === "hit") {
+    if (puff.kind === "hit" || puff.kind === "hurt") {
       drawImpact(graphics, puff);
       continue;
     }

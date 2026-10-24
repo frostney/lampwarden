@@ -42,7 +42,7 @@ import {
 } from "@/game/legacy";
 import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
-import { type Play, Recorder, upload } from "@/game/recording";
+import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
@@ -194,9 +194,15 @@ export default function Game() {
     } catch {
       /* full */
     }
-    // the visual verifier's nights are not real plays, so they are not uploaded (a stubbed server answers for them)
-    const verifying = new URLSearchParams(location.search).has("verify");
-    return { id: play.id, play, uploaded: verifying ? Promise.resolve(true) : upload(play) };
+    return { id: play.id, play, uploaded: upload(play) }; // upload queues one that fails and skips the verifier's nights
+  }, []);
+
+  // A tab that is hidden or going away may not come back (mobile Safari often kills a background tab without a
+  // pagehide) or may (a back-forward-cache restore). Either way the night so far goes out under its id, and the recorder
+  // stays until the night really ends, when sendPlay sends the finished play under the same id.
+  const sendSnapshot = useCallback((state: State | null) => {
+    const play = phaseRef.current === "night" && state ? recorderRef.current?.snapshot(state) : null;
+    if (play) void upload(play, true);
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -422,16 +428,20 @@ export default function Game() {
       scene: () => scene,
       app: () => appRef.current,
     };
-    // a night abandoned by closing the tab is still recorded (outcome null)
-    const leave = () => {
-      if (phaseRef.current === "night") sendPlay(stateRef.current);
+    // a night abandoned by closing or backgrounding the tab is still recorded (outcome null)
+    const leave = () => sendSnapshot(stateRef.current);
+    const hide = () => {
+      if (document.visibilityState === "hidden") leave();
     };
     window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", hide);
+    void resendQueuedPlays(); // nights an earlier page could not send
     return () => {
       dead = true;
       window.removeEventListener("pagehide", leave);
+      document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendPlay, pause, controls, refresh, show, startReplay, ask]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, ask]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;

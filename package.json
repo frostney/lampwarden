@@ -1,0 +1,25 @@
+{
+  "name": "lampwarden",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "assets": "python3 pipeline/run.py",
+    "kit": "bash pipeline/kit/assemble.sh"
+  },
+  "dependencies": {
+    "@pixi/react": "^8.0.5",
+    "next": "^16.4.3",
+    "pixi.js": "^8.22.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -400,6 +400,22 @@ export const nightProgress = (state: State) => Math.min(1, state.elapsed / state
 // the lights fade out over the last 15% of the night
 export const lightsAlpha = (progress: number) => (progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15);
 
+// The props small enough for one warm tint to light, by the lamps and by the warden's light on the ground at their base
+// (lighting.ts lightProp), named by the key a prop is placed under, not the sprite drawn for it: the statue, the stall,
+// the olive trees and the decorations (the young olive, the broken column, the votive altar, the amphora stack). The
+// temple, the house (and its ochre one) and the wall are buildings, and the galley at its dock and the trireme are boats:
+// a single tint across a sprite that large would light its whole face at once, so they keep the night's tint.
+const LIT_PROPS: ReadonlySet<string> = new Set([
+  "zeus-statue",
+  "stall",
+  "olive",
+  "olive-young",
+  "broken-column",
+  "votive-altar",
+  "amphora-stack",
+]);
+export const isLitProp = (key: string) => LIT_PROPS.has(key);
+
 // where a sprite's base touches the ground, as a Pixi anchor (one object per height, so React props stay equal)
 const anchors = new Map<number, { x: number; y: number }>();
 export function anchorAt(anchorY: number) {

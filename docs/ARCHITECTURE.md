@@ -102,9 +102,13 @@ src/
                      islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
-    lighting.ts      how the lamps light a character, as numbers (pure, render-only): how lit it is (the pool's own shape,
-                     flicker and dawn fade, in whole steps), the warm tint for its sprite, which way its shadows fall and
-                     which side its rim is on
+    lighting.ts      how the lamps, and the warden's own weaker light, light what stands in them, as numbers (pure,
+                     render-only): how lit it is (the pool's own shape, flicker and dawn fade, in whole steps), the warm
+                     tint for its sprite, which way its shadows fall and which side its rim is on. The warden's light
+                     (the ellipse he lights the ground with) tints him a step, and tints and rims the monsters in it
+                     scaled by distance, without a shadow of its own. The small props (the statue, the stall, the olive
+                     trees, the lamps' posts) are lit by both where their bases stand; the buildings (temple, house, wall)
+                     and the boats are not, as one tint across so large a sprite would light its whole face at once
     shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
                      length, painted on first use
     rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm

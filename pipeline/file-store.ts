@@ -36,8 +36,16 @@ function writeManifestRow(outputDirectory: string, spriteName: string, entry: Re
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
 }
 
-/** Writes the winning PNG, its build code and its manifest row to the output directory. */
-export function writeSpriteOutputs(outputDirectory: string, spriteName: string, outcome: LoopOutcome): void {
+/**
+ * Writes the winning PNG, its build code and its manifest row to the output directory. `extraFields` are manifest keys
+ * the caller knows and the loop does not (where the sprite came from, its measured anchor); they follow `code`.
+ */
+export function writeSpriteOutputs(
+  outputDirectory: string,
+  spriteName: string,
+  outcome: LoopOutcome,
+  extraFields: Record<string, unknown> = {},
+): void {
   mkdirSync(outputDirectory, { recursive: true });
   writeFileSync(join(outputDirectory, `${spriteName}.png`), outcome.winner.png);
   writeFileSync(join(outputDirectory, `${spriteName}.ts`), `${outcome.winner.code}\n`);
@@ -46,6 +54,7 @@ export function writeSpriteOutputs(outputDirectory: string, spriteName: string, 
     brief,
     file: `${spriteName}.png`,
     code: `${spriteName}.ts`,
+    ...extraFields,
     ...rowFields,
   });
 }

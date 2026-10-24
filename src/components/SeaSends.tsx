@@ -4,7 +4,7 @@
 // announcement: nothing here has to finish before the night can begin.
 import { useEffect, useRef } from "react";
 import { creatureSpritePath, type JobStep } from "@/game/creature";
-import type { Tonight } from "./useTonight";
+import type { Tonight } from "@/game/sea";
 
 const STEP_TEXT: Record<JobStep, string> = {
   queued: "the tide gathers",

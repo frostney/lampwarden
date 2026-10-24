@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lampwarden asset pipeline: brief -> generator (Opus via Mubit) -> render -> verifier (Opus via Mubit, image) -> one fix -> best-of -> public/sprites.
 
-usage: MUBIT_API_KEY=... python3 pipeline/run.py [--render local|shotcup] [--out public/sprites] [--pose idle] "brief one" "brief two" ...
+usage: MUBIT_API_KEY=... python3 pipeline/run.py [--render local|shotcup|vercel] [--out public/sprites] [--pose idle] "brief one" "brief two" ...
        python3 pipeline/run.py --file briefs.json      # {"id": ["category", "brief"], ...}
 The key is read from the environment only; it is never printed, logged or written to disk.
 Every Mubit call (request id, status, tokens, verdict) is appended to pipeline/runs/run.jsonl (no key, no headers).
@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -234,13 +235,52 @@ def generate(task, messages, session, log_fields, max_tokens):
     return log_row, reply_text
 
 
-# ---- renderers: both return (stats dict, None) or (None, error). The PNG lands in <output_directory>/<name>.png ----
+# ---- renderers: each returns (stats dict, None) or (None, error). The PNG lands in <output_directory>/<name>.png ----
 def render_locally(code, name, output_directory, pose=""):
     source_path = os.path.join(output_directory, name + ".ts")
     with open(source_path, "w") as source_file:
         source_file.write(code + "\n")
     # allowlisted env: generated code never sees MUBIT_API_KEY or any other secret
     return render_file(source_path, name, output_directory, pose)
+
+
+# What the Vercel Sandbox SDK needs from the shell, and nothing else (no MUBIT_API_KEY). Without a token in the shell the
+# SDK refreshes an OIDC token itself from the Vercel CLI login and the linked project (.vercel/project.json).
+VERCEL_SANDBOX_ENVIRONMENT = (
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "VERCEL_OIDC_TOKEN",
+    "VERCEL_TOKEN",
+    "VERCEL_TEAM_ID",
+    "VERCEL_PROJECT_ID",
+    "VERCEL_SANDBOX_SNAPSHOT_ID",
+)
+
+
+def render_in_vercel_sandbox(code, name, output_directory, pose=""):
+    """Runs the build in a fresh Vercel Sandbox microVM with no network (see vercel_sandbox_render.ts)."""
+    source_path = os.path.join(output_directory, name + ".ts")
+    with open(source_path, "w") as source_file:
+        source_file.write(code + "\n")
+    environment = {variable: os.environ[variable] for variable in VERCEL_SANDBOX_ENVIRONMENT if variable in os.environ}
+    renderer_script = os.path.join(PIPELINE_DIRECTORY, "vercel_sandbox_render.ts")
+    try:
+        completed = subprocess.run(
+            ["bun", "--no-env-file", renderer_script, source_path, name, output_directory, pose],
+            check=False,
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "vercel sandbox: timed out"
+    if completed.returncode != 0:
+        return None, (completed.stderr.strip().splitlines() or ["vercel sandbox: error"])[-1][:300]
+    return json.loads(completed.stdout.strip().splitlines()[-1]), None
 
 
 def render(code, name, output_directory, renderer, pose=""):
@@ -253,6 +293,8 @@ def render(code, name, output_directory, renderer, pose=""):
         import shotcup_render
 
         return shotcup_render.render(code, name, output_directory, pose)
+    if renderer == "vercel":
+        return render_in_vercel_sandbox(code, name, output_directory, pose)
     return render_locally(code, name, output_directory, pose)
 
 
@@ -408,7 +450,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("briefs", nargs="*")
     parser.add_argument("--file")
-    parser.add_argument("--render", choices=["local", "shotcup"], default="local")
+    parser.add_argument("--render", choices=["local", "shotcup", "vercel"], default="local")
     parser.add_argument("--out", default=os.path.join(REPOSITORY_ROOT, "public", "sprites"))
     parser.add_argument("--pose", default="")
     arguments = parser.parse_args()

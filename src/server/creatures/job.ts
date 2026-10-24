@@ -1,16 +1,20 @@
-// One creature generation job: brief writer -> generator -> tripwire -> render in the sandbox -> engine flags ->
-// verifier -> one fix -> best-of (pipeline/sprite-loop.ts, reused), then accept or fail. Model output is text and a PNG
-// here: the code it wrote reaches only the renderer (a Vercel Sandbox in production), never this process.
+// One creature generation job: brief writer -> generator -> tripwire -> render (QuickJS in a worker thread, or a Vercel
+// Sandbox) -> engine flags -> verifier -> one fix -> best-of (pipeline/loop.ts), then accept or fail. Model output is text
+// and a PNG here: the code it wrote reaches only the renderer, never this process. What the job keeps of a creature is
+// that code, and the hashes of the code and of the pixels the verifier judged, so the player's browser can draw it and
+// check that it drew the same thing.
 //
 // The job reports to the store at every step, and every failure ends as a short fixed reason; no model output and no
 // stack trace is ever stored, returned or logged.
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { type Creature, type CreatureJob, creatureSchema, type JobStep } from "@/game/creature";
+import { sha256Hex } from "@/game/creature-build";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type CandidateOutcome, type LoopStage, type LoopWinner, runCandidateLoop } from "../../../pipeline/loop";
 import type { CallRecord, MubitClient } from "../../../pipeline/mubit";
-import { type Renderer, withDeadline } from "../../../pipeline/render-types";
+import { type Renderer, type RendererName, withDeadline } from "../../../pipeline/render-types";
+import { decodePng } from "../../../tools/logo/png";
 import type { CreatureStore } from "./store";
 
 /** The lowest verifier score that is accepted without a verifier pass, and only with a clean engine report. */
@@ -25,6 +29,7 @@ type JobFailure =
   | "no creature was written"
   | "no sprite could be drawn"
   | "the sprite was not good enough"
+  | "the sprite would not draw the same in the browser"
   | "timed out"
   | "something went wrong";
 
@@ -85,6 +90,14 @@ export interface JobDeps {
   now: () => Date;
   model: MubitClient;
   render: Renderer;
+  /** Which renderer `render` is, for the call log. */
+  rendererName: RendererName;
+  /**
+   * With a renderer other than QuickJS: renders the accepted code once more the way the browser will (QuickJS), and the
+   * creature is stored only if that draws the very pixels the verifier judged. Without it a creature could be stored that
+   * no browser would ever draw, because two engines can differ in the last bit of a float.
+   */
+  drawCheck?: Renderer;
   prompts: { creature: string; generator: string; verifier: string };
   /** Random hex for ids. */
   entropy: () => string;
@@ -149,7 +162,7 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       {
         model: deps.model,
         render: deps.render,
-        rendererName: "vercel",
+        rendererName: deps.rendererName,
         pose: "",
         generatorPrompt: deps.prompts.generator,
         verifierPrompt: deps.prompts.verifier,
@@ -177,8 +190,11 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     });
     if (!accepted) return fail("the sprite was not good enough");
 
-    const creature = buildCreature(id, written.brief, outcome.winner, deps.now());
-    await deps.store.putCreature(creature, outcome.winner.png, outcome.winner.code);
+    const build = await buildHashes(outcome.winner.code, outcome.winner.png);
+    if (deps.drawCheck && !(await drawsTheSame(deps.drawCheck, outcome.winner.code, build.pixelsSha256)))
+      return fail("the sprite would not draw the same in the browser");
+    const creature = buildCreature(id, written.brief, outcome.winner, build, deps.now());
+    await deps.store.putCreature(creature, outcome.winner.code);
     await conclude("done", { creature });
   }
 
@@ -196,13 +212,31 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
   return latest;
 }
 
-function buildCreature(id: string, brief: CreatureBrief, winner: LoopWinner, now: Date): Creature {
+/** The hashes the browser checks: the code as stored, and the RGBA pixels of the render the verifier judged. */
+export async function buildHashes(code: string, png: Uint8Array) {
+  const pixels = decodePng(Buffer.from(png)).data;
+  return { codeSha256: await sha256Hex(code), pixelsSha256: await sha256Hex(pixels) };
+}
+
+async function drawsTheSame(render: Renderer, code: string, pixelsSha256: string): Promise<boolean> {
+  const again = await render({ code, name: "check", pose: "" });
+  return again.ok && (await buildHashes(code, again.png)).pixelsSha256 === pixelsSha256;
+}
+
+function buildCreature(
+  id: string,
+  brief: CreatureBrief,
+  winner: LoopWinner,
+  build: Creature["build"],
+  now: Date,
+): Creature {
   return creatureSchema.parse({
     id,
     ...brief,
     anchorY: anchorYFromBbox(winner.stats.bbox),
     score: winner.verdict.score,
     createdAt: now.toISOString(),
+    build,
   });
 }
 

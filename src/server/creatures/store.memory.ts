@@ -3,7 +3,7 @@ import type { Creature, CreatureJob } from "@/game/creature";
 import type { CreatureStore, RunningLock } from "./store";
 
 export interface MemoryCreatureStore extends CreatureStore {
-  readonly sprites: Map<string, Uint8Array>;
+  readonly sprites: Map<string, Uint8Array>; // PNGs: only what a test puts there; putCreature stores none
   readonly codes: Map<string, string>;
 }
 
@@ -29,8 +29,10 @@ export function createMemoryStore(): MemoryCreatureStore {
       const png = sprites.get(id);
       return png ? new Blob([new Uint8Array(png)]).stream() : null;
     },
-    async putCreature(creature, png, code) {
-      sprites.set(creature.id, png);
+    async getCode(id) {
+      return codes.get(id) ?? null;
+    },
+    async putCreature(creature, code) {
       codes.set(creature.id, code);
       creatures.set(creature.id, creature);
     },

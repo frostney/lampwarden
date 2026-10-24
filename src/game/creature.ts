@@ -47,6 +47,16 @@ export function creatureStats(archetype: Archetype, modifiers: Modifiers): Creat
 
 const modifierSchema = z.union([z.literal(-1), z.literal(0), z.literal(1)]);
 
+// How the sprite reaches the player: as the build code that draws it, which the browser runs (docs/LIVE_GENERATION.md,
+// "In the browser"). The record pins the code and the pixels it must draw, so a stale or swapped blob, or a kit that has
+// moved on, is caught and the creature does not come that night. A record without it is from before the code was
+// delivered and has only a PNG.
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const creatureBuildSchema = z.object({
+  codeSha256: sha256Schema, // SHA-256 of the build code's UTF-8 text, as GET /api/creatures/:id/code serves it
+  pixelsSha256: sha256Schema, // SHA-256 of the 128 x 128 RGBA pixels the verifier judged (65,536 bytes)
+});
+
 export const creatureSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{8,80}$/),
   name: z.string().min(2).max(40), // "Brine hound"
@@ -62,6 +72,7 @@ export const creatureSchema = z.object({
   anchorY: z.number().min(0.5).max(1), // where its feet touch the ground, as a fraction of the 128 px frame
   score: z.number().min(0).max(10), // the verifier's score for the accepted sprite
   createdAt: z.string(), // ISO time
+  build: creatureBuildSchema.optional(), // the sprite as code; absent on a creature drawn before that, which has a PNG
 });
 export type Creature = z.infer<typeof creatureSchema>;
 
@@ -71,7 +82,8 @@ export const statsOf = (creature: Pick<Creature, "archetype" | "modifiers">) =>
 // --- the API ------------------------------------------------------------------------------------------------------
 
 export const CREATURE_API = "/api/creatures";
-export const creatureSpritePath = (id: string) => `${CREATURE_API}/${id}/sprite.png`;
+export const creatureSpritePath = (id: string) => `${CREATURE_API}/${id}/sprite.png`; // only for records without `build`
+export const creatureCodePath = (id: string) => `${CREATURE_API}/${id}/code`;
 export const creatureJobPath = (jobId: string) => `${CREATURE_API}/jobs/${jobId}`;
 
 // POST /api/creatures/next: the newest gallery creature this player hasn't met. When there is none, the server may

@@ -8,7 +8,6 @@ import { createMemoryStore } from "./store.memory";
 
 const SALT = "a-long-enough-test-salt";
 const GENERATING_ENV = { MUBIT_API_KEY: "key", VERCEL_SANDBOX_SNAPSHOT_ID: "snap_1", CREATURE_RATE_SALT: SALT };
-const PNG = new Uint8Array([137, 80, 78, 71]);
 
 const creature = (id: string): Creature => ({
   id,
@@ -46,7 +45,7 @@ describe("next: the gallery", () => {
   test("answers with the newest creature the player has not seen", async () => {
     const { store, ask } = service();
     for (const id of ["0000aaaa-old-aaaaaa", "0000bbbb-middle-bbbbbb", "0000cccc-new-cccccc"]) {
-      await store.putCreature(creature(id), PNG, "code");
+      await store.putCreature(creature(id), "code");
     }
     expect(await ask("1.1.1.1")).toMatchObject({ kind: "ready", creature: { id: "0000cccc-new-cccccc" } });
     expect(await ask("1.1.1.1", ["0000cccc-new-cccccc"])).toMatchObject({
@@ -61,7 +60,7 @@ describe("next: the gallery", () => {
 
   test("serves the gallery without limits and without a job, even with nothing configured", async () => {
     const { store, ask, started } = service({});
-    await store.putCreature(creature("0000aaaa-old-aaaaaa"), PNG, "code");
+    await store.putCreature(creature("0000aaaa-old-aaaaaa"), "code");
     for (let call = 0; call < 20; call++) expect((await ask("1.1.1.1")).kind).toBe("ready");
     expect(started).toEqual([]);
   });
@@ -70,7 +69,7 @@ describe("next: the gallery", () => {
 describe("next: starting a job", () => {
   test("starts one when the player has met everything, and answers with its id", async () => {
     const { ask, started, store } = service();
-    await store.putCreature(creature("0000aaaa-old-aaaaaa"), PNG, "code");
+    await store.putCreature(creature("0000aaaa-old-aaaaaa"), "code");
     const answer = await ask("1.1.1.1", ["0000aaaa-old-aaaaaa"]);
     expect(answer).toEqual({ kind: "generating", jobId: "job-1-abcdef" });
     expect(started).toEqual(["job-1-abcdef"]);

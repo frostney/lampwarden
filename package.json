@@ -23,14 +23,17 @@
     "render": "bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts",
-    "check:pixels": "bun pipeline/check-pixels.ts"
+    "check:pixels": "bun pipeline/check-pixels.ts",
+    "check:creature-worker": "bun e2e/check-creature-worker.mjs"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@pixi/react": "^8.0.5",
     "@vercel/blob": "^2.8.2",
     "@vercel/sandbox": "3.9.0",
     "next": "^16.4.3",
     "pixi.js": "^8.22.0",
+    "quickjs-emscripten-core": "0.32.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7"
@@ -38,7 +41,6 @@
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
     "@boatdev/sdk": "1.11.0",
-    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
@@ -46,7 +48,6 @@
     "knip": "^6.43.0",
     "lefthook": "^2.2.2",
     "playwright": "^1.64.1",
-    "quickjs-emscripten-core": "0.32.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.4.3"

@@ -17,6 +17,7 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import { decodePng } from "../tools/logo/png";
 import { bundleForNode } from "./bundle-for-node";
+import { plainJavaScript } from "./render-inprocess-shared";
 import type { Renderer } from "./render-types";
 
 const PIPELINE_DIRECTORY = process.env.LAMPWARDEN_PIPELINE_DIRECTORY ?? import.meta.dirname;
@@ -116,7 +117,7 @@ async function runChild(
     .replaceAll("__MARKER_DIR__", workDirectory);
   const render = await rendererFor(mode);
   // load everything a later render needs before the probe runs, so a probe that breaks the host cannot hide behind a lazy import
-  const clean = readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.ts"), "utf8");
+  const clean = plainJavaScript(readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.ts"), "utf8"));
   const committed = decodePng(readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.png"))).data;
   await render({ code: clean, name: "lamp-lit", pose: "" });
   const rssBeforeMegabytes = megabytes(process.memoryUsage().rss);
@@ -147,12 +148,13 @@ async function runChild(
 async function runControl(): Promise<void> {
   const { default: variant } = await import("@jitl/quickjs-wasmfile-release-sync");
   const { newQuickJSWASMModuleFromVariant } = await import("quickjs-emscripten-core");
-  const shared = await import("./render-inprocess-shared");
+  const shared = await import("./quickjs-core");
+  const { PREPARED_KIT } = await import("./prepared-kit");
   const { createQuickJsRenderer } = await import("./render-inprocess-quickjs");
   const polluting = readFileSync(join(PROBES_DIRECTORY, "kit-state.js"), "utf8");
-  const clean = readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.ts"), "utf8");
+  const clean = plainJavaScript(readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.ts"), "utf8"));
   const committed = decodePng(readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.png"))).data;
-  const kit = shared.prepareKit();
+  const kit = PREPARED_KIT;
   const quickJs = await newQuickJSWASMModuleFromVariant(variant);
   const runtime = quickJs.newRuntime();
   const context = runtime.newContext();

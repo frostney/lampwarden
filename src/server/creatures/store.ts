@@ -15,9 +15,12 @@ export interface CreatureStore {
   listCreatureIds(): Promise<string[]>;
   /** A gallery record, or null when it is missing or does not validate. */
   getCreature(id: string): Promise<Creature | null>;
+  /** The PNG of a creature drawn before code was delivered (the new ones have none). */
   getSprite(id: string): Promise<ReadableStream<Uint8Array> | null>;
-  /** Writes the sprite and its code, then the record: a creature is in the gallery only once its record exists. */
-  putCreature(creature: Creature, png: Uint8Array, code: string): Promise<void>;
+  /** The build code that draws the creature, as stored. Every creature the job has accepted has it. */
+  getCode(id: string): Promise<string | null>;
+  /** Writes the build code, then the record: a creature is in the gallery only once its record exists. */
+  putCreature(creature: Creature, code: string): Promise<void>;
 
   getJob(jobId: string): Promise<CreatureJob | null>;
   putJob(job: CreatureJob): Promise<void>;

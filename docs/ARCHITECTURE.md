@@ -6,7 +6,7 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png)
+                     :id/code, and :id/sprite.png for creatures from before their code was delivered)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons, the sword and arrow beside the
                      daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon` for the verifier
@@ -14,8 +14,9 @@ src/
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
-    SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
-                     of the job still making one; on the title and the dawn and heir panels
+    SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (its portrait, drawn from the same
+                     render as its sprite in the night; name, lore), or the step of the job still making one; on the title and
+                     the dawn and heir panels
     useTonight.ts    asks the gallery which creature comes tonight and follows a job that is still making one; never
                      blocks play (none, a network error and "still generating" all mean the night starts without it)
     Game.tsx         React shell: title (introduction, setting selector, hero choice), night HUD, dawn upgrades, heir
@@ -44,20 +45,24 @@ src/
     random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
-    creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
-                     bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
+    creature.ts      the contract with the live generator: the Creature record (with `build`, the SHA-256 of its code and of
+                     the pixels it must draw), its stats from an archetype plus bounded modifiers, the API paths and shapes
+                     (see docs/LIVE_GENERATION.md)
+    creature-build.ts  the check on a creature's code: hash it before it runs and its pixels after, against the record; any
+                     mismatch is no creature (the running of the code is injected, so it is tested without a browser)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
                      recorder (the creature a night met is an optional field)
   server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
                      stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
-                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
-                     (the only module that reads env and files and wires Mubit, the sandbox and Blob)
+                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), code (the answer of the
+                     code route), config (env), deps (the only module that reads env and files and wires Mubit, the renderer and
+                     Blob)
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
-    layers.ts        textures (and the creature's, loaded at runtime from its sprite path; a sprite that fails means a
-                     night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
+    layers.ts        textures (and the creature's, drawn at runtime from its code, or loaded from its PNG when its record
+                     has no code; a sprite that fails means a night without it), ground (the plaza over the sea), props, night tint (the world below the horizon
                      is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
                      and anchor
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
@@ -70,8 +75,13 @@ src/
                      which side its rim is on
     shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
                      length, painted on first use
-    rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm
-                     pixels along the edge that faces a lamp
+    creature-render.ts  draws a creature in the browser: fetches its code, checks it (creature-build.ts), runs it in a Web
+                     Worker with a deadline and checks the pixels; one render per creature per page, shared by the scene and the
+                     title panel's portrait
+    creature-worker.ts  the Web Worker: QuickJS compiled to WebAssembly and the prepared kit, loaded when a creature is
+                     announced, one request per worker (code in, 128 x 128 RGBA pixels out)
+    rim.ts           character sprites as pixels: the sprite without the shadow it was painted with (from a loaded PNG or from
+                     pixels), and a rim of hard warm pixels along the edge that faces a lamp
     water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
                      horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
                      drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored
@@ -81,6 +91,7 @@ src/
     projectiles.ts   arrow and sling-stone pixel art
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see the README)
+e2e/check-creature-worker.mjs  the browser worker: pixel identity with every committed sprite, isolation probes, timings and bytes
 scripts/balance.ts   headless balance check (idle and bot wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
@@ -92,6 +103,13 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
+  quickjs-core.ts    runs one build in QuickJS compiled to WebAssembly (no host functions, limits, deadline): the one core the server
+                     worker thread, the browser Web Worker and the Node/Bun renderer share; imports nothing from a host
+  render-quickjs.ts, quickjs-worker-thread.ts   the `quickjs` renderer: a worker thread per render, terminated at an outer deadline
+  prepare-kit.ts, prepared-kit.ts   the kit as plain JavaScript for QuickJS (prepared-kit.ts is generated by `bun run kit`)
+  render-finish.ts   a run's stats and pixels as a RenderResult (the PNG is encoded here; server and Node/Bun only)
+  render-inprocess-*.ts, measure-inprocess.ts, probe-inprocess.ts   the in-process measurement spike (direct and node-vm are unsafe and
+                     measurement-only; quickjs-in-process is what the probes and measurements drive)
   render-local.ts    bun render subprocess with an allowlisted environment
   render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
   hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity gate
@@ -110,6 +128,18 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route; Sho
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+
+## A creature from the sea
+
+1. `POST /api/creatures/next` answers the newest gallery creature the player has not met, or starts a job (one at a time,
+   rate limited). The job writes a brief, has the model draw three candidates as `build(k)` code, renders each in QuickJS in a
+   worker thread, has the verifier model judge the pixels, and keeps the best one when it is good enough: the code in Blob
+   (`sprites/<id>.ts`) and a record with the SHA-256 of that code and of the pixels the verifier saw. No image is stored.
+2. The game gets the record. When the creature is announced it fetches `GET /api/creatures/:id/code`, checks the code's hash,
+   runs it in a Web Worker (the same QuickJS core and prepared kit, a fresh runtime, memory and stack limits, a 5 s
+   deadline) and checks the pixels' hash. The pixels become the night's texture (flash, painted-shadow removal, rim light
+   and anchor as for any character) and the portrait on the title panel. Any failure is no creature that night.
+3. A record without `build` (drawn before the code was delivered) is loaded from `sprite.png` as before.
 
 ## Logo
 

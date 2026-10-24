@@ -1,7 +1,7 @@
 // Lampwarden asset pipeline: brief -> generator (Opus via Mubit) -> render -> verifier (Opus via Mubit, image) -> one fix
 // -> best-of -> public/sprites.
 //
-// usage: MUBIT_API_KEY=... bun --no-env-file pipeline/run.ts [--render local|shotcup|vercel|boat] [--out public/sprites]
+// usage: MUBIT_API_KEY=... bun --no-env-file pipeline/run.ts [--render local|quickjs|shotcup|vercel|boat] [--out public/sprites]
 //                                                            [--pose idle] [--concurrency 4] [--no-prompt-caching] "brief one" ...
 //        bun --no-env-file pipeline/run.ts --file briefs.json      # {"id": ["category", "brief"], ...}
 // The renderer can also come from LAMPWARDEN_RENDERER. The keys (MUBIT_API_KEY, SHOTCUP_API_KEY, BOAT_API_KEY, the

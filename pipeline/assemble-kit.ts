@@ -1,8 +1,10 @@
 // Assembles pipeline/kit/kit.ts from pipeline/kit/src/*.ts: concatenates the parts, rewrites `(...) ** 2` to `sq(...)`
-// (the kit avoids `**`, which is slower than plain multiplication) and asserts that no `**`, `==` or `!=` remain.
+// (the kit avoids `**`, which is slower than plain multiplication) and asserts that no `**`, `==` or `!=` remain. It
+// then writes pipeline/prepared-kit.ts, the same kit as plain JavaScript for QuickJS (prepare-kit.ts).
 // usage: bun pipeline/assemble-kit.ts      (`bun run kit`)
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { preparedKitModule, prepareKitSource } from "./prepare-kit";
 
 const KIT_DIRECTORY = join(import.meta.dir, "kit");
 const PARTS = [
@@ -54,3 +56,4 @@ if (kit.includes("**")) throw new Error("kit still contains **");
 if (kit.replaceAll("===", "").includes(" == ")) throw new Error("kit contains ==");
 if (kit.replaceAll("!==", "").includes(" != ")) throw new Error("kit contains !=");
 writeFileSync(join(KIT_DIRECTORY, "kit.ts"), kit);
+writeFileSync(join(import.meta.dir, "prepared-kit.ts"), preparedKitModule(prepareKitSource(kit)));

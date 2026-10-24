@@ -1,4 +1,4 @@
-// The contract every renderer (local, Shotcup, Vercel Sandbox, boat.dev) fulfils: a build script and a name go in, the
+// The contract every renderer (local, QuickJS, Shotcup, Vercel Sandbox, boat.dev) fulfils: a build script and a name go in, the
 // kit's stats and the 128 px PNG come out. Build code may come from a model, so everything a renderer reads back from
 // outside the process (the stats line a sandbox prints) is validated once, here.
 import { z } from "zod";
@@ -43,7 +43,7 @@ export interface RenderedSprite {
 
 export type RenderResult = ({ ok: true } & RenderedSprite) | { ok: false; error: string };
 
-export const RENDERER_NAMES = ["local", "shotcup", "vercel", "boat"] as const;
+export const RENDERER_NAMES = ["local", "quickjs", "shotcup", "vercel", "boat"] as const;
 export type RendererName = (typeof RENDERER_NAMES)[number];
 
 export type Renderer = (request: RenderRequest) => Promise<RenderResult>;

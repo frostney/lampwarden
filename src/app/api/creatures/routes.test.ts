@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CREATURE_API, creatureJobPath, creatureSpritePath } from "@/game/creature";
+import { CREATURE_API, creatureCodePath, creatureJobPath, creatureSpritePath } from "@/game/creature";
 import { JOB_MAX_DURATION_SECONDS } from "@/server/creatures/config";
 
 // The game fetches these paths (src/game/creature.ts); each must be a route file here.
@@ -21,7 +21,11 @@ describe("the paths the contract names", () => {
     expect(creatureJobPath("JOBID")).toBe("/api/creatures/jobs/JOBID");
     expect(existsSync(routeFileFor(creatureJobPath("JOBID"), { JOBID: "jobId" }))).toBe(true);
   });
-  test("GET the sprite", () => {
+  test("GET the code", () => {
+    expect(creatureCodePath("CREATUREID")).toBe("/api/creatures/CREATUREID/code");
+    expect(existsSync(routeFileFor(creatureCodePath("CREATUREID"), { CREATUREID: "id" }))).toBe(true);
+  });
+  test("GET the sprite (only for creatures drawn before their code was delivered)", () => {
     expect(creatureSpritePath("CREATUREID")).toBe("/api/creatures/CREATUREID/sprite.png");
     expect(existsSync(routeFileFor(creatureSpritePath("CREATUREID"), { CREATUREID: "id" }))).toBe(true);
   });

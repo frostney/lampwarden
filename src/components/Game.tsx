@@ -49,6 +49,7 @@ import {
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { SEXES, type Sex } from "@/scene/assets";
+import { creaturePixels, drawInWorker } from "@/scene/creature-render";
 import { loadCreatureTextures, loadTextures, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -62,7 +63,7 @@ const APP = {
   autoDensity: false,
 };
 
-const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
+const CREATURE_LOAD_TIMEOUT = 5500; // ms a night waits for its creature's sprite before going without it (the draw's own deadline is 5 s)
 
 const SETTINGS = [
   { id: "greek", label: "Lychnos (Greek)", live: true },
@@ -117,6 +118,10 @@ declare global {
       legacy: () => Legacy;
       scene: () => DebugScene;
       app: () => PixiApp | null;
+      // draws a creature from its code, checked against its record, once per page: the pixels the scene and the portrait use
+      creaturePixels: typeof creaturePixels;
+      // runs code in the creature worker with no record to check it against, for the probes (e2e/check-creature-worker.mjs)
+      drawInWorker: typeof drawInWorker;
     };
   }
 }
@@ -301,7 +306,7 @@ export default function Game() {
       let creatureTextures: TextureMap | null = null;
       if (creature && play.creature)
         creatureTextures =
-          (await loadCreatureTextures(creature.id)) ??
+          (await loadCreatureTextures(play.creature)) ??
           standInTextures(await loadTextures(), creature.id, play.creature.archetype);
       const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
@@ -363,6 +368,8 @@ export default function Game() {
       legacy: () => legacyRef.current,
       scene: () => scene,
       app: () => appRef.current,
+      creaturePixels,
+      drawInWorker,
     };
     // a night abandoned by closing the tab is still recorded (outcome null)
     const leave = () => {
@@ -375,12 +382,13 @@ export default function Game() {
     };
   }, [sendPlay, pause, controls, refresh, show, startReplay, ask]);
 
-  // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
-  const announced = tonight.kind === "ready" ? tonight.creature.id : null;
+  // a creature announced for tonight has its sprite drawn ahead of the night (from its code, in a worker); if it will not
+  // draw, it is not announced
+  const announced = tonight.kind === "ready" ? tonight.creature : null;
   useEffect(() => {
     if (!announced) return;
     void loadCreatureTextures(announced).then((loaded) => {
-      if (!loaded) withdraw(announced);
+      if (!loaded) withdraw(announced.id);
     });
   }, [announced, withdraw]);
 
@@ -393,7 +401,7 @@ export default function Game() {
     stop();
     const loaded = announcedCreature
       ? await Promise.race([
-          loadCreatureTextures(announcedCreature.id),
+          loadCreatureTextures(announcedCreature),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
         ])
       : null;

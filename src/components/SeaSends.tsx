@@ -3,7 +3,8 @@
 // Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever an
 // announcement: nothing here has to finish before the night can begin.
 import { useEffect, useRef } from "react";
-import { creatureSpritePath, type JobStep } from "@/game/creature";
+import { type Creature, creatureCodePath, creatureSpritePath, type JobStep } from "@/game/creature";
+import { creaturePixels } from "@/scene/creature-render";
 import type { Tonight } from "./useTonight";
 
 const STEP_TEXT: Record<JobStep, string> = {
@@ -33,7 +34,7 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
         data-creature={creature.id}
         aria-label="The creature coming tonight"
       >
-        <CreaturePortrait creatureId={creature.id} onBroken={onSpriteBroken} />
+        <CreaturePortrait creature={creature} onBroken={onSpriteBroken} />
         <div className="sea-text">
           <span className="sea-label">Tonight the sea sends…</span>
           <b className="sea-name">{creature.name}</b>
@@ -60,54 +61,90 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
 const PORTRAIT_HEIGHT = 72;
 const OPAQUE = 128;
 
-function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBroken: (creatureId: string) => void }) {
+// Crops `frame` (the whole sprite on a canvas) to its opaque pixels onto `canvas`; false when nothing in it is opaque.
+function paintPortrait(canvas: HTMLCanvasElement, frame: HTMLCanvasElement): boolean {
+  const frameContext = frame.getContext("2d", { willReadFrequently: true });
+  const context = canvas.getContext("2d");
+  if (!frameContext || !context) return false;
+  const { data } = frameContext.getImageData(0, 0, frame.width, frame.height);
+  let left = frame.width;
+  let top = frame.height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < frame.height; y++)
+    for (let x = 0; x < frame.width; x++)
+      if ((data[(y * frame.width + x) * 4 + 3] ?? 0) >= OPAQUE) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+  if (right < 0) return false;
+  const width = right - left + 1;
+  const height = bottom - top + 1;
+  const scale = Math.max(1, Math.floor(PORTRAIT_HEIGHT / height));
+  canvas.width = width;
+  canvas.height = height;
+  context.clearRect(0, 0, width, height);
+  context.drawImage(frame, left, top, width, height, 0, 0, width, height);
+  canvas.style.width = `${width * scale}px`;
+  canvas.style.height = `${height * scale}px`;
+  canvas.dataset.scale = String(scale);
+  canvas.dataset.loaded = "1";
+  return true;
+}
+
+// The sprite's pixels on a canvas of their own
+function frameFromPixels(pixels: Uint8Array<ArrayBuffer>): HTMLCanvasElement | null {
+  const frame = document.createElement("canvas");
+  frame.width = 128;
+  frame.height = 128;
+  const context = frame.getContext("2d");
+  if (!context) return null;
+  context.putImageData(new ImageData(new Uint8ClampedArray(pixels), 128, 128), 0, 0);
+  return frame;
+}
+
+// A creature drawn from its code shows the very pixels the night will use (creature-render.ts hands the same render to the
+// scene); one from before code was delivered shows its PNG.
+function CreaturePortrait({ creature, onBroken }: { creature: Creature; onBroken: (creatureId: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const image = new window.Image();
     let current = true;
-    image.onerror = () => {
-      if (current) onBroken(creatureId);
+    const broken = () => {
+      if (current) onBroken(creature.id);
     };
-    image.onload = () => {
+    const paint = (frame: HTMLCanvasElement | null) => {
       const canvas = canvasRef.current;
-      const context = canvas?.getContext("2d", { willReadFrequently: true });
-      if (!current || !canvas || !context) return;
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      context.drawImage(image, 0, 0);
-      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-      let left = canvas.width;
-      let top = canvas.height;
-      let right = -1;
-      let bottom = -1;
-      for (let y = 0; y < canvas.height; y++)
-        for (let x = 0; x < canvas.width; x++)
-          if ((data[(y * canvas.width + x) * 4 + 3] ?? 0) >= OPAQUE) {
-            left = Math.min(left, x);
-            right = Math.max(right, x);
-            top = Math.min(top, y);
-            bottom = Math.max(bottom, y);
-          }
-      if (right < 0) {
-        onBroken(creatureId);
-        return;
-      }
-      const width = right - left + 1;
-      const height = bottom - top + 1;
-      const scale = Math.max(1, Math.floor(PORTRAIT_HEIGHT / height));
-      canvas.width = width;
-      canvas.height = height;
-      context.clearRect(0, 0, width, height);
-      context.drawImage(image, left, top, width, height, 0, 0, width, height);
-      canvas.style.width = `${width * scale}px`;
-      canvas.style.height = `${height * scale}px`;
-      canvas.dataset.scale = String(scale);
-      canvas.dataset.loaded = "1";
+      if (!current || !canvas) return;
+      if (!frame || !paintPortrait(canvas, frame)) broken();
     };
-    image.src = creatureSpritePath(creatureId);
+    if (creature.build) {
+      void creaturePixels(creature).then((pixels) => paint(pixels && frameFromPixels(pixels)));
+      return () => {
+        current = false;
+      };
+    }
+    const image = new window.Image();
+    image.onerror = broken;
+    image.onload = () => {
+      const frame = document.createElement("canvas");
+      frame.width = image.naturalWidth;
+      frame.height = image.naturalHeight;
+      frame.getContext("2d")?.drawImage(image, 0, 0);
+      paint(frame);
+    };
+    image.src = creatureSpritePath(creature.id);
     return () => {
       current = false;
     };
-  }, [creatureId, onBroken]);
-  return <canvas ref={canvasRef} className="sea-sprite" data-src={creatureSpritePath(creatureId)} aria-hidden />;
+  }, [creature, onBroken]);
+  return (
+    <canvas
+      ref={canvasRef}
+      className="sea-sprite"
+      data-src={creature.build ? creatureCodePath(creature.id) : creatureSpritePath(creature.id)}
+      aria-hidden
+    />
+  );
 }

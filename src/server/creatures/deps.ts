@@ -1,12 +1,14 @@
-// Wires the creature service and job to the real world: environment, Blob, Mubit and the Vercel Sandbox. The only module
-// that reads process.env, the prompt files and the kit; everything it builds is a plain object the tests replace.
+// Wires the creature service and job to the real world: environment, Blob, Mubit and the renderer. The only module that
+// reads process.env and the prompt files; everything it builds is a plain object the tests replace.
 //
-// Files read at runtime (the prompts, and the kit and runner to compute the digest a snapshot must match) are listed in
-// next.config.ts under outputFileTracingIncludes, so a deployed function has them; the kit and runner themselves
-// are in the sandbox snapshot, not read for rendering.
+// Files read at runtime (the prompts, and with the sandbox renderer the kit and runner to compute the digest a snapshot
+// must match) are listed in next.config.ts under outputFileTracingIncludes, so a deployed function has them. The QuickJS
+// renderer reads none: the prepared kit is in its bundle and the WebAssembly file is traced with it.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMubitClient } from "../../../pipeline/mubit";
+import { renderInQuickJsWorker } from "../../../pipeline/render-quickjs";
+import type { Renderer, RendererName } from "../../../pipeline/render-types";
 import { renderSafely } from "../../../pipeline/render-vercel-sandbox";
 import { readRunnerFiles, runnerBundleSha } from "../../../pipeline/runner-bundle";
 import {
@@ -55,16 +57,32 @@ function debugSink(directory: string): NonNullable<JobDeps["onOutcome"]> {
   };
 }
 
+/** The renderer the job judges sprites with: QuickJS in a worker thread, or a Vercel Sandbox from the pinned snapshot. */
+function createRenderer(
+  config: CreatureConfig,
+): { render: Renderer; rendererName: RendererName; drawCheck?: Renderer } | null {
+  if (config.renderer === "quickjs") return { render: renderInQuickJsWorker, rendererName: "quickjs" };
+  const { snapshotId } = config;
+  if (config.renderer !== "sandbox" || snapshotId === null) return null;
+  const expectedBundleSha = runnerBundleSha(readRunnerFiles(pipelineDirectory()));
+  return {
+    render: (request) => renderSafely(request, { snapshotId, expectedBundleSha }),
+    rendererName: "vercel",
+    // the browser draws with QuickJS: a creature the sandbox judged is stored only if QuickJS draws the same pixels
+    drawCheck: renderInQuickJsWorker,
+  };
+}
+
 /** The deployed job's dependencies, or null when generation is not configured. */
 function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | null {
-  const { mubitApiKey, snapshotId } = config;
-  if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) return null;
-  const expectedBundleSha = runnerBundleSha(readRunnerFiles(pipelineDirectory()));
+  const { mubitApiKey } = config;
+  const renderer = createRenderer(config);
+  if (!generationAvailable(config) || mubitApiKey === null || renderer === null) return null;
   return {
     store,
     now: () => new Date(),
     model: createMubitClient({ apiKey: mubitApiKey }),
-    render: (request) => renderSafely(request, { snapshotId, expectedBundleSha }),
+    ...renderer,
     prompts: {
       creature: readPrompt("creature.md"),
       generator: readPrompt("generator.md"),

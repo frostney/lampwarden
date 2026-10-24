@@ -11,16 +11,10 @@
 
 import { types } from "node:util";
 import { createContext, Script } from "node:vm";
-import {
-  DETERMINISM_PRELUDE,
-  errorSummary,
-  finishRender,
-  isCommittedSpriteScript,
-  kitScript,
-  prepareBuild,
-  prepareKit,
-  runScript,
-} from "./render-inprocess-shared";
+import { PREPARED_KIT } from "./prepared-kit";
+import { DETERMINISM_PRELUDE, errorSummary, kitScript, prepareBuild, runScript } from "./quickjs-core";
+import { finishRender } from "./render-finish";
+import { isCommittedSpriteScript, plainJavaScript } from "./render-inprocess-shared";
 import { invalidRequestReason, type Renderer, type RenderRequest, type RenderResult } from "./render-types";
 
 export const DEFAULT_TIMEOUT_MILLISECONDS = 30_000;
@@ -44,10 +38,12 @@ export async function renderInNodeVm(request: RenderRequest, options: NodeVmRend
   if (!options.allowHostileProbeCode && !isCommittedSpriteScript(request.code))
     return { ok: false, error: "node-vm renderer only runs scripts committed in this repository" };
   try {
-    const kit = prepareKit();
+    const kit = PREPARED_KIT;
     kitProgram ??= new Script(kitScript(kit), { filename: "kit.js" });
     preludeProgram ??= new Script(DETERMINISM_PRELUDE, { filename: "prelude.js" });
-    const buildProgram = new Script(runScript(kit, prepareBuild(request.code), request.pose), { filename: "build.js" });
+    const buildProgram = new Script(runScript(kit, prepareBuild(plainJavaScript(request.code)), request.pose), {
+      filename: "build.js",
+    });
     const timeout = options.timeoutMilliseconds ?? DEFAULT_TIMEOUT_MILLISECONDS;
     const start = performance.now();
     const context = createContext({});

@@ -5,13 +5,15 @@ import { creatureSchema } from "./creature";
 export const PLAY_ID = /^[0-9-]{19}-[a-z0-9]{1,10}$/;
 
 // The creature a night met, as the recording keeps it: enough to build the same night again (id, archetype, modifiers,
-// anchorY) and to name it in reports. A play from before creatures existed has none.
+// anchorY), to name it in reports and to draw it again (the hashes its code and pixels must match). A play from before
+// creatures existed has none.
 export const recordedCreatureSchema = creatureSchema.pick({
   id: true,
   name: true,
   archetype: true,
   modifiers: true,
   anchorY: true,
+  build: true,
 });
 export type RecordedCreature = ReturnType<typeof recordedCreatureSchema.parse>;
 

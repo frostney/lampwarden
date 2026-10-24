@@ -1,5 +1,5 @@
 // Renders one build script with the chosen renderer: writes <out_dir>/<name>.png and prints the stats as JSON.
-// usage: bun --no-env-file pipeline/render-file.ts [--render local|shotcup|vercel|boat] <build.ts> <name> <out_dir> [pose]
+// usage: bun --no-env-file pipeline/render-file.ts [--render local|quickjs|shotcup|vercel|boat] <build.ts> <name> <out_dir> [pose]
 // On failure it prints the reason to stderr and exits 1.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

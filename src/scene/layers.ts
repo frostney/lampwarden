@@ -2,7 +2,7 @@
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Texture } from "pixi.js";
-import { type Archetype, creatureSpritePath } from "../game/creature";
+import { type Archetype, type Creature, creatureCodePath, creatureSpritePath } from "../game/creature";
 import {
   CENTRE_X,
   CENTRE_Y,
@@ -17,9 +17,10 @@ import {
   SWING_HALF_ARC,
 } from "../game/sim";
 import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { creaturePixels } from "./creature-render";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
-import { isCharacterKey, withoutPaintedShadow } from "./rim";
+import { isCharacterKey, shadowlessTexture, withoutPaintedShadow } from "./rim";
 
 export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
@@ -57,38 +58,61 @@ function prepared(alias: string, texture: Texture): Texture {
 export const flashKey = (key: string) => `flash/${key}`;
 
 // --- the creature from the sea ------------------------------------------------------------------------------------
-// Its sprite is a PNG on the gallery's server, loaded when the night is about to start. Its keys start with "creature/".
+// A creature is drawn in the browser from its build code (creature-render.ts), checked against its record; one from before
+// code was delivered has a PNG on the gallery's server instead. Its keys start with "creature/". Either way it is loaded
+// when the night is about to start, and then it goes through the same steps as any character sprite.
 
 const creatureKey = (id: string) => `creature/${id}`;
 const CREATURE_SPRITE_SIZE = 128; // every sprite is a 128 px frame; the anchor is a fraction of it
 const creatureLoads = new Map<string, Promise<TextureMap | null>>();
 
-// The creature's sprite and its white flash, by key; null when the sprite does not load or is not a 128 px frame, which
-// is how a night learns to go without it.
-export function loadCreatureTextures(id: string): Promise<TextureMap | null> {
-  let load = creatureLoads.get(id);
+type CreatureSprite = Pick<Creature, "id" | "build">;
+
+// the sprite and its white flash under the creature's keys
+function creatureTextures(key: string, texture: Texture): TextureMap {
+  const textures: TextureMap = { [key]: texture };
+  const white = silhouette(texture);
+  if (white) textures[flashKey(key)] = white;
+  return textures;
+}
+
+async function loadDrawnCreature(creature: CreatureSprite): Promise<TextureMap | null> {
+  const pixels = await creaturePixels(creature);
+  if (!pixels) return null;
+  // labelled with where it came from, as a loaded PNG is (the visual verifier reads the label)
+  const texture = shadowlessTexture(pixels, CREATURE_SPRITE_SIZE, CREATURE_SPRITE_SIZE, creatureCodePath(creature.id));
+  return creatureTextures(creatureKey(creature.id), texture);
+}
+
+async function loadCreaturePng(id: string): Promise<TextureMap | null> {
+  const key = creatureKey(id);
+  const loaded: Texture = await Assets.load({
+    alias: key,
+    src: creatureSpritePath(id),
+    data: { scaleMode: "nearest" },
+  });
+  if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
+    return null;
+  return creatureTextures(key, prepared(key, loaded));
+}
+
+// The creature's sprite and its white flash, by key; null when the sprite does not load (or its code does not draw what the
+// record says, or is not a 128 px frame), which is how a night learns to go without it.
+export function loadCreatureTextures(creature: CreatureSprite): Promise<TextureMap | null> {
+  const cacheKey = `${creature.id}/${creature.build?.pixelsSha256 ?? "png"}`;
+  let load = creatureLoads.get(cacheKey);
   if (!load) {
     load = (async () => {
       try {
-        const key = creatureKey(id);
-        const loaded: Texture = await Assets.load({
-          alias: key,
-          src: creatureSpritePath(id),
-          data: { scaleMode: "nearest" },
-        });
-        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
-          return null;
-        const texture = prepared(key, loaded);
-        const textures: TextureMap = { [key]: texture };
-        const white = silhouette(texture);
-        if (white) textures[flashKey(key)] = white;
-        return textures;
+        return creature.build ? await loadDrawnCreature(creature) : await loadCreaturePng(creature.id);
       } catch {
-        creatureLoads.delete(id); // a later night may try again
         return null;
       }
-    })();
-    creatureLoads.set(id, load);
+    })().then((textures) => {
+      if (!textures) creatureLoads.delete(cacheKey); // a later night may try again
+      return textures;
+    });
+    creatureLoads.set(cacheKey, load);
   }
   return load;
 }

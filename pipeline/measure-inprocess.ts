@@ -10,8 +10,7 @@
 // runtime or isolate creation, kit load and the first interpretation of the code are all in it. The other renders of the
 // child are "warm". Under Node the harness first bundles itself with `bun build --target node` (the pipeline imports
 // extensionless, which Node cannot resolve), keeping the QuickJS packages external.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -19,6 +18,7 @@ import { HERO_ANIMATIONS, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
 import { bundleForNode } from "./bundle-for-node";
 import { heroFrameBuilds } from "./hero-animation";
+import { plainJavaScript } from "./render-inprocess-shared";
 import type { Renderer } from "./render-types";
 
 const PIPELINE_DIRECTORY = process.env.LAMPWARDEN_PIPELINE_DIRECTORY ?? import.meta.dirname;
@@ -69,7 +69,7 @@ function jobFor(sprite: string): Job {
     return { code: frame.code, committedPath: join(SPRITES_DIRECTORY, "hero", `${sprite}.png`) };
   }
   return {
-    code: readFileSync(join(SPRITES_DIRECTORY, `${sprite}.ts`), "utf8"),
+    code: plainJavaScript(readFileSync(join(SPRITES_DIRECTORY, `${sprite}.ts`), "utf8")),
     committedPath: join(SPRITES_DIRECTORY, `${sprite}.png`),
   };
 }
@@ -260,10 +260,9 @@ function format(value: number): string {
   return value >= 100 ? String(Math.round(value)) : value.toFixed(1);
 }
 
-function childEnvironment(kitCache: string): Record<string, string> {
+function childEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {
     LAMPWARDEN_PIPELINE_DIRECTORY: PIPELINE_DIRECTORY,
-    LAMPWARDEN_KIT_CACHE_DIRECTORY: kitCache,
   };
   for (const name of ["PATH", "HOME", "TMPDIR", "LANG"]) {
     const value = process.env[name];
@@ -272,9 +271,9 @@ function childEnvironment(kitCache: string): Record<string, string> {
   return environment;
 }
 
-async function spawnChild(command: string[], kitCache: string, label: string): Promise<ChildResult> {
+async function spawnChild(command: string[], label: string): Promise<ChildResult> {
   const subprocess = Bun.spawn(command, {
-    env: childEnvironment(kitCache),
+    env: childEnvironment(),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -341,62 +340,53 @@ async function main() {
   const runtimes = (values.runtimes ?? "").split(",").filter(isRuntime);
   const modes = values.modes ? values.modes.split(",").filter(isMode) : [...DEFAULT_MODES];
   const sprites = values.sprites ? values.sprites.split(",") : DEFAULT_SPRITES;
-  const kitCacheRoot = mkdtempSync(join(tmpdir(), "lampwarden-kit-cache-"));
   const everything: Record<string, Record<string, ChildResult>> = {};
-  try {
-    const nodeBundle = runtimes.includes("node")
-      ? await bundleForNode(join(PIPELINE_DIRECTORY, "measure-inprocess.ts"), "measure-inprocess.mjs")
-      : "";
-    for (const runtime of runtimes) {
-      const kitCache = join(kitCacheRoot, runtime);
-      mkdirSync(kitCache, { recursive: true });
-      const command = (mode: Mode, sprite: string, renders: string) =>
-        runtime === "bun"
-          ? [
-              process.execPath,
-              join(PIPELINE_DIRECTORY, "measure-inprocess.ts"),
-              "--child",
-              "--mode",
-              mode,
-              "--sprite",
-              sprite,
-              "--renders",
-              renders,
-            ]
-          : [
-              values.node ?? "node",
-              "--no-node-snapshot",
-              nodeBundle,
-              "--child",
-              "--mode",
-              mode,
-              "--sprite",
-              sprite,
-              "--renders",
-              renders,
-            ];
-      // fills the kit cache for this runtime, so "cold" below is a new process with a prepared kit on disk
-      await spawnChild(command("direct", "lamp-lit", "1"), kitCache, "warm-up");
-      for (const mode of modes) {
-        if (runtime === "node" && BUN_ONLY_MODES.includes(mode)) continue;
-        everything[`${runtime}/${mode}`] = {};
-        for (const sprite of sprites) {
-          const renders = mode === "vercel" ? "3" : (values.renders ?? "11");
-          const outcome =
-            mode === "vercel"
-              ? await runChild(mode, sprite, Number(renders))
-              : await spawnChild(command(mode, sprite, renders), kitCache, mode);
-          const bucket = everything[`${runtime}/${mode}`];
-          if (bucket) bucket[sprite] = outcome;
-          const summary = outcome.ok ? summarise(outcome) : undefined;
-          console.error(
-            `${runtime}/${mode}/${sprite}: ${outcome.ok ? `cold ${format(summary?.cold ?? Number.NaN)} median ${format(summary?.median ?? Number.NaN)}` : outcome.error}`,
-          );
-        }
+  const nodeBundle = runtimes.includes("node")
+    ? await bundleForNode(join(PIPELINE_DIRECTORY, "measure-inprocess.ts"), "measure-inprocess.mjs")
+    : "";
+  for (const runtime of runtimes) {
+    const command = (mode: Mode, sprite: string, renders: string) =>
+      runtime === "bun"
+        ? [
+            process.execPath,
+            join(PIPELINE_DIRECTORY, "measure-inprocess.ts"),
+            "--child",
+            "--mode",
+            mode,
+            "--sprite",
+            sprite,
+            "--renders",
+            renders,
+          ]
+        : [
+            values.node ?? "node",
+            "--no-node-snapshot",
+            nodeBundle,
+            "--child",
+            "--mode",
+            mode,
+            "--sprite",
+            sprite,
+            "--renders",
+            renders,
+          ];
+    for (const mode of modes) {
+      if (runtime === "node" && BUN_ONLY_MODES.includes(mode)) continue;
+      everything[`${runtime}/${mode}`] = {};
+      for (const sprite of sprites) {
+        const renders = mode === "vercel" ? "3" : (values.renders ?? "11");
+        const outcome =
+          mode === "vercel"
+            ? await runChild(mode, sprite, Number(renders))
+            : await spawnChild(command(mode, sprite, renders), mode);
+        const bucket = everything[`${runtime}/${mode}`];
+        if (bucket) bucket[sprite] = outcome;
+        const summary = outcome.ok ? summarise(outcome) : undefined;
+        console.error(
+          `${runtime}/${mode}/${sprite}: ${outcome.ok ? `cold ${format(summary?.cold ?? Number.NaN)} median ${format(summary?.median ?? Number.NaN)}` : outcome.error}`,
+        );
       }
     }
-  } finally {
-    rmSync(kitCacheRoot, { recursive: true, force: true });
   }
   if (values.json) writeFileSync(values.json, `${JSON.stringify(everything, null, 2)}\n`);
   for (const [key, bySprite] of Object.entries(everything)) {

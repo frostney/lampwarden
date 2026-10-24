@@ -2,7 +2,8 @@
 //
 // Layout under a configurable prefix (default "creatures"; live tests use another so the real gallery stays clean):
 //   <prefix>/records/<id>.json        accepted creatures (ids start with their creation time, so a sort is newest-first)
-//   <prefix>/sprites/<id>.png|.ts     the sprite and the build code that drew it
+//   <prefix>/sprites/<id>.ts          the build code that draws the creature (plain JavaScript, whatever the extension says)
+//   <prefix>/sprites/<id>.png         only creatures drawn before the code was delivered; the job no longer writes it
 //   <prefix>/jobs/<jobId>.json        job status, rewritten at every step
 //   <prefix>/state/running.json       the global "one job at a time" mark, claimed with a conditional write
 //   <prefix>/starts/...               one tiny blob per job start, counted for the rate limits
@@ -82,10 +83,14 @@ export function createBlobStore(prefix: string): CreatureStore {
       return blob?.statusCode === 200 ? blob.stream : null;
     },
 
-    async putCreature(creature: Creature, png, code) {
+    async getCode(id) {
+      const blob = await get(path.code(id), { access: "private" });
+      return blob?.statusCode === 200 ? await new Response(blob.stream).text() : null;
+    },
+
+    async putCreature(creature: Creature, code) {
       const write = { access: "private", addRandomSuffix: false } as const;
-      await put(path.sprite(creature.id), Buffer.from(png), { ...write, contentType: "image/png" });
-      await put(path.code(creature.id), code, { ...write, contentType: "text/plain" });
+      await put(path.code(creature.id), code, { ...write, contentType: "text/plain; charset=utf-8" });
       await put(path.record(creature.id), JSON.stringify(creature), { ...write, contentType: "application/json" });
     },
 

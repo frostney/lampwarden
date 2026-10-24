@@ -6,9 +6,12 @@
 //   verify-out/latest/*.png   this pass        verify-out/baseline/*.png   last approved pass (--update copies latest there)
 //   verify-out/sheet.png      contact sheet    verify-out/report.json      checks and diffs
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
+
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
+import { decodePng } from "../tools/logo/png.ts";
 
 const argument = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -21,9 +24,17 @@ const OUT = "verify-out";
 for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(directory, { recursive: true });
 
 // The creature API is stubbed on every page and context: the verifier never touches Mubit or the network. The fixture
-// creature's sprite is a committed one (the satyr), served from public/sprites. sea.mode picks the answer to
-// POST /api/creatures/next: "none" (the default, so every older scenario plays as before), "ready", "generating" (the
-// job then walks through sea.steps) or "broken" (ready, but its sprite never arrives). sea.asked logs the `seen` lists.
+// creature is a committed one, the satyr: its record pins the SHA-256 of public/sprites/satyr.ts, which the code route
+// serves and the browser draws in its worker, and of the pixels of public/sprites/satyr.png, which that code must draw.
+// sea.mode picks the answer to POST /api/creatures/next: "none" (the default, so every older scenario plays as before),
+// "ready", "ready-png" (a record from before code was delivered: no build, a PNG), "generating" (the job then walks
+// through sea.steps), "broken" (ready, but its code never arrives), "stale" (the code route serves other code than the
+// record's hash) or "drifted" (the code draws other pixels than the record's hash). sea.asked logs the `seen` lists.
+const sha256 = (data) => createHash("sha256").update(data).digest("hex");
+const SEA_CODE = readFileSync("public/sprites/satyr.ts", "utf8");
+const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+const SEA_PIXELS = decodePng(SEA_SPRITE).data;
+const SEA_BUILD = { codeSha256: sha256(SEA_CODE), pixelsSha256: sha256(SEA_PIXELS) };
 const SEA_CREATURE = {
   id: "brine-hound-satyr",
   name: "Drowned sponge diver", // a real generated name
@@ -35,20 +46,33 @@ const SEA_CREATURE = {
   anchorY: 0.8,
   score: 8,
   createdAt: "2026-10-24T01:00:00.000Z",
+  build: SEA_BUILD,
 };
-const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+const SEA_CREATURE_WITHOUT_BUILD = { ...SEA_CREATURE, build: undefined }; // JSON drops it: a record from before code
+const creatureFor = (mode) =>
+  mode === "ready-png"
+    ? SEA_CREATURE_WITHOUT_BUILD
+    : mode === "drifted"
+      ? { ...SEA_CREATURE, build: { ...SEA_BUILD, pixelsSha256: sha256("other pixels") } }
+      : SEA_CREATURE;
 const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [] };
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   if (pathname.endsWith("/sprite.png"))
-    return sea.mode === "broken"
-      ? route.abort()
-      : route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
+    return route.fulfill({ status: 200, contentType: "image/png", body: SEA_SPRITE });
+  if (pathname.endsWith("/code")) {
+    if (sea.mode === "broken") return route.abort();
+    return route.fulfill({
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body: sea.mode === "stale" ? `${SEA_CODE}\n// another creature` : SEA_CODE,
+    });
+  }
   if (pathname.endsWith("/next")) {
     sea.asked.push(JSON.parse(request.postData() ?? "{}").seen);
-    if (sea.mode === "ready" || sea.mode === "broken")
-      return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
+    if (["ready", "ready-png", "broken", "stale", "drifted"].includes(sea.mode))
+      return route.fulfill({ json: { kind: "ready", creature: creatureFor(sea.mode) } });
     if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
     return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
   }
@@ -1232,6 +1256,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   sea.mode = "ready";
   await openTitle();
   await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForSelector('.sea canvas.sea-sprite[data-loaded="1"]', { timeout: 10000 }); // drawn from its code
   await page.waitForTimeout(400);
   const panel = await page.evaluate(() => {
     const section = document.querySelector(".sea");
@@ -1258,10 +1283,13 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   );
   check(
     "sea-title",
-    "the panel shows its sprite, from its sprite path",
-    panel.loaded && panel.source.includes(`/api/creatures/${SEA_CREATURE.id}/sprite.png`) && panel.whole,
+    "the panel shows its sprite, drawn from its code",
+    panel.loaded && panel.source.includes(`/api/creatures/${SEA_CREATURE.id}/code`) && panel.whole,
     `${panel.source} ${panel.scale}x, ${panel.height}px tall`,
   );
+  // the portrait and the night's texture are one render: the page drew the creature once
+  const draws = await page.evaluate(() => performance.getEntriesByName("creature-draw").length);
+  check("sea-title", "the creature was drawn once, for the portrait and the night together", draws === 1, `${draws}`);
   check("sea-title", "the sea was asked with nothing met", lastAsked() === "[]", lastAsked());
   await checkTitleScroll("sea-title", 1000, 640);
   await shoot("17-sea-title");
@@ -1307,7 +1335,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   });
   await freeze();
   await page.waitForTimeout(80);
-  check("sea-night", "its sprite is on the stage, loaded from the gallery's file", (await seaSprites()) >= 1);
+  check("sea-night", "its sprite is on the stage, drawn from the gallery's code", (await seaSprites()) >= 1);
   const plain = await shoot("18-sea-night");
   const drawnShare = await boxDiff(plain, nightStart, creatureBox);
   check("sea-night", "the creature is drawn where it stands", drawnShare > 0.08, `${(drawnShare * 100).toFixed(0)}%`);
@@ -1362,18 +1390,45 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     `red/blue ${plainRed.toFixed(2)} → ${tintRed.toFixed(2)}`,
   );
 
-  // 21 a sprite that will not load: nothing is announced and the night has no creature
-  sea.mode = "broken";
+  // 21 a creature that cannot be drawn: nothing is announced and the night has no creature. Its code never arrives, the
+  // code is not the record's, or it draws other pixels than the record's
+  for (const [mode, why] of [
+    ["broken", "code never arrives"],
+    ["stale", "code is not the code the record names"],
+    ["drifted", "code draws other pixels than the record names"],
+  ]) {
+    sea.mode = mode;
+    await openTitle();
+    await page.waitForTimeout(1500);
+    check("sea-broken", `a creature whose ${why} is not announced`, (await page.locator(".sea").count()) === 0);
+    await startFromTitle();
+    const brokenNight = await night();
+    check(
+      "sea-broken",
+      `${mode}: the night goes without it, and does not count it as met`,
+      brokenNight.creature === null && brokenNight.bestiary.length === 0,
+    );
+  }
+
+  // 22 a creature from before code was delivered still comes, from its PNG
+  sea.mode = "ready-png";
   await openTitle();
-  await page.waitForTimeout(1500);
-  check("sea-broken", "a creature whose sprite fails is not announced", (await page.locator(".sea").count()) === 0);
-  await startFromTitle();
-  const brokenNight = await night();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForSelector('.sea canvas.sea-sprite[data-loaded="1"]', { timeout: 10000 });
+  await page.waitForTimeout(400);
+  const pngPanel = await page.evaluate(() => {
+    const portrait = document.querySelector(".sea canvas.sea-sprite");
+    return { source: portrait?.getAttribute("data-src") ?? "", loaded: portrait?.getAttribute("data-loaded") === "1" };
+  });
   check(
-    "sea-broken",
-    "the night goes without it, and does not count it as met",
-    brokenNight.creature === null && brokenNight.bestiary.length === 0,
+    "sea-png",
+    "a record without code shows its PNG",
+    pngPanel.loaded && pngPanel.source.endsWith(`/${SEA_CREATURE.id}/sprite.png`),
+    pngPanel.source,
   );
+  await startFromTitle();
+  const pngNight = await night();
+  check("sea-png", "and joins the night", pngNight.creature?.id === SEA_CREATURE.id);
 
   page = mainPage;
   await seaContext.close();

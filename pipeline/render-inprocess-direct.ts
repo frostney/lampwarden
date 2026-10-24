@@ -5,14 +5,10 @@
 // all in reach. There is no isolation of any kind. To keep it from ever being a way to run untrusted code, it refuses
 // every build that is not byte-for-byte one of the scripts committed in this repository (public/sprites/*.ts and the
 // generated hero frame builds), and it is not listed in `renderers.ts`, so `pipeline/run.ts` cannot select it.
-import {
-  errorSummary,
-  finishRender,
-  isCommittedSpriteScript,
-  kitScript,
-  prepareBuild,
-  prepareKit,
-} from "./render-inprocess-shared";
+import { PREPARED_KIT } from "./prepared-kit";
+import { errorSummary, kitScript, prepareBuild } from "./quickjs-core";
+import { finishRender } from "./render-finish";
+import { isCommittedSpriteScript, plainJavaScript } from "./render-inprocess-shared";
 import { invalidRequestReason, type Renderer } from "./render-types";
 
 interface KitExports {
@@ -34,7 +30,7 @@ let loadedKit: LoadedKit | undefined;
 
 function loadKit(): LoadedKit {
   if (loadedKit) return loadedKit;
-  const loaded: unknown = new Function(`${kitScript(prepareKit())}\nreturn __kit;`)();
+  const loaded: unknown = new Function(`${kitScript(PREPARED_KIT)}\nreturn __kit;`)();
   if (!isKitExports(loaded)) throw new Error("kit did not load");
   const entries = Object.entries(loaded);
   loadedKit = { names: entries.map(([name]) => name), values: entries.map(([, value]) => value), exports: loaded };
@@ -50,7 +46,11 @@ export const renderDirectly: Renderer = async (request) => {
   try {
     const kit = loadKit();
     const start = performance.now();
-    const buildFactory: unknown = new Function(...kit.names, "POSE", `${prepareBuild(request.code)}\nreturn build;`);
+    const buildFactory: unknown = new Function(
+      ...kit.names,
+      "POSE",
+      `${prepareBuild(plainJavaScript(request.code))}\nreturn build;`,
+    );
     if (typeof buildFactory !== "function") throw new Error("no function build(k) found");
     const build: unknown = buildFactory(...kit.values, request.pose);
     if (typeof build !== "function") throw new Error("no function build(k) found");

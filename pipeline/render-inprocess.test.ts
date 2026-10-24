@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { decodePng } from "../tools/logo/png";
 import { renderDirectly } from "./render-inprocess-direct";
 import { createQuickJsRenderer } from "./render-inprocess-quickjs";
-import { isCommittedSpriteScript } from "./render-inprocess-shared";
+import { isCommittedSpriteScript, plainJavaScript } from "./render-inprocess-shared";
 import { renderInNodeVm } from "./render-inprocess-vm";
 
 const SPRITES_DIRECTORY = join(import.meta.dirname, "..", "public", "sprites");
 const lampCode = readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.ts"), "utf8");
+const lampScript = plainJavaScript(lampCode); // the committed script has TypeScript annotations; QuickJS runs plain JavaScript
 const committedLamp = readFileSync(join(SPRITES_DIRECTORY, "lamp-lit.png"));
 const hostileCode = "function build(k) { throw new Error('not a committed script'); }";
 
@@ -16,7 +17,7 @@ describe("QuickJS renderer", () => {
   const render = createQuickJsRenderer();
 
   test("renders a committed sprite pixel for pixel", async () => {
-    const result = await render({ code: lampCode, name: "lamp-lit", pose: "" });
+    const result = await render({ code: lampScript, name: "lamp-lit", pose: "" });
     if (!result.ok) throw new Error(result.error);
     expect(decodePng(Buffer.from(result.png)).data).toEqual(decodePng(committedLamp).data);
     expect(result.stats.flags).toBe("ok");
@@ -34,7 +35,7 @@ describe("QuickJS renderer", () => {
       pose: "",
     });
     expect(stopped).toEqual({ ok: false, error: "render timed out" });
-    const after = await render({ code: lampCode, name: "lamp-lit", pose: "" });
+    const after = await render({ code: lampScript, name: "lamp-lit", pose: "" });
     expect(after.ok).toBe(true);
   });
 
@@ -59,13 +60,13 @@ describe("QuickJS renderer", () => {
   test("a build that changes the kit does not change the next render", async () => {
     const polluting = `function build(k) { Kit.prototype.solid = function () { return 0; }; S.sphere = S.box; lampstand(k, {}); }`;
     await render({ code: polluting, name: "pollute", pose: "" });
-    const result = await render({ code: lampCode, name: "lamp-lit", pose: "" });
+    const result = await render({ code: lampScript, name: "lamp-lit", pose: "" });
     if (!result.ok) throw new Error(result.error);
     expect(decodePng(Buffer.from(result.png)).data).toEqual(decodePng(committedLamp).data);
   });
 
   test("refuses names that are not file-name safe", async () => {
-    expect(await render({ code: lampCode, name: "../x", pose: "" })).toEqual({
+    expect(await render({ code: lampScript, name: "../x", pose: "" })).toEqual({
       ok: false,
       error: "invalid sprite name: ../x",
     });

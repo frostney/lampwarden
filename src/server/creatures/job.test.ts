@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { creatureSchema, creatureStats, statsOf } from "@/game/creature";
+import { sha256Hex } from "@/game/creature-build";
 import {
   briefJson,
   CLEAN_STATS,
@@ -11,7 +12,10 @@ import {
   spritePng,
   verdictJson,
 } from "../../../pipeline/fakes";
-import { anchorYFromBbox, creatureId, isAccepted, type JobDeps, runCreatureJob } from "./job";
+import { renderInQuickJsWorker } from "../../../pipeline/render-quickjs";
+import { PixelImage } from "../../../tools/logo/image";
+import { decodePng, encodePng } from "../../../tools/logo/png";
+import { anchorYFromBbox, buildHashes, creatureId, isAccepted, type JobDeps, runCreatureJob } from "./job";
 import { createMemoryStore } from "./store.memory";
 
 const verdict = (score: number | null, pass: boolean) => ({ pass, score, issues: [], fix: "", lesson: "" });
@@ -75,6 +79,7 @@ function jobWith(
     now: clock.now,
     model: model.client,
     render: renderer.render,
+    rendererName: "quickjs",
     prompts: { creature: "CREATURE PROMPT", generator: "GENERATOR PROMPT", verifier: "VERIFIER PROMPT" },
     entropy: () => "abc123",
     budgetMilliseconds: 5000,
@@ -105,8 +110,13 @@ describe("a creature job", () => {
       score: 8,
       anchorY: 0.8,
     });
-    expect(store.sprites.get(id)).toEqual(spritePng());
     expect(store.codes.get(id)).toBe(GOOD_CODE);
+    expect(store.sprites.size).toBe(0); // the PNG is judged and dropped: the browser draws the creature from its code
+    // the record pins the code as stored and the pixels the verifier judged
+    expect(creature?.build).toEqual({
+      codeSha256: await sha256Hex(GOOD_CODE),
+      pixelsSha256: await sha256Hex(decodePng(Buffer.from(spritePng())).data),
+    });
     // stats are derived from the archetype and modifiers, never taken from the model
     expect(creature && statsOf(creature)).toEqual(
       creatureStats("skulker", { speed: 1, toughness: -1, bite: 0, snuffing: 0 }),
@@ -306,5 +316,62 @@ describe("a job with several candidates", () => {
     const { deps } = jobWith([briefJson(), null, null, null, null], { candidates: 2 });
     const job = await runCreatureJob(deps, "job-cand-dddd");
     expect(job).toMatchObject({ step: "failed", error: "no sprite could be drawn" });
+  });
+});
+
+describe("the hashes of a creature", () => {
+  test("are of the code as text and of the decoded pixels, not of the PNG's bytes", async () => {
+    const hashes = await buildHashes("function build(k) {}", spritePng());
+    expect(hashes.codeSha256).toBe(await sha256Hex("function build(k) {}"));
+    expect(hashes.pixelsSha256).toBe(await sha256Hex(decodePng(Buffer.from(spritePng())).data));
+    expect(hashes.pixelsSha256).not.toBe(await sha256Hex(spritePng()));
+  });
+});
+
+describe("a job that renders with QuickJS, as the deployed route does", () => {
+  test("judges a real render, and the stored code draws exactly the pixels the record names", async () => {
+    const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    deps.render = renderInQuickJsWorker;
+    const job = await runCreatureJob(deps, "job-quickjs-aaaa");
+    expect(job.step).toBe("done");
+    const [id] = await store.listCreatureIds();
+    const creature = await store.getCreature(id ?? "");
+    const code = await store.getCode(id ?? "");
+    expect(code).toBe(GOOD_CODE);
+    // what a browser does: run the stored code again, anywhere, and the pixels are the judged ones
+    const again = await renderInQuickJsWorker({ code: code ?? "", name: "again", pose: "" });
+    if (!again.ok) throw new Error(again.error);
+    expect(await sha256Hex(decodePng(Buffer.from(again.png)).data)).toBe(creature?.build?.pixelsSha256 ?? "");
+    expect(await sha256Hex(code ?? "")).toBe(creature?.build?.codeSha256 ?? "");
+  });
+});
+
+describe("a job whose judge renderer is not the one the browser uses", () => {
+  const otherPng = () => {
+    const sprite = new PixelImage(8, 8);
+    sprite.set(1, 1, [1, 2, 3, 255]);
+    return encodePng(sprite);
+  };
+
+  test("is stored when QuickJS draws the very pixels that were judged", async () => {
+    const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    deps.drawCheck = fakeRenderer().render; // draws the same 8 x 8 sprite as the judge render
+    const job = await runCreatureJob(deps, "job-check-aaaa");
+    expect(job.step).toBe("done");
+    expect(await store.listCreatureIds()).toHaveLength(1);
+  });
+
+  test("fails, and stores nothing, when QuickJS would draw other pixels or fail", async () => {
+    for (const check of [
+      fakeRenderer(() => ({ ok: true, stats: CLEAN_STATS, png: otherPng() })).render,
+      fakeRenderer(() => ({ ok: false, error: "quickjs: Error: boom" })).render,
+    ]) {
+      const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+      deps.drawCheck = check;
+      const job = await runCreatureJob(deps, "job-check-bbbb");
+      expect(job).toMatchObject({ step: "failed", error: "the sprite would not draw the same in the browser" });
+      expect(await store.listCreatureIds()).toEqual([]);
+      expect(store.codes.size).toBe(0);
+    }
   });
 });

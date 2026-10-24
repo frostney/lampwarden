@@ -83,11 +83,22 @@ function readPixels(texture: Texture): { pixels: Uint8ClampedArray; width: numbe
 export function withoutPaintedShadow(texture: Texture): Texture | null {
   const read = readPixels(texture);
   if (!read) return null;
-  const pixels = withoutShadowPixels(read.pixels);
-  const clean = bufferTexture(pixels, read.width, read.height);
   // keep the loaded file's label, which names the sprite (the visual verifier reads it to tell which warden is shown)
-  clean.source.label = texture.source.label;
-  spritePixels.set(clean, { pixels, width: read.width, height: read.height });
+  return shadowlessTexture(read.pixels, read.width, read.height, texture.source.label);
+}
+
+// The same texture from RGBA pixels that never were an image: a creature drawn in the browser from its code (creature-render.ts)
+// goes through exactly the steps a loaded PNG does, so its flash, shadow, rim and anchor behave as the other sprites'.
+export function shadowlessTexture(
+  rgba: ArrayLike<number>,
+  width: number,
+  height: number,
+  label: string | undefined,
+): Texture {
+  const pixels = withoutShadowPixels(rgba);
+  const clean = bufferTexture(pixels, width, height);
+  if (label !== undefined) clean.source.label = label;
+  spritePixels.set(clean, { pixels, width, height });
   return clean;
 }
 

@@ -19,11 +19,20 @@ export interface StartLimits {
   perDay: number;
 }
 
+/** Where a job renders the sprite the verifier judges: QuickJS in a worker thread (the default) or a Vercel Sandbox. */
+type CreatureRenderer = "quickjs" | "sandbox";
+const DEFAULT_RENDERER: CreatureRenderer = "quickjs";
+
 export interface CreatureConfig {
   limits: StartLimits;
   blobPrefix: string;
   /** What generation needs; null where it is missing, which turns generation off. */
   mubitApiKey: string | null;
+  /**
+   * Which renderer the job's render step uses; `sandbox` also needs `snapshotId`. Null when the variable is set to something
+   * else: a misspelt "sandbox" must not quietly select the other renderer, so generation is off until it is fixed.
+   */
+  renderer: CreatureRenderer | null;
   snapshotId: string | null;
   rateSalt: string | null;
   /** How many candidate sprites a job draws side by side from one brief. */
@@ -45,6 +54,8 @@ const prefixSchema = z
   .regex(/^[a-z0-9][a-z0-9/_-]{0,60}$/)
   .catch(DEFAULT_BLOB_PREFIX);
 
+const rendererSchema = z.enum(["quickjs", "sandbox"]).nullable().catch(null);
+
 const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
 
 export function readCreatureConfig(env: Readonly<Record<string, string | undefined>>): CreatureConfig {
@@ -58,6 +69,7 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
     },
     blobPrefix: prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX),
     mubitApiKey: present(env.MUBIT_API_KEY),
+    renderer: rendererSchema.parse(present(env.CREATURE_RENDERER) ?? DEFAULT_RENDERER),
     snapshotId: present(env.VERCEL_SANDBOX_SNAPSHOT_ID),
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,
     candidates: Math.min(MAX_CANDIDATES, positiveInteger(DEFAULT_CANDIDATES).parse(env.CREATURE_CANDIDATES)),
@@ -65,7 +77,8 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
   };
 }
 
-/** Whether a job can be started at all: the key, the snapshot and a long enough salt are all set. */
+/** Whether a job can be started at all: the key and a long enough salt are set, and the sandbox renderer has its snapshot. */
 export function generationAvailable(config: CreatureConfig): boolean {
-  return config.mubitApiKey !== null && config.snapshotId !== null && config.rateSalt !== null;
+  const renderable = config.renderer === "quickjs" || (config.renderer === "sandbox" && config.snapshotId !== null);
+  return config.mubitApiKey !== null && config.rateSalt !== null && renderable;
 }

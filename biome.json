@@ -5,6 +5,7 @@
     "includes": [
       "**",
       "!pipeline/kit",
+      "!pipeline/prepared-kit.ts",
       "!pipeline/prompts",
       "!pipeline/render",
       "!pipeline/inprocess_eval/probes",

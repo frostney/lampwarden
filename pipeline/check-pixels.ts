@@ -1,4 +1,4 @@
-// Pixel-identity gate for kit changes: renders every committed sprite (public/sprites/*.ts) and the 40 hero frames with
+// Pixel-identity gate for kit changes: renders every committed sprite (public/sprites/*.ts) and the hero frames of every drawn direction with
 // the local bun renderer and the current pipeline/kit/kit.ts, and compares the decoded RGBA with the committed PNGs.
 // usage: bun pipeline/check-pixels.ts [--out DIR]   (one line per sprite; exits 1 if any pixel differs or a render fails;
 // --out also keeps the rendered PNGs in DIR)

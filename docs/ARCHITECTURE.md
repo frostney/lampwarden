@@ -38,7 +38,8 @@ src/
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     plays.ts         the recorded-play id format shared by the API routes
   scene/             what the scene looks like, plain Pixi
-    assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load
+    assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
+                     warden's eight directions (octants), the five of them drawn and the three mirrored
     layers.ts        textures, ground (the plaza over the sea), props, night tint (the world below the horizon is
                      tinted; the sky is not), per-frame strokes
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands

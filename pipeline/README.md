@@ -53,7 +53,7 @@ Options: `--out DIR` (default `public/sprites`), `--pose NAME` (hero-style poses
 
 Other scripts:
 - `bun run render -- [--render NAME] build.ts name out_dir [pose]` renders one build script with any renderer and prints the stats.
-- `bun run assets:hero -- [--render NAME] [--out DIR]` regenerates the 40 plain hero animation frames in `public/sprites/hero/` from deterministic builder code (no Mubit call). With the local renderer it reproduces the committed frames byte for byte (checked: 40/40).
+- `bun run assets:hero -- [--render NAME] [--out DIR]` regenerates the 200 plain hero animation frames in `public/sprites/hero/` (per sex 20 frames, each from 5 directions: east, south-east, south, north-east and north; the warden's other three directions are those mirrored in the scene) from deterministic builder code (no Mubit call). The humanoid builder draws every facing, away from the camera included, so the kit's `facing` is the only thing that changes between directions (`kitFacing` in `hero-animation.ts`). With the local renderer it reproduces the committed frames byte for byte (`bun run check:pixels`: 0 differing pixels over all 218 sprites).
 - `bun run check:pixels` renders every committed sprite and hero frame with the local renderer and compares the pixels with the committed PNGs.
 - `bun run kit` rebuilds `kit/kit.ts` from `kit/src/*.ts`.
 - `bun pipeline/shotcup-main-source.ts build.ts > main.ts` (or `--hero male walk`) prints the `/main.ts` a Shotcup run would carry.

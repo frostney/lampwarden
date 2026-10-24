@@ -1,4 +1,5 @@
-// Regenerates the plain 128 px hero animation frames (public/sprites/hero/<sex>_<animation><n>.png). No Mubit call: the
+// Regenerates the plain 128 px hero animation frames (public/sprites/hero/<sex>_<animation><n>_<direction>.png, the five
+// drawn directions; src/scene/assets.ts mirrors the other three). No Mubit call: the
 // builder is deterministic code, so running it with the local renderer reproduces the committed frames (`bun run
 // check:pixels` compares them).
 // usage: bun --no-env-file pipeline/hero-frames.ts [--render local|shotcup|vercel|boat] [--out public/sprites/hero]

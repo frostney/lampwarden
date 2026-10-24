@@ -13,7 +13,7 @@ import {
   type State,
   SWING_HALF_ARC,
 } from "../game/sim";
-import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "./assets";
+import { anchorYFor, assetList, FRAMES, FRAMES_PER_SECOND, type HeroAnimation, octantVector } from "./assets";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { isCharacterKey, withoutPaintedShadow } from "./rim";
@@ -198,7 +198,8 @@ export function drawSweep(graphics: Graphics, state: State) {
   const reach = state.rules.meleeReach;
   const centreX = Math.round(hero.x);
   const centreY = Math.round(hero.y);
-  const facing = Math.atan2(hero.directionY, hero.directionX);
+  const [facingX, facingY] = octantVector(hero.octant);
+  const facing = Math.atan2(facingY, facingX);
   const segments = 12;
   // ground angles, drawn on the 2:1 ground ellipse
   graphics.moveTo(centreX, centreY);

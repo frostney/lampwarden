@@ -609,7 +609,7 @@ export default function Game() {
                       >
                         <span className="hero-portrait">
                           <Image
-                            src={`/sprites/hero/${sex}_idle1.png`}
+                            src={`/sprites/hero/${sex}_idle1_s.png`}
                             alt=""
                             width={128}
                             height={128}

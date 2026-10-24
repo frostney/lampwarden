@@ -120,6 +120,69 @@ describe("the melee swing", () => {
   });
 });
 
+describe("the warden's facing", () => {
+  const HEADINGS: [string, number, number, number][] = [
+    ["east", 1, 0, 0],
+    ["south-east", 1, 1, 1],
+    ["south", 0, 1, 2],
+    ["south-west", -1, 1, 3],
+    ["west", -1, 0, 4],
+    ["north-west", -1, -1, 5],
+    ["north", 0, -1, 6],
+    ["north-east", 1, -1, 7],
+  ];
+  test.each(HEADINGS)("walking %s faces octant %i", (_name, moveX, moveY, octant) => {
+    const state = stage();
+    step(state, STEP, { ...NO_INPUT, moveX, moveY });
+    expect(state.hero.octant).toBe(octant);
+  });
+
+  test("a stick near the edge between two directions does not flicker him between them", () => {
+    const state = stage();
+    const heading = (degrees: number): Input => ({
+      ...NO_INPUT,
+      moveX: Math.cos((degrees * Math.PI) / 180),
+      moveY: Math.sin((degrees * Math.PI) / 180),
+    });
+    step(state, STEP, heading(0));
+    expect(state.hero.octant).toBe(0);
+    for (const degrees of [24, 21, 25, 22.6, 27]) {
+      step(state, STEP, heading(degrees)); // nearer the south-east, but not yet clearly past the edge
+      expect(state.hero.octant).toBe(0);
+    }
+    step(state, STEP, heading(40));
+    expect(state.hero.octant).toBe(1);
+    step(state, STEP, heading(20)); // and back the same way
+    expect(state.hero.octant).toBe(1);
+    step(state, STEP, heading(10));
+    expect(state.hero.octant).toBe(0);
+  });
+
+  test("the swing is centred on the direction he faces, not on the stick's exact heading", () => {
+    // the stick is held 22 degrees south of east: he faces east, and the arc is centred on east
+    const heading: Input = { ...NO_INPUT, melee: true, moveX: 1, moveY: 0.4 };
+    const north = stage();
+    const northSide = place(north, "cyclops", 40, -23); // 49 degrees north of east on the ground: inside an arc centred on east
+    run(north, 20, heading);
+    expect(northSide.health).toBe(1);
+    const south = stage();
+    const southSide = place(south, "cyclops", 20, 30); // 71 degrees south of east: outside it, though inside one centred on the stick
+    run(south, 20, heading);
+    expect(southSide.health).toBe(3);
+  });
+
+  test("shooting at a mouse aim faces the aim, a shot with none keeps the way he faces", () => {
+    const aimed = stage();
+    // up and to the right of the warden's chest by the same amount on the ground: north-east
+    step(aimed, STEP, { ...NO_INPUT, ranged: true, aim: { x: aimed.hero.x + 80, y: aimed.hero.y - 40 - 40 } });
+    expect(aimed.hero.octant).toBe(7);
+    const keyed = stage();
+    step(keyed, STEP, { ...NO_INPUT, moveX: -1 });
+    step(keyed, STEP, { ...NO_INPUT, ranged: true });
+    expect(keyed.hero.octant).toBe(4);
+  });
+});
+
 describe("shots", () => {
   test("a stone freezes a monster where it lands and throws it back", () => {
     const state = stage();

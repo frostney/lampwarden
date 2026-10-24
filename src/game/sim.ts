@@ -1,6 +1,13 @@
 // One night in Lychnos: monsters come out of the sea to snuff the town's lamps; the warden fights and relights them until dawn.
 // Pure game state and step(); no Pixi, so scripts/balance.ts can run it headless.
-import { FRAMES, FRAMES_PER_SECOND, type HeroAnimation } from "../scene/assets";
+import {
+  FRAMES,
+  FRAMES_PER_SECOND,
+  type HeroAnimation,
+  octantOf,
+  octantVector,
+  offsetFromOctant,
+} from "../scene/assets";
 import type { Legacy, TraitId } from "./legacy";
 import { nextRandom } from "./random";
 
@@ -29,8 +36,12 @@ const OIL_CHANCE = 0.3;
 const OIL_CHANCE_PER_LEVEL = 0.1;
 
 // A swing reaches only the 120 degrees in front of the warden (measured on the ground, where the plaza is foreshortened
-// 2:1), so it has to be aimed: hold a direction while striking to turn that way.
+// 2:1), so it has to be aimed: hold a direction while striking to turn that way. The warden faces one of eight
+// directions (his octant, which is also the sprite he is drawn with) and the arc is centred on it.
 export const SWING_HALF_ARC = Math.PI / 3;
+// a stick held a little past the middle of an octant's edge keeps the warden facing the way he was, so a thumb resting
+// near the edge does not flicker him between two frames
+const FACING_HYSTERESIS = 0.12;
 // How a blow lands. A hit freezes the monster for `stun` seconds, then throws it `push` ground px/s away from the
 // blow; a swing also holds the warden's own animation for a beat, which is what makes it feel solid.
 const MELEE_BLOW = { push: 380, stun: 0.08 };
@@ -105,9 +116,9 @@ export interface Hero {
   y: number;
   animation: HeroAnimation;
   frameTime: number;
-  left: boolean;
-  directionX: number;
+  directionX: number; // the way he last walked or was told to turn, a unit vector on the ground
   directionY: number;
+  octant: number; // the eight-way direction he faces, 0 east and clockwise on the screen (see scene/assets.ts)
   fired: boolean;
   aim: { x: number; y: number } | null;
   health: number;
@@ -192,9 +203,9 @@ export function newNight(legacy: Legacy, seed = newSeed()): State {
       y: CENTRE_Y + 62,
       animation: "idle",
       frameTime: 0,
-      left: false,
       directionX: 0,
       directionY: 1,
+      octant: 2,
       fired: false,
       aim: null,
       health: maxHealth,
@@ -284,13 +295,14 @@ const inLight = (state: State, x: number, y: number) =>
   state.lamps.some((lamp) => lamp.lit && ground(lamp.x, lamp.y, x, y) < state.rules.lightRadius);
 const AGGRO = 80;
 
-// Whether a point is inside the warden's swing: within reach and within the arc in front of the facing.
+// Whether a point is inside the warden's swing: within reach and within the arc in front of the direction he faces.
 function inSwing(hero: Hero, targetX: number, targetY: number, reach: number): boolean {
   const offsetX = targetX - hero.x;
   const offsetY = (targetY - hero.y) * 2;
   const distance = Math.hypot(offsetX, offsetY);
   if (distance >= reach) return false;
-  return offsetX * hero.directionX + offsetY * hero.directionY >= distance * Math.cos(SWING_HALF_ARC);
+  const [facingX, facingY] = octantVector(hero.octant);
+  return offsetX * facingX + offsetY * facingY >= distance * Math.cos(SWING_HALF_ARC);
 }
 
 // Faces a heading (ground space); false when there is none.
@@ -299,7 +311,9 @@ function turn(hero: Hero, moveX: number, moveY: number): boolean {
   if (length === 0) return false;
   hero.directionX = moveX / length;
   hero.directionY = moveY / length;
-  if (moveX !== 0) hero.left = moveX < 0;
+  // he takes the nearest of the eight directions, once the heading is clearly past the edge of the one he faces
+  if (offsetFromOctant(moveX, moveY, hero.octant) > Math.PI / 8 + FACING_HYSTERESIS)
+    hero.octant = octantOf(moveX, moveY);
   return true;
 }
 
@@ -346,6 +360,12 @@ export function step(state: State, deltaTime: number, input: Input) {
     hero.frameTime = 0;
     hero.fired = false;
     hero.aim = input.aim;
+    // a shot with a mouse aim faces the aim, from the first frame of the draw (the ground's y is twice the screen's)
+    if (input.aim) {
+      const aimX = input.aim.x - hero.x;
+      const aimY = (input.aim.y - (hero.y - 40)) * 2;
+      if (aimX !== 0 || aimY !== 0) hero.octant = octantOf(aimX, aimY);
+    }
   }
 
   const attacking = hero.animation === "melee" || hero.animation === "ranged";
@@ -388,12 +408,13 @@ export function step(state: State, deltaTime: number, input: Input) {
       const awayX = monster.x - hero.x;
       const awayY = (monster.y - hero.y) * 2;
       const away = Math.hypot(awayX, awayY);
+      const [facingX, facingY] = octantVector(hero.octant);
       strike(state, monster, {
         ...MELEE_BLOW,
         push: MELEE_BLOW.push * rules.pushScale,
         amount: rules.meleeDamage,
-        directionX: away > 0 ? awayX / away : hero.directionX,
-        directionY: away > 0 ? awayY / away : hero.directionY,
+        directionX: away > 0 ? awayX / away : facingX,
+        directionY: away > 0 ? awayY / away : facingY,
         x: monster.x,
         y: monster.y - bodyHeight(monster.kind),
       });
@@ -411,7 +432,6 @@ export function step(state: State, deltaTime: number, input: Input) {
       aimY = hero.aim.y - (hero.y - 40);
     }
     const base = Math.atan2(aimY, aimX);
-    if (aimX !== 0) hero.left = aimX < 0;
     for (const offset of rules.spread ? [-0.16, 0, 0.16] : [0]) {
       const angle = base + offset;
       state.shots.push({

@@ -1,5 +1,5 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
-// frame (the lights are in light.ts). src/components/organisms/Scene/Scene.tsx puts these on screen with @pixi/react and keeps them in step
+// frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Texture } from "pixi.js";
 import {

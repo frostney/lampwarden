@@ -4,9 +4,9 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/atoms/Icon/Icon";
-import { TouchControls } from "@/components/molecules/TouchControls/TouchControls";
-import { type Driver, type Night, Scene } from "@/components/organisms/Scene/Scene";
+import { Icon } from "@/components/Icon";
+import { type Driver, type Night, Scene } from "@/components/Scene";
+import { TouchControls } from "@/components/TouchControls";
 import { newControls, press, release, stick } from "@/game/controls";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {

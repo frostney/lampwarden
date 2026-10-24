@@ -6,14 +6,14 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays)
-  components/        Atomic Design; dependencies point downwards only
-    atoms/Icon/      16x16 pixel icons for the upgrades and oil, drawn as SVG rects
-    molecules/TouchControls/  on-screen stick and buttons for touch devices
-    organisms/GameClient/     dynamic import with ssr:false (Pixi needs the browser)
-    organisms/Game/  React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy, the
+  components/        flat: one file per component
+    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons), drawn as SVG rects
+    TouchControls.tsx  on-screen stick and buttons for touch devices
+    GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
+    Game.tsx         React shell: title + setting selector, night HUD, dawn upgrades, heir choice; owns the Legacy, the
                      night on stage (state, warden, recording or replay driver), pause, replay speed; renders the
                      @pixi/react <Application> and the window.lampwarden debug hook
-    organisms/Scene/ the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
+    Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies
   game/              the game itself, no Pixi
@@ -51,7 +51,7 @@ docs/ARCHITECTURE.md this file
    `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png`; delete that. Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
-4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/organisms/Scene/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
 
 ## Logo
 
@@ -68,4 +68,4 @@ matches a fresh build.
 
 1. Kit: add a theme to `THEMES` in `pipeline/kit/src/kit_themes.ts` (the `Theme` type lists the colour slots: metal, trim, cloth, cloth2, accent, leather, wood, skin, hair, sail, hull trim, water, stone), then `bun run kit`. Add builders for setting-specific props in `kit_props.ts` and buildings (temple, house, lamp, wall, stall styles) in `kit_buildings.ts` if needed, and document them in `prompts/generator.md`.
 2. Assets: generate the sprite set with `setting:'norse'` in the briefs and write them under `public/sprites/<setting>/` (the current Greek set is at the top level; moving it is a choice for whoever builds this out).
-3. App: `SETTINGS` in `src/components/organisms/Game/Game.tsx` has `{id, label, live}`; flip `live` once the assets exist and make `src/scene/assets.ts` take a setting id when building paths, and `drawGround` / `PROPS` in `src/scene/layers.ts` take the setting's palette and props.
+3. App: `SETTINGS` in `src/components/Game.tsx` has `{id, label, live}`; flip `live` once the assets exist and make `src/scene/assets.ts` take a setting id when building paths, and `drawGround` / `PROPS` in `src/scene/layers.ts` take the setting's palette and props.

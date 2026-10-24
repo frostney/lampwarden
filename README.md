@@ -8,7 +8,7 @@ The sprites are generated, verified and corrected through [Mubit](https://mubit.
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/organisms/Scene/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
+Next.js 16 (App Router, TypeScript) · React 19 · `pixi.js` 8 with `@pixi/react` (client-only scene in `src/components/Scene.tsx`: one small component per entity, moved every frame through refs, re-rendered only when a night starts or a monster spawns or dies) · bun. The asset pipeline is Python 3 (+ Pillow) and [bun](https://bun.sh) for local rendering.
 
 ## Run
 

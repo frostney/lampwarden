@@ -1,11 +1,13 @@
 // Wires the creature service and job to the real world: environment, Blob, Mubit and the Vercel Sandbox. The only module
-// that reads process.env, the prompt files and the kit; everything it builds is a plain object the tests replace.
+// that reads the environment (ENV, typed from .env.schema), the prompt files and the kit; everything it builds is a
+// plain object the tests replace.
 //
 // Files read at runtime (the prompts, and the kit and runner to compute the digest a snapshot must match) are listed in
 // next.config.ts under outputFileTracingIncludes, so a deployed function has them; the kit and runner themselves
 // are in the sandbox snapshot, not read for rendering.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { ENV } from "varlock/env";
 import { createMubitClient } from "../../../pipeline/mubit";
 import { renderSafely } from "../../../pipeline/render-vercel-sandbox";
 import { readRunnerFiles, runnerBundleSha } from "../../../pipeline/runner-bundle";
@@ -79,7 +81,7 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
 
 /** `schedule` runs work after the response has gone out: `after` from next/server in a route. */
 export function createServiceDeps(schedule: (work: () => Promise<unknown>) => void): ServiceDeps {
-  const config = readCreatureConfig(process.env);
+  const config = readCreatureConfig(ENV);
   const store = createBlobStore(config.blobPrefix);
   return {
     store,

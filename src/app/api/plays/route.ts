@@ -1,5 +1,6 @@
 // Stores one recorded night (inputs + timeline, no personal data) as a private blob, for testing and balancing.
 import { put } from "@vercel/blob";
+import { ENV } from "varlock/env";
 import { incomingPlay } from "@/game/plays";
 
 const MAX_BODY_LENGTH = 400_000;
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
   const play = parsed.data;
   const stored = JSON.stringify({
     ...play,
-    build: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
+    build: ENV.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
     receivedAt: new Date().toISOString(),
   });
   await put(`plays/${play.id.slice(0, 10)}/${play.id}.json`, stored, {

@@ -1,9 +1,9 @@
 // Builds the Vercel Sandbox snapshot the live creature generator renders in: the pinned Bun, the kit and the runner.
 //
-// usage: bun --no-env-file pipeline/sandbox-snapshot.ts
+// usage: bun run sandbox:snapshot   (varlock run ... -- bun --no-env-file pipeline/sandbox-snapshot.ts)
 //
-// Auth is the SDK's (`vercel link` once, or VERCEL_OIDC_TOKEN, or VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID);
-// nothing from the environment enters the VM. The VM may reach the network only while it fetches Bun, and only
+// Auth is the SDK's (`vercel link` once, or VERCEL_OIDC_TOKEN from `vercel env pull`); nothing from the environment
+// enters the VM. The VM may reach the network only while it fetches Bun, and only
 // github.com and its release hosts: it downloads the release zip, checks its SHA-256 against the pin in
 // runner-bundle.ts (the digest in the release's SHASUMS256.txt), installs it over the image's Bun at
 // /usr/local/bin/bun, and then the network policy goes to "deny-all" before anything else is copied in. The kit and

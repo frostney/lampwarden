@@ -1,6 +1,6 @@
 // Balance report from recorded plays (the private Blob store behind /api/plays).
 // usage: bun scripts/plays.ts [--since 2026-10-24] [--build abc1234] [--verify]
-//   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); --verify replays the finished nights recorded on this checkout's sim
+//   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local; `bun run plays` hands this script that variable only, via varlock); --verify replays the finished nights recorded on this checkout's sim
 //   (tools/sim-fingerprint) and checks each ends the same; nights from another sim version are counted, not replayed.
 import { join } from "node:path";
 import { get, list } from "@vercel/blob";

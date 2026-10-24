@@ -3,6 +3,7 @@ import { directorSchema, type FallbackReason, LINE_MAX, rulesDirector } from "@/
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "../../../pipeline/mubit";
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
+import { decisionLogSchema } from "./log";
 import { type DirectorDeps, decide } from "./service";
 import { createMemoryStore, type MemoryDirectorStore } from "./store.memory";
 
@@ -12,7 +13,6 @@ const NOW = new Date("2026-10-24T18:00:00.000Z");
 
 const modelReply = (overrides: Record<string, unknown> = {}) => ({
   reasoning: "Lost early with every lamp dark by 18 s and seven monsters alive.",
-  expectedEffect: "Two lamps lit at dawn.",
   tide: 0.9,
   mix: { satyr: 1, cyclops: 0.6, harpy: 1.2 },
   creatureShare: 0.2,
@@ -155,7 +155,6 @@ describe("a decision from the model", () => {
       source: "mubit",
       fallback: null,
       reasoning: expect.stringContaining("Lost early"),
-      expectedEffect: "Two lamps lit at dawn.",
       mubit: {
         requestId: "req_abc123",
         status: 200,
@@ -180,6 +179,13 @@ describe("a decision from the model", () => {
         cacheRead: 0,
       }),
     ]);
+  });
+
+  test("a log written under the earlier, longer reply shape (with an expectedEffect) still loads", async () => {
+    await ask();
+    const earlier = { ...world.store.decisions.get(FIXTURE_PLAY_ID), expectedEffect: "Two lamps lit at dawn." };
+    expect(decisionLogSchema.safeParse(earlier).success).toBe(true);
+    expect(world.store.decisions.get(FIXTURE_PLAY_ID)).not.toHaveProperty("expectedEffect");
   });
 
   test("asking again about the same play returns the same decision without calling the model", async () => {
@@ -342,8 +348,7 @@ describe("the correction loop", () => {
     expect(text).toContain("previousDecision");
     expect(text).toContain("yourReasoning");
     expect(text).toContain("Lost early with every lamp dark");
-    expect(text).toContain("whatYouExpected");
-    expect(text).toContain("Two lamps lit at dawn.");
+    expect(text).not.toContain("whatYouExpected");
     expect(text).toContain('\\"source\\":\\"mubit\\"');
   });
 

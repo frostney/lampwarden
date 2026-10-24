@@ -24,7 +24,6 @@ const PLAY_ID = "2026-10-24-16-11-46-juith2u0";
 
 const proposal = (overrides: Partial<Proposal> = {}): Proposal => ({
   reasoning: "they lost early",
-  expectedEffect: "two lamps at dawn",
   tide: 1,
   mix: { satyr: 1, cyclops: 1, harpy: 1 },
   creatureShare: 0.25,
@@ -108,6 +107,14 @@ describe("reading the model's reply", () => {
     expect(parseProposal('{"tide": "high"}')).toBeNull();
     expect(parseProposal(JSON.stringify({ ...proposal(), mix: { satyr: 1 } }))).toBeNull();
     expect(parseProposal("")).toBeNull();
+  });
+  test("a reply with no expectedEffect, or the earlier shape that still has one, both parse", () => {
+    const { expectedEffect: _ignored, ...short } = { ...proposal(), expectedEffect: "two lamps at dawn" };
+    expect(parseProposal(JSON.stringify(short))).toEqual(
+      parseProposal(JSON.stringify({ ...short, expectedEffect: "x" })),
+    );
+    expect(parseProposal(JSON.stringify(short))?.line).toBe("The sea draws back.");
+    expect(parseProposal(JSON.stringify(short))).not.toHaveProperty("expectedEffect");
   });
   test("a reasoning that is not text is dropped, not fatal", () => {
     expect(parseProposal(JSON.stringify({ ...proposal(), reasoning: 5 }))?.reasoning).toBe("");

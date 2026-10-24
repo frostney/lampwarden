@@ -136,7 +136,6 @@ function stubDecision(stub: Stub, rulesTide: number, endedNight: number): Direct
   const decision = clampProposal(
     {
       reasoning: "",
-      expectedEffect: "",
       tide: rulesTide + stub.tideShift,
       mix: stub.mix,
       creatureShare: stub.creatureShare,

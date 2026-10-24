@@ -123,10 +123,12 @@ export function directorFrom(stored: unknown, tide: number, night: number): Dire
   return data.source === "rules" ? rulesDirector(tide, data.decidedAfterNight, data.playId) : data;
 }
 
-/** What a model may propose. Numbers are all that is trusted; the reasoning and the expected effect are only recorded. */
+/**
+ * What a model may propose. Numbers are all that is trusted; the reasoning (one short sentence) is only recorded. A reply
+ * that still carries an `expectedEffect` (the earlier, longer shape) parses too: the key is ignored.
+ */
 const proposalSchema = z.object({
   reasoning: z.string().max(2000).catch(""),
-  expectedEffect: z.string().max(2000).catch(""),
   tide: z.number().finite(),
   mix: z.object({ satyr: z.number().finite(), cyclops: z.number().finite(), harpy: z.number().finite() }),
   creatureShare: z.number().finite(),
@@ -190,7 +192,6 @@ export function checkedDecision(received: unknown, rulesTide: number): Director 
   return clampProposal(
     {
       reasoning: "",
-      expectedEffect: "",
       tide: data.tide,
       mix: data.mix,
       creatureShare: data.creatureShare,

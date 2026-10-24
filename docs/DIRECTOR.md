@@ -22,7 +22,7 @@ Nothing here is needed to play. With no key, no network, a rate limit or a slow 
 | `line`                    | at most 90 characters, plain text            | the sea's answer on the dawn and heir panels                                     |
 
 Also stored: `source` (`"mubit"` or `"rules"`), `rulesTide` (what the rules picked; the bound is checked against it),
-`decidedAfterNight`, and `playId` (the recording the decision answers). The model's `reasoning` and `expectedEffect` are
+`decidedAfterNight`, and `playId` (the recording the decision answers). The model's `reasoning` (one short sentence) is
 logged, never stored in the legacy and never shown.
 
 The bounds are enforced in code, not asked of the model: `clampProposal` (server, on the model's reply), `checkedDecision`
@@ -44,7 +44,7 @@ the share 0.25, which draw exactly the same random numbers).
    ignored (and `applyDirector` refuses it anyway: it must answer the play the rules' decision waits on).
 3. The next night is played under it, and its recording carries it.
 4. That night's call tells the model its previous decision (from the recording, validated again), what it wrote about
-   it, and what it expected (from the log of the play that decision answered).
+   it (from the log of the play that decision answered).
 
 ## The route
 
@@ -69,12 +69,14 @@ the share 0.25, which draw exactly the same random numbers).
   (`DIRECTOR_RATE_SALT`, else `CREATURE_RATE_SALT`, at least 16 characters; without a salt the model is off).
   `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`.
 - Logging: each decision is one blob, `<DIRECTOR_BLOB_PREFIX, default director>/decisions/<playId>.json`: the summary the
-  model was told, the decision, the reasoning, the expected effect, the source and fallback reason, the Mubit request id
+  model was told, the decision, the reasoning, the source and fallback reason, the Mubit request id
   (`x-middleware-request-id`), tokens and cache numbers, a hash of the prompt, and the time spent per stage. The same
   fields go to the function's log as a `director-decision` line. Nothing personal: the play's random session id, numbers,
   and the model's own words. `DIRECTOR_PLAYS_PREFIX` (default `plays`) moves the plays it reads, for a test run.
 
 ## Live run
+
+(Run under the first reply shape, V1; the default is now V2, see "Latency by reply shape".)
 
 On 24 Oct 2026 the route ran locally (`next start`) against real Mubit and the real private Blob store (under
 the prefix `director-dev`, which still holds the test plays and decisions), with the nine recorded plays, and a chain: a play's decision put
@@ -134,16 +136,15 @@ calls are measured, not cut off. Each ran the nine recorded plays and the two ch
 each under the decision before it; B: play 3, then play 9), twice: 24 calls a variant, 72 in all. The chains use each
 variant's own earlier decisions. (A first attempt hit Mubit's gateway answering 503 `engine_unavailable`; it was retried
 until the gateway answered, and no call of the 72 failed.)
-
-- **V1**, today's reply: reasoning (two sentences), expected effect, decision, line.
-- **V2**: one sentence of reasoning (at most 20 words), decision, line. No expected effect.
+- **V1**, the first reply shape: reasoning (two sentences), expected effect, decision, line.
+- **V2**, now the default: one sentence of reasoning (at most 20 words), decision, line. No expected effect.
 - **V3**: decision and line only.
 
-| variant | model median | p90  | max  | mean | output tokens (median) | cache hits | over 8 s |
-| ------- | ------------ | ---- | ---- | ---- | ---------------------- | ---------- | -------- |
-| V1      | 5.7 s        | 6.5 s | 6.7 s | 5.5 s | 469                  | 23 of 24   | 0 of 24  |
-| V2      | 4.2 s        | 5.4 s | 5.6 s | 4.3 s | 333                  | 23 of 24   | 0 of 24  |
-| V3      | 3.8 s        | 4.4 s | 7.4 s | 4.0 s | 300                  | 23 of 24   | 0 of 24  |
+| variant | model median | p90   | max   | mean  | output tokens (median) | cache hits | over 8 s |
+| ------- | ------------ | ----- | ----- | ----- | ---------------------- | ---------- | -------- |
+| V1      | 5.7 s        | 6.5 s | 6.7 s | 5.5 s | 469                    | 23 of 24   | 0 of 24  |
+| V2      | 4.2 s        | 5.4 s | 5.6 s | 4.3 s | 333                    | 23 of 24   | 0 of 24  |
+| V3      | 3.8 s        | 4.4 s | 7.4 s | 4.0 s | 300                    | 23 of 24   | 0 of 24  |
 
 The route adds about 0.5 to 1.0 s (the limits' listing, the marks, reading the play) measured in the earlier live run;
 with the in-memory store that is not in these numbers. V3's reply is about 160 characters of JSON, some 50 tokens, yet
@@ -171,14 +172,25 @@ fast snuffers." / "My push failed: every lamp went dark by 18 seconds with healt
 "Easing worked: clean dawn, all lamps lit, health 64, fast kills; push gently into a riskier night two." V3 has the
 numbers but no words to show for them, which is what the demo needs.
 
-**Recommendation.** Keep the model's timeout at 8 s: none of the 72 calls took longer, and V2's slowest was 5.6 s. If the
-owner wants insurance, 10 s costs nothing (a timeout only means the rules answer; the panel never waits). Ship V2:
-it saves 1.5 s at the median and 29% of the output against V1, agrees with V1 within V1's own noise, and keeps a stored
-sentence that the correction loop and the demo can show ("my push failed"). V3 is only 0.4 s faster at the median than
-V2, was no faster at the maximum, and loses the visible correction. V2 drops `expectedEffect`, so the next night's call has
-no "whatYouExpected" (the loop still worked in this test without it). The route's default is unchanged: the prompt is
-`pipeline/prompts/director.md` (V1) until the owner picks; the V2 variant is the "How to answer" paragraph above with
-`expectedEffect` removed and `reasoning` limited to one sentence of at most 20 words.
+**Decision (owner, 24 Oct 2026): V2 is the default, and the model's timeout stays 8 s.** None of the 72 calls took longer
+than 7.4 s, and V2's slowest was 5.6 s. V2 saves 1.5 s at the median and 29% of the output against V1, agrees with V1
+within V1's own noise, and keeps a stored sentence that the correction loop and the demo can show ("my push failed").
+V3 was only 0.4 s faster at the median, no faster at the maximum, and loses the visible correction. V2 drops
+`expectedEffect`: the system prompt (`pipeline/prompts/director.md`, "How to answer") no longer asks for it, the reply
+schema ignores it if a reply still has it, the log does not write it (a log written under V1 still loads, and its
+`expectedEffect` is simply not shown to the model), and the next night's call has no `whatYouExpected`; it carries
+`yourReasoning`, the one sentence, for the same session only. The prompt is one fixed text, so every call is one Mubit task.
+
+**Live check of the new default** (four calls through the real route, the real Blob store under `director-dev/run3`):
+play 4 (a clean night-1 dawn) pushed to 1.15 ("Clean dawn, all lamps lit, 70 health, brisk kills; rules set it, so push
+slightly into night two."); play 5 played under that decision, lost, and the next decision eased to 0.84 with the mix
+cut ("My push failed: all five lamps went dark by eighteen seconds with health left, so ease hard and thin snuffers.");
+play 3 played under that came out a clean dawn and the next pushed to 0.89 ("Easing worked: clean dawn, five lamps lit,
+health 64, fast kills; push gently, wary of the last night two."); and play 5 alone eased to 0.80. The reasoning was
+18 to 20 words every time, no log carries an `expectedEffect`, and each chain step's summary carried the model's own
+earlier sentence as `yourReasoning`. Model time 4.1 to 6.6 s (cache read 2927 tokens from the second call), 5.6 to 8.0 s
+through the route. (The chain's third step is play 3 with its session set to the chain's, since the model reads its
+earlier reasoning only from the same session.)
 
 ## Not done, or to watch
 

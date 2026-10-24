@@ -73,9 +73,7 @@ async function previousReasoning(deps: DirectorDeps, play: StoredPlay): Promise<
   if (previousPlayId === undefined) return null;
   try {
     const log = await deps.store.getDecision(previousPlayId);
-    return log && log.source === "mubit" && log.session === play.session
-      ? { reasoning: log.reasoning, expectedEffect: log.expectedEffect }
-      : null;
+    return log && log.source === "mubit" && log.session === play.session ? { reasoning: log.reasoning } : null;
   } catch {
     return null;
   }
@@ -157,7 +155,6 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
       fallback: reason,
       decision: decision ?? rules,
       reasoning: proposal?.reasoning ?? "",
-      expectedEffect: proposal?.expectedEffect ?? "",
       summary,
       mubit,
       stagesMilliseconds: {

@@ -26,7 +26,6 @@ function decisionFor(
   const decision = clampProposal(
     {
       reasoning: "",
-      expectedEffect: "",
       tide: rulesTide,
       mix: EVEN_MIX,
       creatureShare: 0.25,

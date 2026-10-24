@@ -42,7 +42,6 @@ export type StoredPlay = z.infer<typeof storedPlaySchema>;
 /** What the model said last time, from the log of the play that decision answered. */
 export interface PreviousReasoning {
   reasoning: string;
-  expectedEffect: string;
 }
 
 const oneDecimal = (value: number) => Math.round(value * 10) / 10;
@@ -102,7 +101,7 @@ export function summarise(play: StoredPlay, previous: PreviousReasoning | null) 
           mix: governing.mix,
           creatureShare: governing.creatureShare,
           line: governing.line,
-          ...(previous ? { yourReasoning: previous.reasoning, whatYouExpected: previous.expectedEffect } : {}),
+          ...(previous ? { yourReasoning: previous.reasoning } : {}),
         }
       : {
           source: "rules",

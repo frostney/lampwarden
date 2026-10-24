@@ -103,7 +103,6 @@ describe("the summary of other nights", () => {
     const decision = clampProposal(
       {
         reasoning: "",
-        expectedEffect: "",
         tide: 0.9,
         mix: { satyr: 1, cyclops: 0.6, harpy: 1.2 },
         creatureShare: 0.2,
@@ -115,7 +114,7 @@ describe("the summary of other nights", () => {
     );
     if (!decision) throw new Error("no decision");
     const play = lostNightTwo({ night: 3, tide: 0.9, outcome: "dawn", director: decision });
-    const summary = summarise(parse(play), { reasoning: "They lost early.", expectedEffect: "Two lamps at dawn." });
+    const summary = summarise(parse(play), { reasoning: "They lost early." });
     expect(summary.previousDecision).toMatchObject({
       source: "mubit",
       decidedAfterNight: 2,
@@ -125,7 +124,6 @@ describe("the summary of other nights", () => {
       creatureShare: 0.2,
       line: "The sea draws back.",
       yourReasoning: "They lost early.",
-      whatYouExpected: "Two lamps at dawn.",
     });
   });
 });

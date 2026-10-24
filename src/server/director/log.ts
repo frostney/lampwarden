@@ -29,8 +29,8 @@ export const decisionLogSchema = z.looseObject({
   /** Set when the source is the rules because the model did not answer. */
   fallback: z.enum(FALLBACK_REASONS).nullable(),
   decision: directorSchema,
+  /** The model's one sentence. Logs from the earlier, longer reply shape also carry an `expectedEffect`, which still loads. */
   reasoning: z.string(),
-  expectedEffect: z.string(),
   /** The night as the model was told it (summary.ts). */
   summary: z.unknown(),
   mubit: mubitCallSchema.nullable(),

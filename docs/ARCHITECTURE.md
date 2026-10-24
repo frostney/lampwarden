@@ -98,7 +98,6 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
-  measure-x4.ts      times the runner's 4x magnified copy against the host-side magnification (see docs/LIVE_GENERATION.md, Pixel scaling)
   render-types.ts    the contract every renderer fulfils (RenderStats, RenderResult); renderers.ts picks one by name
   render-local.ts    bun render subprocess with an allowlisted environment
   render-shotcup.ts, render-vercel-sandbox.ts, render-boat.ts   sandboxed renderers (build-code.ts rejects banned identifiers first)
@@ -114,7 +113,7 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route; Sho
 ## Sprite flow
 
 1. `bun run assets -- "your brief"` (`--render local|shotcup|vercel|boat`), or hand-write `pipeline/kit/examples/ex_x.ts` and render it locally:
-   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). It also writes `x_x4.png` (nothing reads it); set `KIT_X4=0` to skip it, or delete it. Add the `.ts` and a manifest row by hand.
+   `cd pipeline/render && KIT_OUT=../../public/sprites bun --preload ./shim_plugin.ts run_local.ts ../kit/examples/ex_x.ts x` (this is how the building sprites `temple`, `house`, `lamp-lit`, `lamp-unlit`, `wall` and `stall` were made from `ex_temple.ts`, `ex_house.ts`, `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Place it in `src/scene/layers.ts` (`PROPS`, static and depth-sorted by ground y; `src/components/Scene.tsx` renders them) or in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`) if it should move. Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.

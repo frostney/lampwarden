@@ -72,6 +72,14 @@ describe("the bounds", () => {
     expect(clampProposal(proposal({ line: "" }), 1, 1)).toBeNull();
   });
 
+  test("a line cut to length never ends in half a character", () => {
+    const astral = `${"a".repeat(88)}\u{1D49C}\u{1D49C} tail`; // mathematical script A: two UTF-16 units each
+    const cut = cleanLine(astral);
+    expect(cut.length).toBeLessThanOrEqual(LINE_MAX);
+    expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(directorSchema.safeParse({ ...rulesDirector(1, 1), source: "mubit", line: cut }).success).toBe(true);
+  });
+
   test("cleanLine keeps Greek letters, apostrophes and the usual punctuation", () => {
     expect(cleanLine("Thálassa — the sea's patient (still) answer…")).toBe(
       "Thálassa — the sea's patient (still) answer…",

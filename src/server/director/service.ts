@@ -63,19 +63,26 @@ async function loadPlay(deps: DirectorDeps, playId: string): Promise<StoredPlay 
   return null;
 }
 
-/** What the model said about the decision this play was played under, from the log of the play that decision answered. */
+/**
+ * What the model said about the decision this play was played under, from the log of the play that decision answered.
+ * The id comes from the uploaded play, so the log is used only when it is of the same session: a forged id cannot read
+ * another player's.
+ */
 async function previousReasoning(deps: DirectorDeps, play: StoredPlay): Promise<PreviousReasoning | null> {
   const previousPlayId = directorFrom(play.legacy.director, play.legacy.tide, play.legacy.night).playId;
   if (previousPlayId === undefined) return null;
   try {
     const log = await deps.store.getDecision(previousPlayId);
-    return log && log.source === "mubit" ? { reasoning: log.reasoning, expectedEffect: log.expectedEffect } : null;
+    return log && log.source === "mubit" && log.session === play.session
+      ? { reasoning: log.reasoning, expectedEffect: log.expectedEffect }
+      : null;
   } catch {
     return null;
   }
 }
 
-function failureReason(error: string | null | undefined): FallbackReason {
+function failureReason(status: number | null, error: string | null | undefined): FallbackReason {
+  if (status === 429) return "rate-limited"; // Mubit's own throttle, told apart from a fault in the logs
   return error && /timeout|abort/i.test(error) ? "timeout" : "error";
 }
 
@@ -95,7 +102,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
 
   async function ask(): Promise<DirectorResult> {
     // asked before: the same play gets the same answer, so a retry or a second tab costs nothing
-    const [earlier, previous] = await Promise.all([deps.store.getDecision(play.id), previousReasoning(deps, play)]);
+    const earlier = await deps.store.getDecision(play.id);
     if (earlier && earlier.source === "mubit") return { kind: "decision", decision: earlier.decision, fallback: null };
 
     const { model, config } = deps;
@@ -105,7 +112,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     if (!(await checkStartLimits(deps.store, now, visitor, config.limits)).allowed) return fallback("rate-limited");
     const limited = performance.now();
 
-    const summary = summarise(play, previous);
+    const summary = summarise(play, await previousReasoning(deps, play));
     const session = /^[a-z0-9]{1,40}$/.test(play.session) ? play.session : "anon";
     // the call is marked for the limits while the model thinks, not before
     const [call] = await Promise.all([
@@ -128,7 +135,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     const proposal = call.text === null ? null : parseProposal(call.text);
     const decision = proposal && clampProposal(proposal, rules.rulesTide, play.legacy.night, play.id);
     const reason: FallbackReason | null =
-      call.text === null ? failureReason(call.record.error) : decision ? null : "invalid";
+      call.text === null ? failureReason(call.record.status, call.record.error) : decision ? null : "invalid";
 
     const mubit: MubitCall = {
       requestId: call.record.rid,
@@ -161,6 +168,11 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
       },
     };
     try {
+      // a concurrent call for the same play may have decided first: its decision stands, so what the player played and
+      // what the log says the model reasoned about stay one decision
+      const decidedMeanwhile = decision ? await deps.store.getDecision(play.id) : null;
+      if (decidedMeanwhile && decidedMeanwhile.source === "mubit")
+        return { kind: "decision", decision: decidedMeanwhile.decision, fallback: null };
       await deps.store.putDecision(log);
     } catch (error) {
       deps.log({ event: "director-log-failed", kind: error instanceof Error ? error.name : "unknown" });

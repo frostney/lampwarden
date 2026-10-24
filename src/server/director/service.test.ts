@@ -208,11 +208,16 @@ describe("the rules answer when the model cannot", () => {
   });
 
   test("on an error from Mubit and on its rate limit", async () => {
-    for (const status of [500, 429, 529]) {
+    for (const [status, reason] of [
+      [500, "error"],
+      [429, "rate-limited"], // Mubit's own throttle, told apart from a fault
+      [529, "error"],
+    ] as const) {
       world = setup({}, () => new Response("busy", { status }));
       world.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
-      await rulesAnswer("error");
+      await rulesAnswer(reason);
       expect(world.calls()).toBe(1);
+      expect(world.store.decisions.get(FIXTURE_PLAY_ID)?.fallback).toBe(reason);
     }
   });
 
@@ -340,6 +345,39 @@ describe("the correction loop", () => {
     expect(text).toContain("whatYouExpected");
     expect(text).toContain("Two lamps lit at dawn.");
     expect(text).toContain('\\"source\\":\\"mubit\\"');
+  });
+
+  test("a forged previous play id cannot read another session's reasoning", async () => {
+    await ask(); // the fixture's session decides FIXTURE_PLAY_ID, and its log holds the model's reasoning
+    const stranger = "2026-10-24-16-40-00-stranger1";
+    const earlier = world.store.decisions.get(FIXTURE_PLAY_ID);
+    if (!earlier) throw new Error("no log");
+    world.store.plays.set(
+      stranger,
+      lostNightTwo({ id: stranger, night: 3, session: "someoneelse", director: earlier.decision }),
+    );
+    await decide(world.deps, { playId: stranger, ip: "198.51.100.5" });
+    const text = JSON.stringify(world.sent[1]?.body.messages);
+    expect(text).not.toContain("yourReasoning");
+    expect(text).not.toContain("Lost early with every lamp dark");
+  });
+
+  test("when another call decided the play first, that decision stands", async () => {
+    const other = setup({}, () =>
+      Response.json({
+        content: [{ type: "text", text: JSON.stringify(modelReply({ tide: 1.05, line: "The first call's line." })) }],
+      }),
+    );
+    other.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
+    await decide(other.deps, { playId: FIXTURE_PLAY_ID, ip: "192.0.2.1" });
+    const firstLog = other.store.decisions.get(FIXTURE_PLAY_ID);
+    if (!firstLog) throw new Error("no log");
+    const getDecision = world.store.getDecision;
+    let reads = 0;
+    world.store.getDecision = async (playId) => (++reads === 1 ? getDecision(playId) : firstLog);
+    const result = await ask();
+    expect(result.kind === "decision" && result.decision.line).toBe("The first call's line.");
+    expect(world.store.decisions.get(FIXTURE_PLAY_ID)).toBeUndefined(); // the second call wrote nothing over it
   });
 
   test("a decision in a play that does not validate is not shown to the model", async () => {

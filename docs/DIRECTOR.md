@@ -61,7 +61,9 @@ the share 0.25, which draw exactly the same random numbers).
 - The reply is JSON; it is validated (`parseProposal`) and clamped. On a timeout, an error, a rate limit from Mubit,
   invalid JSON, or a reply with no line, the route answers `{decision (the rules'), fallback}` with `source: "rules"`.
   Only a play it cannot find is an HTTP error (404), which the game treats the same.
-- Asking again about the same play returns the logged decision and calls nothing.
+- Asking again about a play the model decided returns the logged decision and calls nothing (a play whose call fell back
+  is asked again, and costs a limit mark each time). Two calls at once for one play both reach the model, but the first
+  decision logged stands. The model is shown its earlier reasoning only from a log of the same session.
 - The whole decision has a 20 s deadline after the play is read; past it the rules answer.
 - Limits: 40 calls per visitor per hour and 2000 per UTC day, by the same salted IP hash the creature routes use
   (`DIRECTOR_RATE_SALT`, else `CREATURE_RATE_SALT`, at least 16 characters; without a salt the model is off).

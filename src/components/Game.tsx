@@ -857,14 +857,19 @@ function TraitMark({ trait }: { trait: TraitId }) {
 }
 
 // The sea's answer on the dawn and heir panels: the live director's own line when it came in time, else the rules' note.
+// One live region stays mounted, so a screen reader hears the line when it replaces the note.
 function SeaAnswer({ report }: { report: Report }) {
-  if (report.line)
-    return (
-      <p className="sea-answer" data-director-line aria-live="polite">
-        {report.line}
-      </p>
-    );
-  return <p className="dim">{tideNote(report)}</p>;
+  return (
+    <div aria-live="polite">
+      {report.line ? (
+        <p className="sea-answer" data-director-line>
+          {report.line}
+        </p>
+      ) : (
+        <p className="dim">{tideNote(report)}</p>
+      )}
+    </div>
+  );
 }
 
 function tideNote(report: Report) {

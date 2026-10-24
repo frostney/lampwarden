@@ -54,7 +54,12 @@ const LINE_STRIPPED = /[^\p{L}\p{N} .,;:!?'’\-–—…()]/gu;
 export function cleanLine(text: string): string {
   const plain = text.replace(LINE_STRIPPED, " ").replace(/\s+/g, " ").trim();
   if (plain.length <= LINE_MAX) return plain;
-  const cut = plain.slice(0, LINE_MAX - 1);
+  // cut between code points, never inside a surrogate pair: the stored schema counts UTF-16 units and allows no lone half
+  let cut = "";
+  for (const character of plain) {
+    if (cut.length + character.length > LINE_MAX - 1) break;
+    cut += character;
+  }
   const lastSpace = cut.lastIndexOf(" ");
   return `${(lastSpace > LINE_MAX / 2 ? cut.slice(0, lastSpace) : cut).replace(/[ .,;:\-–—]+$/, "")}…`;
 }

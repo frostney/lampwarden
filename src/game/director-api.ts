@@ -13,16 +13,15 @@ const REQUEST_TIMEOUT = 15_000;
 export const directorRequestSchema = z.object({ playId: z.string().regex(PLAY_ID) });
 type DirectorRequest = z.infer<typeof directorRequestSchema>;
 
-export const directorAnswerSchema = z.object({
+const directorAnswerSchema = z.object({
   decision: directorSchema,
   fallback: z.enum(FALLBACK_REASONS).optional(),
 });
 
+export type DirectorAnswer = z.infer<typeof directorAnswerSchema>;
+
 /** What the route said, or null: the route was unreachable, answered with an error, or sent nonsense. `signal` stops the wait. */
-export async function askDirector(
-  playId: string,
-  signal: AbortSignal,
-): Promise<z.infer<typeof directorAnswerSchema> | null> {
+export async function askDirector(playId: string, signal: AbortSignal): Promise<DirectorAnswer | null> {
   try {
     const request: DirectorRequest = { playId };
     const response = await fetch(DIRECTOR_API, {

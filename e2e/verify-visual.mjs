@@ -506,6 +506,30 @@ const TRAIT_ICONS = {
   "Long-armed": "longarm",
   "Keen-eyed": "keen",
 };
+// On a phone, every piece of visible text is at least 16 px, the smallest size at which the pixel fonts read well and
+// sit on their pixel grid
+async function checkPhoneText(tag, screen) {
+  const small = await page.evaluate(() => {
+    const found = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const element = node.parentElement;
+      if (!node.textContent.trim() || !element) continue;
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      if (box.width === 0 || box.height === 0 || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+      const size = Number.parseFloat(style.fontSize);
+      if (size < 16) found.push(`${size}px "${node.textContent.trim().slice(0, 24)}"`);
+    }
+    return found;
+  });
+  check(
+    tag,
+    `${screen}: all text at least 16 px`,
+    small.length === 0,
+    small.slice(0, 4).join("; ") || "all 16 px or more",
+  );
+}
 async function checkTraitIcons(tag, name, selector, expectedCount) {
   const found = await page.locator(selector).evaluateAll((elements) =>
     elements.map((element) => ({
@@ -2071,6 +2095,7 @@ for (const [tag, device, sex] of [
   await page.waitForSelector('.scroll .sea[data-state="ready"]', { timeout: 5000 });
   await page.waitForTimeout(300);
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
+  await checkPhoneText(tag, "title");
   await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
   const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
   check(
@@ -2123,7 +2148,8 @@ for (const [tag, device, sex] of [
   const hudFontSize = await page.evaluate(() =>
     Number.parseFloat(getComputedStyle(document.querySelector(".hud")).fontSize),
   );
-  check(tag, "HUD text at least 10 px", hudFontSize >= 10, `${hudFontSize}px`);
+  check(tag, "HUD text at least 16 px", hudFontSize >= 16, `${hudFontSize}px`);
+  await checkPhoneText(tag, "night");
   // the closer phone view must not hide gameplay: every plaza corner, every lantern and the top of the spawn rim
   const hiddenPoints = await page.evaluate(() => {
     const canvas = document.querySelector(".stage canvas");
@@ -2231,6 +2257,7 @@ for (const [tag, device, sex] of [
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
   await settle();
   await checkWeaponShop(tag, sex);
+  await checkPhoneText(tag, "dawn");
   await shoot(`${tag}-3-dawn`, true);
   const seaDawn = page.locator(".panel .sea").first();
   await seaDawn.scrollIntoViewIfNeeded();

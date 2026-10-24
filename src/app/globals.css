@@ -620,6 +620,16 @@ h1 {
 .privacy {
   font-size: 12px;
 }
+/* On a phone the HUD's canvas-relative size came out at 10-11 px, too small to read and off Tiny5's pixel grid (it
+   draws crisp at multiples of 8 px). Touch screens get 16 px text throughout. */
+@media (pointer: coarse) {
+  .hud {
+    font-size: 16px;
+  }
+  .privacy {
+    font-size: 16px;
+  }
+}
 .scroll-content .privacy {
   line-height: 1.2;
 }

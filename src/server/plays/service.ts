@@ -2,7 +2,8 @@
 // A night is sent more than once under one id: a snapshot when the tab is hidden, then the finished night, and a retry of
 // either. The most complete one is kept: an upload for an id already stored replaces it only when it has more steps (or
 // is the finished night where the stored one is not), and an identical or older one changes nothing. Every one of them
-// is answered as taken. Only the first write of an id counts against the limits. Uploads are limited per visitor per hour
+// is answered as taken. Only the first write of an id counts against the limits, and past a limit the finished night of a
+// snapshot already stored still lands. Uploads are limited per visitor per hour
 // and for the whole site per UTC day, by the salted address hash the director and the creature routes use; without a
 // salt (local development) every upload is accepted.
 import { z } from "zod";
@@ -62,34 +63,53 @@ function parseStored(json: string): Progress | null {
   }
 }
 
-export async function savePlay(
+/** Keeps the more complete of the stored recording and `stored` (the incoming one, as it would be written). */
+async function settle(
   deps: PlayUploadDeps,
-  input: { play: { id: string }; ip: string | null },
+  id: string,
+  stored: string,
+  incoming: Progress,
+  mayCreate: boolean,
 ): Promise<PlayUploadResult> {
-  const now = deps.now();
-  const visitor = deps.rateSalt === null ? null : visitorKey(input.ip, deps.rateSalt);
-  if (visitor !== null) {
-    const decision = await checkStartLimits(deps.store, now, visitor, deps.limits);
-    if (!decision.allowed) return { kind: "limited", retryAfterSeconds: decision.retryAfterSeconds };
-  }
-  const { id } = input.play;
-  const stored = JSON.stringify({ ...input.play, build: deps.build, receivedAt: now.toISOString() });
-  if (await deps.store.putIfAbsent(id, stored)) {
-    // the recording is kept whether or not it can be counted
-    if (visitor !== null) await deps.store.recordUpload(visitor, id, now).catch(() => undefined);
-    return { kind: "stored" };
-  }
-  const incoming = progressOf(input.play);
   for (let attempt = 0; attempt < REPLACE_ATTEMPTS; attempt++) {
     const current = await deps.store.read(id);
     if (!current) {
-      // gone between the put and the read: it is as if the id were new
-      if (await deps.store.putIfAbsent(id, stored)) return { kind: "stored" };
-      continue;
+      // gone between the put and the read: as if the id were new
+      if (!mayCreate || !(await deps.store.putIfAbsent(id, stored))) continue;
+      return { kind: "stored" };
     }
     const earlier = parseStored(current.json);
     if (earlier && keepsStored(earlier, incoming)) return { kind: "exists" };
     if (await deps.store.replace(id, stored, current.version)) return { kind: "replaced" };
   }
   return { kind: "exists" };
+}
+
+export async function savePlay(
+  deps: PlayUploadDeps,
+  input: { play: { id: string }; ip: string | null },
+): Promise<PlayUploadResult> {
+  const now = deps.now();
+  const { id } = input.play;
+  const stored = JSON.stringify({ ...input.play, build: deps.build, receivedAt: now.toISOString() });
+  const incoming = progressOf(input.play);
+  const visitor = deps.rateSalt === null ? null : visitorKey(input.ip, deps.rateSalt);
+  if (visitor !== null) {
+    const decision = await checkStartLimits(deps.store, now, visitor, deps.limits);
+    if (!decision.allowed) {
+      // Past a limit nothing new is taken, but the finished night of a snapshot already stored still lands: it is the
+      // same id, written once more, and only a snapshot gives way to it.
+      const current = await deps.store.read(id);
+      const earlier = current && parseStored(current.json);
+      if (earlier && earlier.outcome === null && incoming.outcome !== null)
+        return settle(deps, id, stored, incoming, false);
+      return { kind: "limited", retryAfterSeconds: decision.retryAfterSeconds };
+    }
+  }
+  if (await deps.store.putIfAbsent(id, stored)) {
+    // the recording is kept whether or not it can be counted
+    if (visitor !== null) await deps.store.recordUpload(visitor, id, now).catch(() => undefined);
+    return { kind: "stored" };
+  }
+  return settle(deps, id, stored, incoming, true);
 }

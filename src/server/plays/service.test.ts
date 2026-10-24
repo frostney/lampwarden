@@ -99,6 +99,17 @@ describe("an uploaded play", () => {
       expect(storedSteps(store)).toBe(1000);
     });
 
+    test("past the limit, the finished night of a stored snapshot still lands, and nothing else does", async () => {
+      const { store, deps } = setup(); // three an hour
+      await savePlay(deps, { play: night(300, null), ip: address });
+      for (let count = 1; count < 3; count++) await savePlay(deps, { play: playWithId(count), ip: address });
+      expect((await savePlay(deps, { play: playWithId(3), ip: address })).kind).toBe("limited");
+      expect((await savePlay(deps, { play: night(600, null), ip: address })).kind).toBe("limited");
+      expect(await savePlay(deps, { play: night(900, "dawn"), ip: address })).toEqual({ kind: "replaced" });
+      expect(storedSteps(store)).toBe(900);
+      expect((await savePlay(deps, { play: night(1000, "dawn"), ip: address })).kind).toBe("limited");
+    });
+
     test("only the first write counts against the visitor", async () => {
       const { deps } = setup(); // three an hour
       for (let count = 0; count < 10; count++) {

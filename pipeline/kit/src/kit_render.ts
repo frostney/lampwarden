@@ -212,18 +212,43 @@ export class Kit {
         for (const pt of [g, [q[0], q[1], 0] as V]) { const sp = this.pj(pt); gx0 = Math.min(gx0, sp[0]); gx1 = Math.max(gx1, sp[0]); gy0 = Math.min(gy0, sp[1]); gy1 = Math.max(gy1, sp[1]); }
       }
       const X0 = Math.max(0, Math.floor(gx0)), X1 = Math.min(W - 1, Math.ceil(gx1)), Y0 = Math.max(0, Math.floor(gy0)), Y1 = Math.min(H - 1, Math.ceil(gy1));
+      // The march toward the light visits the parts in their usual order and skips a part whose bounding sphere is farther than the
+      // nearest distance found so far, as before. Per pixel, each sphere's distance from the whole ray (t from 0.15 to 60) is a lower
+      // bound of that test, so the march skips on it without the per-step distance, and a pixel whose ray passes every sphere farther
+      // than the 0.03 hit distance is skipped outright. Both skips only drop parts or pixels the old test dropped: same steps, same pixels.
+      const parts = this.parts; const partCount = parts.length;
+      const centreX = new Float64Array(partCount), centreY = new Float64Array(partCount), centreZ = new Float64Array(partCount);
+      const radius = new Float64Array(partCount); const rayBound = new Float64Array(partCount);
+      for (let partIndex = 0; partIndex < partCount; partIndex++) {
+        const centre = parts[partIndex].c; centreX[partIndex] = centre[0]; centreY[partIndex] = centre[1]; centreZ[partIndex] = centre[2]; radius[partIndex] = parts[partIndex].R;
+      }
+      const lightX = LIGHT[0], lightY = LIGHT[1], lightZ = LIGHT[2];
+      const boundMargin = 1e-6;   // covers rounding: a bound may only ever be below the distance the march computes
       for (let py = Y0; py <= Y1; py++) for (let px = X0; px <= X1; px++) {
         const i = py * W + px; if (part[i] >= 0) continue;
-        const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const g: V = [(sg + d) / 2, (sg - d) / 2, 0];
+        const d = (px + 0.5 - this.ox) / 2; const sg = py + 0.5 - this.oy; const groundX = (sg + d) / 2, groundY = (sg - d) / 2;
+        let nearestBound = BIG;
+        for (let partIndex = 0; partIndex < partCount; partIndex++) {
+          const offsetX = centreX[partIndex] - groundX, offsetY = centreY[partIndex] - groundY, offsetZ = centreZ[partIndex];
+          let along = offsetX * lightX + offsetY * lightY + offsetZ * lightZ;
+          if (along < 0.15) along = 0.15; else if (along > 60) along = 60;
+          const awayX = offsetX - lightX * along, awayY = offsetY - lightY * along, awayZ = offsetZ - lightZ * along;
+          const bound = Math.sqrt(awayX * awayX + awayY * awayY + awayZ * awayZ) - radius[partIndex] - boundMargin;
+          rayBound[partIndex] = bound; if (bound < nearestBound) nearestBound = bound;
+        }
+        if (nearestBound >= 0.03) continue;
         let t = 0.15; let inShadow = false;
-        for (let it = 0; it < 90 && t < 60; it++) {
-          const q = add(g, mul(LIGHT, t)); let md = BIG;
-          for (const P of this.parts) {
-            const dc = len(sub(q, P.c)) - P.R; if (dc > md) continue;
-            md = Math.min(md, Math.max(dc, P.s.f(q[0], q[1], q[2])));
+        for (let step = 0; step < 90 && t < 60; step++) {
+          const pointX = groundX + lightX * t, pointY = groundY + lightY * t, pointZ = 0 + lightZ * t;
+          let nearest = BIG;
+          for (let partIndex = 0; partIndex < partCount; partIndex++) {
+            if (rayBound[partIndex] > nearest) continue;
+            const deltaX = pointX - centreX[partIndex], deltaY = pointY - centreY[partIndex], deltaZ = pointZ - centreZ[partIndex];
+            const sphereDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) - radius[partIndex]; if (sphereDistance > nearest) continue;
+            nearest = Math.min(nearest, Math.max(sphereDistance, parts[partIndex].s.f(pointX, pointY, pointZ)));
           }
-          if (md < 0.03) { inShadow = true; break; }
-          t += Math.max(md * 0.8, 0.05);
+          if (nearest < 0.03) { inShadow = true; break; }
+          t += Math.max(nearest * 0.8, 0.05);
         }
         if (inShadow) { const c = sc[1]; rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 150; shade[i] = -2; }
       }

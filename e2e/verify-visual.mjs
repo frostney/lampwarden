@@ -8,6 +8,7 @@
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
+import { newLegacy, openShop } from "../src/game/legacy.ts";
 
 const argument = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -217,6 +218,79 @@ const meanColour = (encoded, [x, y, width, height]) =>
     { encoded, x, y, width, height },
   );
 const text = (selector) => page.locator(selector).allInnerTexts();
+
+// The weapons of each sex as the UI shows them: the touch buttons' icons and the shop's melee and ranged upgrades.
+const WEAPONS = {
+  male: {
+    strike: "blade",
+    shoot: "shoot",
+    blade: { icon: "blade", label: "Keener blade" },
+    quiver: { icon: "quiver", label: "Deeper quiver" },
+  },
+  female: {
+    strike: "spear",
+    shoot: "sling",
+    blade: { icon: "spear", label: "Keener spear" },
+    quiver: { icon: "pouch", label: "Fuller pouch" },
+  },
+};
+const WARDEN_NAMES = { male: "son", female: "daughter" };
+// An offer seed whose next shop sells both the melee and the ranged upgrade, so the weapon icons show in the shop
+// (openShop advances the seed before it draws, which is what the probe runs). Set before a night ends.
+const WEAPON_SHOP_SEED = (() => {
+  for (let seed = 1; ; seed++) {
+    const probe = { ...newLegacy(seed), offerSeed: seed };
+    openShop(probe);
+    if (probe.offers.includes("blade") && probe.offers.includes("quiver")) return seed;
+  }
+})();
+const seedWeaponShop = () =>
+  page.evaluate((seed) => {
+    window.lampwarden.legacy().offerSeed = seed;
+  }, WEAPON_SHOP_SEED);
+const touchIcons = () =>
+  page.evaluate(() => ({
+    melee: document.querySelector(".tbtn.melee .icon")?.dataset.icon,
+    ranged: document.querySelector(".tbtn.ranged .icon")?.dataset.icon,
+  }));
+async function checkTouchIcons(scene, sex) {
+  const icons = await touchIcons();
+  check(
+    scene,
+    `the ${WARDEN_NAMES[sex]}'s Strike and Shoot buttons show the ${WEAPONS[sex].strike} and ${WEAPONS[sex].shoot} icons`,
+    icons.melee === WEAPONS[sex].strike && icons.ranged === WEAPONS[sex].shoot,
+    `Strike ${icons.melee}, Shoot ${icons.ranged}`,
+  );
+}
+// The shop's melee and ranged upgrades, with the icon, label and effect each card shows. The ranged upgrade of the
+// daughter says stones where the son's says shots; neither names the other's weapons.
+async function checkWeaponShop(scene, sex) {
+  const cards = await page.locator(".btn.up").evaluateAll((elements) =>
+    Object.fromEntries(
+      elements.map((card) => [
+        card.dataset.upgrade,
+        {
+          icon: card.querySelector(".icon")?.dataset.icon,
+          label: card.querySelector("b")?.textContent,
+          effect: card.querySelector("span")?.textContent ?? "",
+        },
+      ]),
+    ),
+  );
+  const { blade, quiver } = cards;
+  const expected = WEAPONS[sex];
+  const othersWeapons = sex === "female" ? /arrow|quiver|blade|sword|\bbow\b/i : /spear|sling|stone|pouch/i;
+  check(
+    scene,
+    `the ${WARDEN_NAMES[sex]}'s shop shows the ${expected.blade.icon} and ${expected.quiver.icon} upgrades`,
+    blade?.icon === expected.blade.icon &&
+      blade.label === expected.blade.label &&
+      quiver?.icon === expected.quiver.icon &&
+      quiver.label === expected.quiver.label &&
+      !othersWeapons.test(`${blade.label} ${blade.effect} ${quiver.label} ${quiver.effect}`),
+    JSON.stringify([blade, quiver]),
+  );
+}
 // the title scroll: fully unrolled (both rollers on screen, the bottom one below the parchment), and every line on it
 // inside the viewport, or brought there by scrolling the parchment
 async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
@@ -563,6 +637,7 @@ check(
 );
 
 // 6 dawn screen
+await seedWeaponShop();
 await page.evaluate(() => {
   const state = window.lampwarden.state();
   state.elapsed = state.length - 0.01;
@@ -587,6 +662,7 @@ check(
 );
 const icons = await page.locator(".btn.up .icon").count();
 check("dawn", "every upgrade has an icon", icons === 3, `${icons} icons`);
+await checkWeaponShop("dawn", "male");
 // each offer shows its label, level pips, effect text and cost, and they are three different upgrades
 const offerCards = await page.locator(".btn.up").evaluateAll((cards) =>
   cards.map((card) => ({
@@ -625,6 +701,8 @@ check(
 // 7 heir screen after the lamps go dark
 await page.getByRole("button", { name: /Into night/ }).click();
 await page.waitForSelector('[data-phase="night"]');
+await checkTouchIcons("night", "male");
+await seedWeaponShop();
 await page.evaluate(() => {
   for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
 });
@@ -632,6 +710,24 @@ await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
 shot = await shoot("07-heir");
 check("heir", "three heirs offered", (await page.locator(".btn.heir").count()) === 3);
+// the shop is for the fallen warden until an heir is picked, then for the heir (a daughter if one is offered)
+await checkWeaponShop("heir", "male");
+{
+  const heirCards = await page.locator(".btn.heir").evaluateAll((cards) =>
+    cards.map((card) => ({
+      name: card.querySelector("b")?.textContent,
+      daughter: card.textContent.includes("sling"),
+    })),
+  );
+  const picked = heirCards.find((heir) => heir.daughter) ?? heirCards[0];
+  const keptHeir = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:legacy:v1")).heir);
+  await page.locator(".btn.heir", { hasText: picked.name }).click();
+  await checkWeaponShop("heir-picked", picked.daughter ? "female" : "male");
+  await page.evaluate((heir) => {
+    const saved = JSON.parse(localStorage.getItem("lampwarden:legacy:v1"));
+    localStorage.setItem("lampwarden:legacy:v1", JSON.stringify({ ...saved, heir })); // the later scenes keep their warden
+  }, keptHeir);
+}
 
 // 8 replay of the night just played (kept locally)
 await page.goto(`${BASE_URL}/?replay=last`);
@@ -831,6 +927,19 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     textures.join(" "),
   );
   await shoot("12-hero-choice-night");
+  await checkTouchIcons("hero-choice", "female");
+  // she holds the night: her shop sells the spear and the pouch of stones
+  await seedWeaponShop();
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.elapsed = state.length - 0.01;
+    state.oilEarned = 40;
+    window.lampwarden.scene().setPaused(false);
+  });
+  await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+  await freeze();
+  await checkWeaponShop("hero-choice", "female");
+  await shoot("12-hero-choice-dawn");
   page = mainPage;
   await heroPage.close();
 }
@@ -942,9 +1051,10 @@ const overlap = (first, second) =>
   second.y < first.y + first.height;
 const inView = (box, viewportWidth, viewportHeight) =>
   box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
-for (const [tag, device] of [
-  ["phone-land", devices["iPhone 14 landscape"]],
-  ["phone-port", devices["iPhone 14"]],
+for (const [tag, device, sex] of [
+  ["phone-land", devices["iPhone 14 landscape"], "male"],
+  ["phone-port", devices["iPhone 14"], "male"],
+  ["phone-land-daughter", devices["iPhone 14 landscape"], "female"], // she is chosen on the title screen first
 ]) {
   const context = await webkitBrowser.newContext({ ...device });
   page = await context.newPage();
@@ -965,6 +1075,14 @@ for (const [tag, device] of [
   );
   await shoot(`${tag}-1-title`, true);
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
+  if (sex === "female") {
+    await page.locator('.hero-card[data-sex="female"]').tap();
+    check(
+      tag,
+      "tapping her card chooses the daughter",
+      (await page.evaluate(() => window.lampwarden.legacy().heir.sex)) === "female",
+    );
+  }
   await page.getByRole("button", { name: "Light the lamps" }).scrollIntoViewIfNeeded();
   const [startButton] = await boxes(".btn.big");
   check(tag, "start button on screen (scrolled to)", inView(startButton, viewportWidth, viewportHeight));
@@ -980,6 +1098,7 @@ for (const [tag, device] of [
       controlBoxes.every((box) => box.width > 40 && inView(box, viewportWidth, viewportHeight)),
     controlBoxes.map((box) => `${Math.round(box.width)}px`).join(" "),
   );
+  await checkTouchIcons(tag, sex);
   const hudClash = hudBoxes.flatMap((first, index) =>
     hudBoxes
       .slice(index + 1)
@@ -1081,6 +1200,7 @@ for (const [tag, device] of [
   await page.waitForTimeout(400);
   await settle();
   await shoot(`${tag}-2-night`, true);
+  await seedWeaponShop();
   await page.evaluate(() => {
     const state = window.lampwarden.state();
     state.elapsed = state.length - 0.01;
@@ -1089,6 +1209,7 @@ for (const [tag, device] of [
   await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
   await settle();
+  await checkWeaponShop(tag, sex);
   await shoot(`${tag}-3-dawn`, true);
   const phoneFonts = await fontsLoaded();
   check(

@@ -7,8 +7,9 @@ src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays)
   components/        flat: one file per component
-    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons), drawn as SVG rects
-    TouchControls.tsx  on-screen stick and buttons for touch devices
+    Icon.tsx         16x16 pixel icons (upgrades, oil, kills, touch buttons, the sword and arrow beside the
+                     daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon` for the verifier
+    TouchControls.tsx  on-screen stick and buttons for touch devices; Strike and Shoot show the warden's weapons
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
@@ -29,6 +30,9 @@ src/
                      (three drawn from a seed stored in the legacy, advanced each night), heirs and traits (and their
                      sex), tide; localStorage save, validated with Zod on load (a save or recorded play from before an
                      upgrade existed has it at level 0)
+    weapons.ts       what the warden carries as the UI shows it (son: sword and bow; daughter: spear and sling): the
+                     touch buttons' icons, the shop's label, text and icon per upgrade, and which warden the shop is
+                     for; presentation only, never read by the sim
     random.ts        the seeded generator (mulberry32) shared by the sim and the shop's offers
     controls.ts      keyboard, click, stick and button input between frames, turned into the next sim step's input
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus

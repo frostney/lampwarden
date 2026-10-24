@@ -655,6 +655,7 @@ h1 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     grid-template-rows: auto auto auto 1fr;
     column-gap: calc(8px * var(--scale));
+    row-gap: 8px; /* the empty row of a night without an announced creature still takes a gap */
   }
   .scroll-hero {
     grid-column: 2;

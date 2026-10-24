@@ -379,6 +379,19 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
     scroll.unreachable.join(", "),
   );
 }
+// on the desktop stage the whole title, controls included, fits the parchment without scrolling
+async function checkScrollFits(tag) {
+  const room = await page.evaluate(() => {
+    const body = document.querySelector(".scroll-body");
+    return body ? { needed: body.scrollHeight, shown: body.clientHeight } : null;
+  });
+  check(
+    tag,
+    "the scroll holds the controls and the rest without scrolling",
+    room !== null && room.needed <= room.shown + 1,
+    room && `${room.needed}px of content in ${room.shown}px`,
+  );
+}
 // The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
 // glyphs (keys, mouse, pad buttons, touch buttons) in this order, with the weapon icons on the touch buttons, and saying
 // how to relight a lamp
@@ -468,19 +481,7 @@ check(
 check("title", "start button", await page.getByRole("button", { name: "Light the lamps" }).isVisible());
 await checkTitleScroll("title", 1000, 640);
 await checkHowToPlay("title", "keyboard", ["W", "A", "S", "D", "J", "K", "mouse"]);
-{
-  // on the desktop stage the whole title, controls included, fits the parchment without scrolling
-  const room = await page.evaluate(() => {
-    const body = document.querySelector(".scroll-body");
-    return body ? { needed: body.scrollHeight, shown: body.clientHeight } : null;
-  });
-  check(
-    "title",
-    "the scroll holds the controls and the rest without scrolling",
-    room !== null && room.needed <= room.shown + 1,
-    room && `${room.needed}px of content in ${room.shown}px`,
-  );
-}
+await checkScrollFits("title");
 const chosenCards = await page.locator(".hero-card[aria-pressed='true']").count();
 check(
   "title",
@@ -872,6 +873,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected")));
   await page.waitForSelector('.scroll .controls[data-controls="gamepad"]', { timeout: 3000 });
   await checkHowToPlay("gamepad", "gamepad", ["pad-left-stick", "pad-A", "pad-B", "pad-RT"]);
+  await checkScrollFits("gamepad");
   await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
   await settle();
   await shoot("09-gamepad-title");

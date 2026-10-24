@@ -63,9 +63,12 @@ export function consumePresses(controls: Controls) {
   controls.ranged = false;
 }
 
-// pausing lets go of every held key and the stick
+// pausing lets go of every held key, the stick and any press that was waiting for a sim step
 export function release(controls: Controls) {
   controls.keys.clear();
+  controls.melee = false;
+  controls.ranged = false;
+  controls.aim = null;
   controls.stickX = 0;
   controls.stickY = 0;
   controls.gamepadX = 0;
@@ -102,11 +105,13 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
   }
 }
 
-// WASD / arrows move, J / Space melee, K ranged along the facing; returns the unbind function
-export function bindKeyboard(controls: Controls): () => void {
+// WASD / arrows move, J / Space melee, K ranged along the facing; returns the unbind function. The arrow keys and Space
+// are kept from scrolling the page and pressing buttons only while a night is live (`isLive`), so Space still presses a
+// focused button on the title, dawn and pause screens.
+export function bindKeyboard(controls: Controls, isLive: () => boolean): () => void {
   const keyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
+    if (isLive() && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
     if (key === "j" || key === " ") {
       if (!event.repeat) controls.melee = true;
       return;

@@ -140,3 +140,66 @@ describe("Mubit retries", () => {
     expect(call.record.error).toContain("bad request");
   });
 });
+
+describe("Mubit abort", () => {
+  const ask = (client: ReturnType<typeof clientWith>["client"], signal: AbortSignal) =>
+    client.call("gen", "system", [{ role: "user", content: "x" }], "session", {}, 100, signal);
+
+  test("a signal that has already fired sends nothing and does not retry", async () => {
+    const { client, requests, sleeps } = clientWith([reply(200, okReply)]);
+    const call = await ask(client, AbortSignal.abort());
+    expect(requests).toHaveLength(0);
+    expect(sleeps).toEqual([]);
+    expect(call.text).toBeNull();
+    expect(call.record.error).toBe("aborted");
+  });
+
+  test("the request in flight sees the abort, and the failure that follows is not retried", async () => {
+    const controller = new AbortController();
+    const seen: AbortSignal[] = [];
+    const sleeps: number[] = [];
+    const client = createMubitClient({
+      apiKey: TEST_KEY,
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+      fetchImplementation: (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal;
+          if (!signal) throw new Error("the request carries no signal");
+          seen.push(signal);
+          signal.addEventListener("abort", () => reject(new Error("the operation was aborted")), { once: true });
+        }),
+    });
+    const pending = ask(client, controller.signal);
+    controller.abort();
+    const call = await pending;
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.aborted).toBe(true);
+    expect(sleeps).toEqual([]);
+    expect(call.text).toBeNull();
+    expect(call.record.error).toContain("aborted");
+  });
+
+  test("an abort during the wait before the retry stops the retry from being sent", async () => {
+    const controller = new AbortController();
+    const requests: string[] = [];
+    const client = createMubitClient({
+      apiKey: TEST_KEY,
+      sleep: async () => controller.abort(),
+      fetchImplementation: async () => {
+        requests.push("sent");
+        return reply(529, { error: "overloaded" });
+      },
+    });
+    const call = await ask(client, controller.signal);
+    expect(requests).toEqual(["sent"]);
+    expect(call.text).toBeNull();
+  });
+
+  test("a call without a signal still carries its own timeout", async () => {
+    const { client, requests } = clientWith([reply(200, okReply)]);
+    await client.call("gen", "system", [{ role: "user", content: "x" }], "session", {}, 100);
+    expect(requests[0]?.init.signal?.aborted).toBe(false);
+  });
+});

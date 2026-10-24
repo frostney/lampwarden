@@ -1,17 +1,61 @@
 // The runner a render sandbox executes for one sprite (batch.ts starts one per item):
 //   bun --preload ./shim_plugin.ts runner.ts <build.ts> <name> [pose]   (KIT_OUT = output dir, default ./out)
 // It runs model-written code, so model code reaches it only inside the Vercel Sandbox VM, never on a host.
-import { createCanvas } from './shim_canvas.ts';
-import * as K from '../kit/kit.ts';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createCanvas } from "./shim_canvas";
+
+// The kit (../kit/kit.ts) is excluded from type-checking: it is the model-facing API, written for its prompts rather
+// than for strict TypeScript, and a static import would pull all of it into the checker. It is loaded by path instead,
+// and this is the part of its exports the runner relies on (see `Kit` and `post` in kit.ts).
+interface RenderedSprite {
+  rgba: Uint8Array;
+  stats: Record<string, number | string | boolean>;
+}
+interface KitInstance {
+  fit: string;
+  snapped: number;
+  dropped: number;
+  render(): RenderedSprite;
+}
+interface KitModule {
+  Kit: new () => KitInstance;
+  post(rendered: RenderedSprite): RenderedSprite;
+}
+
+function isKitModule(value: Record<string, unknown>): value is Record<string, unknown> & KitModule {
+  return typeof value.Kit === "function" && typeof value.post === "function";
+}
+
 const [file, name, poseName] = process.argv.slice(2);
-const src = readFileSync(file, 'utf8');
-const names = Object.keys(K).filter((n) => /^[A-Za-z_]\w*$/.test(n));
-const body = new Bun.Transpiler({ loader: 'ts' }).transformSync(src.replace(/^\s*export\s+/m, '')).replace(/^\s*export\s*\{[^}]*\};?\s*$/m, '');
-const t0 = performance.now();
-const fn = new Function(...names, 'POSE', body + '\nreturn build;')(...names.map((n) => (K as any)[n]), poseName || '');
-const k = new K.Kit(); fn(k);
-const r = K.post(k.render());
-const ms = Math.round(performance.now() - t0);
-createCanvas(128, 128, { pixels: r.rgba }).save('/out/' + name + '.png');
-console.log(JSON.stringify({ name, ms, fit: k.fit, snapped: k.snapped, dropped: k.dropped, ...r.stats }));
+if (!file || !name) throw new Error("usage: bun runner.ts <build.ts> <name> [pose]");
+
+const kitExports: Record<string, unknown> = await import(join(import.meta.dir, "..", "kit", "kit.ts"));
+if (!isKitModule(kitExports)) throw new Error("the kit does not export Kit and post");
+
+const source = readFileSync(file, "utf8");
+const names = Object.keys(kitExports).filter((exportName) => /^[A-Za-z_]\w*$/.test(exportName));
+const body = new Bun.Transpiler({ loader: "ts" })
+  .transformSync(source.replace(/^\s*export\s+/m, ""))
+  .replace(/^\s*export\s*\{[^}]*\};?\s*$/m, "");
+const started = performance.now();
+const build: unknown = new Function(...names, "POSE", `${body}\nreturn build;`)(
+  ...names.map((exportName) => kitExports[exportName]),
+  poseName || "",
+);
+if (typeof build !== "function") throw new TypeError("build is not a function");
+const kit = new kitExports.Kit();
+build(kit);
+const rendered = kitExports.post(kit.render());
+const milliseconds = Math.round(performance.now() - started);
+createCanvas(128, 128, { pixels: rendered.rgba }).save(`/out/${name}.png`);
+console.log(
+  JSON.stringify({
+    name,
+    ms: milliseconds,
+    fit: kit.fit,
+    snapped: kit.snapped,
+    dropped: kit.dropped,
+    ...rendered.stats,
+  }),
+);

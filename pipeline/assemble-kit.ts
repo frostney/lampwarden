@@ -1,6 +1,7 @@
 // Assembles pipeline/kit/kit.ts from pipeline/kit/src/*.ts: concatenates the parts, rewrites `(...) ** 2` to `sq(...)`
 // (the kit avoids `**`, which is slower than plain multiplication) and asserts that no `**`, `==` or `!=` remain.
 // usage: bun pipeline/assemble-kit.ts      (`bun run kit`)
+//        bun pipeline/assemble-kit.ts --check   writes nothing; fails when the committed kit.ts is not a fresh assembly
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -53,4 +54,11 @@ const kit = rewriteSquares(concatenated).replace(
 if (kit.includes("**")) throw new Error("kit still contains **");
 if (kit.replaceAll("===", "").includes(" == ")) throw new Error("kit contains ==");
 if (kit.replaceAll("!==", "").includes(" != ")) throw new Error("kit contains !=");
-writeFileSync(join(KIT_DIRECTORY, "kit.ts"), kit);
+const kitPath = join(KIT_DIRECTORY, "kit.ts");
+if (process.argv.includes("--check")) {
+  if (readFileSync(kitPath, "utf8") !== kit) {
+    console.error("pipeline/kit/kit.ts differs from a fresh assembly of pipeline/kit/src; run bun run kit");
+    process.exit(1);
+  }
+  console.log("pipeline/kit/kit.ts: identical");
+} else writeFileSync(kitPath, kit);

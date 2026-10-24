@@ -6,6 +6,7 @@ import {
   emptyLevels,
   endWarden,
   heirAs,
+  heirChoices,
   LEVEL_COSTS,
   MAX_LEVEL,
   meet,
@@ -16,6 +17,24 @@ import {
   UPGRADE_IDS,
   type UpgradeId,
 } from "./legacy";
+
+describe("heir choices", () => {
+  // a seeded stand-in for Math.random, so every draw of names and traits is covered over many lines
+  const seeded = (seed: number) => () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+
+  test("never offer the fallen warden's own name, so no heir counts as chosen before the player picks", () => {
+    for (let seed = 1; seed <= 2000; seed++) {
+      const heirs = heirChoices(seeded(seed), "Lykos");
+      expect(heirs).toHaveLength(3);
+      expect(heirs.some((heir) => heir.name === "Lykos")).toBe(false);
+      expect(new Set(heirs.map((heir) => heir.name)).size).toBe(3);
+      expect(new Set(heirs.map((heir) => heir.trait)).size).toBe(3);
+    }
+  });
+});
 
 describe("heirAs", () => {
   test("gives the warden a name of the other sex and keeps the trait", () => {

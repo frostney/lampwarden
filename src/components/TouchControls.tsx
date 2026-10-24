@@ -3,14 +3,18 @@
 // On-screen controls for touch devices (hidden for mouse users by CSS): an 8-way stick, Strike and Shoot.
 // The stick is quantised to 8 directions so recorded plays stay small and replay exactly.
 import { useRef } from "react";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
+import { ARMS } from "@/game/weapons";
+import type { Sex } from "@/scene/assets";
 
 type Action = "melee" | "ranged";
 
 export function TouchControls({
+  sex,
   onStick,
   onPress,
 }: {
+  sex: Sex; // whose weapons the buttons show: sword and bow, or spear and sling
   onStick: (horizontal: number, vertical: number) => void;
   onPress: (action: Action) => void;
 }) {
@@ -40,7 +44,7 @@ export function TouchControls({
     onStick(0, 0);
   };
 
-  const actionButton = (action: Action, label: string, icon: "blade" | "shoot") => (
+  const actionButton = (action: Action, label: string, icon: IconName) => (
     <button
       type="button"
       className={`tbtn ${action}`}
@@ -77,8 +81,8 @@ export function TouchControls({
         <div ref={knob} className="knob" />
       </div>
       <div className="tbtns">
-        {actionButton("ranged", "Shoot", "shoot")}
-        {actionButton("melee", "Strike", "blade")}
+        {actionButton("ranged", "Shoot", ARMS[sex].shootIcon)}
+        {actionButton("melee", "Strike", ARMS[sex].strikeIcon)}
       </div>
     </div>
   );

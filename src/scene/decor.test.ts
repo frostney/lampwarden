@@ -69,21 +69,64 @@ describe("a night's decorations", () => {
     expect(new Set(layouts.map(({ layout }) => JSON.stringify(layout))).size).toBeGreaterThan(SEEDS * 0.99);
   });
 
-  test("have the landmarks every night: the statue in the middle, the temple, the house, the stall, olives, both boats", () => {
-    for (const { layout } of layouts) {
+  test("keep the plaza open: five to seven land props a night, the statue included, nearly always, and never fewer than four or more than nine", () => {
+    const counts = layouts.map(({ layout }) => land(layout).length + 1); // land() leaves the statue out
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(9);
+    expect(counts.filter((count) => count >= 5 && count <= 7).length).toBeGreaterThan(SEEDS * 0.9);
+  });
+
+  test("have the landmarks every night: the statue in the middle, the temple, one house, olives, both boats", () => {
+    for (const { seed, layout } of layouts) {
       const count = (key: string) => [...layout.props, ...layout.boats].filter((placed) => placed.key === key).length;
       expect(layout.props.find((placed) => placed.key === "zeus-statue")).toEqual({
         key: "zeus-statue",
         x: CENTRE_X,
         y: CENTRE_Y + 14,
       });
-      for (const key of ["temple", "house", "stall", "galley-dock", "trireme"]) expect(count(key)).toBe(1);
-      expect(count("olive")).toBeGreaterThanOrEqual(2);
+      for (const key of ["temple", "galley-dock", "trireme"]) expect(count(key)).toBe(1);
+      // the ochre house is the second house when it replaces the other one, never an extra
+      expect(count("house") + count("house-ochre"), `seed ${seed}`).toBe(1);
+      expect(count("olive"), `seed ${seed}`).toBeGreaterThanOrEqual(1);
+      expect(count("olive")).toBeLessThanOrEqual(2);
+      expect(count("wall")).toBeLessThanOrEqual(2);
       expect(layout.planks.length).toBeGreaterThanOrEqual(2);
       expect(layout.ripples.length).toBe(10);
     }
-    // the optional kinds turn up too, in some layouts
-    expect(layouts.some(({ layout }) => layout.props.some((placed) => placed.key === "wall"))).toBe(true);
+    // the optional kinds turn up too, in some layouts, and the stall in most
+    for (const key of ["wall", "house-ochre", "olive-young", "amphora-stack", "broken-column", "votive-altar"])
+      expect(
+        layouts.some(({ layout }) => layout.props.some((placed) => placed.key === key)),
+        key,
+      ).toBe(true);
+    const stalls = layouts.filter(({ layout }) => layout.props.some((placed) => placed.key === "stall")).length;
+    expect(stalls).toBeGreaterThan(SEEDS * 0.7);
+  });
+
+  test("draw at most two of the small decorations a night", () => {
+    const small = DECOR.filter((kind) => kind.pool === "small").map((kind) => kind.key);
+    for (const { layout } of layouts)
+      expect(layout.props.filter((placed) => small.includes(placed.key)).length).toBeLessThanOrEqual(2);
+  });
+
+  test("let a live building take the building slot: its key and extents are all the placer needs", () => {
+    const houseExtents = SPRITE_EXTENTS.house;
+    if (!houseExtents) throw new Error("no house extents");
+    const live = { key: "live-house", extents: houseExtents };
+    for (const { seed } of layouts.slice(0, 100)) {
+      const layout = decorFor(seed, live);
+      const keys = layout.props.map((placed) => placed.key);
+      expect(keys.filter((key) => key === "live-house")).toHaveLength(1);
+      expect(keys).not.toContain("house");
+      expect(keys).not.toContain("house-ochre");
+      expect(keys).toContain("temple");
+      // inside the plaza with its margin, as a committed building is
+      const placed = layout.props.find((prop) => prop.key === "live-house");
+      if (!placed) throw new Error("no live building");
+      for (const [hullX, hullY] of live.extents.hull)
+        if (plazaInset(placed.x + hullX, placed.y + hullY) < 8)
+          throw new Error(`seed ${seed}: the live house is near the rim`);
+    }
   });
 
   test("stand inside the plaza: every pixel of a land prop's base is on the stone, with its margin", () => {

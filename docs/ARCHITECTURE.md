@@ -184,10 +184,18 @@ The rules, in `decor.ts`:
   uses, sampled; `decor.test.ts` checks it against the sim), 12 from the bases of other props, and 6 from the other olives
   of its cluster. A prop's sprite keeps clear of every lantern, of the pole of a lamp it stands in front of, and of the warden
   at his start, and a prop in front of the lamps rises at most 64 px into their ground.
-- **Zones**: the statue stands in the middle; the temple and the house toward the back; the stall at the centre front; the
-  olives in clusters anywhere; the wall in runs of one or two pieces along a rim that runs the way it does, as close in as
-  it fits; the trireme and the galley's dock along the front shore, where the ripples and planks go with them.
-- Temple, house, stall and two groups of olives are always placed; the wall may go unplaced when there is no room.
+- **Zones**: the statue stands in the middle; the temple and the house toward the back; the stall at the centre front; one
+  cluster of one or two olives anywhere; the wall, when there is one, in a run of one or two pieces along a rim that runs
+  the way it does, as close in as it fits; the small decorations from the Mubit scenery (`olive-young`, `amphora-stack` on a
+  rim, `broken-column`, and the flame-bearing `votive-altar`, which keeps further from the lamps) anywhere they fit; the
+  trireme and the galley's dock along the front shore, where the ripples and the bridge go with them.
+- **Density** is data in `DECOR`: a plaza reads open, with five to seven land props a night, the statue included. The temple
+  and one house are always placed (the ochre house replaces the other one on about a third of nights, never as an extra);
+  the stall, the wall and each small decoration have `chance` of being laid out at all, and the small decorations share a
+  `pool` that lets a night draw at most two, whichever the dice put first.
+- **A live building**: `decorFor(seed, live)` takes an optional `{ key, extents }` (the extents from `measureSprite`) that
+  stands in the building slot (`slot: "building"`, the house) instead of the committed house; the scene draws that key's
+  texture at that key's anchor, so a night can have one building from a live gallery with nothing in the committed table.
 
 
 ## Sim fingerprint

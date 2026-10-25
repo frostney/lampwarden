@@ -55,28 +55,54 @@ export interface DecorKind {
   // how far a piece may stand from the first, in x and y
   arrange?: { run: Point } | { cluster: Point };
   margin?: number; // iso steps its base keeps from the plaza's rim; MARGIN when left out
+  lampRing?: number; // ground px its base keeps from every lamp's foot; LAMP_RING when left out (a flame wants more)
   edges?: readonly Rim[]; // for "edge": the rims it may stand along
+  chance?: number; // the odds that each of its groups is laid out at all (always, and tried hard, when left out)
+  pool?: string; // a night draws at most POOL_LIMITS[pool] groups from the kinds that share a pool, in a random order
+  slot?: "building"; // a building slot: a night's live building (decorFor's second argument) stands here instead
+  replacedBy?: { key: string; chance: number }; // the odds that a group is this other sprite of the same kind of thing
   bobs?: boolean; // afloat: the scene rocks it on the water
   ripples?: readonly Ripple[]; // for the sea: rings round it, as offsets from its anchor
   bridge?: Point; // for the sea: the tip of its pier, as an offset from its anchor, from which planks lead to the plaza
 }
 
-// Placed in this order, so what comes first has the pick of the plaza. Adding a kind is one entry here and its sprite.
+// How many groups a night may draw from the kinds of each pool
+const POOL_LIMITS: Readonly<Record<string, number>> = { small: 2 };
+
+// Placed in this order, so what comes first has the pick of the plaza (the kinds of a pool, which follow one another, in a
+// random order among themselves). Adding a kind is one entry here and its sprite. The odds and the counts are data too.
 export const DECOR: readonly DecorKind[] = [
   { key: "zeus-statue", where: "centre", groups: [1, 1] },
   { key: "temple", where: "back", groups: [1, 1] },
-  { key: "house", where: "back", groups: [1, 1] },
-  { key: "stall", where: "front", groups: [1, 1] },
-  { key: "olive", where: "anywhere", groups: [2, 3], pieces: [2, 3], arrange: { cluster: [70, 34] } },
+  // the second house is sometimes the ochre one: a replacement, never an extra
+  { key: "house", where: "back", groups: [1, 1], slot: "building", replacedBy: { key: "house-ochre", chance: 0.35 } },
+  { key: "stall", where: "front", groups: [1, 1], chance: 0.85 },
+  // one cluster of one or two trees
+  { key: "olive", where: "anywhere", groups: [1, 1], pieces: [1, 2], arrange: { cluster: [70, 34] } },
+  // at most one short run, and often none
   {
     key: "wall",
     where: "edge",
-    groups: [1, 2],
+    groups: [1, 1],
+    chance: 0.35,
     pieces: [1, 2],
     arrange: { run: [72, 36] },
     margin: 4,
     edges: ["back-right", "front-left"],
   },
+  // the small decorations: a night draws at most two of these four, whichever the dice give first
+  { key: "olive-young", where: "anywhere", groups: [1, 1], chance: 0.35, pool: "small" },
+  {
+    key: "amphora-stack",
+    where: "edge",
+    groups: [1, 1],
+    chance: 0.35,
+    pool: "small",
+    edges: ["front-left", "back-right"],
+  },
+  { key: "broken-column", where: "anywhere", groups: [1, 1], chance: 0.35, pool: "small" },
+  // it carries its own flame, so it stands on open flagstone, clear of the lamps' brightest light
+  { key: "votive-altar", where: "anywhere", groups: [1, 1], chance: 0.35, pool: "small", lampRing: 70 },
   {
     key: "trireme",
     where: "shore-left",
@@ -224,8 +250,32 @@ class Placement {
   private readonly standing: Standing[] = [];
   private readonly random: () => number;
   private groups = 0;
-  constructor(seed: number) {
+  private readonly drawn = new Map<string, number>(); // groups laid out so far, by pool
+  constructor(
+    seed: number,
+    private readonly live: LiveBuilding | null,
+  ) {
     this.random = decorStream(seed);
+  }
+
+  // the extents of a sprite: the live building's, passed in, or the committed table's
+  private extents(key: string): SpriteExtents {
+    return this.live && this.live.key === key ? this.live.extents : extentsOf(key);
+  }
+
+  // the pooled kinds that follow one another, in a random order
+  shuffled(kinds: readonly DecorKind[]): DecorKind[] {
+    const order = [...kinds];
+    for (let index = order.length - 1; index > 0; index--) {
+      const other = Math.floor(this.random() * (index + 1));
+      const kept = order[index];
+      const swapped = order[other];
+      if (kept && swapped) {
+        order[index] = swapped;
+        order[other] = kept;
+      }
+    }
+    return order;
   }
 
   private between(least: number, most: number) {
@@ -237,10 +287,10 @@ class Placement {
 
   // Why a land prop may not stand with its anchor at (x, y) as a piece of group `group`, or null when it may.
   rejection(kind: DecorKind, x: number, y: number, group: number): string | null {
-    const { hull, solid, sprite } = extentsOf(kind.key);
+    const { hull, solid, sprite } = this.extents(kind.key);
     if (hull.some(([hullX, hullY]) => plazaInset(x + hullX, y + hullY) < (kind.margin ?? MARGIN))) return "rim";
     const base = groundShape(solid, x, y);
-    if (LAMP_FEET.some((foot) => nearPoint(base, foot, LAMP_RING))) return "lamp";
+    if (LAMP_FEET.some((foot) => nearPoint(base, foot, kind.lampRing ?? LAMP_RING))) return "lamp";
     if (SPAWN_GROUND.some((spawn) => nearPoint(base, spawn, SPAWN_GAP))) return "spawn";
     if (nearShape(base, LAMP_PENTAGON, PLAY_GAP)) return "play";
     // a lantern is not what a prop is seen behind, and a prop in front of a lamp is drawn over its pole
@@ -269,7 +319,7 @@ class Placement {
   // whether a boat may lie with its anchor at (x, y): on the sea, off the stone and its walls, on the canvas and, when it
   // has a pier, near enough to the stone to bridge
   private seaworthy(kind: DecorKind, x: number, y: number): boolean {
-    const { hull, solid, sprite } = extentsOf(kind.key);
+    const { hull, solid, sprite } = this.extents(kind.key);
     if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) return false;
     if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) return false;
     const whole = boxAt(sprite, x, y);
@@ -323,22 +373,32 @@ class Placement {
   private stand(kind: DecorKind, x: number, y: number, group: number) {
     const placed: Placed = { key: kind.key, x, y };
     (kind.bobs ? this.layout.boats : this.layout.props).push(placed);
-    const { solid, sprite } = extentsOf(kind.key);
+    const { solid, sprite } = this.extents(kind.key);
     this.standing.push({ base: groundShape(solid, x, y), body: boxAt(sprite, x, y), group });
     for (const ripple of kind.ripples ?? []) this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
     if (kind.bridge) this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
   }
 
-  place(kind: DecorKind) {
-    for (let wanted = this.count(kind.groups), required = kind.groups[0]; wanted > 0; wanted--, required--) {
+  place(listed: DecorKind) {
+    const required = listed.chance === undefined ? listed.groups[0] : 0;
+    for (let wanted = this.count(listed.groups), left = required; wanted > 0; wanted--, left--) {
+      if (listed.chance !== undefined && this.random() >= listed.chance) continue;
+      const limit = listed.pool === undefined ? undefined : POOL_LIMITS[listed.pool];
+      if (listed.pool !== undefined && limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit) continue;
+      // a live building takes the building slot; otherwise a group is sometimes the listed sprite's replacement
+      const replaced =
+        listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
+      const key = this.live && listed.slot === "building" ? this.live.key : replaced;
+      const kind = key === listed.key ? listed : { ...listed, key };
       const group = this.groups++;
       let first: Point | null = null;
-      for (let attempt = 0; attempt < (required > 0 ? TRIES_REQUIRED : TRIES) && !first; attempt++) {
+      for (let attempt = 0; attempt < (left > 0 ? TRIES_REQUIRED : TRIES) && !first; attempt++) {
         const [spotX, spotY] = this.spot(kind, group);
         const [x, y] = [Math.round(spotX), Math.round(spotY)];
         if (this.fits(kind, x, y, group)) first = [x, y];
       }
       if (!first) continue;
+      if (listed.pool !== undefined) this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
       this.stand(kind, first[0], first[1], group);
       const arrange = kind.arrange;
       for (let piece = 1, pieces = this.count(kind.pieces ?? [1, 1]); piece < pieces && arrange; piece++) {
@@ -361,9 +421,24 @@ class Placement {
   }
 }
 
-// The decorations of the night that starts from `seed`: the same layout every time, whoever asks.
-export function decorFor(seed: number): Layout {
-  const placement = new Placement(seed);
-  for (const kind of DECOR) placement.place(kind);
+// A building from outside the committed set (a live gallery's), to stand in the building slot for a night: its sprite key
+// (the scene draws that key's texture, at that key's anchor) and the extents of its pixels, measured by measureSprite.
+export interface LiveBuilding {
+  key: string;
+  extents: SpriteExtents;
+}
+
+// The decorations of the night that starts from `seed`: the same layout every time, whoever asks. `live`, when there is
+// one, takes the building slot instead of the committed house.
+export function decorFor(seed: number, live: LiveBuilding | null = null): Layout {
+  const placement = new Placement(seed, live);
+  for (let index = 0; index < DECOR.length; ) {
+    const pool = DECOR[index]?.pool;
+    let end = index + 1;
+    while (pool !== undefined && DECOR[end]?.pool === pool) end++;
+    const run = DECOR.slice(index, end);
+    for (const kind of pool === undefined ? run : placement.shuffled(run)) placement.place(kind);
+    index = end;
+  }
   return placement.layout;
 }

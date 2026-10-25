@@ -712,7 +712,21 @@ async function checkTraitIcons(tag, name, selector, expectedCount) {
 }
 
 // --- the night's props: laid out from its seed (src/scene/decor.ts), so every night stands on a different plaza -------
-const PROP_KEYS = ["zeus-statue", "temple", "house", "stall", "olive", "wall", "galley-dock", "trireme"];
+const PROP_KEYS = [
+  "zeus-statue",
+  "temple",
+  "house",
+  "stall",
+  "olive",
+  "wall",
+  "house-ochre",
+  "olive-young",
+  "broken-column",
+  "votive-altar",
+  "amphora-stack",
+  "galley-dock",
+  "trireme",
+];
 const BOAT_KEYS = ["galley-dock", "trireme"];
 const byKeyThenPlace = (first, second) =>
   first[0].localeCompare(second[0]) || first[1] - second[1] || first[2] - second[2];
@@ -794,7 +808,7 @@ function checkPropsOnPlaza(scene, label, props) {
   check(
     scene,
     `${label}: every land prop's painted base is on the plaza, a margin in from its rim`,
-    props.length >= 9 && stone.length === 0,
+    props.length >= 6 && stone.length === 0,
     stone.join("; ") || `${props.length} props drawn`,
   );
   const sea = boatsOnStone(props);

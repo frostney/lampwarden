@@ -541,7 +541,7 @@ export default function Game() {
       saveLegacy(legacyRef.current);
     }
     // Now that this night's creature is met, ask for the next night's: the ~minute a creature takes to make overlaps the
-    // night, so it is ready by dawn on the longer nights (on the 16 to 28 s ones it is still being made at dawn). Asking again with the same ids met keeps a job that is still running.
+    // night, so it is ready by dawn on the longer nights (on the 28 to 40 s ones it is still being made at dawn). Asking again with the same ids met keeps a job that is still running.
     ask(legacyRef.current.bestiary);
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));

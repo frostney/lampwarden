@@ -208,10 +208,10 @@ const otherVersionPlay = (id, withSim) => ({
   seed: 7,
   legacy: { night: 3, generation: 2, tide: 1.1, levels: {}, heir: { ...newLegacy().heir, name: "Theodora" } },
   inputs: [],
-  timeline: Array.from({ length: 28 }, (_, second) => [second + 1, 0, 3, 5, 0, 0]), // night 3 lasts 28 s
-  steps: 1680,
+  timeline: Array.from({ length: 40 }, (_, second) => [second + 1, 0, 3, 5, 0, 0]), // night 3 lasts 40 s
+  steps: 2400,
   outcome: "dawn",
-  stats: { kills: 17, lampsLost: 1, hpLost: 2, time: 28, oilEarned: 30, hp: 3, maxHp: 5, lit: 3 },
+  stats: { kills: 17, lampsLost: 1, hpLost: 2, time: 40, oilEarned: 30, hp: 3, maxHp: 5, lit: 3 },
 });
 const REFUSED_PLAYS = [
   ["another sim version", otherVersionPlay("2026-10-20-21-00-00-othersim1", true), "08b-replay-refused"],
@@ -2346,7 +2346,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       "replay-refused",
       `${label}: the panel says it was an earlier version and shows the night's summary`,
       panel.includes("earlier version of Lampwarden and can't be replayed exactly") &&
-        panel.includes(`${play.legacy.heir.name}, night 3: dawn, 17 slain, 1 lamps snuffed, 28 s.`),
+        panel.includes(`${play.legacy.heir.name}, night 3: dawn, 17 slain, 1 lamps snuffed, 40 s.`),
       panel,
     );
     check(

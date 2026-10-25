@@ -50,11 +50,13 @@ import {
   step,
 } from "@/game/sim";
 import { heroKey, heroView, type Sex } from "@/scene/assets";
+import type { Layout, Placed } from "@/scene/decor";
 import {
   anchor,
   anchorAt,
   drawGround,
   drawMarks,
+  drawPlanks,
   drawSweep,
   ghostTextureKey,
   heroFlashTexture,
@@ -66,7 +68,6 @@ import {
   monsterTextureKey,
   nightProgress,
   nightTint,
-  PROPS,
   sceneryTextureKey,
   type TextureMap,
   textureFor,
@@ -93,7 +94,7 @@ import {
   twinkleFrame,
 } from "@/scene/sky";
 import { vignetteStrength, vignetteTexture } from "@/scene/vignette";
-import { createWater, HORIZON_Y, swellDrift, waterFrame } from "@/scene/water";
+import { createRipples, createWater, HORIZON_Y, swellDrift, waterFrame } from "@/scene/water";
 
 extend({ Container, Graphics, Sprite, TilingSprite });
 
@@ -107,6 +108,7 @@ export interface Night {
   sex: Sex;
   driver: Driver | null;
   creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
+  decor: Layout; // where the night's props stand, from its seed (src/scene/decor.ts)
 }
 
 interface SceneProps {
@@ -215,6 +217,8 @@ export const Scene = memo(function Scene({
     [controls],
   );
   const state = night.state;
+  const decor = night.decor;
+  const planks = useCallback((graphics: Graphics) => drawPlanks(graphics, decor.planks), [decor]);
   const sweep = useCallback((graphics: Graphics) => drawSweep(graphics, state), [state]);
   const marks = useCallback((graphics: Graphics) => drawMarks(graphics, state, clock.current), [state]);
 
@@ -223,8 +227,9 @@ export const Scene = memo(function Scene({
       <pixiContainer eventMode="static" hitArea={STAGE_AREA} onPointerDown={shoot}>
         <Sky state={state} />
         <World state={state}>
-          <Water />
+          <Water ripples={decor.ripples} />
           <pixiGraphics draw={drawGround} />
+          <pixiGraphics draw={planks} />
         </World>
         <GroundLights state={state}>
           <MoonGlitter />
@@ -235,8 +240,10 @@ export const Scene = memo(function Scene({
         </GroundLights>
         <Shadows state={state} />
         <pixiContainer sortableChildren>
-          <Props state={state} />
-          <Trireme state={state} />
+          <Props state={state} props={decor.props} />
+          {decor.boats.map((boat) => (
+            <Boat key={`${boat.key}@${boat.x},${boat.y}`} state={state} boat={boat} />
+          ))}
           <Hero state={state} sex={night.sex} />
           {state.lamps.map((lamp) => (
             <LampPost key={`lamp@${lamp.x},${lamp.y}`} state={state} lamp={lamp} />
@@ -327,10 +334,20 @@ function MoonGlitter() {
 }
 
 // The sea, all of it painted once in src/scene/water.ts: the still depths, the swell tiled over the canvas and drifting
-// down the grid, and the surf in patches along the plaza; each frame only picks the loop's textures from the clock.
-function Water() {
+// down the grid, and the surf in patches along the plaza, then the ripples round the night's boats painted over it;
+// each frame only picks the loop's textures from the clock.
+function Water({ ripples }: { ripples: Layout["ripples"] }) {
   const { clock } = useScene();
   const water = useMemo(createWater, []);
+  const rippled = useMemo(() => createRipples(ripples), [ripples]);
+  useEffect(() => rippled.release, [rippled]);
+  const patches = useMemo(
+    () => [
+      ...water.patches.map((patch) => ({ key: `surf@${patch.x},${patch.y}`, patch })),
+      ...rippled.patches.map((patch) => ({ key: `ripple@${patch.x},${patch.y}`, patch })),
+    ],
+    [water, rippled],
+  );
   const swell = useRef<TilingSprite>(null);
   const patchSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
@@ -343,12 +360,12 @@ function Water() {
         const drift = swellDrift(clock.current);
         swellSprite.tilePosition.set(drift.x, drift.y);
       }
-      water.patches.forEach((patch, index) => {
+      patches.forEach(({ patch }, index) => {
         const sprite = patchSprites.current[index];
         const texture = patch.frames[frame];
         if (sprite && texture) sprite.texture = texture;
       });
-    }, [clock, water]),
+    }, [clock, water, patches]),
   );
   return (
     <pixiContainer>
@@ -360,9 +377,9 @@ function Water() {
         width={STAGE_WIDTH}
         height={STAGE_HEIGHT - water.swellTop}
       />
-      {water.patches.map((patch, index) => (
+      {patches.map(({ key, patch }, index) => (
         <pixiSprite
-          key={`${patch.x},${patch.y}`}
+          key={key}
           ref={(sprite: Sprite | null) => {
             patchSprites.current[index] = sprite;
           }}
@@ -378,7 +395,7 @@ const tintOf = (state: State) => nightTint(nightProgress(state));
 
 // the static props, depth-sorted with everything that moves; each is tinted by the night on its own, as the sprites
 // share a container with the lights that must not be
-function Props({ state }: { state: State }) {
+function Props({ state, props }: { state: State; props: readonly Placed[] }) {
   const { textures } = useScene();
   const sprites = useRef<(Sprite | null)[]>([]);
   useFrame(
@@ -387,7 +404,7 @@ function Props({ state }: { state: State }) {
       for (const sprite of sprites.current) if (sprite) sprite.tint = tint;
     }, [state]),
   );
-  return PROPS.map(([key, x, y], index) => {
+  return props.map(({ key, x, y }, index) => {
     // a building whose Mubit sprite did not load is drawn from its hand-written one, with that sprite's own anchor
     const drawn = sceneryTextureKey(textures, key);
     return (
@@ -406,24 +423,25 @@ function Props({ state }: { state: State }) {
   });
 }
 
-function Trireme({ state }: { state: State }) {
+// a boat at its mooring, rocked by the water
+function Boat({ state, boat }: { state: State; boat: Placed }) {
   const { textures, clock } = useScene();
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       if (!ref.current) return;
-      ref.current.y = 440 + Math.sin(clock.current * 1.5) * 4;
+      ref.current.y = boat.y + Math.sin(clock.current * 1.5) * 4;
       ref.current.tint = tintOf(state);
-    }, [clock, state]),
+    }, [clock, state, boat]),
   );
   return (
     <pixiSprite
       ref={ref}
-      texture={textureFor(textures, "trireme")}
-      anchor={anchor("trireme")}
-      x={130}
-      y={440}
-      zIndex={440}
+      texture={textureFor(textures, boat.key)}
+      anchor={anchor(boat.key)}
+      x={boat.x}
+      y={boat.y}
+      zIndex={boat.y}
     />
   );
 }

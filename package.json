@@ -26,6 +26,7 @@
     "render": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",
     "logo": "bun tools/logo/build.ts",
+    "decor": "bun tools/decor-extents/build.ts",
     "check:pixels": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/check-pixels.ts"
   },
   "dependencies": {

@@ -349,9 +349,15 @@ earlier reasoning only from the same session.)
   same salt (without one, as in local development, uploads are not limited; only the first write of an id counts). An
   upload under an id already stored answers 200 and keeps the more complete recording: it replaces the stored one (by
   ETag, so a concurrent write is not overwritten) only when it has more steps, or ended the night the stored one did
-  not; a resend, or a stale snapshot of a night that finished, changes nothing. Past a limit the finished night of a
-  snapshot already stored still lands, and nothing else does. Whoever knows a play id can replace its recording with a
-  longer one: ids are random, and the recording is the player's word either way. The daily call ceiling bounds the spend either way.
+  not; a resend, or a stale snapshot of a night that finished, changes nothing. A finished night is final, only an upload
+  from the same session replaces a recording, and an id takes at most 12 writes before its finished night
+  (`MAX_WRITES_PER_PLAY`), so an id cannot be rewritten without end. Past a limit the finished night of a snapshot
+  already stored still lands, and nothing else does. The replay route (`GET /api/plays/:id`) serves a recording without
+  its session, so knowing a play id is not enough to replace it, except for a browser without storage, which sends the
+  shared session `anon`; the recording is the player's word either way. The
+  daily ceilings are read before they are written, like the hourly one, so a burst of requests arriving together can
+  pass them before any is counted; a rate rule in front of `/api/director` and `/api/plays` (the Vercel WAF counts at
+  the edge, with no race) would close that, and is not set up.
 - The model call has 8 s; the slowest of the live run took 6.5 s, and none of 72 calls in the latency measurement above
   took longer than 7.4 s. If production latency is higher, calls fall back to the rules and the loop goes quiet. The two
   levers are a shorter reply (see "Latency by reply shape") and `MODEL_TIMEOUT_MILLISECONDS` in

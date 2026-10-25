@@ -2208,7 +2208,11 @@ const placeClawer = (heroX, heroY) =>
   await placeClawer(woundX, woundY);
   await settle();
   await page.waitForTimeout(80);
-  const unhurt = (await page.locator(".stage").screenshot()).toString("base64");
+  // the claw's satyr is drawn from frames and changes picture as it strikes, so the pictures that measure the warden's flash
+  // are taken without it
+  await showLayers(["monster", "monster-rim"], false);
+  const unhurt = await stageShot();
+  await showLayers(["monster", "monster-rim"], true);
   const unhurtSprites = await woundedSprites();
   check(
     "hero-hit",
@@ -2225,7 +2229,10 @@ const placeClawer = (heroX, heroY) =>
     return { hits: hero.hits, hurt: hero.hurt, mercy: hero.mercy, health: hero.health, maxHealth: hero.maxHealth };
   });
   const flashing = await woundedSprites();
-  const flashShot = await shoot("04c-hero-hit-1-flash");
+  await shoot("04c-hero-hit-1-flash");
+  await showLayers(["monster", "monster-rim"], false);
+  const flashClean = await stageShot();
+  await showLayers(["monster", "monster-rim"], true);
   check("hero-hit", "a monster's claw wounds the warden once", struck.hits === 1 && struck.health < struck.maxHealth);
   check(
     "hero-hit",
@@ -2235,7 +2242,7 @@ const placeClawer = (heroX, heroY) =>
       /\/hero\/male_idle\d/.test(flashing.flash[0].label),
     JSON.stringify(flashing.flash),
   );
-  const white = await changedColour(flashShot, unhurt, [woundX - 22, woundY - 90, 44, 90]);
+  const white = await changedColour(flashClean, unhurt, [woundX - 22, woundY - 90, 44, 90]);
   check(
     "hero-hit",
     "the flash is white pixels on the warden",
@@ -2248,14 +2255,14 @@ const placeClawer = (heroX, heroY) =>
     flashing.vignette.length === 1 && flashing.vignette[0] === "vignette/3",
     flashing.vignette.join(" "),
   );
-  const edge = await changedColour(flashShot, unhurt, [0, 150, 40, 300]);
+  const edge = await changedColour(flashClean, unhurt, [0, 150, 40, 300]);
   check(
     "hero-hit",
     "the vignette reddens the screen's edge",
     edge.count > 300 && edge.colour[0] > edge.colour[2] * 1.4,
     `${edge.count} pixels, mean rgb ${edge.colour.map((level) => level.toFixed(0)).join(",")}`,
   );
-  const burst = await changedColour(flashShot, unhurt, [woundX - 24, woundY - 70, 60, 30]);
+  const burst = await changedColour(flashClean, unhurt, [woundX - 24, woundY - 70, 60, 30]);
   check("hero-hit", "an impact burst at the claw", burst.count > 60, `${burst.count} pixels changed at the chest`);
   check("hero-hit", "the health bar flashes and jolts", (await page.locator(".bar.struck").count()) === 1);
   check("hero-hit", "the screen jolts harder than a kill does", jolt >= 3, `${jolt}px`);

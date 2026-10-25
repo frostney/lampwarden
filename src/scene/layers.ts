@@ -208,12 +208,21 @@ async function loadSheet(
   src: string,
   layouts: readonly CreatureFrames[],
 ): Promise<TextureMap> {
-  let atlas: Texture;
   try {
-    atlas = await Assets.load({ alias, src, data: { scaleMode: "nearest" } });
+    return await cutSheet(sheet, alias, src, layouts);
   } catch {
+    // an atlas that will not load or cannot be read leaves the monster its single sprite
     return {};
   }
+}
+
+async function cutSheet(
+  sheet: string,
+  alias: string,
+  src: string,
+  layouts: readonly CreatureFrames[],
+): Promise<TextureMap> {
+  const atlas: Texture = await Assets.load({ alias, src, data: { scaleMode: "nearest" } });
   const frames = layouts.find((candidate) => {
     const size = creatureAtlasLayout(candidate);
     return atlas.source.pixelWidth === size.width && atlas.source.pixelHeight === size.height;

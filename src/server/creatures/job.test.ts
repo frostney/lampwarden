@@ -499,13 +499,14 @@ describe("a job animates what it accepts", () => {
     const job = await runCreatureJob(deps, "job-anim-bbbb");
     expect(job.step).toBe("done");
     expect(job.creature?.score).toBe(7);
-    expect(frameBatch.batches).toHaveLength(2);
+    // the static one is drawn from every side, then from the south-east, before the next candidate is tried
+    expect(frameBatch.batches).toHaveLength(3);
     const [id] = await store.listCreatureIds();
     expect(store.codes.get(id ?? "")).toContain("// candidate 0");
     expect(store.atlases.has(id ?? "")).toBe(true);
     expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
       animated: true,
-      refused: ["static"],
+      refused: ["static", "static"],
     });
   });
 

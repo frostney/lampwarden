@@ -140,6 +140,22 @@ const opaquePixels = (rgba: Uint8Array) => {
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
+/** Two sides that differ in fewer pixels than this are one figure drawn twice: a real turn changes thousands. */
+const MIN_SIDE_DIFFERENCE = 200;
+
+const differingPixels = (first: Uint8Array, second: Uint8Array) => {
+  let differing = 0;
+  for (let offset = 0; offset < first.length; offset += 4)
+    if (
+      first[offset] !== second[offset] ||
+      first[offset + 1] !== second[offset + 1] ||
+      first[offset + 2] !== second[offset + 2] ||
+      first[offset + 3] !== second[offset + 3]
+    )
+      differing++;
+  return differing;
+};
+
 /** Checks a batch's results and packs them into an atlas, or says why they are not a usable animation. */
 export function assembleFrameSet(
   results: readonly RenderResult[],
@@ -194,11 +210,11 @@ export function assembleFrameSet(
         reason: "the walk frames are all the same picture: the builder ignores its pose",
       };
   }
-  // and the sides must differ: a builder that ignores the turn draws one figure five times
+  // and the sides must differ: a builder that ignores the turn draws one figure five times, or turns only its head
   const sides = [...standing.entries()];
   for (const [position, [direction, picture]] of sides.entries())
     for (const [otherDirection, other] of sides.slice(position + 1))
-      if (sameBytes(picture, other))
+      if (differingPixels(picture, other) < MIN_SIDE_DIFFERENCE)
         return {
           ok: false,
           kind: "directions",
@@ -253,7 +269,8 @@ export const fitFactor = (extent: { width: number; height: number }) =>
   Math.min(1, FIT_EXTENT / Math.max(1, extent.width), FIT_EXTENT / Math.max(1, extent.height));
 
 interface Fitted {
-  results: RenderResult[];
+  /** The frames, or null when the figure would have to be drawn too small, or does not settle. */
+  results: RenderResult[] | null;
   canvas: CanvasFit;
   batches: number;
 }
@@ -262,14 +279,14 @@ interface Fitted {
  * Draws the frames on the still's canvas, as the still was. When none touches the edge (after the kit has slid it clear),
  * that is the set. When one does, a probe at half size measures how big the frames really are, and the set is drawn again, all
  * frames alike, at the size at which the biggest of them fits. A frame that does not render is that frame's failure, left for
- * `assembleFrameSet` to name. `null` means the figure would have to be drawn too small, or does not settle.
+ * `assembleFrameSet` to name. No results means the figure would have to be drawn too small, or does not settle.
  */
 async function renderFitted(
   renderBatch: BatchRenderer,
   code: string,
   still: CanvasFit,
   directions: readonly CreatureDirection[],
-): Promise<Fitted | null> {
+): Promise<Fitted> {
   const first = await renderBatch(frameRequests(code, still, directions));
   // a failure of the batch is every frame's, and a smaller figure will not mend it
   if (first.some((result) => !result.ok)) return { results: first, canvas: still, batches: 1 };
@@ -278,17 +295,18 @@ async function renderFitted(
   const probe = await renderBatch(frameRequests(code, probeCanvas, directions));
   if (probe.some((result) => !result.ok)) return { results: probe, canvas: probeCanvas, batches: 2 };
   const probed = extentOf(probe, PROBE_SCALE);
-  if (probed.touching) return null;
+  if (probed.touching) return { results: null, canvas: still, batches: 2 };
   let canvas: CanvasFit = { ...still, scale: still.scale * fitFactor(probed) * FIT_SLACK };
+  let batches = 2;
   for (let tries = 1; tries <= MAX_FINAL_TRIES; tries++) {
-    if (canvas.scale < still.scale * MIN_SHRINK) return null;
+    if (canvas.scale < still.scale * MIN_SHRINK) return { results: null, canvas, batches };
+    batches++;
     const results = await renderBatch(frameRequests(code, canvas, directions));
-    const batches = 2 + tries;
     if (results.some((result) => !result.ok)) return { results, canvas, batches };
     if (!extentOf(results).touching) return { results, canvas, batches };
     canvas = { ...canvas, scale: canvas.scale * SHRINK_STEP };
   }
-  return null;
+  return { results: null, canvas, batches };
 }
 
 async function renderDirections(
@@ -296,9 +314,10 @@ async function renderDirections(
   code: string,
   still: CanvasFit,
   directions: readonly CreatureDirection[],
-): Promise<(FrameSetResult & { batches: number }) | null> {
+): Promise<FrameSetResult & { batches: number }> {
   const fitted = await renderFitted(renderBatch, code, still, directions);
-  if (!fitted) return null;
+  if (!fitted.results)
+    return { ok: false, kind: "fit", reason: "the figure does not fit its frame", batches: fitted.batches };
   const assembled = assembleFrameSet(fitted.results, directions);
   return assembled.ok
     ? { ...assembled, canvas: fitted.canvas, batches: fitted.batches }
@@ -308,24 +327,16 @@ async function renderDirections(
 /**
  * Renders a creature's frame set from its code and packs it: drawn from every direction when it can be (every frame
  * renders, none is blank, the walk moves from every side, the sides differ and the figure fits the canvas at a size
- * near its still's), else from its one south-east side, as creatures were drawn before directions. Only a set that
- * fails for the figure's own sake (a walk that does not move) is refused outright. `still` is the canvas the still was
- * drawn on (`canvasOfStill`).
+ * near its still's), else from its one south-east side, as creatures were drawn before directions. `still` is the canvas
+ * the still was drawn on (`canvasOfStill`).
  */
 export async function renderFrameSet(
   renderBatch: BatchRenderer,
   code: string,
   still: CanvasFit,
 ): Promise<FrameSetOutcome> {
-  const earlier: FrameSetFailure["kind"][] = [];
-  let batches = 0;
   const all = await renderDirections(renderBatch, code, still, CREATURE_DIRECTIONS);
-  if (all) batches += all.batches;
-  if (all?.ok) return { ...all, batches, earlier };
-  if (all?.kind === "static") return { ...all, batches, earlier };
-  earlier.push(all ? all.kind : "fit");
+  if (all.ok) return { ...all, earlier: [] };
   const one = await renderDirections(renderBatch, code, still, [STILL_DIRECTION]);
-  if (one) batches += one.batches;
-  if (one) return { ...one, batches, earlier };
-  return { ok: false, kind: "fit", reason: "the figure does not fit its frame", batches, earlier };
+  return { ...one, batches: all.batches + one.batches, earlier: [all.kind] };
 }

@@ -285,10 +285,19 @@ describe("a frame set", () => {
     expect(batch.batches.map((requests) => requests.length)).toEqual([75, 15]);
   });
 
-  test("does not fall back when the walk does not move: a builder that ignores its pose is refused", async () => {
+  test("a builder whose walk does not move is refused from every side, and from the south-east one too", async () => {
     const batch = fakeFrameBatch();
     const set = await renderFrameSet(batch.render, "// STATIC\nfunction build(k) {}", STILL);
-    expect(set).toMatchObject({ ok: false, kind: "static", batches: 1 });
+    expect(set).toMatchObject({ ok: false, kind: "static", batches: 2, earlier: ["static"] });
+  });
+
+  test("a walk that is hidden from one side only is drawn from the south-east side", async () => {
+    // the north's walk frames are one picture; every other frame differs
+    const batch = fakeFrameBatch({
+      seedOf: (request, index) => (request.name.startsWith("n_walk") ? 999 : index + 1),
+    });
+    const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
+    expect(set).toMatchObject({ ok: true, earlier: ["static"], batches: 2 });
   });
 
   test("draws a figure too big for its cell smaller, in every frame, to the size its biggest frame fits", async () => {
@@ -311,7 +320,7 @@ describe("a frame set", () => {
     // a north-east frame 280 rows high: even the half-size probe is cut off at the edge
     const batch = fakeFrameBatch({ statsOf: figureTall(280) });
     const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
-    expect(set).toMatchObject({ ok: true, earlier: ["fit"] });
+    expect(set).toMatchObject({ ok: true, earlier: ["fit"], batches: 3 });
     if (!set.ok) return;
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     expect(batch.batches.map((requests) => requests.length)).toEqual([75, 75, 15]);

@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { newLegacy } from "../game/legacy";
 import { type Lamp, newNight, type State } from "../game/sim";
 import { sceneryAssetList } from "./assets";
-import { isLitProp, nightTint, PROPS } from "./layers";
+import { DECOR, decorFor } from "./decor";
+import { isLitProp, nightTint } from "./layers";
 import {
   illuminate,
   lampFootTint,
@@ -301,9 +302,16 @@ describe("which props are lit", () => {
     for (const key of BUILDINGS_AND_BOATS) expect(isLitProp(key)).toBe(false);
   });
 
-  test("every prop the scene places and every scenery sprite is one or the other", () => {
+  test("every prop a night's layout can place, and every scenery sprite, is one or the other", () => {
     const known = new Set([...SMALL, ...BUILDINGS_AND_BOATS]);
-    for (const [key] of PROPS) expect(known.has(key)).toBe(true);
+    for (const kind of DECOR) {
+      expect(known.has(kind.key)).toBe(true);
+      if (kind.replacedBy) expect(known.has(kind.replacedBy.key)).toBe(true);
+    }
     for (const asset of sceneryAssetList()) expect(known.has(asset.alias)).toBe(true);
+    for (let seed = 1; seed <= 40; seed++) {
+      const layout = decorFor(seed);
+      for (const placed of [...layout.props, ...layout.boats]) expect(known.has(placed.key)).toBe(true);
+    }
   });
 });

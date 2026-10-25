@@ -3088,7 +3088,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === null,
   );
   // the recording of the night that had the building, whose sprite is gone now, replays on the committed plaza
-  const gone = { ...played, id: "2026-10-25-09-00-01-buildinggone" };
+  const gone = { ...played, id: "2026-10-25-09-00-01-bldgone" };
   await page.route(`**/api/plays/${gone.id}`, (route) => route.fulfill({ json: gone }));
   await page.goto(`${BASE_URL}/?replay=${gone.id}`);
   await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });

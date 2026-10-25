@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { creatureFrameKey, creatureFrameOf } from "./creature-animation";
+import { creatureFrameOf, sheetFrameKey } from "./creature-animation";
 
 const FAR_HERO = { x: 900, y: 900 };
 const monster = { x: 100, y: 100, age: 0, snuff: 0, attackCooldown: 0, stun: 0 };
@@ -44,6 +44,7 @@ describe("which frame a creature shows", () => {
   });
 
   test("names a frame by its pose", () => {
-    expect(creatureFrameKey("abc", "walk", 2)).toBe("creature/abc/walk3");
+    expect(sheetFrameKey("creature/abc", "ne", "walk", 2)).toBe("creature/abc/ne/walk3");
+    expect(sheetFrameKey("satyr", "se", "idle", 0)).toBe("satyr/se/idle1");
   });
 });

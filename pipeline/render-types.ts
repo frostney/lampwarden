@@ -9,6 +9,8 @@ export const renderStatsSchema = z.object({
   /** Render time inside the runner. */
   ms: z.number().optional(),
   fit: z.string(),
+  /** The factor the kit scaled the figure by to fill the frame (1 when it did not); a set's frames are drawn at their still's. */
+  scale: z.number().optional(),
   snapped: z.number(),
   dropped: z.number(),
   coverage: z.number(),
@@ -31,7 +33,40 @@ export interface RenderRequest {
   name: string;
   /** Hero-style pose such as `walk3`, or an empty string. */
   pose: string;
+  /** A turn in degrees that every figure the code draws is turned by (the kit's `TURN`); none is no turn. */
+  facing?: number;
+  /** For a frame of a set: the canvas transform of the set's still, so the frame is not fitted to the canvas on its own. */
+  view?: FrameView;
 }
+
+/**
+ * How a figure sits on the 128 px canvas: scaled about the ground origin by `scale`, the origin moved by (`dx`, `dy`) from
+ * where the kit puts it, and how many times (`slides`) the kit may slide the figure six pixels to keep it off the canvas
+ * edge (the kit's own limit is 5). The slides it made are in the render's `fit`.
+ */
+export interface FrameView {
+  scale: number;
+  dx: number;
+  dy: number;
+  slides: number;
+}
+
+/** The largest turn a request may ask for: a few turns round, which no frame set needs. */
+const MAX_FACING_DEGREES = 720;
+const MAX_VIEW_SHIFT = 128;
+const MAX_VIEW_SLIDES = 40;
+
+/** A view as the runner's argument: `scale,dx,dy,slides`. */
+export const viewArgument = (view: FrameView) => `${view.scale},${view.dx},${view.dy},${view.slides}`;
+
+const validView = (view: FrameView) =>
+  view.scale > 0.1 &&
+  view.scale <= 4 &&
+  Number.isInteger(view.slides) &&
+  view.slides >= 0 &&
+  view.slides <= MAX_VIEW_SLIDES &&
+  Math.abs(view.dx) <= MAX_VIEW_SHIFT &&
+  Math.abs(view.dy) <= MAX_VIEW_SHIFT;
 
 export interface RenderedSprite {
   stats: RenderStats;
@@ -69,6 +104,9 @@ export function isSafeRenderArgument(value: string): boolean {
 export function invalidRequestReason(request: RenderRequest): string | null {
   if (!request.name || !isSafeRenderArgument(request.name)) return `invalid sprite name: ${request.name}`;
   if (!isSafeRenderArgument(request.pose)) return `invalid pose: ${request.pose}`;
+  if (request.facing !== undefined && !(Math.abs(request.facing) <= MAX_FACING_DEGREES))
+    return `invalid facing: ${request.facing}`;
+  if (request.view !== undefined && !validView(request.view)) return "invalid view";
   return null;
 }
 

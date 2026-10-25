@@ -19,7 +19,7 @@ import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
 import { askDirector } from "@/game/director-api";
 import { engagementOf, heldTide } from "@/game/engagement";
-import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
+import { activeGamepad, holdGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
 import {
   applyDirector,
   buy,
@@ -87,6 +87,7 @@ const APP = {
 
 const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
 const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite (and its building's) before going without it
+const NEW_LINE_CONFIRM_TIME = 4000; // ms "Start a new bloodline" waits for its second press before it settles back
 
 // A load that gives up after `milliseconds` with null, and stops its timer when it does not need to wait that long
 function loadWithin<Loaded>(load: Promise<Loaded | null>, milliseconds: number): Promise<Loaded | null> {
@@ -188,6 +189,8 @@ export default function Game() {
   const [night, setNight] = useState<Night | null>(null);
   const [paused, setPaused] = useState(true);
   const [away, setAway] = useState(false); // a live night is held because the window lost focus, until the player resumes
+  const awayRef = useRef(away);
+  awayRef.current = away;
   const [loadFailure, setLoadFailure] = useState<"assets" | "graphics" | null>(null); // why the title can never light
   const [frozenClock, freezeClock] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false); // the canvas has shown a frame; before that it is hidden, not black
@@ -210,6 +213,8 @@ export default function Game() {
   const [refusedPlay, setRefusedPlay] = useState<unknown>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
+  const [loadingReplay, setLoadingReplay] = useState(false); // a recording is being fetched (and its sprites loaded)
+  const [confirmingNewLine, setConfirmingNewLine] = useState(false); // the first press of "Start a new bloodline" came
   const { tonight, ask, withdraw, settled } = useTonight();
   const { raised, ask: askRaised, withdraw: withdrawRaised } = useRaised();
   const raisedRef = useRef<string[]>([]); // the ids of the buildings the line has seen go up (src/game/raised.ts)
@@ -223,6 +228,7 @@ export default function Game() {
     [ask, askRaised, settled],
   );
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
+  const [isStarting, setStarting] = useState(false); // the same, for the buttons: they wait with it
   const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
 
   // every night is recorded (inputs + timeline) and sent to /api/plays; the last one is also kept locally (?replay=last)
@@ -250,13 +256,13 @@ export default function Game() {
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
   // while the dawn or heir panel is still up: starting the next night calls it off (startNight), and the rules' decision,
   // which is already in place, plays instead. The panel never waits for it.
-  const consultDirector = useCallback((sent: SentPlay) => {
+  const consultDirector = useCallback((playId: string, sent: Promise<boolean>) => {
     directorAsk.current?.abort();
     const asking = new AbortController();
     directorAsk.current = asking;
-    void sent.uploaded.then(async (uploaded) => {
+    void sent.then(async (uploaded) => {
       if (!uploaded || asking.signal.aborted) return;
-      const answer = await askDirector(sent.id, asking.signal);
+      const answer = await askDirector(playId, asking.signal);
       if (!answer || asking.signal.aborted) return;
       const legacy = legacyRef.current;
       if (!applyDirector(legacy, answer.decision)) return;
@@ -359,7 +365,9 @@ export default function Game() {
         legacy.generation++;
         legacy.night = 1;
         endWarden(legacy);
-        setHeirs(heirChoices(Math.random, legacy.heir.name));
+        const heirs = heirChoices(Math.random, legacy.heir.name);
+        setHeirs(heirs);
+        legacy.heirChoice = { name: nightReport.name, night: nightReport.night, outcome, tideBefore, heirs };
         phaseRef.current = "heir";
         setPhase("heir");
       }
@@ -368,7 +376,7 @@ export default function Game() {
       pause(true);
       setReport(nightReport);
       askSea(legacy.bestiary); // what the sea sends next
-      if (sent) consultDirector(sent);
+      if (sent) consultDirector(sent.id, sent.uploaded);
     },
     [sendPlay, consultDirector, pause, askSea],
   );
@@ -433,7 +441,7 @@ export default function Game() {
     [],
   );
 
-  const startReplay = useCallback(
+  const playReplay = useCallback(
     async (id: string) => {
       let fetched: unknown;
       try {
@@ -496,7 +504,21 @@ export default function Game() {
     [show, pause],
   );
 
-  // gamepad: note when one is connected (for the help line), and drive the menus with it outside a night
+  // the title stays hidden while a replay is on its way
+  const startReplay = useCallback(
+    async (id: string) => {
+      setLoadingReplay(true);
+      try {
+        await playReplay(id);
+      } finally {
+        setLoadingReplay(false);
+      }
+    },
+    [playReplay],
+  );
+
+  // gamepad: note when one is connected (for the help line), and drive the menus with it outside a night (and on the
+  // panel of a night held while the window was away, so a pad alone can resume it)
   useEffect(() => {
     const refreshConnection = () => setGamepadConnected(activeGamepad() !== null);
     window.addEventListener("gamepadconnected", refreshConnection);
@@ -505,7 +527,10 @@ export default function Game() {
     let frame = 0;
     const poll = (now: number) => {
       frame = requestAnimationFrame(poll);
-      if (phaseRef.current === "night" || phaseRef.current === "replay") return;
+      if ((phaseRef.current === "night" && !awayRef.current) || phaseRef.current === "replay") {
+        holdGamepad(memory); // a button held as the night pauses is not a press on its panel
+        return;
+      }
       const action = pollGamepadForMenu(memory, now);
       if (action) actOnMenu(action);
     };
@@ -523,6 +548,9 @@ export default function Game() {
     legacyRef.current = loadLegacy();
     raisedRef.current = loadRaised();
     refresh();
+    const replayId = new URLSearchParams(location.search).get("replay");
+    if (replayId) setLoadingReplay(true); // the title is not shown under a replay that is on its way
+    const resent = resendQueuedPlays(); // nights an earlier page could not send
     let dead = false;
     void loadTextures().then(
       (loaded) => {
@@ -530,9 +558,39 @@ export default function Game() {
         setTextures(loaded);
         // preview: a quiet plaza behind the title screen
         show(newNight(legacyRef.current), legacyRef.current.heir.sex);
-        const id = new URLSearchParams(location.search).get("replay");
-        if (id) void startReplay(id);
-        else askSea(legacyRef.current.bestiary); // before night 1: what does the sea send?
+        if (replayId) {
+          void startReplay(replayId);
+          return;
+        }
+        // the live director is asked again about the night that ended, if its answer had not come before the page went
+        // away (once that night's recording, if it was still queued, has been sent)
+        const legacy = legacyRef.current;
+        const waiting = legacy.director;
+        if (waiting.source === "rules" && waiting.playId)
+          consultDirector(
+            waiting.playId,
+            resent.then(() => true),
+          );
+        // a warden fell and the page went away before an heir took up the lamp: the same choice is offered again
+        const choice = legacy.heirChoice;
+        if (choice) {
+          setHeirs(choice.heirs);
+          setReport({
+            outcome: choice.outcome,
+            night: choice.night,
+            kills: 0, // the heir panel shows only who fell, when and how, and the sea's answer
+            lampsLost: 0,
+            oil: 0,
+            bonus: 0,
+            name: choice.name,
+            tideBefore: choice.tideBefore,
+            tideAfter: legacy.tide,
+            line: legacy.director.line,
+          });
+          phaseRef.current = "heir";
+          setPhase("heir");
+        }
+        askSea(legacy.bestiary); // before the night: what does the sea send?
       },
       () => {
         if (!dead) setLoadFailure((current) => current ?? "assets");
@@ -559,13 +617,12 @@ export default function Game() {
     };
     window.addEventListener("pagehide", leave);
     document.addEventListener("visibilitychange", hide);
-    void resendQueuedPlays(); // nights an earlier page could not send
     return () => {
       dead = true;
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea, consultDirector]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
@@ -586,9 +643,19 @@ export default function Game() {
     });
   }, [announcedBuilding, withdrawRaised]);
 
+  // One night at a time; the buttons wait while it is put together, and come back if it cannot be
   const startNight = async () => {
     if (starting.current) return;
     starting.current = true;
+    setStarting(true);
+    try {
+      await lightNight();
+    } finally {
+      starting.current = false;
+      setStarting(false);
+    }
+  };
+  const lightNight = async () => {
     directorAsk.current?.abort(); // an answer that comes now is too late for this night
     directorAsk.current = null;
     // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
@@ -612,7 +679,7 @@ export default function Game() {
       saveLegacy(legacyRef.current);
     }
     // Now that this night's creature is met, ask for the next night's: the ~minute a creature takes to make overlaps the
-    // night, so it is ready by dawn on the longer nights (on the 16 to 28 s ones it is still being made at dawn). Asking again
+    // night, so it is ready by dawn on the longer nights (on the 28 to 40 s ones it is still being made at dawn). Asking again
     // with the same ids met keeps a job that is still running.
     const loadedBuilding = await buildingLoad;
     const building = announcedBuilding && loadedBuilding ? recordedBuildingSchema.parse(announcedBuilding) : null;
@@ -642,7 +709,10 @@ export default function Game() {
       creature && loaded,
       building && loadedBuilding ? { building, textures: loadedBuilding } : null,
     );
-    starting.current = false;
+    if (legacyRef.current.heirChoice) {
+      legacyRef.current.heirChoice = undefined; // an heir has taken up the lamp
+      saveLegacy(legacyRef.current);
+    }
     pause(false);
     setHud(hudOf(state, legacyRef.current));
     setReport(null);
@@ -660,7 +730,19 @@ export default function Game() {
       refresh();
     }
   };
+  // The first press asks again, and the second, within NEW_LINE_CONFIRM_TIME, ends the line: it takes the oil, the
+  // upgrades and the bestiary with it.
+  useEffect(() => {
+    if (!confirmingNewLine) return;
+    const timer = setTimeout(() => setConfirmingNewLine(false), NEW_LINE_CONFIRM_TIME);
+    return () => clearTimeout(timer);
+  }, [confirmingNewLine]);
   const newLine = () => {
+    if (!confirmingNewLine) {
+      setConfirmingNewLine(true);
+      return;
+    }
+    setConfirmingNewLine(false);
     directorAsk.current?.abort();
     clearLegacy();
     legacyRef.current = newLegacy();
@@ -670,9 +752,10 @@ export default function Game() {
     refresh();
     askSea(legacyRef.current.bestiary);
   };
-  // the warden behind the title screen is the one chosen
+  // the warden behind the title screen is the one chosen; the plaza around them stays as it is laid out
   const showPreview = () => {
-    if (stateRef.current) show(stateRef.current, legacyRef.current.heir.sex);
+    const sex = legacyRef.current.heir.sex;
+    setNight((current) => current && { ...current, sex });
   };
   const chooseSex = (sex: Sex) => {
     const legacy = legacyRef.current;
@@ -802,16 +885,17 @@ export default function Game() {
               <div className="help">
                 {gamepadConnected
                   ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
-                  : "WASD move · J strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
+                  : "WASD move · J or Space strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
               </div>
             ) : (
-              <div className="help replaybar">
+              <div className="replaybar">
                 REPLAY {replay?.play.id}
                 {[1, 2, 4].map((multiplier) => (
                   <button
                     key={multiplier}
                     type="button"
                     className={`btn small ${speed === multiplier ? "on" : ""}`}
+                    aria-pressed={speed === multiplier}
                     onClick={() => setSpeed(multiplier)}
                   >
                     {multiplier}×
@@ -831,7 +915,7 @@ export default function Game() {
           />
         )}
 
-        {phase === "replayEnd" && replay && (
+        {phase === "replayEnd" && replay && !replayError && (
           <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
             <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
               REPLAY OVER
@@ -851,6 +935,9 @@ export default function Game() {
             >
               Watch again
             </button>
+            <button type="button" className="btn small" onClick={() => location.assign("/")}>
+              Back to the title
+            </button>
           </div>
         )}
         {phase === "replayRefused" && refusedPlay !== null && (
@@ -866,8 +953,10 @@ export default function Game() {
           </div>
         )}
         {phase === "night" && away && (
-          <div className="panel" data-panel="paused">
-            <div className="logo small">PAUSED</div>
+          <div className="panel" data-panel="paused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID}>
+              PAUSED
+            </h2>
             <p>The window lost focus, so the night is waiting for you.</p>
             <button type="button" className="btn big" onClick={resume} ref={focusResume}>
               Resume
@@ -905,7 +994,7 @@ export default function Game() {
         )}
 
         {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
-        {phase === "title" && !loadFailure && !replayError && (
+        {phase === "title" && !loadFailure && !replayError && !loadingReplay && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">
@@ -974,12 +1063,20 @@ export default function Game() {
                   Night {legacy.night}
                   {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
                 </p>
-                <button type="button" className="btn big" disabled={!ready} onClick={startNight} data-line>
-                  {ready ? "Light the lamps" : "Lighting the lamps…"}
+                <button
+                  type="button"
+                  className="btn big"
+                  disabled={!ready || isStarting}
+                  onClick={startNight}
+                  data-line
+                >
+                  {ready && !isStarting ? "Light the lamps" : "Lighting the lamps…"}
                 </button>
                 {legacy.generation > 1 && (
-                  <button type="button" className="btn small" onClick={newLine} data-line>
-                    Start a new bloodline
+                  <button type="button" className="btn small" disabled={isStarting} onClick={newLine} data-line>
+                    {confirmingNewLine
+                      ? `Press again to end the line of ${legacy.generation} wardens`
+                      : "Start a new bloodline"}
                   </button>
                 )}
                 <p className="privacy dim" data-line>
@@ -1006,8 +1103,8 @@ export default function Game() {
             <SeaAnswer report={report} />
             {shop}
             <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
-            <button type="button" className="btn big" onClick={startNight}>
-              Into night {legacy.night}
+            <button type="button" className="btn big" disabled={isStarting} onClick={startNight}>
+              {isStarting ? "Lighting the lamps…" : `Into night ${legacy.night}`}
             </button>
           </div>
         )}
@@ -1030,6 +1127,7 @@ export default function Game() {
                   key={heir.name}
                   type="button"
                   className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
+                  aria-pressed={legacy.heir.name === heir.name}
                   onClick={() => chooseHeir(heir)}
                 >
                   <Icon name={heir.trait} />
@@ -1048,12 +1146,14 @@ export default function Game() {
             <button
               type="button"
               className="btn big"
-              disabled={!heirs.some((heir) => heir.name === legacy.heir.name)}
+              disabled={isStarting || !heirs.some((heir) => heir.name === legacy.heir.name)}
               onClick={startNight}
             >
-              {heirs.some((heir) => heir.name === legacy.heir.name)
-                ? `${legacy.heir.name} takes up the lamp`
-                : "Choose an heir"}
+              {isStarting
+                ? "Lighting the lamps…"
+                : heirs.some((heir) => heir.name === legacy.heir.name)
+                  ? `${legacy.heir.name} takes up the lamp`
+                  : "Choose an heir"}
             </button>
           </div>
         )}

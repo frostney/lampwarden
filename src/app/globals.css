@@ -185,7 +185,8 @@ h2.logo:focus {
     animation-name: bar-struck-calm;
   }
 }
-.help {
+.help,
+.replaybar {
   bottom: calc(10 * var(--hu));
   left: calc(14 * var(--hu));
   opacity: 0.85;

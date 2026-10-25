@@ -103,6 +103,27 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
   memory.wasHurt = hurt;
 }
 
+// Notes what the pad holds without acting on it, while a poll is not acting (a paused night, or the menus during a
+// night): a button already down when it acts again is not a new press.
+export function holdGamepad(memory: GamepadMemory) {
+  const gamepad = activeGamepad();
+  if (!gamepad) return;
+  newlyPressed(gamepad, memory);
+  // a direction held the same way moves the menu focus only once it is let go and pushed again
+  memory.menuRepeatAt = menuDirection(gamepad) ? Number.POSITIVE_INFINITY : 0;
+}
+
+// the way the d-pad or left stick moves the menu focus: 1 on, -1 back, 0 not at all
+function menuDirection(gamepad: Gamepad): number {
+  const vertical =
+    (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) ||
+    Math.round(gamepad.axes[1] ?? 0);
+  const horizontal =
+    (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0) ||
+    Math.round(gamepad.axes[0] ?? 0);
+  return vertical || horizontal;
+}
+
 // Called once per frame outside a night: returns the menu action the pad asks for, if any.
 export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuAction | null {
   const gamepad = activeGamepad();
@@ -110,13 +131,7 @@ export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuActi
   const fresh = newlyPressed(gamepad, memory);
   if (fresh.has(BUTTON.south)) return "confirm";
   if (fresh.has(BUTTON.start)) return "primary";
-  const vertical =
-    (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) ||
-    Math.round(gamepad.axes[1] ?? 0);
-  const horizontal =
-    (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0) ||
-    Math.round(gamepad.axes[0] ?? 0);
-  const direction = vertical || horizontal;
+  const direction = menuDirection(gamepad);
   if (!direction) {
     memory.menuRepeatAt = 0;
     return null;

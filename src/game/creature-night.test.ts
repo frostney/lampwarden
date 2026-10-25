@@ -206,13 +206,13 @@ describe("a creature in the night", () => {
   test("it can come early enough to matter on every night, short or long: a fifth of the night in", () => {
     for (let night = 1; night <= 8; night++) {
       const length = nightLength(night);
-      expect(creatureFrom(length)).toBeLessThan(11); // the first spawn is at 2.5 s and the sea sends one every second or two
+      expect(creatureFrom(length)).toBeLessThan(length / 2); // it can come before the middle of every night
     }
   });
 
-  test("on a night 2 of 22 s a creature does join, from 4.4 s in", () => {
+  test("on a night 2 of 34 s a creature does join, from 6.8 s in (the idle warden's night often ends before it comes)", () => {
     let nights = 0;
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    for (let seed = 1; seed <= 16; seed++) {
       const legacy = newLegacy(seed);
       legacy.night = 2;
       const state = newNight(legacy, seed, creatureOf("skulker"));
@@ -223,9 +223,9 @@ describe("a creature in the night", () => {
       }
       if (first === null) continue;
       nights++;
-      expect(first).toBeGreaterThanOrEqual(creatureFrom(22));
-      expect(first).toBeLessThan(22 * 0.6);
+      expect(first).toBeGreaterThanOrEqual(creatureFrom(34));
+      expect(first).toBeLessThan(34 * 0.6);
     }
-    expect(nights).toBeGreaterThanOrEqual(6);
+    expect(nights).toBeGreaterThanOrEqual(9);
   });
 });

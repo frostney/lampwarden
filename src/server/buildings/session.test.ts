@@ -1,5 +1,5 @@
 // A player's evening with both a creature and a building to be made, against the real service on the in-memory store and a
-// virtual clock: the nights are as long as the sim makes them (16 s and rising), a creature job takes about 50 s and a
+// virtual clock: the nights are as long as the sim makes them (28 s and rising), a creature job takes about 50 s and a
 // building job about 40 s (the live runs, docs/LIVE_GENERATION.md), and the game asks the way Game.tsx does: for the creature,
 // then for the building once the creature's question has settled, as each night begins and as it ends.
 import { describe, expect, test } from "bun:test";
@@ -189,8 +189,11 @@ describe("an evening of short nights with a creature and a building to make", ()
     const world = evening();
     const nights = [];
     for (let number = 1; number <= 14; number++) nights.push(await world.night(number));
-    // nothing is ready for the first nights: a night begins at 0 s, 16 + 25 s, ... and the first job takes 50 s
-    expect(nights.slice(0, 2).every((joined) => joined.creature === null && joined.building === null)).toBe(true);
+    // nothing is ready for the first night: a night begins at 0 s, 28 + 25 s, ... and the first job takes 50 s
+    expect(nights.slice(0, 1).every((joined) => joined.creature === null && joined.building === null)).toBe(true);
+    // the creature's job was ready by night 2 (it began at 53 s), the building's by night 3
+    expect(nights[1]?.creature).not.toBeNull();
+    expect(nights[2]?.building).not.toBeNull();
     expect(world.started[0]?.kind).toBe("creature");
     expect(world.started[1]?.kind).toBe("building");
     // a night without its creature still began with the question for it open (the job carries on through the night)

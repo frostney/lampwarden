@@ -6,7 +6,7 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
+                     :id/sprite.png, :id/atlas.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
                      one POST per finished night)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
@@ -15,10 +15,17 @@ src/
     TouchControls.tsx  on-screen stick and buttons for touch devices; Strike and Shoot show the warden's weapons
     HowToPlay.tsx    the title scroll's "How to play": the controls of the input in use (touch on a coarse pointer, the pad
                      while one is connected, else keyboard and mouse), keys, mouse, pad and touch buttons drawn as pixel
-                     art from code; each glyph carries `data-glyph` for the verifier
+                     art from code; each glyph carries `data-glyph` for the verifier; its "Practise first" opens the practice
+                     night, and ControlGlyphs draws one control for the practice's lessons
+    Opening.tsx      the opening scene's frame over the canvas: bars above and below the plaza, the line being told inked
+                     into the lower one, and Skip (Escape, Enter, Space or the pad's A or Start skip it too)
+    PracticeCard.tsx the practice night's lesson in place of the night bar: which of five, what to do, the control that does
+                     it for the input in use, and Skip practice
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
+    HeroPortrait.tsx the warden on a title card, drawn from the hero frames, swinging once each time the card is chosen
+    FailurePanel.tsx the panel shown in place of a title that can never load (no graphics, or the pictures did not load)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
                      of the job still making one, and under it the line "Raised on the plaza tonight: …" when a live building
                      is ready; on the title and the dawn and heir panels
@@ -26,8 +33,8 @@ src/
     useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
                      begins, for the next night's creature, and keeps a job that is still running through the night);
                      never blocks play (none, a network error and "still generating" all mean the night starts without it)
-    Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
-                     choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
+    Game.tsx         React shell: the opening scene, title (introduction, hero choice), the practice night, night HUD,
+                     dawn upgrades, heir choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
                      window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
@@ -86,6 +93,13 @@ src/
                      gallery-sea.ts are what it shares with the creatures' (reading answers, following a job, the question
                      per set of ids met, a busy slot asked again after its delay); sea.ts is the creatures' asking
     raised.ts        the ids of the buildings the line has seen go up (localStorage), sent as `seen`, apart from the legacy
+    welcome.ts       what a new player has been shown (the opening scene, the practice night; localStorage, apart from the
+                     legacy, so a new bloodline is not taught again) and isNewLine, which keeps a player who has played a
+                     night from being shown either unasked
+    staged.ts        nights staged by code (see Staged nights): a night 1 with nothing from the sea and no dawn, a monster
+                     put on the rim, a lamp put out, the guard that keeps the night from being lost, and a warden played by code
+    opening.ts       the opening scene's four lines and its staging: a satyr and a harpy, a lamp put out, the warden's fight
+    practice.ts      the practice night's five lessons (walk, strike, shoot, relight, hold the plaza) and their staging
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
                      the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
@@ -97,6 +111,11 @@ src/
                      (salted-hash visitors, hourly and daily starts), store (the interface) with store.blob (private Vercel Blob)
                      and store.memory (tests), config (env), deps (the only module that reads env and files and wires Mubit, the
                      sandbox and Blob)
+  server/blob.ts     what the Blob stores share: a write only the first caller wins, a read with its version, a conditional
+                     replace, and the ledger of marks the rate limits count; server/blob-client.ts is every Blob call with its
+                     deadline
+  server/plays/      what POST /api/plays does: keep the most complete recording of an id, bounded rewrites, the upload limits;
+                     store (the interface) with store.blob and store.memory, deps
   server/buildings/  one building job (job: the creature job without frames) and the measuring of an accepted sprite (placement:
                      anchor, bbox, the hulls and box of its pixels, from the PNG, in the form decor-extents.ts has)
   server/director/   what the director route does, with store, clock, model and log injected: service (the play, the limits,
@@ -159,16 +178,20 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
+e2e/walkthrough.ts   the narrated walkthrough recorder a pull request's video is made with (e2e/walkthroughs/title.ts is its example)
 scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
 scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 tools/sim-fingerprint/  the sim fingerprint: a hash of the sources that decide a night (see Sim fingerprint)
+tools/decor-extents/  `bun run decor`: writes src/scene/decor-extents.ts from the sprites the placer uses
+tools/lint/          short-names.grit, the Biome plugin that holds the naming rule (no abbreviated names)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, <kind>-frames.png (the satyr's,
                      cyclops's and harpy's atlases), manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
-  run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
+  run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites; cli-options.ts checks the
+                     count options the scripts share (--concurrency, --candidates, --vcpus)
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
   creature-frames.ts the frame set of a creature: its code rendered in every pose from five directions in one batch (75 frames), checked
@@ -184,8 +207,9 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
   hero-model.ts, hero-loop.ts, hero-generate.ts, hero-source.ts   the warden as Mubit-written code (public/sprites/hero/<sex>.ts): brief, frame scripts, checks and the candidate loop; the frames are drawn from it
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
-  prompts/           generator.md (kit API doc), verifier.md
-  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
+  prompts/           generator.md (kit API doc), verifier.md, creature.md and building.md (the live brief writers), director.md
+                     (the live director's)
+  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; examples/
   render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite: its pose as POSE, its facing as the kit's
                      turn, and, for a frame of a set, the canvas its still was drawn on) and png.ts (the PNG encoder)
 docs/ARCHITECTURE.md this file
@@ -200,6 +224,23 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Add a line to `DECOR` in `src/scene/decor.ts`: the key, where it may stand (`back`, `front`, `edge`, `anywhere`, or the sea), how many and how they group, then run `bun run decor`, which measures the pixels of every sprite `DECOR` places into `src/scene/decor-extents.ts` (`bun run check:generated` fails when the table is stale, and `src/scene/decor.test.ts` when a placed sprite has no row; a monster is not measured). The placer lays it out afresh each night (static and depth-sorted by ground y; `src/components/Scene.tsx` renders them); a slim base (a wall, a trunk) takes a row count in `SLIM_BASES` in `src/scene/extent.ts`. A monster instead goes in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`). Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+
+## Staged nights
+
+A new player's first visit plays the opening scene before the title, and their first "Light the lamps" opens the practice
+night; `?verify=1` skips both (the verifier asks for them), and so does a line that has played a night (`isNewLine`). Both
+are staged nights (`src/game/staged.ts`): the real sim on the real plaza, through the scene's fixed step, but with the
+spawn timer and the night's length at infinity, so nothing comes ashore by itself and dawn never comes. What happens is
+staged from the night's driver, before each step: `summon` puts a monster on the rim (where `spawn()` would), `snuff` puts
+a lamp out, and `spare` keeps the night from ending (the warden is never clawed below 40, and dark lamps relight while
+fewer burn than two, or than one more than the monsters clawing at lamps, each of which can put out one in a step). The
+opening's driver plays the warden too (`wardenAutopilot`) and ignores the player's input; its warden is a new line's (no
+upgrades, the first heir's trait, the player's son or daughter) and its seed fixed, so it plays the same for everyone; the practice's passes the player's input through and moves to the next lesson
+when the last is done (walked 90 px, a kill, a kill, the dark lamp lit, the wave cleared); Skip practice, or a pad's
+Start, leaves it for the real night. Neither is recorded or
+uploaded, the practice's oil never reaches the legacy, and nothing in them is among the sim fingerprint's sources:
+`sim.ts` is unchanged by them and a recorded night never meets one. `opening.test.ts` and `practice.test.ts` play them
+headless to the end.
 
 ## Decorations
 

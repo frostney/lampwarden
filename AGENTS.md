@@ -11,7 +11,8 @@ Conventions come from the project-local skills in `.agents/skills/` (`project-st
 ## Commands
 
 - `bun install`, then `bun run dev`. Bun is the only package manager; `bun.lock` is the only lockfile.
-- `bun run check` is the gate: Biome, TypeScript, `bun test`, Knip, `next build`.
+- `bun run check` is the gate: Biome, TypeScript, `bun test`, Knip, the Varlock secret scan, the generated-file checks
+  and `next build`.
 - `bun run verify:visual -- --url http://localhost:3000` against `bun run build && bun run start`: the headed visual
   verifier. Run it and look at `verify-out/sheet.png` after every change that can show on screen.
 - Rendering a sprite needs Vercel auth and a snapshot: `docs/tooling.md`, "Rendering needs Vercel auth".
@@ -19,8 +20,9 @@ Conventions come from the project-local skills in `.agents/skills/` (`project-st
 
 ## Deviations from the skills
 
-- Components are flat files in `src/components/` (no `atoms`/`molecules`/`organisms` folders): five components don't
-  need the Atomic Design split. Add a folder only when a component grows companions (`Name.test.tsx`, `Name.types.ts`).
+- Components are flat files in `src/components/` (no `atoms`/`molecules`/`organisms` folders): ten components and two
+  hooks don't need the Atomic Design split. Add a folder only when a component grows companions (`Name.test.tsx`,
+  `Name.types.ts`).
 - No Tailwind, Clerk, Convex or Sentry/PostHog: plain CSS in `src/app/globals.css`, no accounts, recorded plays in
   Vercel Blob.
 

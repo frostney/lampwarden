@@ -8,6 +8,8 @@ import { FailurePanel } from "@/components/FailurePanel";
 import { HeroPortrait } from "@/components/HeroPortrait";
 import { HowToPlay } from "@/components/HowToPlay";
 import { Icon } from "@/components/Icon";
+import { Opening } from "@/components/Opening";
+import { PracticeCard } from "@/components/PracticeCard";
 import { type Driver, type Night, Scene } from "@/components/Scene";
 import { SeaSends } from "@/components/SeaSends";
 import { TitleScroll } from "@/components/TitleScroll";
@@ -43,10 +45,12 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
+import { newOpening, OPENING_LINES, type Opening as OpeningScene, stageOpening } from "@/game/opening";
 import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
+import { type Lesson, newPractice, type Practice, stagePractice } from "@/game/practice";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { clearRaised, loadRaised, raise, saveRaised } from "@/game/raised";
-import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
+import { isVerifying, type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import {
   dawnBonus,
@@ -62,6 +66,7 @@ import {
   type State,
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
+import { isNewLine, loadWelcome, markWelcome, type Welcome } from "@/game/welcome";
 import { SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
 import {
@@ -98,12 +103,22 @@ function loadWithin<Loaded>(load: Promise<Loaded | null>, milliseconds: number):
   return Promise.race([load, giveUp]).finally(() => clearTimeout(timer));
 }
 
-const INTRODUCTION = [
-  "Lychnos is a harbour of lamps.",
-  "Every night the sea sends its creatures to put them out.",
-  "Keep one burning until dawn.",
-  "When a warden falls, an heir takes up the lamp.",
-];
+// the title's introduction tells the opening scene's story in its own third line
+const INTRODUCTION = [OPENING_LINES[0], OPENING_LINES[1], "Keep one burning until dawn.", OPENING_LINES[3]];
+
+// A new player's first visit opens on the opening scene: not a replay, not an heir choice left open, and never under the
+// visual verifier, which asks for it. Read once at mount (the game only runs in the browser), so the title never shows
+// before it.
+function opensWithOpening() {
+  const legacy = loadLegacy();
+  return (
+    !loadWelcome().opening &&
+    isNewLine(legacy) &&
+    !legacy.heirChoice &&
+    !new URLSearchParams(location.search).has("replay") &&
+    !isVerifying()
+  );
+}
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
@@ -114,7 +129,20 @@ interface Plaza {
   textures: TextureMap;
 }
 
-type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd" | "replayRefused";
+// "opening" is the opening scene before the title, "practice" the practice night and "practiced" the panel after it
+type Phase =
+  | "title"
+  | "opening"
+  | "practice"
+  | "practiced"
+  | "night"
+  | "dawn"
+  | "heir"
+  | "replay"
+  | "replayEnd"
+  | "replayRefused";
+// the phases in which the player has the warden: the window losing focus holds them, and the pad drives the warden
+const playing = (phase: Phase) => phase === "night" || phase === "practice";
 interface Hud {
   health: number;
   maxHealth: number;
@@ -199,7 +227,7 @@ export default function Game() {
   const legacyRef = useRef<Legacy>(newLegacy());
   const [, rerender] = useState(0);
   const refresh = useCallback(() => rerender((count) => count + 1), []);
-  const [phase, setPhase] = useState<Phase>("title");
+  const [phase, setPhase] = useState<Phase>(() => (opensWithOpening() ? "opening" : "title"));
   const [ready, setReady] = useState(false);
   const [strike, setStrike] = useState<{ sex: Sex; count: number } | null>(null); // the hero card last chosen
   const [hud, setHud] = useState<Hud | null>(null);
@@ -230,6 +258,11 @@ export default function Game() {
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
   const [isStarting, setStarting] = useState(false); // the same, for the buttons: they wait with it
   const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
+  const welcomeRef = useRef<Welcome>({ opening: true, practice: true }); // what this player has been shown (loaded below)
+  const openingRef = useRef<OpeningScene | null>(null); // the opening scene on stage
+  const [openingLine, setOpeningLine] = useState(0);
+  const practiceRef = useRef<Practice | null>(null); // the practice night on stage
+  const [lesson, setLesson] = useState<Lesson>("move");
 
   // every night is recorded (inputs + timeline) and sent to /api/plays; the last one is also kept locally (?replay=last)
   const sendPlay = useCallback((state: State | null): SentPlay | null => {
@@ -285,7 +318,8 @@ export default function Game() {
   // (replays and menus carry on: a replay's steps come from its recording, not from the clock)
   useEffect(() => {
     const holdNight = () => {
-      if (phaseRef.current !== "night") return;
+      // a practice skipped for the night being put together stays held, without the pause panel
+      if (!playing(phaseRef.current) || starting.current) return;
       pause(true);
       setAway(true);
     };
@@ -293,8 +327,7 @@ export default function Game() {
       if (document.hidden) holdNight();
     };
     // the visual verifier (?verify) runs several pages in one window, and any of them may lose focus mid-night
-    const verifying = new URLSearchParams(location.search).has("verify");
-    if (!verifying) window.addEventListener("blur", holdNight);
+    if (!isVerifying()) window.addEventListener("blur", holdNight);
     document.addEventListener("visibilitychange", holdHiddenNight);
     return () => {
       window.removeEventListener("blur", holdNight);
@@ -325,6 +358,78 @@ export default function Game() {
       window.removeEventListener("unhandledrejection", rendererFailed);
     };
   }, []);
+
+  // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
+  // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
+  // same plaza. The live building, when there is one, takes the building slot of the layout (src/scene/decor.ts).
+  const show = useCallback(
+    (
+      state: State,
+      sex: Sex,
+      driver: Driver | null = null,
+      creatureTextures: TextureMap | null = null,
+      plaza: Plaza | null = null,
+    ) => {
+      stateRef.current = state;
+      setNight({
+        state,
+        sex,
+        driver,
+        creatureTextures,
+        buildingTextures: plaza?.textures ?? null,
+        decor: decorFor(state.randomState, plaza && liveBuildingOf(plaza.building)),
+      });
+    },
+    [],
+  );
+
+  // The opening scene, before the title: a staged night whose driver plays it (src/game/opening.ts); the player's input
+  // is not used. It ends by itself, or on Skip, and the title comes with the quiet plaza behind it.
+  const playOpening = useCallback(() => {
+    const opening = newOpening(legacyRef.current.heir.sex);
+    openingRef.current = opening;
+    show(opening.state, legacyRef.current.heir.sex, () => stageOpening(opening));
+    setOpeningLine(0);
+    pause(false);
+    phaseRef.current = "opening";
+    setPhase("opening");
+  }, [show, pause]);
+  const endOpening = useCallback(() => {
+    if (phaseRef.current !== "opening") return;
+    openingRef.current = null;
+    welcomeRef.current = markWelcome(welcomeRef.current, "opening");
+    show(newNight(legacyRef.current), legacyRef.current.heir.sex);
+    pause(true);
+    phaseRef.current = "title";
+    setPhase("title");
+  }, [show, pause]);
+
+  // The practice night: a staged night (src/game/practice.ts) the player plays, its lessons staged before each step. It is
+  // not recorded and its oil is not kept; when the last lesson is learned its panel leads into the real night.
+  const startPractice = useCallback(() => {
+    const practice = newPractice(legacyRef.current, newSeed());
+    practiceRef.current = practice;
+    show(practice.state, legacyRef.current.heir.sex, (_stepIndex, live) => {
+      stagePractice(practice);
+      return live;
+    });
+    setLesson(practice.lesson);
+    setHud(hudOf(practice.state, legacyRef.current));
+    setReport(null);
+    pause(false);
+    phaseRef.current = "practice";
+    setPhase("practice");
+  }, [show, pause]);
+  // the practice is learned only when its last lesson is (a night that somehow ended is over, but teaches nothing)
+  const endPractice = useCallback(
+    (learned: boolean) => {
+      if (learned) welcomeRef.current = markWelcome(welcomeRef.current, "practice");
+      pause(true);
+      phaseRef.current = "practiced";
+      setPhase("practiced");
+    },
+    [pause],
+  );
 
   const endNight = useCallback(
     (state: State, outcome: Outcome) => {
@@ -392,6 +497,24 @@ export default function Game() {
           setHud(nextHud);
         }
       };
+      if (phaseRef.current === "opening") {
+        const opening = openingRef.current;
+        if (opening?.state !== state) return;
+        setOpeningLine(opening.line);
+        if (opening.ended || state.outcome) endOpening();
+        return;
+      }
+      if (phaseRef.current === "practice") {
+        const practice = practiceRef.current;
+        if (practice?.state !== state) return;
+        setLesson(practice.lesson);
+        if (practice.lesson === "done" || state.outcome) {
+          endPractice(practice.lesson === "done");
+          return;
+        }
+        showHud();
+        return;
+      }
       if (phaseRef.current === "replay") {
         if (state.outcome) {
           phaseRef.current = "replayEnd";
@@ -408,7 +531,7 @@ export default function Game() {
       }
       showHud();
     },
-    [endNight],
+    [endNight, endOpening, endPractice],
   );
   const onReady = useCallback(() => setReady(true), []);
   const onInit = useCallback((app: PixiApp) => {
@@ -416,30 +539,6 @@ export default function Game() {
     // the ticker renders after this callback, and the frame is on screen by the next animation frame
     app.ticker.addOnce(() => requestAnimationFrame(() => setDrawn(true)));
   }, []);
-
-  // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
-  // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
-  // same plaza. The live building, when there is one, takes the building slot of the layout (src/scene/decor.ts).
-  const show = useCallback(
-    (
-      state: State,
-      sex: Sex,
-      driver: Driver | null = null,
-      creatureTextures: TextureMap | null = null,
-      plaza: Plaza | null = null,
-    ) => {
-      stateRef.current = state;
-      setNight({
-        state,
-        sex,
-        driver,
-        creatureTextures,
-        buildingTextures: plaza?.textures ?? null,
-        decor: decorFor(state.randomState, plaza && liveBuildingOf(plaza.building)),
-      });
-    },
-    [],
-  );
 
   const playReplay = useCallback(
     async (id: string) => {
@@ -527,8 +626,10 @@ export default function Game() {
     let frame = 0;
     const poll = (now: number) => {
       frame = requestAnimationFrame(poll);
-      if ((phaseRef.current === "night" && !awayRef.current) || phaseRef.current === "replay") {
-        holdGamepad(memory); // a button held as the night pauses is not a press on its panel
+      if ((playing(phaseRef.current) && !awayRef.current) || phaseRef.current === "replay") {
+        // a button held as the night pauses is not a press on its panel; Start skips the practice
+        if (holdGamepad(memory) && phaseRef.current === "practice")
+          document.querySelector<HTMLButtonElement>(".practice-skip:not([disabled])")?.click();
         return;
       }
       const action = pollGamepadForMenu(memory, now);
@@ -547,6 +648,7 @@ export default function Game() {
   useEffect(() => {
     legacyRef.current = loadLegacy();
     raisedRef.current = loadRaised();
+    welcomeRef.current = loadWelcome();
     refresh();
     const replayId = new URLSearchParams(location.search).get("replay");
     if (replayId) setLoadingReplay(true); // the title is not shown under a replay that is on its way
@@ -590,6 +692,8 @@ export default function Game() {
           phaseRef.current = "heir";
           setPhase("heir");
         }
+        // the opening scene the page started on (opensWithOpening), unless it was skipped while the pictures loaded
+        else if (phaseRef.current === "opening") playOpening();
         askSea(legacy.bestiary); // before the night: what does the sea send?
       },
       () => {
@@ -622,7 +726,7 @@ export default function Game() {
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea, consultDirector]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea, consultDirector, playOpening]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
@@ -718,6 +822,22 @@ export default function Game() {
     setReport(null);
     phaseRef.current = "night";
     setPhase("night");
+  };
+  // A new player's first "Light the lamps" opens the practice night (never under the visual verifier, which asks for it)
+  const lightFirstNight = () => {
+    if (!welcomeRef.current.practice && isNewLine(legacyRef.current) && !isVerifying()) startPractice();
+    else void startNight();
+  };
+  // The practice holds still while the real night is put together (its creature's sprite may still be loading), and
+  // carries on if the night could not be.
+  const skipPractice = () => {
+    welcomeRef.current = markWelcome(welcomeRef.current, "practice");
+    pause(true);
+    void startNight()
+      .catch(() => {})
+      .finally(() => {
+        if (phaseRef.current === "practice") pause(false);
+      });
   };
   const chooseHeir = (heir: Heir) => {
     legacyRef.current.heir = heir;
@@ -831,7 +951,7 @@ export default function Game() {
         </Application>
       </div>
       <div className="hud">
-        {(phase === "night" || phase === "replay") && hud && (
+        {(phase === "night" || phase === "replay" || phase === "practice") && hud && (
           <>
             <div className="stats">
               <div>
@@ -852,27 +972,48 @@ export default function Game() {
               >
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
-              <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
-                <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
-              </div>
-            </div>
-            <div className="nightbar">
-              <div>
-                Night {legacy.night}
-                <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
-              </div>
+              {/* the practice night's oil is never kept, so it is not counted */}
               <div
-                className="bar dawnbar"
-                role="progressbar"
-                aria-label="Night until dawn"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(hud.dawn * 100)}
-                aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+                className="oilline"
+                role="img"
+                aria-label={phase === "practice" ? `${hud.kills} slain` : `${hud.kills} slain, ${hud.oil} oil`}
               >
-                <i style={{ width: `${hud.dawn * 100}%` }} />
+                <Icon name="slain" size={16} /> {hud.kills}
+                {phase !== "practice" && (
+                  <>
+                    {" "}
+                    <Icon name="oil" size={16} /> {hud.oil}
+                  </>
+                )}
               </div>
             </div>
+            {phase === "practice" ? (
+              <PracticeCard
+                lesson={lesson}
+                gamepadConnected={gamepadConnected}
+                sex={legacy.heir.sex}
+                skipping={isStarting}
+                onSkip={skipPractice}
+              />
+            ) : (
+              <div className="nightbar">
+                <div>
+                  Night {legacy.night}
+                  <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
+                </div>
+                <div
+                  className="bar dawnbar"
+                  role="progressbar"
+                  aria-label="Night until dawn"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(hud.dawn * 100)}
+                  aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+                >
+                  <i style={{ width: `${hud.dawn * 100}%` }} />
+                </div>
+              </div>
+            )}
             <div className="lamps" role="img" aria-label={`${hud.lit} of ${hud.lamps} lamps lit`}>
               <span className="long">Lamps </span>
               {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
@@ -881,7 +1022,7 @@ export default function Game() {
                 </span>
               ))}
             </div>
-            {phase === "night" ? (
+            {phase === "practice" ? null : phase === "night" ? (
               <div className="help">
                 {gamepadConnected
                   ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
@@ -906,8 +1047,8 @@ export default function Game() {
           </>
         )}
 
-        {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
-        {phase === "night" && (
+        {playing(phase) && <div className="rotate">Turn your phone sideways for a bigger view</div>}
+        {playing(phase) && (
           <TouchControls
             sex={legacy.heir.sex}
             onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
@@ -952,7 +1093,7 @@ export default function Game() {
             </button>
           </div>
         )}
-        {phase === "night" && away && (
+        {playing(phase) && away && (
           <div className="panel" data-panel="paused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
             <h2 className="logo small" id={PANEL_TITLE_ID}>
               PAUSED
@@ -993,6 +1134,26 @@ export default function Game() {
           </div>
         )}
 
+        {phase === "opening" && !loadFailure && <Opening line={openingLine} onEnd={endOpening} />}
+        {phase === "practiced" && (
+          <div className="panel" data-panel="practiced" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+              THE WATCH IS YOURS
+            </h2>
+            <p>That is the whole of it: strike, shoot, relight, and keep a lamp burning until dawn.</p>
+            <p className="dim">
+              On a real night the bar at the top fills towards dawn, and the oil the slain leave buys upgrades. Practice
+              is not recorded and keeps no oil.
+            </p>
+            <button type="button" className="btn big" disabled={isStarting} onClick={startNight}>
+              {isStarting ? "Lighting the lamps…" : `Into night ${legacy.night}`}
+            </button>
+            <button type="button" className="btn small" disabled={isStarting} onClick={startPractice}>
+              Practise again
+            </button>
+          </div>
+        )}
+
         {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
         {phase === "title" && !loadFailure && !replayError && !loadingReplay && (
           <TitleScroll>
@@ -1014,10 +1175,20 @@ export default function Game() {
                       {line}
                     </p>
                   ))}
+                  <p data-line>
+                    <button type="button" className="link" disabled={!ready || isStarting} onClick={playOpening}>
+                      Watch the opening
+                    </button>
+                  </p>
                 </div>
               </div>
               <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
-              <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
+              <HowToPlay
+                gamepadConnected={gamepadConnected}
+                sex={legacy.heir.sex}
+                practiseDisabled={!ready || isStarting}
+                onPractise={startPractice}
+              />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
                   Who takes up the lamp?
@@ -1067,7 +1238,7 @@ export default function Game() {
                   type="button"
                   className="btn big"
                   disabled={!ready || isStarting}
-                  onClick={startNight}
+                  onClick={lightFirstNight}
                   data-line
                 >
                   {ready && !isStarting ? "Light the lamps" : "Lighting the lamps…"}
@@ -1208,6 +1379,12 @@ function tideNote(report: Report) {
 function actOnMenu(action: MenuAction) {
   document.body.dataset.input = "gamepad"; // shows the focus ring on gamepad-focused buttons
   // the first press while the title scroll unrolls completes it (TitleScroll catches the click) and does nothing else
+  // the opening scene: A or Start skips it
+  const skip = document.querySelector<HTMLButtonElement>(".opening-skip");
+  if (skip) {
+    if (action === "confirm" || action === "primary") skip.click();
+    return;
+  }
   const unrolling = document.querySelector<HTMLElement>(".scroll:not([data-stage='done'])");
   if (unrolling) {
     unrolling.click();

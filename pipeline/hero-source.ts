@@ -9,7 +9,7 @@ import { heroModelFrameBuilds } from "./hero-model";
 
 export const HERO_DIRECTORY = join(import.meta.dir, "..", "public", "sprites", "hero");
 
-export const heroCodePath = (sex: Sex, directory = HERO_DIRECTORY) => join(directory, `${sex}.ts`);
+const heroCodePath = (sex: Sex, directory = HERO_DIRECTORY) => join(directory, `${sex}.ts`);
 
 /** The model's committed build code for a sex, or null when the deterministic warden is the one in use. */
 export function committedHeroCode(sex: Sex, directory = HERO_DIRECTORY): string | null {

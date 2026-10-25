@@ -60,10 +60,11 @@ export function createMemoryStore(): MemoryStore {
       const png = atlases.get(id);
       return png ? new Blob([new Uint8Array(png)]).stream() : null;
     },
-    async putCreature(creature, png, code, atlas) {
+    async putCreature(creature, png, code, atlas, signal) {
       sprites.set(creature.id, png);
       if (atlas) atlases.set(creature.id, atlas);
       codes.set(creature.id, code);
+      signal?.throwIfAborted(); // as the Blob store: no record once the job has ended
       creatures.set(creature.id, creature);
     },
     async listBuildingIds() {
@@ -76,9 +77,10 @@ export function createMemoryStore(): MemoryStore {
       const png = buildingSprites.get(id);
       return png ? new Blob([new Uint8Array(png)]).stream() : null;
     },
-    async putBuilding(building, png, code) {
+    async putBuilding(building, png, code, signal) {
       buildingSprites.set(building.id, png);
       buildingCodes.set(building.id, code);
+      signal?.throwIfAborted();
       buildings.set(building.id, building);
     },
     async getJob(jobId) {

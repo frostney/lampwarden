@@ -1,4 +1,4 @@
-// What a render sandbox must hold: the kit, the runner and its shims (the "runner bundle"), and the Bun that runs them.
+// What a render sandbox must hold: the kit, the runner and its helpers (the "runner bundle"), and the Bun that runs them.
 // The snapshot script (sandbox-snapshot.ts) puts both into a Vercel Sandbox snapshot and records a manifest beside
 // them; a render refuses a snapshot whose manifest does not match the code it runs from (see render-vercel-sandbox.ts).
 // Nothing here locates itself with `import.meta`: callers pass the pipeline directory, so a Next.js function and the
@@ -9,13 +9,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 /** The files of the runner bundle, relative to the pipeline directory. Their order is part of the bundle's digest. */
-export const RUNNER_FILES = [
-  "kit/kit.ts",
-  "render/runner.ts",
-  "render/batch.ts",
-  "render/shim_canvas.ts",
-  "render/shim_plugin.ts",
-];
+export const RUNNER_FILES = ["kit/kit.ts", "render/runner.ts", "render/batch.ts", "render/png.ts"];
 
 /** Where the bundle lives in a render sandbox. */
 export const SANDBOX_PIPELINE_DIRECTORY = "/vercel/sandbox/pipeline";

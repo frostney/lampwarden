@@ -155,7 +155,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
-  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and the canvas shim
+  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and png.ts (the PNG encoder)
 docs/ARCHITECTURE.md this file
 docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
 docs/LIVE_GENERATION.md  design note: live generation behind a server route, why only Vercel Sandbox renders, with parallelism and Mubit numbers

@@ -155,7 +155,7 @@ With any of the three required variables missing, `POST /api/creatures/next` sti
 
 ### The acceptance bar, calibrated against our own art
 
-`bun run calibrate:verifier` (`pipeline/calibrate-verifier.ts`) scores every committed sprite and three hero frames exactly as a job does (same verifier prompt and message, the borderline double-take), twice each, 41 scores in all (24 Oct 2026). The strictness of this verifier shows in our own art: buildings and heroes score 7-9, our creatures 5-6.5.
+`bun run calibrate:verifier` (`pipeline/calibrate-verifier.ts`) scores every committed sprite and three hero frames exactly as a job does (same verifier prompt and message, the borderline double-take), twice each, 41 scores in all (24 Oct 2026, over the 21 sprites then committed; the lion, hydra, Hephaestus and the two hero stills have since been removed, and the sprites in the game were scored again with `bun run reverify:sprites`, whose results are the manifest's `verified` blocks). The strictness of this verifier shows in our own art: buildings and heroes score 7-9, our creatures 5-6.5.
 
 | Score or better     | All 21 sprites | The 12 characters (heroes, Hephaestus, Zeus, lion, cyclops, satyr, harpy, hydra) | The 5 hand-made monsters |
 | ------------------- | -------------- | -------------------------------------------------------------------------------- | ------------------------ |

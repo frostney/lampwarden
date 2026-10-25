@@ -84,6 +84,8 @@ leaves out the `__VARLOCK_ENV` blob, which holds every resolved value.
 
 `kit`, `logo` and `balance` need no variable and get none.
 
+`bun run reverify:sprites` (`pipeline/reverify.ts`) gets the variables tagged `pipeline`, like `assets`: `-- score` scores the committed sprites with the current verifier and the live acceptance rule, `regenerate <id>` runs the candidate loop for one sprite and `install <id>` keeps the winner (pipeline/README.md).
+
 ## Rendering needs Vercel auth
 
 Vercel Sandbox is the only way to render and the source of truth for every pixel, so `assets`, `check:pixels`,

@@ -84,6 +84,8 @@ export const nightCreature = (
 // night, not a count of seconds, so the creature still meets the warden early enough to matter on a short night.
 const CREATURE_FROM_SHARE = 0.2;
 const CREATURE_CAP = 2;
+// The first monster rises this many seconds in, on every night (it was tuned on 40 s nights and kept on the shorter ones).
+const FIRST_SPAWN = 2.5;
 export const creatureFrom = (length: number) => length * CREATURE_FROM_SHARE;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
@@ -271,7 +273,7 @@ export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreatu
     night: legacy.night,
     length: nightLength(legacy.night),
     elapsed: 0,
-    spawnTimer: 2.5,
+    spawnTimer: FIRST_SPAWN,
     nextId: 1,
     tide: legacy.tide,
     mix: { ...legacy.director.mix },

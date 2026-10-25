@@ -325,7 +325,7 @@ earlier reasoning only from the same session.)
   made, so a visitor who has not yet called it is not refused early anyway. Answering "limited" before the lookup would
   need a new answer shape (an error, which the game already treats as the rules'); not done.
 - The claim above stops a burst for one play. Calls for different plays by one visitor at the same moment can still all
-  pass the hourly check before any of them is marked; each needs a stored play, and uploads are limited to 300 an hour
+  pass the hourly check before any of them is marked; each needs a stored play, and uploads are limited to 120 an hour
   per visitor (`src/server/plays/service.ts`: `UPLOADS_PER_VISITOR_PER_HOUR`) and 3000 a UTC day for the site, by the
   same salt (without one, as in local development, uploads are not limited; only the first write of an id counts). An
   upload under an id already stored answers 200 and keeps the more complete recording: it replaces the stored one (by

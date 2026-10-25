@@ -407,7 +407,8 @@ h2.logo:focus {
   border-color: var(--ink-faded);
   background: #e6cd99;
 }
-/* the scroll's column is narrow: a smaller name (Ithaca sits on a 16 px grid) and lines set a little closer */
+/* on the scroll the name is set at 16 px, the size of its grid (Ithaca is drawn on 16 px; 22 px was off it), so that
+   40 characters take one or two lines, and the lore's lines sit a little closer */
 .scroll .sea-name {
   font-size: 16px;
 }

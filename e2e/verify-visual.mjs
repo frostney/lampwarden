@@ -680,6 +680,7 @@ async function checkScrollFits(tag) {
 // the text is the full string, nothing ellipsizes or line-clamps it, neither element holds more than it shows, and
 // both lie inside the panel
 async function checkCreatureText(tag, screen, creature) {
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
   const shown = await page.evaluate(() => {
     const panel = document.querySelector('.sea[data-state="ready"]');
     if (!panel) return null;

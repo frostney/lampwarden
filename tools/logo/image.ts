@@ -19,7 +19,11 @@ export class PixelImage {
     this.width = width;
     this.height = height;
     this.data = new Uint8Array(width * height * 4);
-    if (fill) for (let index = 0; index < width * height; index++) this.data.set(fill, index * 4);
+    if (fill) {
+      for (let index = 0; index < width * height; index++) {
+        this.data.set(fill, index * 4);
+      }
+    }
   }
 
   contains(x: number, y: number): boolean {
@@ -27,7 +31,9 @@ export class PixelImage {
   }
 
   get(x: number, y: number): Rgba {
-    if (!this.contains(x, y)) return transparent;
+    if (!this.contains(x, y)) {
+      return transparent;
+    }
     const offset = (y * this.width + x) * 4;
     const [red = 0, green = 0, blue = 0, alpha = 0] = this.data.subarray(offset, offset + 4);
     return [red, green, blue, alpha];
@@ -38,17 +44,23 @@ export class PixelImage {
   }
 
   set(x: number, y: number, colour: Rgba): void {
-    if (this.contains(x, y)) this.data.set(colour, (y * this.width + x) * 4);
+    if (this.contains(x, y)) {
+      this.data.set(colour, (y * this.width + x) * 4);
+    }
   }
 
   /** Source-over blend of one pixel, rounded to 8 bits per channel. */
   blendOver(x: number, y: number, colour: Rgba): void {
-    if (!this.contains(x, y)) return;
+    if (!this.contains(x, y)) {
+      return;
+    }
     const destination = this.get(x, y);
     const sourceAlpha = colour[3] / 255;
     const destinationAlpha = destination[3] / 255;
     const outputAlpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
-    if (outputAlpha === 0) return;
+    if (outputAlpha === 0) {
+      return;
+    }
     const channel = (index: 0 | 1 | 2): number =>
       Math.round(
         (colour[index] * sourceAlpha + destination[index] * destinationAlpha * (1 - sourceAlpha)) / outputAlpha,
@@ -61,7 +73,9 @@ export class PixelImage {
     for (let y = 0; y < source.height * scale; y++) {
       for (let x = 0; x < source.width * scale; x++) {
         const colour = source.get(Math.floor(x / scale), Math.floor(y / scale));
-        if (colour[3]) this.blendOver(left + x, top + y, colour);
+        if (colour[3]) {
+          this.blendOver(left + x, top + y, colour);
+        }
       }
     }
     return this;
@@ -81,7 +95,9 @@ export class PixelImage {
       bottom = -1;
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
-        if (!this.alpha(x, y)) continue;
+        if (!this.alpha(x, y)) {
+          continue;
+        }
         left = Math.min(left, x);
         top = Math.min(top, y);
         right = Math.max(right, x);
@@ -90,7 +106,9 @@ export class PixelImage {
     }
     const cropped = new PixelImage(right - left + 1, bottom - top + 1);
     for (let y = 0; y < cropped.height; y++) {
-      for (let x = 0; x < cropped.width; x++) cropped.set(x, y, this.get(left + x, top + y));
+      for (let x = 0; x < cropped.width; x++) {
+        cropped.set(x, y, this.get(left + x, top + y));
+      }
     }
     return cropped;
   }
@@ -102,9 +120,13 @@ export type GridColours = Readonly<Record<string, Rgba>>;
 export function drawGrid(image: PixelImage, rows: readonly string[], colours: GridColours): PixelImage {
   rows.forEach((row, y) => {
     [...row].forEach((character, x) => {
-      if (character === ".") return;
+      if (character === ".") {
+        return;
+      }
       const colour = colours[character];
-      if (!colour) throw new Error(`No colour for grid character '${character}'`);
+      if (!colour) {
+        throw new Error(`No colour for grid character '${character}'`);
+      }
       image.blendOver(x, y, colour);
     });
   });
@@ -132,7 +154,9 @@ export function outline(image: PixelImage, colour: Rgba): PixelImage {
   for (let y = 0; y < image.height; y++) {
     for (let x = 0; x < image.width; x++) {
       const touchesOpaque = neighbours.some(([offsetX, offsetY]) => image.alpha(x + offsetX, y + offsetY) === 255);
-      if (image.alpha(x, y) < 255 && touchesOpaque) result.set(x, y, colour);
+      if (image.alpha(x, y) < 255 && touchesOpaque) {
+        result.set(x, y, colour);
+      }
     }
   }
   return result;
@@ -146,7 +170,11 @@ export function pad(image: PixelImage, padding: number): PixelImage {
 export function extrude(image: PixelImage, colour: Rgba): PixelImage {
   const result = new PixelImage(image.width, image.height + 1);
   for (let y = 0; y < image.height; y++) {
-    for (let x = 0; x < image.width; x++) if (image.alpha(x, y) === 255) result.set(x, y + 1, colour);
+    for (let x = 0; x < image.width; x++) {
+      if (image.alpha(x, y) === 255) {
+        result.set(x, y + 1, colour);
+      }
+    }
   }
   return result.draw(image, 0, 0);
 }
@@ -170,7 +198,9 @@ export function glow(
       for (let x = 0; x < width; x++) {
         const distanceX = x + 0.5 - centreX;
         const distanceY = y + 0.5 - centreY;
-        if (distanceX * distanceX + distanceY * distanceY <= radius * radius) image.set(x, y, colour);
+        if (distanceX * distanceX + distanceY * distanceY <= radius * radius) {
+          image.set(x, y, colour);
+        }
       }
     }
   }
@@ -183,7 +213,9 @@ export function textImage(mask: readonly string[], rowColours: readonly Rgba[]):
   mask.forEach((row, y) => {
     [...row].forEach((character, x) => {
       const colour = rowColours[Math.min(y, rowColours.length - 1)];
-      if (character === "#" && colour) image.set(x, y, colour);
+      if (character === "#" && colour) {
+        image.set(x, y, colour);
+      }
     });
   });
   return image;
@@ -193,7 +225,9 @@ export function textImage(mask: readonly string[], rowColours: readonly Rgba[]):
 export function scaleImage(image: PixelImage, factor: number): PixelImage {
   const scaled = new PixelImage(image.width * factor, image.height * factor);
   for (let y = 0; y < scaled.height; y++) {
-    for (let x = 0; x < scaled.width; x++) scaled.set(x, y, image.get(Math.floor(x / factor), Math.floor(y / factor)));
+    for (let x = 0; x < scaled.width; x++) {
+      scaled.set(x, y, image.get(Math.floor(x / factor), Math.floor(y / factor)));
+    }
   }
   return scaled;
 }
@@ -211,7 +245,9 @@ export function toSvg(image: PixelImage, displayScale: number): string {
         continue;
       }
       let runEnd = x + 1;
-      while (runEnd < image.width && sameColour(image.get(runEnd, y), colour)) runEnd++;
+      while (runEnd < image.width && sameColour(image.get(runEnd, y), colour)) {
+        runEnd++;
+      }
       const fill = `#${colour
         .slice(0, 3)
         .map((value) => value.toString(16).padStart(2, "0"))

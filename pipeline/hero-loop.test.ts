@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import { z } from "zod";
+
 import { CLEAN_STATS, fakeModel, fakeRenderer, fenced, spritePng, verdictJson } from "./fakes";
 import { attemptVerdict, judgeHeroCode, runHeroLoop } from "./hero-loop";
 import { REPRESENTATIVE_FRAMES } from "./hero-model";
@@ -54,10 +56,16 @@ function scripted(
       );
       return verdictJson(score(code ?? ""));
     }
-    if (messages.length === 3) return fenced(codes.fixed);
+    if (messages.length === 3) {
+      return fenced(codes.fixed);
+    }
     const brief = firstText(messages);
-    if (brief.includes("as simple as possible")) return fenced(codes.simple);
-    if (brief.includes("strong, contrasting")) return fenced(codes.contrast);
+    if (brief.includes("as simple as possible")) {
+      return fenced(codes.simple);
+    }
+    if (brief.includes("strong, contrasting")) {
+      return fenced(codes.contrast);
+    }
     return fenced(codes.plain);
   });
 }

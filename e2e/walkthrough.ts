@@ -14,6 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { chromium, type Page } from "playwright";
 
 export interface Walkthrough {
@@ -69,19 +70,25 @@ type Speaker = (text: string, voice: string | undefined, directory: string, id: 
 
 // macOS `say` where there is one, else espeak-ng; either writes a file that ffmpeg reads
 function requireTools(): Speaker {
-  for (const tool of ["ffmpeg", "ffprobe"]) if (!onPath(tool)) throw new Error(`walkthrough needs ${tool} on PATH`);
-  if (onPath("say"))
+  for (const tool of ["ffmpeg", "ffprobe"]) {
+    if (!onPath(tool)) {
+      throw new Error(`walkthrough needs ${tool} on PATH`);
+    }
+  }
+  if (onPath("say")) {
     return (text, voice, directory, id) => {
       const narration = join(directory, `${id}.aiff`);
       run("say", "-v", voice ?? "Daniel", "-o", narration, text);
       return narration;
     };
-  if (onPath("espeak-ng"))
+  }
+  if (onPath("espeak-ng")) {
     return (text, _voice, directory, id) => {
       const narration = join(directory, `${id}.wav`);
       run("espeak-ng", "-v", "en-gb", "-s", "160", "-w", narration, text);
       return narration;
     };
+  }
   throw new Error("walkthrough needs macOS `say` or espeak-ng on PATH");
 }
 
@@ -104,7 +111,9 @@ async function renderCaption(page: Page, text: string, directory: string, id: st
     await document.fonts.load("40px Tiny5");
     return document.fonts.check("40px Tiny5");
   });
-  if (!loaded) throw new Error(`Tiny5 did not load for the caption of ${id}`);
+  if (!loaded) {
+    throw new Error(`Tiny5 did not load for the caption of ${id}`);
+  }
   const path = join(directory, `${id}-caption.png`);
   await page.screenshot({ path });
   return path;
@@ -118,7 +127,9 @@ async function pauseClock(page: Page) {
       await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50 * attempt);
       return;
     } catch (error) {
-      if (attempt >= 5 || !String(error).includes("to the past")) throw error;
+      if (attempt >= 5 || !String(error).includes("to the past")) {
+        throw error;
+      }
     }
   }
 }
@@ -132,7 +143,9 @@ async function captureFootage(page: Page, segment: FootageSegment, directory: st
   const frameCount = Math.round(segment.seconds * FRAMES_PER_SECOND);
   const skip = segment.skipFrames ?? 0;
   for (let frame = 0; frame < frameCount + skip; frame++) {
-    while (pending[0] && pending[0].at * FRAMES_PER_SECOND <= frame - skip) await pending.shift()?.run(page);
+    while (pending[0] && pending[0].at * FRAMES_PER_SECOND <= frame - skip) {
+      await pending.shift()?.run(page);
+    }
     if (frame >= skip) {
       const name = String(frame - skip).padStart(4, "0");
       await page.screenshot({ path: join(frameDirectory, `${name}.png`) });
@@ -168,12 +181,13 @@ function assembleSegment(input: string[], caption: string, narration: string, du
 // the middle and last frame of every segment, two to a row
 function checkSheet(segments: { path: string; duration: number }[], output: string, directory: string) {
   const samples: string[] = [];
-  for (const [index, segment] of segments.entries())
+  for (const [index, segment] of segments.entries()) {
     for (const [position, seconds] of [segment.duration / 2, segment.duration - 0.05].entries()) {
       const sample = join(directory, `check-${index}-${position}.png`);
       ffmpeg("-ss", seconds.toFixed(3), "-i", segment.path, "-frames:v", "1", "-vf", "scale=960:700", sample);
       samples.push(sample);
     }
+  }
   const layout = samples.map((_, index) => `${(index % 2) * 960}_${Math.floor(index / 2) * 700}`).join("|");
   ffmpeg(
     ...samples.flatMap((sample) => ["-i", sample]),
@@ -190,16 +204,22 @@ const argument = (name: string) => {
 
 async function main() {
   const scriptPath = process.argv.slice(2).find((value) => value.endsWith(".ts") || value.endsWith(".mjs"));
-  if (!scriptPath) throw new Error("usage: bun run walkthrough -- <script.ts> [--url <url>] [--out <dir>] [--headed]");
+  if (!scriptPath) {
+    throw new Error("usage: bun run walkthrough -- <script.ts> [--url <url>] [--out <dir>] [--headed]");
+  }
   const speak = requireTools();
   const script: Walkthrough = (await import(resolve(scriptPath))).default;
   const walkthrough = { ...script, url: argument("--url") ?? script.url };
   const outDirectory = resolve(argument("--out") ?? "walkthrough-out");
   const workDirectory = join(outDirectory, "work");
   const stillsDirectory = join(outDirectory, "stills");
-  for (const directory of [workDirectory, stillsDirectory]) mkdirSync(directory, { recursive: true });
+  for (const directory of [workDirectory, stillsDirectory]) {
+    mkdirSync(directory, { recursive: true });
+  }
   const ids = walkthrough.segments.map((segment) => segment.id);
-  if (new Set(ids).size !== ids.length) throw new Error("segment ids must be unique");
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("segment ids must be unique");
+  }
 
   const browser = await chromium.launch({ headless: !process.argv.includes("--headed") });
   const captionPage = await browser.newPage({ viewport: { width: WIDTH, height: BAND_HEIGHT } });
@@ -215,7 +235,9 @@ async function main() {
       const output = join(workDirectory, `${segment.id}.mp4`);
       if (isStill(segment)) {
         const image = resolve(segment.image);
-        if (!existsSync(image)) throw new Error(`no image at ${image}`);
+        if (!existsSync(image)) {
+          throw new Error(`no image at ${image}`);
+        }
         assembleSegment(
           ["-loop", "1", "-framerate", "30", "-t", spoken.toFixed(3), "-i", image],
           caption,
@@ -232,14 +254,18 @@ async function main() {
         await gamePage.goto(segment.url ?? walkthrough.url);
         await gamePage.evaluate(() => localStorage.clear());
         await gamePage.reload();
-        if (segment.waitFor) await gamePage.waitForSelector(segment.waitFor);
+        if (segment.waitFor) {
+          await gamePage.waitForSelector(segment.waitFor);
+        }
         await pauseClock(gamePage);
         loaded = true;
       }
       const frames = await captureFootage(gamePage, segment, workDirectory);
       const names = readdirSync(frames).sort();
       const last = names.at(-1);
-      if (last) copyFileSync(join(frames, last), join(stillsDirectory, `${segment.id}.png`));
+      if (last) {
+        copyFileSync(join(frames, last), join(stillsDirectory, `${segment.id}.png`));
+      }
       const duration = Math.max(segment.seconds, spoken);
       assembleSegment(["-framerate", "30", "-i", join(frames, "%04d.png")], caption, narration, duration, output);
       parts.push({ path: output, duration });

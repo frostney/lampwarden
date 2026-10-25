@@ -117,8 +117,12 @@ export function rulesDirector(
 export function directorFrom(stored: unknown, tide: number, night: number): Director {
   const fallback = rulesDirector(tide, Math.max(0, night - 1));
   const parsed = directorSchema.safeParse(stored);
-  if (!parsed.success) return fallback;
+  if (!parsed.success) {
+    return fallback;
+  }
   const { data } = parsed;
-  if (data.tide !== tide) return fallback;
+  if (data.tide !== tide) {
+    return fallback;
+  }
   return data.source === "rules" ? rulesDirector(tide, data.decidedAfterNight, data.playId, data.engagement) : data;
 }

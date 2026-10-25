@@ -9,6 +9,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
 import { atlasCellPixels } from "./hero-atlas";
@@ -33,7 +34,9 @@ const { values } = parseArgs({
   },
 });
 const outputDirectory = values.out ? resolve(values.out) : null;
-if (outputDirectory) mkdirSync(outputDirectory, { recursive: true });
+if (outputDirectory) {
+  mkdirSync(outputDirectory, { recursive: true });
+}
 const spritesDirectory = join(import.meta.dir, "..", "public", "sprites");
 
 const jobs: Job[] = readdirSync(spritesDirectory)
@@ -53,7 +56,9 @@ for (const sex of SEXES) {
   const cells = new Map(heroFrames(sex).map((frame) => [frame.key, frame]));
   for (const build of heroBuildsFor(sex).builds) {
     const cell = cells.get(`hero/${build.name}`);
-    if (!cell) throw new Error(`${build.name} has no cell in the ${sex} atlas`);
+    if (!cell) {
+      throw new Error(`${build.name} has no cell in the ${sex} atlas`);
+    }
     jobs.push({
       name: build.name,
       code: build.code,
@@ -64,16 +69,20 @@ for (const sex of SEXES) {
 }
 
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
-  if (first.length !== second.length) return Math.max(first.length, second.length) / 4;
+  if (first.length !== second.length) {
+    return Math.max(first.length, second.length) / 4;
+  }
   let differing = 0;
-  for (let offset = 0; offset < first.length; offset += 4)
+  for (let offset = 0; offset < first.length; offset += 4) {
     if (
       first[offset] !== second[offset] ||
       first[offset + 1] !== second[offset + 1] ||
       first[offset + 2] !== second[offset + 2] ||
       first[offset + 3] !== second[offset + 3]
-    )
+    ) {
       differing++;
+    }
+  }
   return differing;
 }
 
@@ -111,11 +120,15 @@ slices.forEach((slice, sliceIndex) => {
       failures++;
       return;
     }
-    if (outputDirectory) writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
+    if (outputDirectory) {
+      writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
+    }
     const rendered = decodePng(Buffer.from(result.png)).data;
     const differing = differingPixels(rendered, job.committed());
     totalDiffering += differing;
-    if (differing) failures++;
+    if (differing) {
+      failures++;
+    }
     console.log(`${job.name.padEnd(22)} ${differing ? "DIFF" : "ok  "} differing_pixels=${differing}`);
   });
 });

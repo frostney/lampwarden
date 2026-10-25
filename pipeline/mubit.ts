@@ -2,6 +2,7 @@
 // pass-through) with model claude-opus-5-5, and never sends `temperature`. The key is passed in by the caller (read from
 // MUBIT_API_KEY in run.ts), goes only into the x-api-key header, and appears in no log row or error.
 import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 export const MUBIT_MESSAGES_URL = "https://api.mubit.ai/anthropic/v1/messages";
@@ -172,7 +173,9 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
     const started = performance.now();
     const elapsed = () => Math.round(performance.now() - started);
     // an abort before the request leaves means nothing is sent
-    if (signal?.aborted) return { status: null, rid: null, ms: 0, reply: null, error: "aborted" };
+    if (signal?.aborted) {
+      return { status: null, rid: null, ms: 0, reply: null, error: "aborted" };
+    }
     try {
       const response = await fetchImplementation(MUBIT_MESSAGES_URL, {
         method: "POST",
@@ -220,7 +223,9 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
         system_sha: shortSha(system),
         ...logFields,
       };
-      if (firstTry) record.first_try = firstTry;
+      if (firstTry) {
+        record.first_try = firstTry;
+      }
       if (!attempt.reply) {
         record.error = attempt.error;
         return { record, text: null };

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { nextCreatureRequestSchema } from "./creature";
 import {
   applyDirector,
@@ -86,7 +87,9 @@ describe("the shop's offers", () => {
     for (let seed = 1; seed <= 200; seed++) {
       const offers = drawOffers(seed, emptyLevels());
       draws.add(offers.join());
-      for (const id of offers) seen.add(id);
+      for (const id of offers) {
+        seen.add(id);
+      }
     }
     expect(draws.size).toBeGreaterThan(20);
     expect(seen.size).toBe(UPGRADE_IDS.length);
@@ -97,13 +100,17 @@ describe("the shop's offers", () => {
     for (let seed = 1; seed <= 200; seed++) {
       const offers = drawOffers(seed, levels);
       expect(offers).toHaveLength(OFFER_COUNT);
-      for (const id of ["wick", "blade", "heart"] as const) expect(offers).not.toContain(id);
+      for (const id of ["wick", "blade", "heart"] as const) {
+        expect(offers).not.toContain(id);
+      }
     }
   });
 
   test("offers what is left when fewer than three can still be bought", () => {
     const levels = emptyLevels();
-    for (const id of UPGRADE_IDS) levels[id] = MAX_LEVEL;
+    for (const id of UPGRADE_IDS) {
+      levels[id] = MAX_LEVEL;
+    }
     levels.stride = 1;
     levels.tinder = 2;
     expect(drawOffers(7, levels).toSorted()).toEqual(["stride", "tinder"]);
@@ -143,7 +150,9 @@ describe("buying", () => {
   test("a bought upgrade stays on offer for a second level while the oil lasts", () => {
     const legacy = newLegacy(5);
     const [id] = legacy.offers;
-    if (!id) throw new Error("no offer");
+    if (!id) {
+      throw new Error("no offer");
+    }
     legacy.oil = LEVEL_COSTS[0] + LEVEL_COSTS[1] + 1;
     expect(buy(legacy, id)).toBe(true);
     expect(buy(legacy, id)).toBe(true);
@@ -157,11 +166,17 @@ describe("buying", () => {
     const legacy = newLegacy(5);
     legacy.oil = 1000;
     const absent = UPGRADE_IDS.find((id) => !legacy.offers.includes(id));
-    if (!absent) throw new Error("everything on offer");
+    if (!absent) {
+      throw new Error("everything on offer");
+    }
     expect(buy(legacy, absent)).toBe(false);
     const [offered] = legacy.offers;
-    if (!offered) throw new Error("no offer");
-    for (let count = 0; count < MAX_LEVEL; count++) expect(buy(legacy, offered)).toBe(true);
+    if (!offered) {
+      throw new Error("no offer");
+    }
+    for (let count = 0; count < MAX_LEVEL; count++) {
+      expect(buy(legacy, offered)).toBe(true);
+    }
     expect(buy(legacy, offered)).toBe(false);
     expect(legacy.levels[offered]).toBe(MAX_LEVEL);
   });
@@ -228,7 +243,9 @@ describe("the bestiary", () => {
 
   test("the bestiary never outgrows what the gallery accepts as seen", () => {
     const legacy = newLegacy();
-    for (let count = 0; count < 520; count++) meet(legacy, `creature-${count}`);
+    for (let count = 0; count < 520; count++) {
+      meet(legacy, `creature-${count}`);
+    }
     expect(nextCreatureRequestSchema.safeParse({ seen: legacy.bestiary }).success).toBe(true);
     expect(legacy.bestiary.at(-1)).toBe("creature-519"); // the oldest dropped, not the newest
   });

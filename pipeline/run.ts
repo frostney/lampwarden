@@ -13,7 +13,9 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
 import { createMubitClient, shortSha } from "./mubit";
 import { checkoutSandboxOptions, renderFromCheckout } from "./render-checkout";
 import { RENDERED_WITH } from "./render-types";
@@ -62,12 +64,15 @@ const briefs: Brief[] = values.file
       ([id, [category, text]]) => ({ id, category, text }),
     )
   : positionals.map((text) => ({ id: slugify(text), category: "brief", text }));
-if (briefs.length === 0) throw new Error("give at least one brief");
+if (briefs.length === 0) {
+  throw new Error("give at least one brief");
+}
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey)
+if (!apiKey) {
   throw new Error(
     "MUBIT_API_KEY is not set (export it in your shell, or resolve it from .env.local; see docs/tooling.md)",
   );
+}
 
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
 const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8");
@@ -87,13 +92,16 @@ console.log({
   render: RENDERED_WITH,
 });
 const candidateCount = values.candidates === undefined ? 1 : Number(values.candidates);
-if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > MAXIMUM_CANDIDATES)
+if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > MAXIMUM_CANDIDATES) {
   throw new Error(`--candidates takes a whole number from 1 to ${MAXIMUM_CANDIDATES}`);
+}
 
 /** One brief with several candidates. Prints the summary line the sprite tables are made from. */
 async function processWithCandidates(brief: Brief) {
   const run = await processBriefWithCandidates(context, brief, candidateCount);
-  if (!run) throw new Error(`${brief.id}: nothing renderable came out`);
+  if (!run) {
+    throw new Error(`${brief.id}: nothing renderable came out`);
+  }
   const { row, winner } = run.outcome;
   console.log(
     `SUMMARY ${JSON.stringify({
@@ -114,12 +122,15 @@ async function processWithCandidates(brief: Brief) {
     })}`,
   );
   // a brief the live job's rule rejects wrote nothing: the run ends in failure, as when a build does not render
-  if (!run.accepted)
+  if (!run.accepted) {
     throw new Error(`${brief.id}: the best candidate (score ${row.score}) is not accepted, so nothing was written`);
+  }
 }
 
 const failures = await runPool(briefs, Number(values.concurrency ?? DEFAULT_CONCURRENCY), (brief) =>
   candidateCount > 1 ? processWithCandidates(brief) : processBrief(context, brief),
 );
 console.log("ALL DONE");
-if (failures > 0) process.exit(1);
+if (failures > 0) {
+  process.exit(1);
+}

@@ -1,6 +1,7 @@
 // Rate limits on starting a generation job: per visitor per hour, and per UTC day for the whole site. Reading the
 // gallery is never limited. Visitors are told apart by a salted hash of their IP; the IP itself is never stored.
 import { createHmac } from "node:crypto";
+
 import type { StartLimits } from "./config";
 import type { CreatureStore } from "./store";
 
@@ -12,15 +13,21 @@ const IPV6_PREFIX_GROUPS = 4;
 /** The eight 16-bit groups of an IPv6 address (`::` expanded, an embedded IPv4 tail turned into two groups), or null. */
 function ipv6Groups(address: string): number[] | null {
   const halves = address.split("::");
-  if (halves.length > 2) return null;
+  if (halves.length > 2) {
+    return null;
+  }
   const toGroups = (text: string): number[] | null => {
-    if (text === "") return [];
+    if (text === "") {
+      return [];
+    }
     const groups: number[] = [];
     const parts = text.split(":");
     for (const [index, part] of parts.entries()) {
       if (index === parts.length - 1 && part.includes(".")) {
         const octets = part.split(".").map(Number);
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(part) || octets.some((octet) => octet > 255)) return null;
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(part) || octets.some((octet) => octet > 255)) {
+          return null;
+        }
         groups.push((octets[0] ?? 0) * 256 + (octets[1] ?? 0), (octets[2] ?? 0) * 256 + (octets[3] ?? 0));
       } else if (/^[0-9a-f]{1,4}$/.test(part)) {
         groups.push(Number.parseInt(part, 16));
@@ -32,8 +39,12 @@ function ipv6Groups(address: string): number[] | null {
   };
   const head = toGroups(halves[0] ?? "");
   const tail = halves.length === 2 ? toGroups(halves[1] ?? "") : [];
-  if (!head || !tail) return null;
-  if (halves.length === 1) return head.length === IPV6_GROUPS ? head : null;
+  if (!head || !tail) {
+    return null;
+  }
+  if (halves.length === 1) {
+    return head.length === IPV6_GROUPS ? head : null;
+  }
   const missing = IPV6_GROUPS - head.length - tail.length;
   return missing >= 1 ? [...head, ...new Array<number>(missing).fill(0), ...tail] : null;
 }
@@ -44,7 +55,9 @@ function ipv6Groups(address: string): number[] | null {
  * it would otherwise be a new visitor, with its own hourly allowance and a share of the site's daily cap.
  */
 export function visitorAddress(address: string | null): string {
-  if (address === null) return "unknown";
+  if (address === null) {
+    return "unknown";
+  }
   // a port may follow the address: "1.2.3.4:5555", "[2001:db8::1]:443"
   const text = address
     .trim()
@@ -52,9 +65,13 @@ export function visitorAddress(address: string | null): string {
     .replace(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/, "$1")
     .replace(/^\[(.*)\](?::\d+)?$/, "$1");
   const unzoned = text.split("%")[0] ?? text;
-  if (!unzoned.includes(":")) return unzoned;
+  if (!unzoned.includes(":")) {
+    return unzoned;
+  }
   const groups = ipv6Groups(unzoned);
-  if (!groups) return unzoned;
+  if (!groups) {
+    return unzoned;
+  }
   if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
     const high = groups[6] ?? 0;
     const low = groups[7] ?? 0;

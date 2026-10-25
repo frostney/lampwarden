@@ -5,6 +5,7 @@
 // lie on the ground under every sprite, the lantern glow and halo sort with their lamp (Scene.tsx). How a lamp lights the
 // characters standing in it is lighting.ts.
 import { Rectangle, Texture } from "pixi.js";
+
 import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT } from "../game/sim";
 import { ANCHOR_Y } from "./assets";
 import { bayerThreshold, bufferTexture, type Rgb, seededRandom, shuffle } from "./paint";
@@ -97,7 +98,9 @@ function bandLevel(shape: LightShape, x: number, y: number, variant: FlickerVari
   const radiusX = shape.radiusX + variant.radiusStep,
     radiusY = shape.radiusY + variant.radiusStep / 2;
   const distance = Math.hypot((x - shape.centerX) / radiusX, (y - shape.centerY) / radiusY);
-  if (distance >= 1) return 0;
+  if (distance >= 1) {
+    return 0;
+  }
   const levels = shape.palette.length;
   const value =
     (1 - distance ** shape.falloff) * levels + 0.5 + (bayerThreshold(x + variant.ditherShift, y) - 0.5) * DITHER_SPREAD;
@@ -105,9 +108,13 @@ function bandLevel(shape: LightShape, x: number, y: number, variant: FlickerVari
 }
 
 function lightLevel(shape: LightShape, x: number, y: number, variant: FlickerVariant): number {
-  if (shape.groundOnly && !onPlaza(x, y)) return 0;
+  if (shape.groundOnly && !onPlaza(x, y)) {
+    return 0;
+  }
   const level = bandLevel(shape, x, y, variant);
-  if (!shape.groundOnly || level === 0) return level;
+  if (!shape.groundOnly || level === 0) {
+    return level;
+  }
   // the rim, and in the brighter bands each tile's lit bevel, catch the light one level brighter
   const highlight = onPlazaRim(x, y) || (level >= 2 && facesLight(shape, x, y));
   return highlight ? Math.min(shape.palette.length, level + 1) : level;
@@ -123,7 +130,9 @@ function paintLight(shape: LightShape, variant: FlickerVariant): LightPiece {
     for (let column = 0; column < width; column++) {
       const level = lightLevel(shape, shape.centerX - extentX + column, shape.centerY - extentY + row, variant);
       const colour = level > 0 ? shape.palette[level - 1] : undefined;
-      if (!colour) continue;
+      if (!colour) {
+        continue;
+      }
       const [red, green, blue] = colour;
       const index = (row * width + column) * 4;
       pixels[index] = red;
@@ -206,7 +215,9 @@ function patternPiece(rows: readonly string[]): LightPiece {
   rows.forEach((row, rowIndex) => {
     [...row].forEach((character, column) => {
       const ink = GLINT_INK[character];
-      if (!ink) return;
+      if (!ink) {
+        return;
+      }
       const index = (rowIndex * width + column) * 4;
       pixels[index] = ink[0];
       pixels[index + 1] = ink[1];
@@ -291,7 +302,9 @@ const lampLights = new Map<string, LampLight>();
 export function lampLight(x: number, y: number, radius: number): LampLight {
   const key = `${x},${y},${radius}`;
   const cached = lampLights.get(key);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const seed = lampSeed(x, y);
   const pool: LightShape = {
     ...poolEllipse(x, y, radius),
@@ -346,14 +359,18 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
 
   // tile corners in the two brightest bands
   const corners: { x: number; y: number }[] = [];
-  for (let tileColumn = 1; tileColumn < 12; tileColumn++)
+  for (let tileColumn = 1; tileColumn < 12; tileColumn++) {
     for (let tileRow = 1; tileRow < 12; tileRow++) {
       const point = plazaPoint(tileColumn, tileRow);
-      if (levelAt(point.x, point.y) >= pool.palette.length - 1 && !nearLampBase(point.x, point.y)) corners.push(point);
+      if (levelAt(point.x, point.y) >= pool.palette.length - 1 && !nearLampBase(point.x, point.y)) {
+        corners.push(point);
+      }
     }
+  }
   shuffle(corners, random);
-  for (const corner of corners.slice(0, Math.round(area / 1300)))
+  for (const corner of corners.slice(0, Math.round(area / 1300))) {
     add(corner.x, corner.y, ["speck", "plus", "star", "star", "plus", "speck"]);
+  }
 
   // tile edges: a random point snapped onto the nearest grid line
   for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(area / 450); attempt++) {
@@ -362,8 +379,11 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
       tileRow = plazaV(point.x, point.y);
     // a whole tileColumn is a line running down-left ("slash"), a whole tileRow one running down-right ("backslash")
     const slash = distanceToWhole(tileColumn) < distanceToWhole(tileRow);
-    if (slash) tileColumn = Math.round(tileColumn);
-    else tileRow = Math.round(tileRow);
+    if (slash) {
+      tileColumn = Math.round(tileColumn);
+    } else {
+      tileRow = Math.round(tileRow);
+    }
     const snapped = plazaPoint(tileColumn, tileRow);
     const level = levelAt(snapped.x, snapped.y);
     if (
@@ -371,8 +391,9 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
       random() * pool.palette.length > level ||
       !free(snapped.x, snapped.y) ||
       nearLampBase(snapped.x, snapped.y)
-    )
+    ) {
       continue;
+    }
     add(
       snapped.x,
       snapped.y,
@@ -393,7 +414,9 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
     const level = levelAt(point.x, point.y);
     const awayFromLines =
       distanceToWhole(plazaU(point.x, point.y)) > 0.18 && distanceToWhole(plazaV(point.x, point.y)) > 0.18;
-    if (level < 2 || !awayFromLines || !free(point.x, point.y) || nearLampBase(point.x, point.y)) continue;
+    if (level < 2 || !awayFromLines || !free(point.x, point.y) || nearLampBase(point.x, point.y)) {
+      continue;
+    }
     add(
       point.x,
       point.y,
@@ -406,12 +429,17 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
 
   // the rim, where it is lit
   const rim: { x: number; y: number }[] = [];
-  for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y++)
-    for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2)
-      if (onPlazaRim(x, y) && levelAt(x, y) >= 2) rim.push({ x, y });
+  for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y++) {
+    for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2) {
+      if (onPlazaRim(x, y) && levelAt(x, y) >= 2) {
+        rim.push({ x, y });
+      }
+    }
+  }
   shuffle(rim, random);
-  for (const point of rim.filter((candidate) => free(candidate.x, candidate.y)).slice(0, 3))
+  for (const point of rim.filter((candidate) => free(candidate.x, candidate.y)).slice(0, 3)) {
     add(point.x, point.y, ["rimDim", "rim", "rimBright", "rimBright", "rim", "rimDim"]);
+  }
   return glints;
 }
 
@@ -473,12 +501,17 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
 
   // open sea inside the pool
   const seaPixels: { x: number; y: number }[] = [];
-  for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y += 3)
-    for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2)
-      if (onSea(x, y) && bandLevel(pool, x, y, CALM) >= 1) seaPixels.push({ x, y });
+  for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y += 3) {
+    for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2) {
+      if (onSea(x, y) && bandLevel(pool, x, y, CALM) >= 1) {
+        seaPixels.push({ x, y });
+      }
+    }
+  }
   shuffle(seaPixels, random);
-  for (const point of seaPixels.slice(0, Math.min(10, Math.round(seaPixels.length / 25))))
+  for (const point of seaPixels.slice(0, Math.min(10, Math.round(seaPixels.length / 25)))) {
     add(point.x, point.y, 2 + Math.floor(random() * 4), bandLevel(pool, point.x, point.y, CALM) >= 2);
+  }
   return glints;
 }
 

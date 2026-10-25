@@ -2,6 +2,7 @@
 // one by one on a small canvas and outlined like the game's sprites, so the shots stay on the pixel grid instead of
 // being rotated and resampled.
 import { Texture } from "pixi.js";
+
 import type { Sex } from "./assets";
 
 export type ProjectileKind = "arrow" | "stone";
@@ -41,7 +42,9 @@ function outline(pixels: PixelMap) {
   for (const [column = 0, row = 0] of drawn) {
     for (const [stepColumn, stepRow] of NEIGHBOUR_STEPS) {
       const neighbour = pixelKey(column + stepColumn, row + stepRow);
-      if (!pixels.has(neighbour)) pixels.set(neighbour, OUTLINE);
+      if (!pixels.has(neighbour)) {
+        pixels.set(neighbour, OUTLINE);
+      }
     }
   }
 }
@@ -73,9 +76,13 @@ function arrowPixels(angle: number): PixelMap {
     CENTRE + alongX * along + acrossX * across,
     CENTRE + alongY * along + acrossY * across,
   ];
-  for (let along = -6; along <= 4; along += 0.5) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.shaft);
+  for (let along = -6; along <= 4; along += 0.5) {
+    setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.shaft);
+  }
   // a broad leaf-shaped head: two pixels of point, then a barb on each side
-  for (const along of [5, 6, 7]) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.head);
+  for (const along of [5, 6, 7]) {
+    setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.head);
+  }
   for (const side of [1, -1]) {
     setPixel(pixels, ...pointAt(5, side), ARROW_COLOURS.head);
     setPixel(pixels, ...pointAt(4, side), ARROW_COLOURS.headShade);
@@ -93,7 +100,9 @@ function stonePixels(): PixelMap {
   STONE_PIXELS.forEach((line, row) => {
     [...line].forEach((symbol, column) => {
       const colour = STONE_COLOURS[symbol];
-      if (colour) setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
+      if (colour) {
+        setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
+      }
     });
   });
   return pixels;

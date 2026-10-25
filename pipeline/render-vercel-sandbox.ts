@@ -19,6 +19,7 @@
 // None of it enters the VM, is printed or logged. The pipeline scripts run as `varlock run ... -- bun --no-env-file`
 // (package.json): bun loads no .env file, and varlock hands the script only the variables it needs from .env.schema.
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox";
+
 import type { BatchManifest } from "./render/batch";
 import {
   batchResultsSchema,
@@ -71,9 +72,13 @@ async function verifySnapshot(
   signal?: AbortSignal,
 ): Promise<void> {
   const key = `${snapshotId}:${expectedBundleSha}`;
-  if (verifiedSnapshots.has(key)) return;
+  if (verifiedSnapshots.has(key)) {
+    return;
+  }
   const manifestBytes = await sandbox.readFileToBuffer({ path: SNAPSHOT_MANIFEST_PATH }, signalOptions(signal));
-  if (manifestBytes === null) throw new SnapshotMismatchError("the sandbox snapshot has no manifest");
+  if (manifestBytes === null) {
+    throw new SnapshotMismatchError("the sandbox snapshot has no manifest");
+  }
   let manifestJson: unknown = null;
   try {
     manifestJson = JSON.parse(manifestBytes.toString("utf8"));
@@ -81,9 +86,13 @@ async function verifySnapshot(
     // falls through to the unreadable-manifest error below
   }
   const manifest = snapshotManifestSchema.safeParse(manifestJson);
-  if (!manifest.success) throw new SnapshotMismatchError("the sandbox snapshot has an unreadable manifest");
+  if (!manifest.success) {
+    throw new SnapshotMismatchError("the sandbox snapshot has an unreadable manifest");
+  }
   const mismatch = snapshotMismatch(manifest.data, expectedBundleSha);
-  if (mismatch) throw new SnapshotMismatchError(mismatch);
+  if (mismatch) {
+    throw new SnapshotMismatchError(mismatch);
+  }
   verifiedSnapshots.add(key);
 }
 
@@ -115,11 +124,18 @@ export async function renderBatchInSandbox(
   const runnable: Array<{ index: number; request: RenderRequest }> = [];
   requests.forEach((request, index) => {
     const invalidReason = invalidRequestReason(request);
-    if (invalidReason) results[index] = { ok: false, error: invalidReason };
-    else runnable.push({ index, request });
+    if (invalidReason) {
+      results[index] = { ok: false, error: invalidReason };
+    } else {
+      runnable.push({ index, request });
+    }
   });
-  if (runnable.length === 0) return results;
-  if (signal?.aborted) throw new Error(RENDER_ABORTED);
+  if (runnable.length === 0) {
+    return results;
+  }
+  if (signal?.aborted) {
+    throw new Error(RENDER_ABORTED);
+  }
 
   const vcpus = options.vcpus ?? DEFAULT_VCPUS;
   const itemDeadline = options.itemDeadlineMilliseconds ?? DEFAULT_ITEM_DEADLINE_MILLISECONDS;
@@ -138,7 +154,9 @@ export async function renderBatchInSandbox(
   };
   signal?.addEventListener("abort", stopOnAbort, { once: true });
   try {
-    if (signal?.aborted) throw new Error(RENDER_ABORTED);
+    if (signal?.aborted) {
+      throw new Error(RENDER_ABORTED);
+    }
     await verifySnapshot(sandbox, options.snapshotId, options.expectedBundleSha, signal);
     const manifest: BatchManifest = {
       itemDeadlineMilliseconds: itemDeadline,
@@ -161,17 +179,25 @@ export async function renderBatchInSandbox(
       timeoutMs: batchDeadline,
       ...signalOptions(signal),
     });
-    if (command.exitCode !== 0) throw new Error(`the batch driver exited ${command.exitCode}`);
+    if (command.exitCode !== 0) {
+      throw new Error(`the batch driver exited ${command.exitCode}`);
+    }
     const resultsFile = await sandbox.readFileToBuffer(
       { path: `${SANDBOX_JOB_DIRECTORY}/results.json` },
       signalOptions(signal),
     );
-    if (resultsFile === null) throw new Error("the batch wrote no results");
+    if (resultsFile === null) {
+      throw new Error("the batch wrote no results");
+    }
     const outcomes = batchResultsSchema.parse(JSON.parse(resultsFile.toString("utf8"))).items;
-    if (outcomes.length !== runnable.length) throw new Error("the batch returned the wrong number of results");
+    if (outcomes.length !== runnable.length) {
+      throw new Error("the batch returned the wrong number of results");
+    }
     runnable.forEach(({ index }, position) => {
       const outcome = outcomes[position];
-      if (outcome) results[index] = interpretOutcome(outcome, itemDeadline);
+      if (outcome) {
+        results[index] = interpretOutcome(outcome, itemDeadline);
+      }
     });
     return results;
   } finally {

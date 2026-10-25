@@ -20,7 +20,9 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
 import { ANCHOR_Y } from "../src/scene/assets";
 import { isAccepted } from "../src/server/creatures/job";
 import { createFileStore } from "./file-store";
@@ -103,7 +105,9 @@ const today = new Date().toISOString().slice(0, 10);
 
 function createLoop(): LoopCore {
   const apiKey = process.env.MUBIT_API_KEY;
-  if (!apiKey) throw new Error("MUBIT_API_KEY is not set");
+  if (!apiKey) {
+    throw new Error("MUBIT_API_KEY is not set");
+  }
   return {
     model: createMubitClient({ apiKey }),
     render: renderFromCheckout,
@@ -146,7 +150,9 @@ async function scoreSprites(): Promise<void> {
   const loop = createLoop();
   const codes = ids.map((id) => {
     const row = manifest.sprites[id];
-    if (!row) throw new Error(`${id} is not in the manifest`);
+    if (!row) {
+      throw new Error(`${id} is not in the manifest`);
+    }
     return readFileSync(join(SPRITES_DIRECTORY, row.code), "utf8");
   });
   const renders = await renderBatchFromCheckout(
@@ -159,10 +165,14 @@ async function scoreSprites(): Promise<void> {
       const [position, id] = step.value;
       const row = manifest.sprites[id];
       const code = codes[position];
-      if (!row || code === undefined) throw new Error(`${id} is not in the manifest`);
+      if (!row || code === undefined) {
+        throw new Error(`${id} is not in the manifest`);
+      }
       const png = new Uint8Array(readFileSync(join(SPRITES_DIRECTORY, `${id}.png`)));
       const rendered = renders[position];
-      if (!rendered?.ok) throw new Error(`${id} did not render: ${rendered?.error}`);
+      if (!rendered?.ok) {
+        throw new Error(`${id} did not render: ${rendered?.error}`);
+      }
       const { verdict, requestIds } = await verify(
         loop,
         png,
@@ -189,7 +199,9 @@ async function scoreSprites(): Promise<void> {
   if (values.write) {
     for (const [id, { fix: _fix, ...verified }] of Object.entries(results)) {
       const row = manifest.sprites[id];
-      if (row) row.verified = verified;
+      if (row) {
+        row.verified = verified;
+      }
     }
     writeManifest(manifest);
     console.log("manifest updated");
@@ -199,7 +211,9 @@ async function scoreSprites(): Promise<void> {
 async function regenerateSprite(id: string): Promise<void> {
   const manifest = readManifest();
   const brief = values.brief ?? manifest.sprites[id]?.brief;
-  if (!brief) throw new Error(`${id} is not in the manifest; give --brief`);
+  if (!brief) {
+    throw new Error(`${id} is not in the manifest; give --brief`);
+  }
   const loop = createLoop();
   const outcome = await runCandidateLoop(
     loop,
@@ -209,12 +223,16 @@ async function regenerateSprite(id: string): Promise<void> {
     // turn (the verifier's issues sent back to the generator) runs unless the verifier passed it outright.
     (candidate) => candidate.verdict.pass,
   );
-  if (!outcome) throw new Error(`${id}: nothing renderable came out`);
+  if (!outcome) {
+    throw new Error(`${id}: nothing renderable came out`);
+  }
   const directory = join(REVERIFY_DIRECTORY, id);
   mkdirSync(directory, { recursive: true });
   for (const candidate of outcome.candidates) {
     writeFileSync(join(directory, `${candidate.name}.ts`), `${candidate.code}\n`);
-    if (candidate.png) writeFileSync(join(directory, `${candidate.name}.png`), candidate.png);
+    if (candidate.png) {
+      writeFileSync(join(directory, `${candidate.name}.png`), candidate.png);
+    }
   }
   const { row, winner } = outcome;
   const requestIds = winner.which === "fixed" ? (row.fixed_verify ?? []) : (row.verify ?? []);
@@ -233,7 +251,9 @@ async function regenerateSprite(id: string): Promise<void> {
 function installSprite(id: string): void {
   const directory = join(REVERIFY_DIRECTORY, id);
   const resultPath = join(directory, "result.json");
-  if (!existsSync(resultPath)) throw new Error(`${id} has no regenerated result; run regenerate first`);
+  if (!existsSync(resultPath)) {
+    throw new Error(`${id} has no regenerated result; run regenerate first`);
+  }
   const result = regeneratedSchema.parse(JSON.parse(readFileSync(resultPath, "utf8")));
   copyFileSync(join(directory, "winner.png"), join(SPRITES_DIRECTORY, `${id}.png`));
   copyFileSync(join(directory, "winner.ts"), join(SPRITES_DIRECTORY, `${id}.ts`));
@@ -272,16 +292,22 @@ function recordScores(): void {
   const manifest = readManifest();
   for (const [id, { fix: _fix, ...verified }] of Object.entries(scores)) {
     const row = manifest.sprites[id];
-    if (row && !row.verified) row.verified = verified;
+    if (row && !row.verified) {
+      row.verified = verified;
+    }
   }
   writeManifest(manifest);
 }
 
-if (command === "score") await scoreSprites();
-else if (command === "record") recordScores();
-else if (command === "regenerate" && targets.length === 1 && targets[0]) await regenerateSprite(targets[0]);
-else if (command === "install" && targets.length === 1 && targets[0]) installSprite(targets[0]);
-else {
+if (command === "score") {
+  await scoreSprites();
+} else if (command === "record") {
+  recordScores();
+} else if (command === "regenerate" && targets.length === 1 && targets[0]) {
+  await regenerateSprite(targets[0]);
+} else if (command === "install" && targets.length === 1 && targets[0]) {
+  installSprite(targets[0]);
+} else {
   console.error(
     "usage: reverify.ts score [--only a,b] [--write] | regenerate <id> [--brief text] | install <id> | record",
   );

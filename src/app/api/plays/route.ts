@@ -10,7 +10,9 @@ const MAX_BODY_LENGTH = 400_000;
 
 export async function POST(request: Request) {
   const body = await request.text();
-  if (body.length > MAX_BODY_LENGTH) return Response.json({ error: "too large" }, { status: 413 });
+  if (body.length > MAX_BODY_LENGTH) {
+    return Response.json({ error: "too large" }, { status: 413 });
+  }
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(body);
@@ -18,13 +20,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
   const parsed = playSchema.safeParse(parsedJson);
-  if (!parsed.success) return Response.json({ error: "not a play" }, { status: 400 });
+  if (!parsed.success) {
+    return Response.json({ error: "not a play" }, { status: 400 });
+  }
   const play = parsed.data;
   const saved = await savePlay(createPlayUploadDeps(), { play, ip: clientAddress(request.headers) });
-  if (saved.kind === "limited")
+  if (saved.kind === "limited") {
     return Response.json(
       { error: "too many uploads" },
       { status: 429, headers: { "retry-after": String(saved.retryAfterSeconds) } },
     );
+  }
   return Response.json({ ok: true, id: play.id });
 }

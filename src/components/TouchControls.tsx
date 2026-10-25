@@ -3,6 +3,7 @@
 // On-screen controls for touch devices (hidden for mouse users by CSS): an 8-way stick, Strike and Shoot.
 // The stick is quantised to 8 directions so recorded plays stay small and replay exactly.
 import { useRef } from "react";
+
 import { Icon, type IconName } from "@/components/Icon";
 import { ARMS } from "@/game/weapons";
 import type { Sex } from "@/scene/assets";
@@ -23,14 +24,18 @@ export function TouchControls({
   const activePointer = useRef<number | null>(null);
 
   const move = (event: React.PointerEvent) => {
-    if (!base.current) return;
+    if (!base.current) {
+      return;
+    }
     const bounds = base.current.getBoundingClientRect();
     const x = event.clientX - (bounds.left + bounds.width / 2);
     const y = event.clientY - (bounds.top + bounds.height / 2);
     const radius = bounds.width / 2;
     const length = Math.hypot(x, y);
     const scale = length > radius ? radius / length : 1;
-    if (knob.current) knob.current.style.transform = `translate(${x * scale}px, ${y * scale}px)`;
+    if (knob.current) {
+      knob.current.style.transform = `translate(${x * scale}px, ${y * scale}px)`;
+    }
     if (length < radius * 0.3) {
       onStick(0, 0);
       return;
@@ -40,7 +45,9 @@ export function TouchControls({
   };
   const end = () => {
     activePointer.current = null;
-    if (knob.current) knob.current.style.transform = "";
+    if (knob.current) {
+      knob.current.style.transform = "";
+    }
     onStick(0, 0);
   };
 
@@ -50,17 +57,17 @@ export function TouchControls({
 
   const actionButton = (action: Action, label: string, icon: IconName) => (
     <button
-      type="button"
+      aria-label={label}
       className={`tbtn ${action}`}
+      onPointerCancel={letGo}
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.dataset.pressed = ""; // :active does not follow a prevented pointerdown on every device
         onPress(action);
       }}
-      onPointerUp={letGo}
-      onPointerCancel={letGo}
       onPointerLeave={letGo}
-      aria-label={label}
+      onPointerUp={letGo}
+      type="button"
     >
       <Icon name={icon} size={32} />
     </button>
@@ -69,8 +76,8 @@ export function TouchControls({
   return (
     <div className="touch">
       <div
-        ref={base}
         className="stick"
+        onPointerCancel={end}
         onPointerDown={(event) => {
           activePointer.current = event.pointerId;
           try {
@@ -81,12 +88,14 @@ export function TouchControls({
           move(event);
         }}
         onPointerMove={(event) => {
-          if (activePointer.current === event.pointerId) move(event);
+          if (activePointer.current === event.pointerId) {
+            move(event);
+          }
         }}
         onPointerUp={end}
-        onPointerCancel={end}
+        ref={base}
       >
-        <div ref={knob} className="knob" />
+        <div className="knob" ref={knob} />
       </div>
       <div className="tbtns">
         {actionButton("ranged", "Shoot", ARMS[sex].shootIcon)}

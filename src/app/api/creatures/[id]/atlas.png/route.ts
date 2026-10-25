@@ -7,10 +7,14 @@ const CREATURE_ID = /^[a-z0-9-]{8,80}$/;
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  if (!CREATURE_ID.test(id)) return Response.json({ error: "bad id" }, { status: 400 });
+  if (!CREATURE_ID.test(id)) {
+    return Response.json({ error: "bad id" }, { status: 400 });
+  }
   try {
     const atlas = await createServiceDeps(() => {}).store.getAtlas(id);
-    if (!atlas) return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
+    if (!atlas) {
+      return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
+    }
     return new Response(atlas, {
       headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" },
     });

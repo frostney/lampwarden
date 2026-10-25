@@ -3,6 +3,7 @@
 // Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever an
 // announcement: nothing here has to finish before the night can begin.
 import { useEffect, useRef } from "react";
+
 import { creatureSpritePath, type JobStep } from "@/game/creature";
 import type { Tonight } from "@/game/sea";
 
@@ -27,11 +28,11 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
     const { creature } = tonight;
     return (
       <section
+        aria-label="The creature coming tonight"
         className="sea"
+        data-creature={creature.id}
         data-line
         data-state="ready"
-        data-creature={creature.id}
-        aria-label="The creature coming tonight"
       >
         <CreaturePortrait creatureId={creature.id} onBroken={onSpriteBroken} />
         <div className="sea-text">
@@ -42,9 +43,9 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
       </section>
     );
   }
-  if (tonight.kind === "generating")
+  if (tonight.kind === "generating") {
     return (
-      <section className="sea" data-line data-state="generating" data-step={tonight.step} aria-live="polite">
+      <section aria-live="polite" className="sea" data-line data-state="generating" data-step={tonight.step}>
         <div className="sea-text">
           <span className="sea-label">The sea is shaping something…</span>
           <span className="sea-lore">{STEP_TEXT[tonight.step]}</span>
@@ -52,6 +53,7 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
         </div>
       </section>
     );
+  }
   return null;
 }
 
@@ -66,12 +68,16 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
     const image = new window.Image();
     let current = true;
     image.onerror = () => {
-      if (current) onBroken(creatureId);
+      if (current) {
+        onBroken(creatureId);
+      }
     };
     image.onload = () => {
       const canvas = canvasRef.current;
       const context = canvas?.getContext("2d", { willReadFrequently: true });
-      if (!current || !canvas || !context) return;
+      if (!current || !canvas || !context) {
+        return;
+      }
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
       context.drawImage(image, 0, 0);
@@ -80,14 +86,16 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
       let top = canvas.height;
       let right = -1;
       let bottom = -1;
-      for (let y = 0; y < canvas.height; y++)
-        for (let x = 0; x < canvas.width; x++)
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
           if ((data[(y * canvas.width + x) * 4 + 3] ?? 0) >= OPAQUE) {
             left = Math.min(left, x);
             right = Math.max(right, x);
             top = Math.min(top, y);
             bottom = Math.max(bottom, y);
           }
+        }
+      }
       if (right < 0) {
         onBroken(creatureId);
         return;
@@ -109,5 +117,5 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
       current = false;
     };
   }, [creatureId, onBroken]);
-  return <canvas ref={canvasRef} className="sea-sprite" data-src={creatureSpritePath(creatureId)} aria-hidden />;
+  return <canvas aria-hidden className="sea-sprite" data-src={creatureSpritePath(creatureId)} ref={canvasRef} />;
 }

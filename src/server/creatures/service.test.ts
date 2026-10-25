@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import type { Creature } from "@/game/creature";
+
 import { fakeClock } from "../../../pipeline/fakes";
 import { readCreatureConfig } from "./config";
 import { clientAddress, visitorKey } from "./limits";
@@ -62,7 +64,9 @@ describe("next: the gallery", () => {
   test("serves the gallery without limits and without a job, even with nothing configured", async () => {
     const { store, ask, started } = service({});
     await store.putCreature(creature("0000aaaa-old-aaaaaa"), PNG, "code");
-    for (let call = 0; call < 20; call++) expect((await ask("1.1.1.1")).kind).toBe("ready");
+    for (let call = 0; call < 20; call++) {
+      expect((await ask("1.1.1.1")).kind).toBe("ready");
+    }
     expect(started).toEqual([]);
   });
 });

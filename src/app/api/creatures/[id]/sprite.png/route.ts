@@ -7,11 +7,14 @@ const CREATURE_ID = /^[a-z0-9-]{8,80}$/;
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  if (!CREATURE_ID.test(id)) return Response.json({ error: "bad id" }, { status: 400 });
+  if (!CREATURE_ID.test(id)) {
+    return Response.json({ error: "bad id" }, { status: 400 });
+  }
   try {
     const sprite = await createServiceDeps(() => {}).store.getSprite(id);
-    if (!sprite)
+    if (!sprite) {
       return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
+    }
     return new Response(sprite, {
       headers: {
         "content-type": "image/png",

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { ARCHETYPES, creatureStats, MODIFIER_NAMES, type Modifiers } from "./creature";
 import { MONSTER } from "./sim";
 
@@ -13,10 +14,10 @@ describe("creature stats", () => {
 
   test("no combination of modifiers leaves a creature unkillable, harmless or frozen", () => {
     const values = [-1, 0, 1] as const;
-    for (const archetype of ARCHETYPES)
-      for (const speed of values)
-        for (const toughness of values)
-          for (const bite of values)
+    for (const archetype of ARCHETYPES) {
+      for (const speed of values) {
+        for (const toughness of values) {
+          for (const bite of values) {
             for (const snuffing of values) {
               const stats = creatureStats(archetype, { speed, toughness, bite, snuffing });
               expect(stats.health).toBeGreaterThanOrEqual(1);
@@ -25,6 +26,10 @@ describe("creature stats", () => {
               expect(stats.damage).toBeGreaterThan(0);
               expect(stats.snuff).toBeGreaterThan(1);
             }
+          }
+        }
+      }
+    }
     expect(MODIFIER_NAMES).toHaveLength(4);
   });
 });

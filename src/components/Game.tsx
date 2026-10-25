@@ -4,6 +4,7 @@ import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { FailurePanel } from "@/components/FailurePanel";
 import { HeroPortrait } from "@/components/HeroPortrait";
 import { HowToPlay } from "@/components/HowToPlay";
@@ -192,7 +193,9 @@ export default function Game() {
   const sendPlay = useCallback((state: State | null): SentPlay | null => {
     const recorder = recorderRef.current;
     recorderRef.current = null;
-    if (!recorder || !state) return null;
+    if (!recorder || !state) {
+      return null;
+    }
     const play = recorder.finish(state);
     try {
       localStorage.setItem("lampwarden:lastPlay", JSON.stringify(play));
@@ -207,7 +210,9 @@ export default function Game() {
   // stays until the night really ends, when sendPlay sends the finished play under the same id.
   const sendSnapshot = useCallback((state: State | null) => {
     const play = phaseRef.current === "night" && state ? recorderRef.current?.snapshot(state) : null;
-    if (play) void upload(play, true);
+    if (play) {
+      void upload(play, true);
+    }
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -218,11 +223,17 @@ export default function Game() {
     const asking = new AbortController();
     directorAsk.current = asking;
     void sent.uploaded.then(async (uploaded) => {
-      if (!uploaded || asking.signal.aborted) return;
+      if (!uploaded || asking.signal.aborted) {
+        return;
+      }
       const answer = await askDirector(sent.id, asking.signal);
-      if (!answer || asking.signal.aborted) return;
+      if (!answer || asking.signal.aborted) {
+        return;
+      }
       const legacy = legacyRef.current;
-      if (!applyDirector(legacy, answer.decision)) return;
+      if (!applyDirector(legacy, answer.decision)) {
+        return;
+      }
       saveLegacy(legacy);
       setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
     });
@@ -232,8 +243,11 @@ export default function Game() {
   const pause = useCallback(
     (shouldPause: boolean) => {
       setPaused(shouldPause);
-      if (shouldPause) release(controls);
-      else setAway(false);
+      if (shouldPause) {
+        release(controls);
+      } else {
+        setAway(false);
+      }
     },
     [controls],
   );
@@ -242,16 +256,22 @@ export default function Game() {
   // (replays and menus carry on: a replay's steps come from its recording, not from the clock)
   useEffect(() => {
     const holdNight = () => {
-      if (phaseRef.current !== "night") return;
+      if (phaseRef.current !== "night") {
+        return;
+      }
       pause(true);
       setAway(true);
     };
     const holdHiddenNight = () => {
-      if (document.hidden) holdNight();
+      if (document.hidden) {
+        holdNight();
+      }
     };
     // the visual verifier (?verify) runs several pages in one window, and any of them may lose focus mid-night
     const verifying = new URLSearchParams(location.search).has("verify");
-    if (!verifying) window.addEventListener("blur", holdNight);
+    if (!verifying) {
+      window.addEventListener("blur", holdNight);
+    }
     document.addEventListener("visibilitychange", holdHiddenNight);
     return () => {
       window.removeEventListener("blur", holdNight);
@@ -270,10 +290,14 @@ export default function Game() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const rendererFailed = () => {
-      if (appRef.current) return;
+      if (appRef.current) {
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!appRef.current) setLoadFailure("graphics");
+        if (!appRef.current) {
+          setLoadFailure("graphics");
+        }
       }, RENDERER_GRACE);
     };
     window.addEventListener("unhandledrejection", rendererFailed);
@@ -331,7 +355,9 @@ export default function Game() {
       pause(true);
       setReport(nightReport);
       ask(legacy.bestiary); // what the sea sends next
-      if (sent) consultDirector(sent);
+      if (sent) {
+        consultDirector(sent);
+      }
     },
     [sendPlay, consultDirector, pause, ask],
   );
@@ -339,7 +365,9 @@ export default function Game() {
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
   const onTick = useCallback(
     (state: State) => {
-      if (state !== stateRef.current) return; // a night just replaced and not yet on stage
+      if (state !== stateRef.current) {
+        return; // a night just replaced and not yet on stage
+      }
       const showHud = () => {
         const nextHud = hudOf(state, legacyRef.current);
         if (!lastHudRef.current || !sameHud(lastHudRef.current, nextHud)) {
@@ -356,7 +384,9 @@ export default function Game() {
         showHud();
         return;
       }
-      if (phaseRef.current !== "night") return;
+      if (phaseRef.current !== "night") {
+        return;
+      }
       if (state.outcome) {
         endNight(state, state.outcome);
         return;
@@ -387,10 +417,13 @@ export default function Game() {
     async (id: string) => {
       let fetched: unknown;
       try {
-        if (id === "last") fetched = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
-        else {
+        if (id === "last") {
+          fetched = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
+        } else {
           const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
           fetched = await response.json();
         }
       } catch (error) {
@@ -423,10 +456,11 @@ export default function Game() {
       const creature = creatureOf(play);
       // the night's creature is in the recording; if its sprite is gone the replay draws the monster that plays like it
       let creatureTextures: TextureMap | null = null;
-      if (creature && play.creature)
+      if (creature && play.creature) {
         creatureTextures =
           (await loadCreatureTextures(creature.id)) ??
           standInTextures(await loadTextures(), creature.id, play.creature.archetype);
+      }
       const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
       show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures);
@@ -449,9 +483,13 @@ export default function Game() {
     let frame = 0;
     const poll = (now: number) => {
       frame = requestAnimationFrame(poll);
-      if (phaseRef.current === "night" || phaseRef.current === "replay") return;
+      if (phaseRef.current === "night" || phaseRef.current === "replay") {
+        return;
+      }
       const action = pollGamepadForMenu(memory, now);
-      if (action) actOnMenu(action);
+      if (action) {
+        actOnMenu(action);
+      }
     };
     frame = requestAnimationFrame(poll);
     const unbindKeyboardPress = bindKeyboardPress();
@@ -469,16 +507,23 @@ export default function Game() {
     let dead = false;
     void loadTextures().then(
       (loaded) => {
-        if (dead) return;
+        if (dead) {
+          return;
+        }
         setTextures(loaded);
         // preview: a quiet plaza behind the title screen
         show(newNight(legacyRef.current), legacyRef.current.heir.sex);
         const id = new URLSearchParams(location.search).get("replay");
-        if (id) void startReplay(id);
-        else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+        if (id) {
+          void startReplay(id);
+        } else {
+          ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+        }
       },
       () => {
-        if (!dead) setLoadFailure((current) => current ?? "assets");
+        if (!dead) {
+          setLoadFailure((current) => current ?? "assets");
+        }
       },
     );
     // debug hook for the visual verifier and recordings
@@ -498,7 +543,9 @@ export default function Game() {
     // a night abandoned by closing or backgrounding the tab is still recorded (outcome null)
     const leave = () => sendSnapshot(stateRef.current);
     const hide = () => {
-      if (document.visibilityState === "hidden") leave();
+      if (document.visibilityState === "hidden") {
+        leave();
+      }
     };
     window.addEventListener("pagehide", leave);
     document.addEventListener("visibilitychange", hide);
@@ -514,14 +561,20 @@ export default function Game() {
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
   const announcedFrames = tonight.kind === "ready" ? tonight.creature.frames : undefined;
   useEffect(() => {
-    if (!announced) return;
+    if (!announced) {
+      return;
+    }
     void loadCreatureTextures(announced, announcedFrames ?? null).then((loaded) => {
-      if (!loaded) withdraw(announced);
+      if (!loaded) {
+        withdraw(announced);
+      }
     });
   }, [announced, announcedFrames, withdraw]);
 
   const startNight = async () => {
-    if (starting.current) return;
+    if (starting.current) {
+      return;
+    }
     starting.current = true;
     directorAsk.current?.abort(); // an answer that comes now is too late for this night
     directorAsk.current = null;
@@ -590,13 +643,17 @@ export default function Game() {
   };
   // the warden behind the title screen is the one chosen
   const showPreview = () => {
-    if (stateRef.current) show(stateRef.current, legacyRef.current.heir.sex);
+    if (stateRef.current) {
+      show(stateRef.current, legacyRef.current.heir.sex);
+    }
   };
   const chooseSex = (sex: Sex) => {
     const legacy = legacyRef.current;
     // every choice, the chosen card's again too, has that warden swing once (HeroPortrait)
     setStrike((previous) => ({ sex, count: (previous?.count ?? 0) + 1 }));
-    if (legacy.heir.sex === sex) return;
+    if (legacy.heir.sex === sex) {
+      return;
+    }
     legacy.heir = heirAs(legacy.heir, sex);
     saveLegacy(legacy);
     showPreview();
@@ -617,17 +674,17 @@ export default function Game() {
         const view = upgradeView(id, shopWarden);
         return (
           <button
-            key={id}
-            type="button"
             className="btn up"
             data-upgrade={id}
             disabled={cost === null || legacy.oil < cost}
+            key={id}
             onClick={() => purchase(id)}
+            type="button"
           >
             <Icon name={view.icon} />
             <div>
               <b>{view.label}</b>
-              <em role="img" aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`}>
+              <em aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`} role="img">
                 {"●".repeat(legacy.levels[id])}
                 {"○".repeat(MAX_LEVEL - legacy.levels[id])}
               </em>
@@ -643,24 +700,24 @@ export default function Game() {
   return (
     <div
       className="stage"
+      data-hp={hud?.health}
+      data-kills={hud?.kills}
+      data-lit={hud?.lit}
       data-phase={phase}
       data-ready={ready ? 1 : 0}
-      data-hp={hud?.health}
-      data-lit={hud?.lit}
-      data-kills={hud?.kills}
     >
       <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
           {textures && night && (
             <Scene
-              night={night}
-              textures={textures}
               controls={controls}
+              frozenClock={frozenClock}
+              night={night}
+              onReady={onReady}
+              onTick={onTick}
               paused={paused}
               speed={speed}
-              frozenClock={frozenClock}
-              onTick={onTick}
-              onReady={onReady}
+              textures={textures}
             />
           )}
         </Application>
@@ -677,17 +734,17 @@ export default function Game() {
               </div>
               {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
               <div
+                aria-label="Health"
+                aria-valuemax={Math.round(hud.maxHealth)}
+                aria-valuemin={0}
+                aria-valuenow={Math.round(hud.health)}
                 className={hud.hits > 0 ? "bar struck" : "bar"}
                 key={hud.hits}
                 role="meter"
-                aria-label="Health"
-                aria-valuemin={0}
-                aria-valuemax={Math.round(hud.maxHealth)}
-                aria-valuenow={Math.round(hud.health)}
               >
                 <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
               </div>
-              <div className="oilline" role="img" aria-label={`${hud.kills} slain, ${hud.oil} oil`}>
+              <div aria-label={`${hud.kills} slain, ${hud.oil} oil`} className="oilline" role="img">
                 <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
               </div>
             </div>
@@ -697,21 +754,21 @@ export default function Game() {
                 <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
               </div>
               <div
-                className="bar dawnbar"
-                role="progressbar"
                 aria-label="Night until dawn"
-                aria-valuemin={0}
                 aria-valuemax={100}
+                aria-valuemin={0}
                 aria-valuenow={Math.round(hud.dawn * 100)}
                 aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+                className="bar dawnbar"
+                role="progressbar"
               >
                 <i style={{ width: `${hud.dawn * 100}%` }} />
               </div>
             </div>
-            <div className="lamps" role="img" aria-label={`${hud.lit} of ${hud.lamps} lamps lit`}>
+            <div aria-label={`${hud.lit} of ${hud.lamps} lamps lit`} className="lamps" role="img">
               <span className="long">Lamps </span>
               {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
-                <span key={slot} className={index < hud.lit ? "lit" : ""}>
+                <span className={index < hud.lit ? "lit" : ""} key={slot}>
                   {index < hud.lit ? "◆" : "◇"}
                 </span>
               ))}
@@ -727,10 +784,10 @@ export default function Game() {
                 REPLAY {replay?.play.id}
                 {[1, 2, 4].map((multiplier) => (
                   <button
-                    key={multiplier}
-                    type="button"
                     className={`btn small ${speed === multiplier ? "on" : ""}`}
+                    key={multiplier}
                     onClick={() => setSpeed(multiplier)}
+                    type="button"
                   >
                     {multiplier}×
                   </button>
@@ -743,15 +800,15 @@ export default function Game() {
         {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
         {phase === "night" && (
           <TouchControls
-            sex={legacy.heir.sex}
-            onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
             onPress={(action) => press(controls, action, stateRef.current)}
+            onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
+            sex={legacy.heir.sex}
           />
         )}
 
         {phase === "replayEnd" && replay && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               REPLAY OVER
             </h2>
             <p>{describeNight(replay.play)}</p>
@@ -763,22 +820,22 @@ export default function Game() {
                   : "Replay diverged from the live night."}
             </p>
             <button
-              type="button"
               className="btn big"
               onClick={() => void startReplay(new URLSearchParams(location.search).get("replay") || "last")}
+              type="button"
             >
               Watch again
             </button>
           </div>
         )}
         {phase === "replayRefused" && refusedPlay !== null && (
-          <div className="panel" data-panel="replay-refused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+          <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-refused" role="dialog">
+            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               AN EARLIER VERSION
             </h2>
             <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
             {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
-            <button type="button" className="btn big" onClick={() => location.assign("/")}>
+            <button className="btn big" onClick={() => location.assign("/")} type="button">
               Back to the title
             </button>
           </div>
@@ -787,36 +844,36 @@ export default function Game() {
           <div className="panel" data-panel="paused">
             <div className="logo small">PAUSED</div>
             <p>The window lost focus, so the night is waiting for you.</p>
-            <button type="button" className="btn big" onClick={resume} ref={focusResume}>
+            <button className="btn big" onClick={resume} ref={focusResume} type="button">
               Resume
             </button>
           </div>
         )}
         {loadFailure === "graphics" && (
           <FailurePanel
-            title="NO LAMPLIGHT"
-            message="Lampwarden could not start its graphics."
-            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
             action="Reload"
+            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
+            message="Lampwarden could not start its graphics."
             onAction={() => location.reload()}
+            title="NO LAMPLIGHT"
           />
         )}
         {loadFailure === "assets" && (
           <FailurePanel
-            title="THE LAMPS WON'T LIGHT"
-            message="The pictures for the night would not load."
-            hint="Check your connection, then reload."
             action="Reload"
+            hint="Check your connection, then reload."
+            message="The pictures for the night would not load."
             onAction={() => location.reload()}
+            title="THE LAMPS WON'T LIGHT"
           />
         )}
         {replayError && (
-          <div className="panel" data-panel="replay-error" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+          <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-error" role="dialog">
+            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               NO REPLAY
             </h2>
             <p>Could not load that replay: {replayError}</p>
-            <button type="button" className="btn big" onClick={() => location.assign("/")}>
+            <button className="btn big" onClick={() => location.assign("/")} type="button">
               Back to the title
             </button>
           </div>
@@ -829,23 +886,23 @@ export default function Game() {
               <div className="scroll-intro">
                 <h1 className="brand" data-line>
                   <Image
-                    src="/logo/logo-noglow.png"
                     alt="Lampwarden"
-                    width={68}
                     height={37}
-                    unoptimized
                     loading="eager"
+                    src="/logo/logo-noglow.png"
+                    unoptimized
+                    width={68}
                   />
                 </h1>
                 <div className="scroll-prose">
                   {INTRODUCTION.map((line) => (
-                    <p key={line} data-line>
+                    <p data-line key={line}>
                       {line}
                     </p>
                   ))}
                 </div>
               </div>
-              <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+              <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
               <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
@@ -856,18 +913,18 @@ export default function Game() {
                     const chosen = legacy.heir.sex === sex;
                     return (
                       <button
-                        key={sex}
-                        type="button"
+                        aria-pressed={chosen}
                         className={`hero-card ${chosen ? "chosen" : ""}`}
                         data-sex={sex}
-                        aria-pressed={chosen}
+                        key={sex}
                         onClick={() => chooseSex(sex)}
+                        type="button"
                       >
                         <span className="hero-portrait">
                           <HeroPortrait
                             sex={sex}
-                            textures={textures}
                             strike={strike?.sex === sex ? strike.count : null}
+                            textures={textures}
                           />
                         </span>
                         <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
@@ -892,11 +949,11 @@ export default function Game() {
                   Night {legacy.night}
                   {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
                 </p>
-                <button type="button" className="btn big" disabled={!ready} onClick={startNight} data-line>
+                <button className="btn big" data-line disabled={!ready} onClick={startNight} type="button">
                   {ready ? "Light the lamps" : "Lighting the lamps…"}
                 </button>
                 {legacy.generation > 1 && (
-                  <button type="button" className="btn small" onClick={newLine} data-line>
+                  <button className="btn small" data-line onClick={newLine} type="button">
                     Start a new bloodline
                   </button>
                 )}
@@ -910,8 +967,8 @@ export default function Game() {
         )}
 
         {phase === "dawn" && report && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               DAWN
             </h2>
             <p>
@@ -923,16 +980,16 @@ export default function Game() {
             </p>
             <SeaAnswer report={report} />
             {shop}
-            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
-            <button type="button" className="btn big" onClick={startNight}>
+            <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
+            <button className="btn big" onClick={startNight} type="button">
               Into night {legacy.night}
             </button>
           </div>
         )}
 
         {phase === "heir" && report && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
+          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
             </h2>
             <p>
@@ -945,10 +1002,10 @@ export default function Game() {
             <div className="heirs">
               {heirs.map((heir) => (
                 <button
-                  key={heir.name}
-                  type="button"
                   className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
+                  key={heir.name}
                   onClick={() => chooseHeir(heir)}
+                  type="button"
                 >
                   <Icon name={heir.trait} />
                   <div>
@@ -962,12 +1019,12 @@ export default function Game() {
               ))}
             </div>
             {shop}
-            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+            <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
             <button
-              type="button"
               className="btn big"
               disabled={!heirs.some((heir) => heir.name === legacy.heir.name)}
               onClick={startNight}
+              type="button"
             >
               {heirs.some((heir) => heir.name === legacy.heir.name)
                 ? `${legacy.heir.name} takes up the lamp`
@@ -1017,8 +1074,12 @@ function SeaAnswer({ report }: { report: Report }) {
 }
 
 function tideNote(report: Report) {
-  if (report.tideAfter > report.tideBefore) return `The sea noticed. It is ${tideLabel(report.tideAfter)} now.`;
-  if (report.tideAfter < report.tideBefore) return `The sea draws back. It is ${tideLabel(report.tideAfter)} now.`;
+  if (report.tideAfter > report.tideBefore) {
+    return `The sea noticed. It is ${tideLabel(report.tideAfter)} now.`;
+  }
+  if (report.tideAfter < report.tideBefore) {
+    return `The sea draws back. It is ${tideLabel(report.tideAfter)} now.`;
+  }
   return `The sea stays ${tideLabel(report.tideAfter)}.`;
 }
 
@@ -1039,7 +1100,9 @@ function actOnMenu(action: MenuAction) {
       : null;
   // the pad's press shows as a press (:active does not fire for a click made by code)
   const pressButton = (button: HTMLButtonElement | null | undefined) => {
-    if (!button) return;
+    if (!button) {
+      return;
+    }
     flashPressed(button);
     button.click();
   };
@@ -1051,7 +1114,9 @@ function actOnMenu(action: MenuAction) {
     pressButton(focused ?? primary);
     return;
   }
-  if (!buttons.length) return;
+  if (!buttons.length) {
+    return;
+  }
   const index = focused ? buttons.indexOf(focused) : -1;
   const next = action === "next" ? (index + 1) % buttons.length : index <= 0 ? buttons.length - 1 : index - 1;
   buttons[next]?.focus();

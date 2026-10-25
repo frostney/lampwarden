@@ -136,8 +136,11 @@ export function paintParchment(pixels: Uint8ClampedArray, width: number, height:
       for (const stain of stains) {
         const wobble = (noise(Math.atan2(y - stain.y, x - stain.x) * 2.2 + stain.x, 41) - 0.5) * 0.3;
         const reach = Math.hypot((x - stain.x) / stain.radiusX, (y - stain.y) / stain.radiusY) + wobble;
-        if (reach < 0.85) tone += 0.55;
-        else if (reach < 1.05) tone += 1.25;
+        if (reach < 0.85) {
+          tone += 0.55;
+        } else if (reach < 1.05) {
+          tone += 1.25;
+        }
       }
       tones[y * width + x] = Math.min(4, Math.max(0, Math.floor(tone + threshold(x, y) - 0.5)));
     }
@@ -145,7 +148,9 @@ export function paintParchment(pixels: Uint8ClampedArray, width: number, height:
   for (let index = 0; index < tones.length; index++) {
     const tone = tones[index] ?? -1;
     const colour = PARCHMENT_TONES[tone];
-    if (colour) put(pixels, width, index % width, Math.floor(index / width), colour);
+    if (colour) {
+      put(pixels, width, index % width, Math.floor(index / width), colour);
+    }
   }
   // fibres: short strokes laid along the sheet, on its plain middle only
   const fibreCount = Math.round((width * height) / 450);
@@ -156,10 +161,13 @@ export function paintParchment(pixels: Uint8ClampedArray, width: number, height:
     const colour = hash(index, 8, 77) < 0.65 ? FIBRE_DARK : FIBRE_LIGHT;
     const slope = hash(index, 9, 77) < 0.5 ? 1 : -1;
     for (let step = 0; step < length; step++) {
-      if (x >= 0 && x < width && y >= 0 && y < height && (tones[y * width + x] ?? -1) === 1)
+      if (x >= 0 && x < width && y >= 0 && y < height && (tones[y * width + x] ?? -1) === 1) {
         put(pixels, width, x, y, colour);
+      }
       x++;
-      if (hash(index, step, 78) < 0.25) y += slope;
+      if (hash(index, step, 78) < 0.25) {
+        y += slope;
+      }
     }
   }
 }
@@ -174,8 +182,11 @@ export function paintRoller(pixels: Uint8ClampedArray, width: number, turn: numb
   // the shadow on the parchment: a dark, dithered fade away from the roller
   for (let row = 0; row < ROLLER_SHADOW; row++) {
     const nearness = shadowBelow ? row : ROLLER_SHADOW - 1 - row;
-    for (let x = ROLLER_OVERHANG + 3; x < width - ROLLER_OVERHANG - 3; x++)
-      if (nearness === 0 || threshold(x, row) < 0.5) put(pixels, width, x, shadowTop + row, OUTLINE, 70);
+    for (let x = ROLLER_OVERHANG + 3; x < width - ROLLER_OVERHANG - 3; x++) {
+      if (nearness === 0 || threshold(x, row) < 0.5) {
+        put(pixels, width, x, shadowTop + row, OUTLINE, 70);
+      }
+    }
   }
   // the rod: outline, six rows of shaded wood, outline; grain streaks travel down the face as it turns
   const rodLeft = KNOB_WIDTH;
@@ -192,11 +203,14 @@ export function paintRoller(pixels: Uint8ClampedArray, width: number, turn: numb
     }
   }
   // the knobs, the right one mirrored
-  for (const [row, line] of KNOB.entries())
+  for (const [row, line] of KNOB.entries()) {
     for (const [column, symbol] of [...line].entries()) {
       const colour = BRONZE[symbol];
-      if (!colour) continue;
+      if (!colour) {
+        continue;
+      }
       put(pixels, width, column, top + row, colour);
       put(pixels, width, width - 1 - column, top + row, colour);
     }
+  }
 }

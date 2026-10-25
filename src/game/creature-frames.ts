@@ -7,6 +7,7 @@
 // This file is deliberately not part of creature.ts: that file is in the sim fingerprint, and frames are only ever
 // drawn, never played (the sim neither reads nor writes them), so adding them must not make old recordings unplayable.
 import { z } from "zod";
+
 import { CREATURE_API, creatureSchema } from "./creature";
 
 const CREATURE_ANIMATIONS = ["idle", "walk", "attack"] as const;

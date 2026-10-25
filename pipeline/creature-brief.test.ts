@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { creatureStats } from "../src/game/creature";
 import {
   briefRequestMessage,
@@ -74,7 +75,9 @@ describe("the brief writer's Mubit call", () => {
     expect(request).not.toHaveProperty("temperature");
     expect(request?.system).toEqual([{ type: "text", text: "CREATURE PROMPT", cache_control: { type: "ephemeral" } }]);
     const message = JSON.stringify(request?.messages);
-    for (const name of ["Kelp witch", "Tide hound", "Satyr", "Cyclops", "Harpy"]) expect(message).toContain(name);
+    for (const name of ["Kelp witch", "Tide hound", "Satyr", "Cyclops", "Harpy"]) {
+      expect(message).toContain(name);
+    }
     expect(message).toContain("Charybdis"); // the thread of myth picked when random() is 0
   });
 

@@ -7,6 +7,7 @@
 //   <prefix>/claims/<key>                                      empty; the first put wins, so one of several calls takes a play
 // The prefix is "director" in production; a live test uses another ("director-dev") so the real record stays clean.
 import { get, put } from "@vercel/blob";
+
 import { createBlobLedger, putIfAbsent } from "../blob";
 import { type DecisionLog, decisionLogSchema } from "./log";
 import type { DirectorStore } from "./store";
@@ -21,7 +22,9 @@ export function createBlobStore(prefix: string, playsPrefix: string): DirectorSt
 
   async function readJson(pathname: string): Promise<unknown> {
     const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== 200) return null;
+    if (blob?.statusCode !== 200) {
+      return null;
+    }
     try {
       return JSON.parse(await new Response(blob.stream).text());
     } catch {

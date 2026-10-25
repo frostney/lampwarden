@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+
 import { paintShadow } from "./shadow";
 
 const covered = (shadow: ReturnType<typeof paintShadow>) => {
   const points: { column: number; row: number }[] = [];
-  for (let row = 0; row < shadow.height; row++)
-    for (let column = 0; column < shadow.width; column++)
-      if ((shadow.pixels[(row * shadow.width + column) * 4 + 3] ?? 0) > 0) points.push({ column, row });
+  for (let row = 0; row < shadow.height; row++) {
+    for (let column = 0; column < shadow.width; column++) {
+      if ((shadow.pixels[(row * shadow.width + column) * 4 + 3] ?? 0) > 0) {
+        points.push({ column, row });
+      }
+    }
+  }
   return points;
 };
 const centre = (shadow: ReturnType<typeof paintShadow>) => {
@@ -20,8 +25,9 @@ describe("paintShadow", () => {
   test("covers the feet, in hard pixels", () => {
     const shadow = paintShadow(0, 18);
     expect(shadow.pixels[(shadow.originY * shadow.width + shadow.originX) * 4 + 3]).toBe(255);
-    for (let index = 3; index < shadow.pixels.length; index += 4)
+    for (let index = 3; index < shadow.pixels.length; index += 4) {
       expect([0, 255]).toContain(shadow.pixels[index] ?? -1);
+    }
   });
 
   test("a longer shadow covers more ground and a blob sits round the feet", () => {

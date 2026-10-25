@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { emptyLevels, type Legacy, type Levels, MAX_LEVEL, newLegacy } from "./legacy";
 import { STEP } from "./replay";
 import {
@@ -42,11 +43,15 @@ function place(state: State, kind: MonsterKind, offsetX: number, offsetY = 0) {
     knockY: 0,
   });
   const monster = state.monsters[state.monsters.length - 1];
-  if (!monster) throw new Error("monster not placed");
+  if (!monster) {
+    throw new Error("monster not placed");
+  }
   return monster;
 }
 const run = (state: State, steps: number, input: Input = NO_INPUT) => {
-  for (let count = 0; count < steps; count++) step(state, STEP, count === 0 ? input : NO_INPUT);
+  for (let count = 0; count < steps; count++) {
+    step(state, STEP, count === 0 ? input : NO_INPUT);
+  }
 };
 const plazaRim = (x: number, y: number) =>
   Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y - CENTRE_Y) / PLAZA_HALF_HEIGHT;
@@ -56,7 +61,9 @@ describe("the melee swing", () => {
     const state = stage();
     const cyclops = place(state, "cyclops", 40);
     step(state, STEP, { ...NO_INPUT, melee: true, moveX: 1 });
-    while (cyclops.health === 3) step(state, STEP, NO_INPUT);
+    while (cyclops.health === 3) {
+      step(state, STEP, NO_INPUT);
+    }
     expect(cyclops.health).toBe(1);
     expect(state.puffs.some((puff) => puff.kind === "hit")).toBe(true);
     const distanceAtHit = cyclops.x - state.hero.x;
@@ -139,10 +146,14 @@ describe("a monster's blow on the warden", () => {
     expect(state.hero.hits).toBe(1);
     expect(state.hero.health).toBe(state.hero.maxHealth - 8);
     // walking is held for the hit-stop, so for a few steps the warden only goes where the blow throws him
-    for (let count = 0; count < 3; count++) step(state, STEP, { ...NO_INPUT, moveY: 1 });
+    for (let count = 0; count < 3; count++) {
+      step(state, STEP, { ...NO_INPUT, moveY: 1 });
+    }
     expect(state.hero.y).toBe(CENTRE_Y);
     expect(state.hero.x).toBeLessThan(startX);
-    for (let count = 0; count < 40; count++) step(state, STEP, NO_INPUT);
+    for (let count = 0; count < 40; count++) {
+      step(state, STEP, NO_INPUT);
+    }
     expect(startX - state.hero.x).toBeGreaterThan(20); // away from the attacker on the east
     expect(state.hero.y).toBeCloseTo(CENTRE_Y, 5);
     step(state, STEP, { ...NO_INPUT, moveY: 1 });
@@ -262,7 +273,9 @@ describe("shots", () => {
     const state = stage();
     const cyclops = place(state, "cyclops", 150);
     step(state, STEP, { ...NO_INPUT, ranged: true, aim: { x: cyclops.x, y: cyclops.y - 32 } });
-    for (let count = 0; count < 120 && cyclops.health === 3; count++) step(state, STEP, NO_INPUT);
+    for (let count = 0; count < 120 && cyclops.health === 3; count++) {
+      step(state, STEP, NO_INPUT);
+    }
     expect(cyclops.health).toBe(2);
     expect(cyclops.stun).toBeGreaterThan(0);
     expect(cyclops.knockX).toBeGreaterThan(0);
@@ -286,11 +299,17 @@ describe("shots", () => {
       const state = stage();
       step(state, STEP, { ...NO_INPUT, moveX, moveY }); // turn that way...
       step(state, STEP, NO_INPUT); // ...and stand there
-      for (let count = 0; count < 5 && state.hero.animation === "walk"; count++) step(state, STEP, NO_INPUT);
+      for (let count = 0; count < 5 && state.hero.animation === "walk"; count++) {
+        step(state, STEP, NO_INPUT);
+      }
       step(state, STEP, { ...NO_INPUT, ranged: true });
-      for (let count = 0; count < 120 && state.shots.length === 0; count++) step(state, STEP, NO_INPUT);
+      for (let count = 0; count < 120 && state.shots.length === 0; count++) {
+        step(state, STEP, NO_INPUT);
+      }
       const [shot] = state.shots;
-      if (!shot) throw new Error("no shot fired");
+      if (!shot) {
+        throw new Error("no shot fired");
+      }
       const speed = Math.hypot(shot.velocityX, shot.velocityY);
       const wanted = Math.hypot(screenX, screenY);
       expect(shot.velocityX / speed).toBeCloseTo(screenX / wanted, 5);
@@ -301,9 +320,13 @@ describe("shots", () => {
   test("a mouse aim still sends the shot at the aim, whatever he faces", () => {
     const state = stage();
     step(state, STEP, { ...NO_INPUT, ranged: true, aim: { x: state.hero.x + 100, y: state.hero.y - 40 + 30 } });
-    for (let count = 0; count < 120 && state.shots.length === 0; count++) step(state, STEP, NO_INPUT);
+    for (let count = 0; count < 120 && state.shots.length === 0; count++) {
+      step(state, STEP, NO_INPUT);
+    }
     const [shot] = state.shots;
-    if (!shot) throw new Error("no shot fired");
+    if (!shot) {
+      throw new Error("no shot fired");
+    }
     expect(shot.velocityY / shot.velocityX).toBeCloseTo(0.3, 5);
   });
 });
@@ -322,7 +345,9 @@ describe("the upgrades", () => {
       const state = stage(CENTRE_X, CENTRE_Y, legacy);
       const cyclops = place(state, "cyclops", 40);
       step(state, STEP, { ...NO_INPUT, melee: true, moveX: 1 });
-      while (cyclops.health === 3) step(state, STEP, NO_INPUT);
+      while (cyclops.health === 3) {
+        step(state, STEP, NO_INPUT);
+      }
       const atHit = cyclops.x;
       let farthest = atHit;
       for (let count = 0; count < 60; count++) {
@@ -340,7 +365,9 @@ describe("the upgrades", () => {
       const state = stage(CENTRE_X, CENTRE_Y, legacy);
       const cyclops = place(state, "cyclops", 150);
       step(state, STEP, { ...NO_INPUT, ranged: true, aim: { x: cyclops.x, y: cyclops.y - 32 } });
-      for (let count = 0; count < 120 && cyclops.health === 3; count++) step(state, STEP, NO_INPUT);
+      for (let count = 0; count < 120 && cyclops.health === 3; count++) {
+        step(state, STEP, NO_INPUT);
+      }
       return cyclops.knockX;
     };
     expect(shotPush(withLevels({ knockback: MAX_LEVEL }))).toBeGreaterThan(shotPush(withLevels({})) * 1.6);
@@ -349,7 +376,9 @@ describe("the upgrades", () => {
   test("the oil seeker raises the chance that the slain leave oil", () => {
     const oilFromSlain = (legacy: Legacy) => {
       const state = stage(CENTRE_X, CENTRE_Y, legacy);
-      for (let count = 0; count < 400; count++) place(state, "satyr", 40);
+      for (let count = 0; count < 400; count++) {
+        place(state, "satyr", 40);
+      }
       run(state, 20, { ...NO_INPUT, melee: true, moveX: 1 });
       expect(state.stats.kills).toBe(400);
       return state.oilEarned / state.stats.kills;
@@ -365,7 +394,9 @@ describe("the upgrades", () => {
   test("a night's oil comes from its seed alone", () => {
     const oilOfNight = () => {
       const state = stage();
-      for (let count = 0; count < 50; count++) place(state, "satyr", 40);
+      for (let count = 0; count < 50; count++) {
+        place(state, "satyr", 40);
+      }
       run(state, 20, { ...NO_INPUT, melee: true, moveX: 1 });
       return state.oilEarned;
     };
@@ -376,7 +407,9 @@ describe("the upgrades", () => {
     const stepsToRelight = (legacy: Legacy) => {
       const state = stage(CENTRE_X, CENTRE_Y, legacy);
       const lamp = state.lamps[0];
-      if (!lamp) throw new Error("no lamp");
+      if (!lamp) {
+        throw new Error("no lamp");
+      }
       lamp.lit = false;
       state.hero.x = lamp.x;
       state.hero.y = lamp.y;
@@ -400,7 +433,9 @@ describe("the upgrades", () => {
     const distanceWalked = (legacy: Legacy) => {
       const state = stage(CENTRE_X - 200, CENTRE_Y, legacy);
       const startX = state.hero.x;
-      for (let count = 0; count < 60; count++) step(state, STEP, { ...NO_INPUT, moveX: 1 });
+      for (let count = 0; count < 60; count++) {
+        step(state, STEP, { ...NO_INPUT, moveX: 1 });
+      }
       return state.hero.x - startX;
     };
     const base = distanceWalked(withLevels({}));
@@ -445,10 +480,14 @@ describe("the length of a night", () => {
       const state = newNight(legacy, 1);
       expect(state.length).toBe(nightLength(night));
       state.hero.health = Number.POSITIVE_INFINITY;
-      for (const lamp of state.lamps) lamp.lit = true;
+      for (const lamp of state.lamps) {
+        lamp.lit = true;
+      }
       while (!state.outcome) {
         step(state, STEP, NO_INPUT);
-        for (const lamp of state.lamps) lamp.lit = true; // lamps never fall, so the night runs its length
+        for (const lamp of state.lamps) {
+          lamp.lit = true; // lamps never fall, so the night runs its length
+        }
       }
       expect(state.outcome).toBe("dawn");
       expect(state.elapsed).toBeGreaterThanOrEqual(nightLength(night));
@@ -469,18 +508,21 @@ describe("the pace of the sea", () => {
     const times: number[] = [];
     while (times.length < 4 && !state.outcome) {
       step(state, STEP, NO_INPUT);
-      for (const monster of state.monsters)
+      for (const monster of state.monsters) {
         if (!seen.has(monster.id)) {
           seen.add(monster.id);
           times.push(state.elapsed);
         }
+      }
     }
     return times.slice(1).map((time, index) => time - (times[index] ?? 0));
   }
   const gap = (night: number, tide = 1) => spawnGaps(night, tide).reduce((total, next) => total + next, 0) / 3;
 
   test("each night sends monsters faster than the last", () => {
-    for (let night = 2; night <= 7; night++) expect(gap(night)).toBeLessThan(gap(night - 1));
+    for (let night = 2; night <= 7; night++) {
+      expect(gap(night)).toBeLessThan(gap(night - 1));
+    }
   });
 
   test("the first three nights are gentle: the third is less than a quarter quicker than the first", () => {

@@ -33,13 +33,18 @@ function rewriteSquares(source: string): string {
     let openingIndex = suffixStart;
     for (;;) {
       const character = source[openingIndex];
-      if (character === ")") depth++;
-      else if (character === "(") {
+      if (character === ")") {
+        depth++;
+      } else if (character === "(") {
         depth--;
-        if (depth === 0) break;
+        if (depth === 0) {
+          break;
+        }
       }
       openingIndex--;
-      if (openingIndex < 0) throw new Error(`no opening parenthesis for the square at offset ${suffixStart}`);
+      if (openingIndex < 0) {
+        throw new Error(`no opening parenthesis for the square at offset ${suffixStart}`);
+      }
     }
     pieces.push(source.slice(copiedUpTo, openingIndex), `sq${source.slice(openingIndex, suffixStart + 1)}`);
     copiedUpTo = suffixStart + SQUARE_SUFFIX.length;
@@ -51,9 +56,15 @@ const kit = rewriteSquares(concatenated).replace(
   "const clamp =",
   "const sq = (x: number): number => x * x;\nconst clamp =",
 );
-if (kit.includes("**")) throw new Error("kit still contains **");
-if (kit.replaceAll("===", "").includes(" == ")) throw new Error("kit contains ==");
-if (kit.replaceAll("!==", "").includes(" != ")) throw new Error("kit contains !=");
+if (kit.includes("**")) {
+  throw new Error("kit still contains **");
+}
+if (kit.replaceAll("===", "").includes(" == ")) {
+  throw new Error("kit contains ==");
+}
+if (kit.replaceAll("!==", "").includes(" != ")) {
+  throw new Error("kit contains !=");
+}
 const kitPath = join(KIT_DIRECTORY, "kit.ts");
 if (process.argv.includes("--check")) {
   if (readFileSync(kitPath, "utf8") !== kit) {
@@ -61,4 +72,6 @@ if (process.argv.includes("--check")) {
     process.exit(1);
   }
   console.log("pipeline/kit/kit.ts: identical");
-} else writeFileSync(kitPath, kit);
+} else {
+  writeFileSync(kitPath, kit);
+}

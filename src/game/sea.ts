@@ -39,7 +39,9 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
 
   const show = (next: Tonight) => {
     tonight = next;
-    for (const listener of listeners) listener();
+    for (const listener of listeners) {
+      listener();
+    }
   };
 
   /**
@@ -48,7 +50,9 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
    */
   const ask = (seen: readonly string[]) => {
     const key = [...seen].sort().join(",");
-    if (current?.key === key && current.alive) return;
+    if (current?.key === key && current.alive) {
+      return;
+    }
     const mine = ++generation;
     const isCurrent = () => mine === generation;
     const asking: Asking = { key, alive: true, creatureId: null };
@@ -56,7 +60,9 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
     show(NONE);
     const answering = (async () => {
       const answer = await deps.askForCreature([...seen]);
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        return;
+      }
       if (!answer || answer.kind === "none") {
         asking.alive = false;
         return;
@@ -71,14 +77,18 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
         onStep: (step) => isCurrent() && show({ kind: "generating", step }),
         isCurrent,
       });
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        return;
+      }
       asking.creatureId = creature?.id ?? null;
       asking.alive = creature !== null;
       show(creature ? { kind: "ready", creature } : NONE);
     })();
     // the game's own calls never throw, but whatever is injected may: the asking ends and the next one is a new one
     answering.catch(() => {
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        return;
+      }
       asking.alive = false;
       show(NONE);
     });
@@ -86,8 +96,12 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
 
   // The creature cannot come after all (its sprite did not load): nothing is announced, and the next asking is a new one.
   const withdraw = (creatureId: string) => {
-    if (current?.creatureId === creatureId) current.alive = false;
-    if (tonight.kind === "ready" && tonight.creature.id === creatureId) show(NONE);
+    if (current?.creatureId === creatureId) {
+      current.alive = false;
+    }
+    if (tonight.kind === "ready" && tonight.creature.id === creatureId) {
+      show(NONE);
+    }
   };
 
   // The page goes: whatever is still being made is no longer waited for.

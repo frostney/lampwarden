@@ -29,7 +29,9 @@ const normalizedName = (name: string) =>
 /** The first `{ ... }` span of a reply as a validated brief, or null. Fences and chatter around the JSON are tolerated. */
 export function parseCreatureBrief(text: string | null): CreatureBrief | null {
   const span = /\{[\s\S]*\}/.exec(text ?? "")?.[0];
-  if (!span) return null;
+  if (!span) {
+    return null;
+  }
   try {
     const parsed = creatureBriefSchema.safeParse(JSON.parse(span));
     return parsed.success ? parsed.data : null;
@@ -114,7 +116,9 @@ export async function writeCreatureBrief(
     }
     failure = "invalid";
     const brief = parseCreatureBrief(call.text);
-    if (brief && !taken.has(normalizedName(brief.name))) return { ok: true, brief };
+    if (brief && !taken.has(normalizedName(brief.name))) {
+      return { ok: true, brief };
+    }
   }
   return { ok: false, reason: failure };
 }

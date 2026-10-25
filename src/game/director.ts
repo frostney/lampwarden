@@ -10,6 +10,7 @@
 // how a recorded night plays. Anything `directorFrom` or `rulesDirector` reads therefore belongs in that file, never
 // here: an edit here would change what a replay does without changing the fingerprint. It re-exports that module so the game and the server have one place to import from.
 import { z } from "zod";
+
 import {
   CREATURE_SHARE_MAX,
   CREATURE_SHARE_MIN,
@@ -55,11 +56,15 @@ const LINE_STRIPPED = /[^\p{L}\p{N} .,;:!?'’\-–—…()]/gu;
 /** A line the player may be shown: only plain characters, one space between words, at most LINE_MAX long. */
 export function cleanLine(text: string): string {
   const plain = text.replace(LINE_STRIPPED, " ").replace(/\s+/g, " ").trim();
-  if (plain.length <= LINE_MAX) return plain;
+  if (plain.length <= LINE_MAX) {
+    return plain;
+  }
   // cut between code points, never inside a surrogate pair: the stored schema counts UTF-16 units and allows no lone half
   let cut = "";
   for (const character of plain) {
-    if (cut.length + character.length > LINE_MAX - 1) break;
+    if (cut.length + character.length > LINE_MAX - 1) {
+      break;
+    }
     cut += character;
   }
   const lastSpace = cut.lastIndexOf(" ");
@@ -93,7 +98,9 @@ export type Proposal = z.infer<typeof proposalSchema>;
 export function parseProposal(text: string): Proposal | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start) {
+    return null;
+  }
   try {
     const parsed = proposalSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
     return parsed.success ? parsed.data : null;
@@ -116,7 +123,9 @@ export function clampProposal(
   engagement?: EngagementKind,
 ): Director | null {
   const line = cleanLine(proposal.line);
-  if (line === "") return null;
+  if (line === "") {
+    return null;
+  }
   // after a night that was not engaged, whatever the model says, no weight drops below 1 and the share not below the default
   const easing = mayEase(engagement);
   const weight = (value: number) => hundredths(clamp(value, easing ? MIX_MIN : 1, MIX_MAX));
@@ -146,7 +155,9 @@ export function clampProposal(
  */
 export function checkedDecision(received: unknown, rulesTide: number, engagement?: EngagementKind): Director | null {
   const parsed = directorSchema.safeParse(received);
-  if (!parsed.success || parsed.data.source !== "mubit") return null;
+  if (!parsed.success || parsed.data.source !== "mubit") {
+    return null;
+  }
   const { data } = parsed;
   return clampProposal(
     {

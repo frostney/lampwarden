@@ -1,5 +1,6 @@
 // Recorded plays: what the API routes that store and serve them share.
 import { z } from "zod";
+
 import { SEXES } from "../scene/assets";
 import { recordedCreatureSchema } from "./creature";
 import { TRAITS, type TraitId } from "./legacy";
@@ -36,7 +37,9 @@ const summarisedPlay = z.object({
 // A recorded night in one line (who, which night, how it ended), or null for a recording too odd to describe.
 export function describeNight(play: unknown): string | null {
   const parsed = summarisedPlay.safeParse(play);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   const { legacy, outcome, stats, timeline } = parsed.data;
   return `${legacy.heir.name}, night ${legacy.night}: ${outcome ?? "abandoned"}, ${stats.kills} slain, ${stats.lampsLost} lamps snuffed, ${timeline.length} s.`;
 }

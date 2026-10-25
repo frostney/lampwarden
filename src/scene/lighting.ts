@@ -106,9 +106,13 @@ function wardenSource(
 ): LightSource | null {
   const light = heroLightEllipse(warden.x, warden.y, heroFlickerStep(clock));
   const closeness = Math.hypot((x - light.centerX) / light.radiusX, (y - light.centerY) / light.radiusY);
-  if (closeness >= 1) return null;
+  if (closeness >= 1) {
+    return null;
+  }
   const strength = (1 - closeness ** HERO_LIGHT.falloff) * fade * WARDEN_GAIN;
-  if (strength < MIN_SOURCE) return null;
+  if (strength < MIN_SOURCE) {
+    return null;
+  }
   const acrossGround = x - warden.x;
   const downGround = (y - warden.y) * 2;
   const length = Math.hypot(acrossGround, downGround);
@@ -139,12 +143,18 @@ export function illuminate(
   const sources: LightSource[] = [];
   let unlit = 1;
   for (const lamp of lamps) {
-    if (!lamp.lit || lamp === skip) continue;
+    if (!lamp.lit || lamp === skip) {
+      continue;
+    }
     const pool = poolEllipse(lamp.x, lamp.y, radius, lampFlickerStep(lamp.x, lamp.y, clock));
     const closeness = Math.hypot((x - pool.centerX) / pool.radiusX, (y - pool.centerY) / pool.radiusY);
-    if (closeness >= 1) continue;
+    if (closeness >= 1) {
+      continue;
+    }
     const strength = (1 - closeness ** POOL_FALLOFF) * fade;
-    if (strength < MIN_SOURCE) continue;
+    if (strength < MIN_SOURCE) {
+      continue;
+    }
     unlit *= 1 - Math.min(1, strength * TINT_GAIN);
     const acrossGround = x - lamp.x;
     const downGround = (y - lamp.y) * 2;
@@ -162,10 +172,13 @@ export function illuminate(
   sources.sort((first, second) => second.strength - first.strength);
   const lampAmount = stepped(1 - unlit, LIGHT_STEPS);
   let wardenLight: LightSource | null = null;
-  if (warden === "self") unlit *= 1 - Math.min(1, WARDEN_SELF * fade * TINT_GAIN);
-  else if (warden) {
+  if (warden === "self") {
+    unlit *= 1 - Math.min(1, WARDEN_SELF * fade * TINT_GAIN);
+  } else if (warden) {
     wardenLight = wardenSource(warden, x, y, clock, fade);
-    if (wardenLight) unlit *= 1 - Math.min(1, wardenLight.strength * TINT_GAIN);
+    if (wardenLight) {
+      unlit *= 1 - Math.min(1, wardenLight.strength * TINT_GAIN);
+    }
   }
   return {
     amount: stepped(1 - unlit, LIGHT_STEPS),

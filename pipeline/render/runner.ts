@@ -3,6 +3,7 @@
 // It runs model-written code, so model code reaches it only inside the Vercel Sandbox VM, never on a host.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { writePng } from "./png";
 
 // The kit (../kit/kit.ts) is excluded from type-checking: it is the model-facing API, written for its prompts rather
@@ -28,10 +29,14 @@ function isKitModule(value: Record<string, unknown>): value is Record<string, un
 }
 
 const [file, name, poseName] = process.argv.slice(2);
-if (!file || !name) throw new Error("usage: bun runner.ts <build.ts> <name> [pose]");
+if (!file || !name) {
+  throw new Error("usage: bun runner.ts <build.ts> <name> [pose]");
+}
 
 const kitExports: Record<string, unknown> = await import(join(import.meta.dir, "..", "kit", "kit.ts"));
-if (!isKitModule(kitExports)) throw new Error("the kit does not export Kit and post");
+if (!isKitModule(kitExports)) {
+  throw new Error("the kit does not export Kit and post");
+}
 
 const source = readFileSync(file, "utf8");
 const names = Object.keys(kitExports).filter((exportName) => /^[A-Za-z_]\w*$/.test(exportName));
@@ -43,7 +48,9 @@ const build: unknown = new Function(...names, "POSE", `${body}\nreturn build;`)(
   ...names.map((exportName) => kitExports[exportName]),
   poseName || "",
 );
-if (typeof build !== "function") throw new TypeError("build is not a function");
+if (typeof build !== "function") {
+  throw new TypeError("build is not a function");
+}
 const kit = new kitExports.Kit();
 build(kit);
 const rendered = kitExports.post(kit.render());

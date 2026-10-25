@@ -95,7 +95,7 @@ export async function judgeHeroCode(
   const frames = REPRESENTATIVE_FRAMES(sex);
   const shownCode = source.kind === "model" ? source.code : "";
   const staticIssues = source.kind === "model" ? heroCodeIssues(sex, source.code) : [];
-  if (staticIssues.length > 0)
+  if (staticIssues.length > 0) {
     return {
       name,
       code: shownCode,
@@ -115,6 +115,7 @@ export async function judgeHeroCode(
       score: 0,
       accepted: false,
     };
+  }
   const attempts = await Promise.all(
     frames.map((frame) => {
       const code = source.kind === "model" ? source.code : source.codeFor(frame);
@@ -134,7 +135,9 @@ export async function judgeHeroCode(
   );
   const judged = attempts.map((attempt, index) => {
     const frame = frames[index];
-    if (!frame) throw new Error("a frame without a spec");
+    if (!frame) {
+      throw new Error("a frame without a spec");
+    }
     return judgedFrameOf(frame, attempt);
   });
   return {
@@ -228,11 +231,16 @@ export async function runHeroLoop(
     ),
   );
   let bestIndex = 0;
-  for (const [index, attempt] of candidates.entries())
-    if (attempt.score > (candidates[bestIndex]?.score ?? 0)) bestIndex = index;
+  for (const [index, attempt] of candidates.entries()) {
+    if (attempt.score > (candidates[bestIndex]?.score ?? 0)) {
+      bestIndex = index;
+    }
+  }
   const first = candidates[bestIndex];
   const chosen = drawn[bestIndex];
-  if (!first || !chosen) return null;
+  if (!first || !chosen) {
+    return null;
+  }
   const candidateScores = candidates.map((attempt) => attempt.score);
   print(`hero-${sex} | candidates ${JSON.stringify(candidateScores)} | accepted=${first.accepted}`);
   const attempts: HeroAttempt[] = [...candidates];

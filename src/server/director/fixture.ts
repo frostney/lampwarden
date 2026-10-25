@@ -42,7 +42,7 @@ export interface FixtureOverrides {
 // [step, moveX, moveY, strike, shot, aimX, aimY] every half second: walking, with a strike every third change and a shot every fourth
 function engagedInputs(steps: number): number[][] {
   const rows: number[][] = [];
-  for (let step = 0, index = 0; step < steps; step += 30, index++)
+  for (let step = 0, index = 0; step < steps; step += 30, index++) {
     rows.push([
       step,
       index % 2 === 0 ? 1 : 0,
@@ -52,6 +52,7 @@ function engagedInputs(steps: number): number[][] {
       400,
       300,
     ]);
+  }
   return rows;
 }
 

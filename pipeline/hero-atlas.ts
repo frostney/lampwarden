@@ -22,10 +22,12 @@ export function packHeroAtlas(sex: Sex, rendered: ReadonlyMap<string, Uint8Array
   const atlas = new PixelImage(HERO_ATLAS_SIZE.width, HERO_ATLAS_SIZE.height);
   for (const { key, x, y } of heroFrames(sex)) {
     const pixels = rendered.get(key);
-    if (!pixels || pixels.length !== HERO_FRAME_SIZE * rowBytes)
+    if (!pixels || pixels.length !== HERO_FRAME_SIZE * rowBytes) {
       throw new Error(`${key}: no ${HERO_FRAME_SIZE} px render`);
-    for (let row = 0; row < HERO_FRAME_SIZE; row++)
+    }
+    for (let row = 0; row < HERO_FRAME_SIZE; row++) {
       atlas.data.set(pixels.subarray(row * rowBytes, (row + 1) * rowBytes), ((y + row) * atlas.width + x) * 4);
+    }
   }
   return encodePng(atlas);
 }

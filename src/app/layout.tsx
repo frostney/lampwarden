@@ -36,7 +36,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${titleFont.variable} ${bodyFont.variable}`}>
+    <html className={`${titleFont.variable} ${bodyFont.variable}`} lang="en">
       <body>{children}</body>
     </html>
   );

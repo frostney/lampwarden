@@ -67,8 +67,12 @@ export function isSafeRenderArgument(value: string): boolean {
 
 /** Why a request cannot be rendered, or null when it can. */
 export function invalidRequestReason(request: RenderRequest): string | null {
-  if (!request.name || !isSafeRenderArgument(request.name)) return `invalid sprite name: ${request.name}`;
-  if (!isSafeRenderArgument(request.pose)) return `invalid pose: ${request.pose}`;
+  if (!request.name || !isSafeRenderArgument(request.name)) {
+    return `invalid sprite name: ${request.name}`;
+  }
+  if (!isSafeRenderArgument(request.pose)) {
+    return `invalid pose: ${request.pose}`;
+  }
   return null;
 }
 
@@ -136,7 +140,9 @@ export type BatchItemOutcome = z.infer<typeof batchResultsSchema>["items"][numbe
 
 /** One item's outcome as a render result: the runner's stats and PNG, or the one-line reason it failed. */
 export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds: number): RenderResult {
-  if (outcome.timedOut) return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
+  if (outcome.timedOut) {
+    return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
+  }
   if (outcome.exitCode !== 0) {
     // Bun reports a process killed by a signal (the kernel's out-of-memory kill) as a null exit code
     const reason =
@@ -145,7 +151,9 @@ export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds
         : lastErrorLine(outcome.standardError).slice(0, 300);
     return { ok: false, error: `exit ${outcome.exitCode}: ${reason}` };
   }
-  if (outcome.png === null) return { ok: false, error: "render wrote no PNG" };
+  if (outcome.png === null) {
+    return { ok: false, error: "render wrote no PNG" };
+  }
   try {
     return { ok: true, stats: parseStatsLine(outcome.standardOutput), png: Buffer.from(outcome.png, "base64") };
   } catch {

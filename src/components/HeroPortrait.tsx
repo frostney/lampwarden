@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+
 import {
   FRAMES,
   FRAMES_PER_SECOND,
@@ -33,7 +34,9 @@ export function HeroPortrait({
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
     const picture = textures?.[heroAtlasKey(sex)]?.source.resource;
-    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) return;
+    if (!context || !(picture instanceof ImageBitmap || picture instanceof HTMLImageElement)) {
+      return;
+    }
     const resting = heroAtlasCell("idle", 0, "s");
     const shift = shiftOfBody(picture, resting);
     const draw = (animation: HeroAnimation, frame: number) => {
@@ -53,7 +56,9 @@ export function HeroPortrait({
     };
     draw("idle", 0);
     // with reduced motion the warden is only ever shown at rest
-    if (swing === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (swing === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
     draw("melee", 0);
     let shown = 0;
     let began: number | null = null;
@@ -74,7 +79,7 @@ export function HeroPortrait({
     handle = requestAnimationFrame(step);
     return () => cancelAnimationFrame(handle);
   }, [sex, textures, swing]);
-  return <canvas ref={canvas} width={PORTRAIT.width} height={PORTRAIT.height} className="hero-sprite" />;
+  return <canvas className="hero-sprite" height={PORTRAIT.height} ref={canvas} width={PORTRAIT.width} />;
 }
 
 // the offset that centres the solid body of the frame in `cell` in the portrait, read once for each picture (0 when the
@@ -82,12 +87,16 @@ export function HeroPortrait({
 const shifts = new WeakMap<ImageBitmap | HTMLImageElement, number>();
 function shiftOfBody(picture: ImageBitmap | HTMLImageElement, cell: { x: number; y: number }) {
   const known = shifts.get(picture);
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    return known;
+  }
   const reader = document.createElement("canvas");
   reader.width = HERO_FRAME_SIZE;
   reader.height = HERO_FRAME_SIZE;
   const context = reader.getContext("2d", { willReadFrequently: true });
-  if (!context) return 0;
+  if (!context) {
+    return 0;
+  }
   context.drawImage(picture, cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE, 0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
   const { data } = context.getImageData(0, 0, HERO_FRAME_SIZE, HERO_FRAME_SIZE);
   const shift = portraitShift(data, HERO_FRAME_SIZE, HERO_FRAME_SIZE);

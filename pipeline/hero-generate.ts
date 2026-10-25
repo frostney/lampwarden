@@ -12,7 +12,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
 import { HERO_ANIMATIONS, SEXES, type Sex } from "../src/scene/assets";
 import { createFileStore } from "./file-store";
 import { heroFrameBuilds } from "./hero-animation";
@@ -38,13 +40,16 @@ const { values } = parseArgs({
   },
 });
 const sexes = SEXES.filter((sex) => !values.sex || values.sex === sex);
-if (sexes.length === 0) throw new Error(`--sex is male or female, not ${values.sex}`);
+if (sexes.length === 0) {
+  throw new Error(`--sex is male or female, not ${values.sex}`);
+}
 checkoutSandboxOptions(); // fail now, not at the first render, when the snapshot id is missing
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey)
+if (!apiKey) {
   throw new Error(
     "MUBIT_API_KEY is not set (export it in your shell, or resolve it from .env.local; see docs/tooling.md)",
   );
+}
 const outputDirectory = resolve(values.out);
 mkdirSync(outputDirectory, { recursive: true });
 const runsDirectory = join(PIPELINE_DIRECTORY, "runs");
@@ -159,7 +164,9 @@ for (const sex of sexes) {
           kind: "script",
           codeFor: (frame) => {
             const code = deterministic.get(`${sex}_${poseOf(frame)}_${frame.direction}`);
-            if (!code) throw new Error(`no deterministic build for ${poseOf(frame)} ${frame.direction}`);
+            if (!code) {
+              throw new Error(`no deterministic build for ${poseOf(frame)} ${frame.direction}`);
+            }
             return code;
           },
         },
@@ -200,7 +207,7 @@ for (const sex of sexes) {
       1,
     ),
   );
-  for (const attempt of outcome.attempts)
+  for (const attempt of outcome.attempts) {
     console.log(
       `  ${attempt.name}: mean ${attempt.score.toFixed(2)} accepted ${attempt.accepted}`,
       attempt.frames
@@ -209,6 +216,7 @@ for (const sex of sexes) {
         )
         .join(" "),
     );
+  }
   // the attempts that could replace the current warden, best first (the winner leads); each gets its atlas rendered
   const eligible = [outcome.winner, ...outcome.attempts.filter((attempt) => attempt !== outcome.winner)]
     .filter((attempt) => attempt.accepted && attempt.score > bar)

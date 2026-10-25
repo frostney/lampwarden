@@ -4,6 +4,7 @@
 // On failure it prints the reason to stderr and exits 1.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { renderFromCheckout } from "./render-checkout";
 
 const [buildPath, name, outputDirectory, pose = ""] = Bun.argv.slice(2);

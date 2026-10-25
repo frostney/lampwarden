@@ -4,6 +4,7 @@
 // The play has no positions, so "where the warden was when a lamp went dark" is not here; what the timeline does give
 // is when each lamp went dark, how the crowd grew and how health fell.
 import { z } from "zod";
+
 import { recordedCreatureSchema } from "@/game/creature";
 import { directorFrom, type EngagementKind, mayEase, tideRange } from "@/game/director";
 import { type Engagement, engagementOf, heldTide } from "@/game/engagement";
@@ -83,8 +84,11 @@ export function summarise(
   let lampSecondsDark = 0;
   let before = lampCount;
   for (const [second, , lit] of timeline) {
-    if (lit < before) wentDark.push({ atSecond: second, lampsLitAfter: lit });
-    else if (lit > before) relit += lit - before;
+    if (lit < before) {
+      wentDark.push({ atSecond: second, lampsLitAfter: lit });
+    } else if (lit > before) {
+      relit += lit - before;
+    }
     lampSecondsDark += lampCount - lit;
     before = lit;
   }
@@ -93,7 +97,9 @@ export function summarise(
   let lowestHealth = { atSecond: 0, health: stats.maxHp };
   for (const [second, , , health, monsters] of timeline) {
     peakMonsters = Math.max(peakMonsters, monsters);
-    if (health < lowestHealth.health) lowestHealth = { atSecond: second, health };
+    if (health < lowestHealth.health) {
+      lowestHealth = { atSecond: second, health };
+    }
   }
   const monstersAtFifteen = timeline.find(([second]) => second === 15)?.[4] ?? null;
 

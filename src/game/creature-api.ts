@@ -2,6 +2,7 @@
 // tonight, and following a job that is still making one. Answers come over the network, so they are parsed, not
 // trusted; any failure is null, and the night simply has no new creature.
 import { z } from "zod";
+
 import {
   CREATURE_API,
   type CreatureJob,
@@ -77,16 +78,24 @@ export async function waitForJob(jobId: string, options: WaitOptions): Promise<C
   let misses = 0;
   while (isCurrent() && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    if (!isCurrent()) return null;
+    if (!isCurrent()) {
+      return null;
+    }
     const job = await followJob(jobId);
     if (!job) {
       misses++;
-      if (misses >= MISSES_ALLOWED) return null;
+      if (misses >= MISSES_ALLOWED) {
+        return null;
+      }
       continue;
     }
     misses = 0;
-    if (job.step === "done") return job.creature ?? null;
-    if (job.step === "failed") return null;
+    if (job.step === "done") {
+      return job.creature ?? null;
+    }
+    if (job.step === "failed") {
+      return null;
+    }
     onStep(job.step);
   }
   return null;

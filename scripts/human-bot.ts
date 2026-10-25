@@ -136,18 +136,26 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
       monsters: state.monsters.map((monster) => ({ id: monster.id, kind: monster.kind, x: monster.x, y: monster.y })),
       dark: state.lamps.map((lamp) => !lamp.lit),
     });
-    while (history.length > 1 && (history[0]?.time ?? clock) < clock - HISTORY_SECONDS) history.shift();
+    while (history.length > 1 && (history[0]?.time ?? clock) < clock - HISTORY_SECONDS) {
+      history.shift();
+    }
   };
   const glimpseAt = (time: number) => {
     let found = history[0];
-    for (const candidate of history) if (candidate.time <= time) found = candidate;
+    for (const candidate of history) {
+      if (candidate.time <= time) {
+        found = candidate;
+      }
+    }
     return found;
   };
   // What the eye has of the night: a monster is noticed when it shows in the night as it was a reaction time ago (its
   // lamps are read the same way); once noticed it is followed with a shorter lag; one that has died is already gone.
   const seenNow = (state: State): Glimpse => {
     const noticing = glimpseAt(clock - reaction);
-    for (const monster of noticing?.monsters ?? []) noticed.add(monster.id);
+    for (const monster of noticing?.monsters ?? []) {
+      noticed.add(monster.id);
+    }
     const following = glimpseAt(clock - traits.trackingLag);
     const alive = new Set(state.monsters.map((monster) => monster.id));
     return {
@@ -158,15 +166,25 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
   };
 
   const hold = (controls: Controls, octant: number | null) => {
-    for (const key of ["a", "d", "w", "s"]) controls.keys.delete(key);
+    for (const key of ["a", "d", "w", "s"]) {
+      controls.keys.delete(key);
+    }
     if (octant !== null) {
       const [x, y] = octantVector(octant);
       const horizontal = Math.round(x);
       const vertical = Math.round(y);
-      if (horizontal > 0) controls.keys.add("d");
-      if (horizontal < 0) controls.keys.add("a");
-      if (vertical > 0) controls.keys.add("s");
-      if (vertical < 0) controls.keys.add("w");
+      if (horizontal > 0) {
+        controls.keys.add("d");
+      }
+      if (horizontal < 0) {
+        controls.keys.add("a");
+      }
+      if (vertical > 0) {
+        controls.keys.add("s");
+      }
+      if (vertical < 0) {
+        controls.keys.add("w");
+      }
     }
     if (octant !== heading) {
       heading = octant;
@@ -177,13 +195,17 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
   // enough, so a monster crowding the warden does not make his hands twitch
   const octantTowards = (state: State, x: number, y: number, bias: number) => {
     const angle = Math.atan2((y - state.hero.y) * 2, x - state.hero.x) + bias;
-    if (heading !== null && offsetFromOctant(Math.cos(angle), Math.sin(angle), heading) < KEEP_HEADING) return heading;
+    if (heading !== null && offsetFromOctant(Math.cos(angle), Math.sin(angle), heading) < KEEP_HEADING) {
+      return heading;
+    }
     return octantOf(Math.cos(angle), Math.sin(angle));
   };
 
   const chooseTarget = (state: State, monsters: Seen[]): Seen | null => {
     const kept = monsters.find((monster) => monster.id === targetId);
-    if (kept && clock < targetUntil) return kept;
+    if (kept && clock < targetUntil) {
+      return kept;
+    }
     if (monsters.length === 0) {
       targetId = null;
       return null;
@@ -194,12 +216,15 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     const nearestTo = (score: (monster: Seen) => number) =>
       monsters.reduce((best, monster) => (score(monster) < score(best) ? monster : best));
     let chosen: Seen | undefined;
-    if (roll < traits.sloppiness) chosen = monsters[Math.floor(random() * monsters.length)];
-    else if (roll < traits.sloppiness + traits.lampFocus)
+    if (roll < traits.sloppiness) {
+      chosen = monsters[Math.floor(random() * monsters.length)];
+    } else if (roll < traits.sloppiness + traits.lampFocus) {
       chosen = nearestTo((monster) =>
         Math.min(...state.lamps.filter((lamp) => lamp.lit).map((lamp) => ground(monster.x, monster.y, lamp.x, lamp.y))),
       );
-    else chosen = nearestTo((monster) => ground(monster.x, monster.y, state.hero.x, state.hero.y));
+    } else {
+      chosen = nearestTo((monster) => ground(monster.x, monster.y, state.hero.x, state.hero.y));
+    }
     targetId = chosen?.id ?? null;
     targetUntil = clock + between(traits.lockMin, traits.lockMax);
     targetBias = gaussian() * traits.headingError * clumsiness * DEGREES;
@@ -213,12 +238,14 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
 
     // lamps: a dark one gets a plan when the warden first sees it dark, and loses it when it is lit again
     state.lamps.forEach((lamp, index) => {
-      if (lamp.lit) plans.delete(index);
-      else if (seen.dark[index] && !plans.has(index))
+      if (lamp.lit) {
+        plans.delete(index);
+      } else if (seen.dark[index] && !plans.has(index)) {
         plans.set(index, {
           startAt: clock + between(traits.relightLateMin, traits.relightLateMax),
           ignore: random() < traits.relightIgnore,
         });
+      }
     });
 
     if (clock < pausedUntil) {
@@ -243,7 +270,9 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     let dueDistance = Number.POSITIVE_INFINITY;
     state.lamps.forEach((lamp, index) => {
       const plan = plans.get(index);
-      if (!plan || plan.ignore || plan.startAt > clock || lamp.lit) return;
+      if (!plan || plan.ignore || plan.startAt > clock || lamp.lit) {
+        return;
+      }
       const distance = ground(lamp.x, lamp.y, hero.x, hero.y);
       if (distance < dueDistance) {
         dueDistance = distance;
@@ -254,8 +283,11 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     const fighting = target !== null && targetDistance < traits.engageRange;
     if (!fighting && dueLamp) {
       const lamp: { x: number; y: number } = dueLamp;
-      if (dueDistance < RELIGHT_STANDING) hold(controls, null);
-      else hold(controls, octantTowards(state, lamp.x, lamp.y, 0));
+      if (dueDistance < RELIGHT_STANDING) {
+        hold(controls, null);
+      } else {
+        hold(controls, octantTowards(state, lamp.x, lamp.y, 0));
+      }
       return;
     }
     if (target) {
@@ -279,8 +311,11 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
       return;
     }
     // nothing to do: drift back to the middle
-    if (ground(HOME.x, HOME.y, hero.x, hero.y) > 60) hold(controls, octantTowards(state, HOME.x, HOME.y, 0));
-    else hold(controls, null);
+    if (ground(HOME.x, HOME.y, hero.x, hero.y) > 60) {
+      hold(controls, octantTowards(state, HOME.x, HOME.y, 0));
+    } else {
+      hold(controls, null);
+    }
   };
 
   return {
@@ -291,7 +326,9 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
         nextReaction = clock + 1;
       }
       glimpse(state);
-      if (clock < nextThink) return;
+      if (clock < nextThink) {
+        return;
+      }
       nextThink = clock + traits.thinkInterval;
       think(state, controls);
     },

@@ -124,21 +124,36 @@ export function heroCodeIssues(sex: Sex, source: string): string[] {
   const issues: string[] = [];
   // what the code does, not what its comments say
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-  if ((code.match(/\bfunction\s+build\s*\(/g) ?? []).length !== 1) issues.push("define function build(k) exactly once");
-  if (/\b(FACING|POSE|modelBuild)\s*=[^=]|\b(const|let|var|function)\s+(FACING|POSE|modelBuild)\b/.test(code))
+  if ((code.match(/\bfunction\s+build\s*\(/g) ?? []).length !== 1) {
+    issues.push("define function build(k) exactly once");
+  }
+  if (/\b(FACING|POSE|modelBuild)\s*=[^=]|\b(const|let|var|function)\s+(FACING|POSE|modelBuild)\b/.test(code)) {
     issues.push("do not declare FACING, POSE or modelBuild: the renderer provides them");
-  if ((code.match(/\bhero\s*\(/g) ?? []).length !== 1) issues.push("call hero(k, {...}) exactly once");
-  if (!new RegExp(`\\bsex\\s*:\\s*${quoted(sex)}`).test(code)) issues.push(`pass sex: '${sex}'`);
-  if (!new RegExp(`\\bmelee\\s*:\\s*${quoted(weapons.melee)}`).test(code))
+  }
+  if ((code.match(/\bhero\s*\(/g) ?? []).length !== 1) {
+    issues.push("call hero(k, {...}) exactly once");
+  }
+  if (!new RegExp(`\\bsex\\s*:\\s*${quoted(sex)}`).test(code)) {
+    issues.push(`pass sex: '${sex}'`);
+  }
+  if (!new RegExp(`\\bmelee\\s*:\\s*${quoted(weapons.melee)}`).test(code)) {
     issues.push(`the melee weapon must be '${weapons.melee}': pass melee: '${weapons.melee}'`);
-  if (!new RegExp(`\\branged\\s*:\\s*${quoted(weapons.ranged)}`).test(code))
+  }
+  if (!new RegExp(`\\branged\\s*:\\s*${quoted(weapons.ranged)}`).test(code)) {
     issues.push(`the ranged weapon must be '${weapons.ranged}': pass ranged: '${weapons.ranged}'`);
-  if (!/\bpose\s*:\s*POSE\s*\|\|\s*['"`]idle['"`]/.test(code)) issues.push("pass pose: POSE || 'idle' exactly");
-  if (!/\bfacing\s*:\s*FACING\b/.test(code)) issues.push("pass facing: FACING exactly");
-  if (/\b(at|height|build|ready)\s*:/.test(code))
+  }
+  if (!/\bpose\s*:\s*POSE\s*\|\|\s*['"`]idle['"`]/.test(code)) {
+    issues.push("pass pose: POSE || 'idle' exactly");
+  }
+  if (!/\bfacing\s*:\s*FACING\b/.test(code)) {
+    issues.push("pass facing: FACING exactly");
+  }
+  if (/\b(at|height|build|ready)\s*:/.test(code)) {
     issues.push("do not pass at, height, build or ready: the game sets the anchor, the size and the weapon in hand");
-  if (/\bk\s*\.\s*[A-Za-z]/.test(code))
+  }
+  if (/\bk\s*\.\s*[A-Za-z]/.test(code)) {
     issues.push("call no raw shapes or k methods: they do not turn with the figure; use hero() parameters only");
+  }
   return issues;
 }
 
@@ -147,7 +162,11 @@ const MIN_FIGURE_PIXELS = 100;
 
 const opaquePixels = (rgba: Uint8Array) => {
   let count = 0;
-  for (let offset = 3; offset < rgba.length; offset += 4) if ((rgba[offset] ?? 0) > 200) count++;
+  for (let offset = 3; offset < rgba.length; offset += 4) {
+    if ((rgba[offset] ?? 0) > 200) {
+      count++;
+    }
+  }
   return count;
 };
 
@@ -173,27 +192,31 @@ export function assembleHeroAtlas(
   builds: readonly FrameBuild[],
   results: readonly RenderResult[],
 ): HeroAtlasResult {
-  if (results.length !== builds.length)
+  if (results.length !== builds.length) {
     return { ok: false, kind: "incomplete", reason: "the frame batch came back incomplete" };
+  }
   const frames = new Map<string, Uint8Array>();
   for (const [index, build] of builds.entries()) {
     const result = results[index];
-    if (!result?.ok)
+    if (!result?.ok) {
       return { ok: false, kind: "render", reason: `${build.name} did not render: ${result?.error ?? "no result"}` };
+    }
     let picture: PixelImage;
     try {
       picture = decodePng(Buffer.from(result.png));
     } catch {
       return { ok: false, kind: "picture", reason: `${build.name} is not a PNG` };
     }
-    if (picture.width !== HERO_FRAME_SIZE || picture.height !== HERO_FRAME_SIZE)
+    if (picture.width !== HERO_FRAME_SIZE || picture.height !== HERO_FRAME_SIZE) {
       return {
         ok: false,
         kind: "picture",
         reason: `${build.name} is ${picture.width}x${picture.height}, not ${HERO_FRAME_SIZE} px square`,
       };
-    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS)
+    }
+    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
       return { ok: false, kind: "blank", reason: `${build.name} is empty: the pose draws no figure` };
+    }
     frames.set(`hero/${build.name}`, picture.data);
   }
   for (const direction of DRAWN_DIRECTIONS) {
@@ -201,30 +224,33 @@ export function assembleHeroAtlas(
       frames.get(`hero/${heroFrameName(sex, animation, index, direction)}`);
     const walking = Array.from({ length: FRAMES.walk }, (_, index) => frame("walk", index));
     const [firstStep, ...laterSteps] = walking;
-    if (firstStep && laterSteps.every((step) => step && sameBytes(step, firstStep)))
+    if (firstStep && laterSteps.every((step) => step && sameBytes(step, firstStep))) {
       return {
         ok: false,
         kind: "static",
         reason: `the walk frames seen from ${direction} are all the same picture: the builder ignores its pose`,
       };
+    }
     const standing = frame("idle", 0);
     for (const animation of ["melee", "ranged"] as const) {
       const strike = Array.from({ length: FRAMES[animation] }, (_, index) => frame(animation, index));
-      if (standing && strike.every((step) => step && sameBytes(step, standing)))
+      if (standing && strike.every((step) => step && sameBytes(step, standing))) {
         return {
           ok: false,
           kind: "attack",
           reason: `the ${animation} frames seen from ${direction} are all the standing picture: the attack is not drawn`,
         };
+      }
     }
     const meleeMiddle = frame("melee", 2);
     const rangedMiddle = frame("ranged", 2);
-    if (meleeMiddle && rangedMiddle && sameBytes(meleeMiddle, rangedMiddle))
+    if (meleeMiddle && rangedMiddle && sameBytes(meleeMiddle, rangedMiddle)) {
       return {
         ok: false,
         kind: "attack",
         reason: `the melee and ranged attacks seen from ${direction} are the same picture: one weapon is not drawn`,
       };
+    }
   }
   return { ok: true, atlas: packHeroAtlas(sex, frames), frames };
 }

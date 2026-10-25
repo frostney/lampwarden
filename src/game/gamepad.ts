@@ -34,8 +34,14 @@ export interface GamepadMemory {
 export const newGamepadMemory = (): GamepadMemory => ({ held: new Set(), menuRepeatAt: 0, wasHurt: false });
 
 export function activeGamepad(): Gamepad | null {
-  if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
-  for (const gamepad of navigator.getGamepads()) if (gamepad?.connected) return gamepad;
+  if (typeof navigator === "undefined" || !navigator.getGamepads) {
+    return null;
+  }
+  for (const gamepad of navigator.getGamepads()) {
+    if (gamepad?.connected) {
+      return gamepad;
+    }
+  }
   return null;
 }
 
@@ -45,7 +51,9 @@ const isPressed = (gamepad: Gamepad, index: number) => gamepad.buttons[index]?.p
 function newlyPressed(gamepad: Gamepad, memory: GamepadMemory): Set<number> {
   const pressedNow = new Set<number>();
   gamepad.buttons.forEach((button, index) => {
-    if (button.pressed) pressedNow.add(index);
+    if (button.pressed) {
+      pressedNow.add(index);
+    }
   });
   const fresh = new Set([...pressedNow].filter((index) => !memory.held.has(index)));
   memory.held = pressedNow;
@@ -54,7 +62,9 @@ function newlyPressed(gamepad: Gamepad, memory: GamepadMemory): Set<number> {
 
 // one of eight directions, or none inside the dead zone
 function eightWay(horizontal: number, vertical: number): [number, number] {
-  if (Math.hypot(horizontal, vertical) < STICK_DEADZONE) return [0, 0];
+  if (Math.hypot(horizontal, vertical) < STICK_DEADZONE) {
+    return [0, 0];
+  }
   const sector = Math.round(Math.atan2(vertical, horizontal) / (Math.PI / 4));
   return [Math.round(Math.cos((sector * Math.PI) / 4)), Math.round(Math.sin((sector * Math.PI) / 4))];
 }
@@ -73,7 +83,9 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
   controls.gamepadY = padVertical || stickVertical;
 
   const fresh = newlyPressed(gamepad, memory);
-  if (fresh.has(BUTTON.south)) press(controls, "melee", state);
+  if (fresh.has(BUTTON.south)) {
+    press(controls, "melee", state);
+  }
   if (
     fresh.has(BUTTON.east) ||
     fresh.has(BUTTON.west) ||
@@ -90,26 +102,35 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
         x: Math.round(state.hero.x + (aimHorizontal / length) * AIM_DISTANCE),
         y: Math.round(state.hero.y - 40 + (aimVertical / length) * AIM_DISTANCE * 0.5),
       };
-    } else press(controls, "ranged", state);
+    } else {
+      press(controls, "ranged", state);
+    }
   }
 
   const hurt = state.hero.hurt > 0;
-  if (hurt && !memory.wasHurt)
+  if (hurt && !memory.wasHurt) {
     void gamepad.vibrationActuator?.playEffect("dual-rumble", {
       duration: 140,
       strongMagnitude: 0.7,
       weakMagnitude: 0.4,
     });
+  }
   memory.wasHurt = hurt;
 }
 
 // Called once per frame outside a night: returns the menu action the pad asks for, if any.
 export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuAction | null {
   const gamepad = activeGamepad();
-  if (!gamepad) return null;
+  if (!gamepad) {
+    return null;
+  }
   const fresh = newlyPressed(gamepad, memory);
-  if (fresh.has(BUTTON.south)) return "confirm";
-  if (fresh.has(BUTTON.start)) return "primary";
+  if (fresh.has(BUTTON.south)) {
+    return "confirm";
+  }
+  if (fresh.has(BUTTON.start)) {
+    return "primary";
+  }
   const vertical =
     (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) ||
     Math.round(gamepad.axes[1] ?? 0);
@@ -121,7 +142,9 @@ export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuActi
     memory.menuRepeatAt = 0;
     return null;
   }
-  if (now < memory.menuRepeatAt) return null;
+  if (now < memory.menuRepeatAt) {
+    return null;
+  }
   // first move at once, then repeat while held
   memory.menuRepeatAt = now + (memory.menuRepeatAt === 0 ? 350 : 140);
   return direction > 0 ? "next" : "previous";

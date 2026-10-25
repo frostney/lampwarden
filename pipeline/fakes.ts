@@ -89,9 +89,13 @@ export function fakeModel(script: Array<string | null> | ((request: SentRequest)
         const answer = script({ system, messages: body?.messages ?? [] });
         return answer === null ? new Response("overloaded", { status: 500 }) : replyWith(answer, sent.length);
       }
-      if (replies.length === 0) throw new Error("the code made a request the test did not expect");
+      if (replies.length === 0) {
+        throw new Error("the code made a request the test did not expect");
+      }
       const reply = replies.shift();
-      if (reply === null || reply === undefined) return new Response("overloaded", { status: 500 });
+      if (reply === null || reply === undefined) {
+        return new Response("overloaded", { status: 500 });
+      }
       return replyWith(reply, sent.length);
     },
   });
@@ -115,8 +119,11 @@ export function fakeRenderer(result?: (request: RenderRequest) => RenderResult):
 /** A 128 px frame with a figure (a 16 px block) placed by `seed`, so frames with different seeds are different pictures. */
 export function framePng(seed: number): Uint8Array {
   const frame = new PixelImage(128, 128);
-  for (let row = 0; row < 16; row++)
-    for (let column = 0; column < 16; column++) frame.set(20 + (seed % 90) + column, 60 + row, [200, 100, 50, 255]);
+  for (let row = 0; row < 16; row++) {
+    for (let column = 0; column < 16; column++) {
+      frame.set(20 + (seed % 90) + column, 60 + row, [200, 100, 50, 255]);
+    }
+  }
   return encodePng(frame);
 }
 
@@ -131,8 +138,9 @@ export function fakeFrameBatch(): { render: BatchRenderer; batches: RenderReques
     render: async (requests) => {
       batches.push([...requests]);
       return requests.map((request, index): RenderResult => {
-        if (request.code.includes("BROKEN") && request.pose.startsWith("walk"))
+        if (request.code.includes("BROKEN") && request.pose.startsWith("walk")) {
           return { ok: false, error: "exit 1: error: boom" };
+        }
         const seed = request.code.includes("STATIC") ? 0 : index + 1;
         return { ok: true, stats: CLEAN_STATS, png: framePng(seed) };
       });

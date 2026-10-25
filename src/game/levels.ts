@@ -34,10 +34,14 @@ export const emptyLevels = (): Levels => ({
 const levelSchema = z.number().int().min(0).max(MAX_LEVEL);
 export function levelsOf(stored: unknown): Levels {
   const levels = emptyLevels();
-  if (typeof stored !== "object" || stored === null) return levels;
+  if (typeof stored !== "object" || stored === null) {
+    return levels;
+  }
   for (const id of UPGRADE_IDS) {
     const parsed = levelSchema.safeParse(Reflect.get(stored, id));
-    if (parsed.success) levels[id] = parsed.data;
+    if (parsed.success) {
+      levels[id] = parsed.data;
+    }
   }
   return levels;
 }

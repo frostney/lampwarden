@@ -65,9 +65,15 @@ export function engagementOf(play: RecordedEngagement): Engagement {
   for (const [index, row] of inputs.entries()) {
     const [start = 0, moveX = 0, moveY = 0, melee = 0, ranged = 0] = row;
     const end = inputs[index + 1]?.[0] ?? steps;
-    if (moveX !== 0 || moveY !== 0) movingSteps += Math.max(0, end - start);
-    if (melee) strikes++;
-    if (ranged) shots++;
+    if (moveX !== 0 || moveY !== 0) {
+      movingSteps += Math.max(0, end - start);
+    }
+    if (melee) {
+      strikes++;
+    }
+    if (ranged) {
+      shots++;
+    }
   }
   const movingShare = steps > 0 ? Math.min(1, movingSteps / steps) : 0;
   const actionsPerMinute = simSeconds > 0 ? (strikes + shots) / (simSeconds / 60) : 0;
@@ -77,10 +83,13 @@ export function engagementOf(play: RecordedEngagement): Engagement {
     wallSeconds === null || pausedSeconds === null || wallSeconds <= 0 ? null : pausedSeconds / wallSeconds;
 
   let kind: EngagementKind = "engaged";
-  if (play.outcome === null) kind = "left";
-  else if (pausedShare !== null && pausedShare > PAUSED_SHARE && (pausedSeconds ?? 0) >= PAUSED_MINIMUM_SECONDS)
+  if (play.outcome === null) {
+    kind = "left";
+  } else if (pausedShare !== null && pausedShare > PAUSED_SHARE && (pausedSeconds ?? 0) >= PAUSED_MINIMUM_SECONDS) {
     kind = "paused";
-  else if (movingShare < IDLE_MOVING_SHARE && actionsPerMinute < IDLE_ACTIONS_PER_MINUTE) kind = "idle";
+  } else if (movingShare < IDLE_MOVING_SHARE && actionsPerMinute < IDLE_ACTIONS_PER_MINUTE) {
+    kind = "idle";
+  }
 
   return {
     kind,

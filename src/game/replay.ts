@@ -68,7 +68,9 @@ export function verifyPlay(play: Play): { state: State; endsMatch: boolean } {
   const state = newNight(legacyOf(play), play.seed, creatureOf(play));
   const replayer = new Replayer(play);
   let stepIndex = 0;
-  for (; stepIndex < play.steps && !state.outcome; stepIndex++) step(state, STEP, replayer.input(stepIndex));
+  for (; stepIndex < play.steps && !state.outcome; stepIndex++) {
+    step(state, STEP, replayer.input(stepIndex));
+  }
   const endsMatch =
     state.outcome === play.outcome &&
     stepIndex === play.steps &&

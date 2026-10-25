@@ -2,6 +2,7 @@
 // The text is drawn at 10x and sampled at each pixel's centre, so a font drawn on the requested pixel grid comes out
 // exact; any half-covered sample means the font or size is off-grid, and the build stops.
 import { readFileSync } from "node:fs";
+
 import { chromium } from "playwright";
 
 export interface TextRequest {
@@ -43,7 +44,9 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
         canvas.width = width * supersample;
         canvas.height = height * supersample;
         const context = canvas.getContext("2d");
-        if (!context) throw new Error("No 2D canvas context");
+        if (!context) {
+          throw new Error("No 2D canvas context");
+        }
         context.font = `${pixelSize * supersample}px ${family}`;
         context.fillStyle = "#000";
         context.fillText(text, 2 * supersample, Math.round(pixelSize * 1.25) * supersample);
@@ -56,7 +59,9 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
             const sampleY = y * supersample + supersample / 2;
             const sampleX = x * supersample + supersample / 2;
             const alpha = pixels[(sampleY * canvas.width + sampleX) * 4 + 3] ?? 0;
-            if (alpha > 20 && alpha < 235) ambiguousSamples++;
+            if (alpha > 20 && alpha < 235) {
+              ambiguousSamples++;
+            }
             row += alpha >= 128 ? "#" : ".";
           }
           rows.push(row);

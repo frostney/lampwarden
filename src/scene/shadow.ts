@@ -30,7 +30,7 @@ export function paintShadow(angle: number, length: number): ShadowPixels {
   const endX = Math.cos(angle) * length;
   const endY = Math.sin(angle) * length;
   const lengthSquared = endX * endX + endY * endY;
-  for (let row = 0; row < height; row++)
+  for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
       const groundX = column - reachX;
       const groundY = (row - reachY) * 2;
@@ -39,13 +39,16 @@ export function paintShadow(angle: number, length: number): ShadowPixels {
       const radius = FOOT_RADIUS * (1 - TAPER * along);
       const distance = Math.hypot(groundX - endX * along, groundY - endY * along);
       const cover = Math.min(1, (radius - distance) / (radius * EDGE));
-      if (cover <= 0 || (cover < 1 && cover <= bayerThreshold(column, row))) continue;
+      if (cover <= 0 || (cover < 1 && cover <= bayerThreshold(column, row))) {
+        continue;
+      }
       const index = (row * width + column) * 4;
       pixels[index] = SHADOW_COLOUR[0];
       pixels[index + 1] = SHADOW_COLOUR[1];
       pixels[index + 2] = SHADOW_COLOUR[2];
       pixels[index + 3] = 255;
     }
+  }
   return { pixels, width, height, originX: reachX, originY: reachY };
 }
 

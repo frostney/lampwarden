@@ -1,6 +1,7 @@
 // What the server's Blob stores share (the director's, the play uploads'): a write that only the first caller wins, and
 // the ledger of marks the rate limits count. Private store, BLOB_READ_WRITE_TOKEN.
 import { BlobNotFoundError, BlobPreconditionFailedError, get, head, list, put } from "@vercel/blob";
+
 import type { StartLedger } from "./creatures/limits";
 
 const dayOf = (date: Date) => date.toISOString().slice(0, 10);
@@ -10,7 +11,9 @@ async function listPathnames(prefix: string): Promise<string[]> {
   let cursor: string | undefined;
   do {
     const page = await list({ prefix, ...(cursor ? { cursor } : {}) });
-    for (const blob of page.blobs) pathnames.push(blob.pathname);
+    for (const blob of page.blobs) {
+      pathnames.push(blob.pathname);
+    }
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);
   return pathnames;
@@ -37,7 +40,9 @@ export async function putIfAbsent(pathname: string, body: string, contentType: s
 /** The text of the blob at `pathname` and its version (the ETag), or null when there is none. */
 export async function readWithVersion(pathname: string): Promise<{ text: string; version: string } | null> {
   const blob = await get(pathname, { access: "private", useCache: false });
-  if (blob?.statusCode !== 200) return null;
+  if (blob?.statusCode !== 200) {
+    return null;
+  }
   return { text: await new Response(blob.stream).text(), version: blob.blob.etag };
 }
 
@@ -52,7 +57,9 @@ export async function replaceIfUnchanged(
     await put(pathname, body, { access: "private", contentType, addRandomSuffix: false, ifMatch: version });
     return true;
   } catch (error) {
-    if (error instanceof BlobPreconditionFailedError) return false;
+    if (error instanceof BlobPreconditionFailedError) {
+      return false;
+    }
     throw error;
   }
 }
@@ -85,7 +92,9 @@ export function createBlobLedger(root: string): StartLedger & {
       for (const day of days) {
         for (const pathname of await listPathnames(visitorPrefix(visitor, day))) {
           const markedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
-          if (markedAt >= since.getTime() && markedAt <= until.getTime()) marked.push(new Date(markedAt));
+          if (markedAt >= since.getTime() && markedAt <= until.getTime()) {
+            marked.push(new Date(markedAt));
+          }
         }
       }
       return marked.sort((first, second) => first.getTime() - second.getTime());

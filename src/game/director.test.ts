@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import {
   CREATURE_SHARE_MAX,
   CREATURE_SHARE_MIN,
@@ -36,7 +37,9 @@ describe("the bounds", () => {
     for (const rules of [0.6, 0.85, 1, 1.3, 2]) {
       for (const asked of [-5, 0, 0.3, 0.9, 1, 1.4, 2.5, 99, Number.MAX_VALUE]) {
         const decision = clampProposal(proposal({ tide: asked }), rules, 2);
-        if (!decision) throw new Error("no decision");
+        if (!decision) {
+          throw new Error("no decision");
+        }
         expect(Math.abs(decision.tide - rules)).toBeLessThanOrEqual(TIDE_SPAN + 1e-9);
         expect(decision.tide).toBeGreaterThanOrEqual(0.6);
         expect(decision.tide).toBeLessThanOrEqual(2);
@@ -124,7 +127,9 @@ describe("reading the model's reply", () => {
 describe("the stored decision", () => {
   const decision = (): Director => {
     const clamped = clampProposal(proposal({ tide: 0.9, mix: { satyr: 1, cyclops: 0.6, harpy: 1.4 } }), 1, 2, PLAY_ID);
-    if (!clamped) throw new Error("no decision");
+    if (!clamped) {
+      throw new Error("no decision");
+    }
     return clamped;
   };
 

@@ -3,7 +3,9 @@
 // deployed function has it.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { ENV } from "varlock/env";
+
 import { createMubitClient } from "../../../pipeline/mubit";
 import { DECISION_DEADLINE_MILLISECONDS, MODEL_TIMEOUT_MILLISECONDS, readDirectorConfig } from "./config";
 import type { DirectorDeps } from "./service";

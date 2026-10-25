@@ -9,7 +9,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
 import { createMubitClient } from "./mubit";
@@ -27,7 +29,9 @@ const { values } = parseArgs({
   },
 });
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey) throw new Error("MUBIT_API_KEY is not set");
+if (!apiKey) {
+  throw new Error("MUBIT_API_KEY is not set");
+}
 
 interface Item {
   name: string;
@@ -48,7 +52,9 @@ for (const [sex, animation, frame, brief] of [
   ["male", "idle", 0, "male hero warrior standing at ease"],
 ] as const) {
   const build = heroFrameBuilds(sex, animation)[frame];
-  if (build) items.push({ name: build.name, brief, code: build.code });
+  if (build) {
+    items.push({ name: build.name, brief, code: build.code });
+  }
 }
 
 const loop: LoopCore = {
@@ -102,6 +108,9 @@ const all = results.flatMap((result) => result.scores).filter((score): score is 
 all.sort((first, second) => first - second);
 const reaching = (bar: number) => all.filter((score) => score >= bar).length / all.length;
 console.log(`\n${all.length} scores, min ${all[0]}, median ${all[Math.floor(all.length / 2)]}, max ${all.at(-1)}`);
-for (const bar of [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8])
+for (const bar of [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8]) {
   console.log(`share at or above ${bar}: ${(100 * reaching(bar)).toFixed(0)}%`);
-if (values.out) writeFileSync(values.out, `${JSON.stringify(results, null, 1)}\n`);
+}
+if (values.out) {
+  writeFileSync(values.out, `${JSON.stringify(results, null, 1)}\n`);
+}

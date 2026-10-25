@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { z } from "zod";
 
 /** The files of the runner bundle, relative to the pipeline directory. Their order is part of the bundle's digest. */
@@ -59,7 +60,9 @@ export function runnerBundleSha(files: readonly RunnerFile[]): string {
 /** The digest of the kit alone (`kit/kit.ts`), the figure docs/LIVE_GENERATION.md quotes. */
 export function kitSha(files: readonly RunnerFile[]): string {
   const kit = files.find((file) => file.path === "kit/kit.ts");
-  if (!kit) throw new Error("the runner bundle has no kit/kit.ts");
+  if (!kit) {
+    throw new Error("the runner bundle has no kit/kit.ts");
+  }
   return sha256(kit.content);
 }
 
@@ -67,9 +70,11 @@ const REBUILD_HINT = "run `bun run sandbox:snapshot` and set VERCEL_SANDBOX_SNAP
 
 /** Why a snapshot's manifest does not fit the bundle that is running, or null when it does. */
 export function snapshotMismatch(manifest: SnapshotManifest, expectedBundleSha: string): string | null {
-  if (manifest.bundleSha !== expectedBundleSha)
+  if (manifest.bundleSha !== expectedBundleSha) {
     return `the sandbox snapshot holds a different kit or runner than this checkout (bundle ${manifest.bundleSha.slice(0, 12)}, expected ${expectedBundleSha.slice(0, 12)}); ${REBUILD_HINT}`;
-  if (manifest.bunVersion !== PINNED_BUN_VERSION)
+  }
+  if (manifest.bunVersion !== PINNED_BUN_VERSION) {
     return `the sandbox snapshot has bun ${manifest.bunVersion}, not ${PINNED_BUN_VERSION}; ${REBUILD_HINT}`;
+  }
   return null;
 }

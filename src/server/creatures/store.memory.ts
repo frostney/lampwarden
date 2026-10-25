@@ -1,6 +1,7 @@
 // An in-memory CreatureStore with the same semantics as the Blob one (newest first, atomic claim), for tests.
 import type { CreatureJob } from "@/game/creature";
 import type { CreatureRecord } from "@/game/creature-frames";
+
 import type { CreatureStore, RunningLock } from "./store";
 
 export interface MemoryCreatureStore extends CreatureStore {
@@ -39,7 +40,9 @@ export function createMemoryStore(): MemoryCreatureStore {
     },
     async putCreature(creature, png, code, atlas) {
       sprites.set(creature.id, png);
-      if (atlas) atlases.set(creature.id, atlas);
+      if (atlas) {
+        atlases.set(creature.id, atlas);
+      }
       codes.set(creature.id, code);
       creatures.set(creature.id, creature);
     },
@@ -54,7 +57,9 @@ export function createMemoryStore(): MemoryCreatureStore {
     },
     async claimRunning(jobId, previous) {
       const currentVersion = running ? String(running.version) : null;
-      if (currentVersion !== (previous?.version ?? null)) return false;
+      if (currentVersion !== (previous?.version ?? null)) {
+        return false;
+      }
       running = { jobId, version: ++versionCounter };
       return true;
     },

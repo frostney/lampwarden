@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { type RecordedCreature, recordedCreatureSchema } from "./creature";
 import { emptyLevels, newLegacy } from "./legacy";
 import { type Play, Recorder } from "./recording";
@@ -17,20 +18,24 @@ function botInput(state: State): Input {
       nearest = monster;
     }
   }
-  if (!nearest) return NO_INPUT;
-  if (nearestDistance < state.rules.meleeReach - 8)
+  if (!nearest) {
+    return NO_INPUT;
+  }
+  if (nearestDistance < state.rules.meleeReach - 8) {
     return {
       ...NO_INPUT,
       melee: true,
       moveX: (nearest.x - hero.x) / nearestDistance,
       moveY: ((nearest.y - hero.y) * 2) / nearestDistance,
     };
-  if (hero.shotCooldown <= 0 && nearestDistance > 180)
+  }
+  if (hero.shotCooldown <= 0 && nearestDistance > 180) {
     return {
       ...NO_INPUT,
       ranged: true,
       aim: { x: nearest.x + 0.37, y: nearest.y - bodyHeight(state, nearest.kind) },
     };
+  }
   return { ...NO_INPUT, moveX: Math.sign(nearest.x - hero.x), moveY: Math.sign(nearest.y - hero.y) };
 }
 
@@ -143,7 +148,9 @@ describe("a night with a creature from the sea", () => {
 
   test("the creature really takes part: the night differs from the same night without it", () => {
     const [creature] = SEA_CREATURES;
-    if (!creature) throw new Error("no creature");
+    if (!creature) {
+      throw new Error("no creature");
+    }
     const { live: withCreature } = recordNight(4, 1.2, 5, creature);
     const { live: without, play } = recordNight(4, 1.2, 5);
     expect(JSON.stringify(withCreature.stats)).not.toBe(JSON.stringify(without.stats));

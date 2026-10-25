@@ -15,7 +15,9 @@
 // whenever pipeline/kit/kit.ts or pipeline/render/ changes, or when the pinned Bun moves.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { Sandbox } from "@vercel/sandbox";
+
 import { batchResultsSchema, interpretOutcome } from "./render-types";
 import {
   kitSha,
@@ -109,7 +111,9 @@ try {
     ? batchResultsSchema.parse(JSON.parse(smokeResults.toString("utf8"))).items[0]
     : undefined;
   const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, 30_000) : undefined;
-  if (!smoke?.ok) throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
+  if (!smoke?.ok) {
+    throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
+  }
   if (!Buffer.from(smoke.png).equals(readFileSync(SMOKE_EXPECTED_PNG))) {
     throw new Error("the smoke render of ex_lamp_lit.ts does not reproduce public/sprites/lamp-lit.png");
   }

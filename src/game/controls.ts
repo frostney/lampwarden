@@ -37,7 +37,9 @@ const SHOT_RISE = 40;
 // monster still out at sea) would replay as a shot along the facing. Such an aim is moved back along the line from the
 // shot towards it until x is 0: the shot flies the same way, and the night replays as it was played.
 function aimOnStage(aim: { x: number; y: number } | null, hero: { x: number; y: number }) {
-  if (!aim || aim.x >= 0) return aim;
+  if (!aim || aim.x >= 0) {
+    return aim;
+  }
   const scale = hero.x / (hero.x - aim.x);
   return { x: 0, y: hero.y - SHOT_RISE + (aim.y - (hero.y - SHOT_RISE)) * scale };
 }
@@ -94,7 +96,9 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
   }
   controls.ranged = true;
   controls.aim = null;
-  if (!state) return;
+  if (!state) {
+    return;
+  }
   let best = Number.POSITIVE_INFINITY;
   for (const monster of state.monsters) {
     const distance = Math.hypot(monster.x - state.hero.x, (monster.y - state.hero.y) * 2);
@@ -111,9 +115,13 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
 export function bindKeyboard(controls: Controls, isLive: () => boolean): () => void {
   const keyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
-    if (isLive() && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
+    if (isLive() && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+      event.preventDefault();
+    }
     if (key === "j" || key === " ") {
-      if (!event.repeat) controls.melee = true;
+      if (!event.repeat) {
+        controls.melee = true;
+      }
       return;
     }
     if (key === "k") {

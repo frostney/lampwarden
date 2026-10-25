@@ -6,9 +6,12 @@
 // The job reports to the store at every step, and every failure ends as a short fixed reason; no model output and no
 // stack trace is ever stored, returned or logged.
 import { createHash } from "node:crypto";
+
 import { z } from "zod";
+
 import type { CreatureJob, JobStep } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
 import {
@@ -45,7 +48,9 @@ export { isAccepted };
 /** Where its feet touch the ground, as a fraction of the frame: the lowest opaque row of the bbox, less the shadow. */
 export function anchorYFromBbox(bbox: string): number {
   const lowestRow = Number(bbox.split(",")[3]);
-  if (!Number.isFinite(lowestRow)) return 0.85;
+  if (!Number.isFinite(lowestRow)) {
+    return 0.85;
+  }
   const anchor = Math.round(((lowestRow + 1 - SHADOW_ROWS) / FRAME) * 100) / 100;
   return Math.min(1, Math.max(0.5, anchor));
 }
@@ -134,7 +139,9 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
 
   // a step of a job that has already ended (timed out, say) must not overwrite how it ended: it stops the loop instead
   async function report(step: JobStep): Promise<void> {
-    if (ended) throw new Error("the job has ended");
+    if (ended) {
+      throw new Error("the job has ended");
+    }
     await write(step);
   }
 
@@ -175,8 +182,12 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       deps.candidates,
       isAccepted,
     );
-    if (ended) return;
-    if (!outcome) return fail("no sprite could be drawn");
+    if (ended) {
+      return;
+    }
+    if (!outcome) {
+      return fail("no sprite could be drawn");
+    }
     const accepted = isAccepted(outcome.winner);
     deps.onOutcome?.({ jobId, id, brief: written.brief, accepted, outcome });
     log({
@@ -189,7 +200,9 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       final: outcome.row.final,
       flags: outcome.winner.stats.flags,
     });
-    if (!accepted) return fail("the sprite was not good enough");
+    if (!accepted) {
+      return fail("the sprite was not good enough");
+    }
 
     // The judged sprite is one still. Its code is drawn again in every pose; if that fails (a pose that does not render,
     // a builder that ignores its pose), the next best accepted candidate gets the same chance.
@@ -197,7 +210,9 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     let animated: Animated | null = null;
     const tried: string[] = [];
     for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
-      if (ended) return; // timed out while rendering: do not put a creature in the gallery for a job that failed
+      if (ended) {
+        return; // timed out while rendering: do not put a creature in the gallery for a job that failed
+      }
       const frameSet = await renderFrameSet(renderBatch, candidate.code);
       if (frameSet.ok) {
         animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
@@ -205,9 +220,13 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       }
       tried.push(frameSet.kind);
     }
-    if (ended) return;
+    if (ended) {
+      return;
+    }
     log({ event: "creature-job-frames", jobId, animated: animated !== null, refused: tried });
-    if (!animated) return fail("it could not be animated");
+    if (!animated) {
+      return fail("it could not be animated");
+    }
 
     const creature = buildCreature(id, written.brief, animated.candidate, animated.frames, deps.now());
     await deps.store.putCreature(creature, animated.candidate.png, animated.candidate.code, animated.atlas);

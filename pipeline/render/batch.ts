@@ -46,14 +46,18 @@ async function readTail(stream: ReadableStream<Uint8Array>): Promise<string> {
   let kept = "";
   for await (const chunk of stream) {
     kept += decoder.decode(chunk, { stream: true });
-    if (kept.length > OUTPUT_TAIL_CHARACTERS * 2) kept = kept.slice(-OUTPUT_TAIL_CHARACTERS);
+    if (kept.length > OUTPUT_TAIL_CHARACTERS * 2) {
+      kept = kept.slice(-OUTPUT_TAIL_CHARACTERS);
+    }
   }
   return kept.slice(-OUTPUT_TAIL_CHARACTERS);
 }
 
 async function renderItem(jobDirectory: string, manifest: BatchManifest, index: number): Promise<BatchItemOutcome> {
   const item = manifest.items[index];
-  if (!item) throw new Error(`no item ${index}`);
+  if (!item) {
+    throw new Error(`no item ${index}`);
+  }
   const outputDirectory = join(jobDirectory, "out", String(index));
   const started = performance.now();
   const subprocess = Bun.spawn(
@@ -117,6 +121,8 @@ async function renderBatch(jobDirectory: string): Promise<void> {
 
 if (import.meta.main) {
   const jobDirectory = process.argv[2];
-  if (!jobDirectory) throw new Error("usage: bun batch.ts <job directory>");
+  if (!jobDirectory) {
+    throw new Error("usage: bun batch.ts <job directory>");
+  }
   await renderBatch(jobDirectory);
 }

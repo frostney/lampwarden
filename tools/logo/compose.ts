@@ -95,10 +95,14 @@ export function socialCard(logoImage: PixelImage, tagline: TextMask): PixelImage
     const brightness = random();
     const insideX = x > logoLeft - clearance && x < logoLeft + logoImage.width * logoScale + clearance;
     const insideY = y > logoTop - clearance && y < logoTop + blockHeight + clearance;
-    if (insideX && insideY) continue;
+    if (insideX && insideY) {
+      continue;
+    }
     const colour = brightness < 0.25 ? stars.bright : brightness < 0.6 ? stars.dim : stars.blue;
     for (let offsetY = 0; offsetY < taglineScale; offsetY++) {
-      for (let offsetX = 0; offsetX < taglineScale; offsetX++) card.blendOver(x + offsetX, y + offsetY, colour);
+      for (let offsetX = 0; offsetX < taglineScale; offsetX++) {
+        card.blendOver(x + offsetX, y + offsetY, colour);
+      }
     }
   }
 

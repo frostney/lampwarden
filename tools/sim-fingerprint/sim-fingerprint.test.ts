@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+
 import { SIM_FINGERPRINT } from "../../src/game/plays";
 import { SIM_SOURCES, simFingerprint } from "./sim-fingerprint";
 
@@ -43,10 +44,16 @@ function importedAtRuntime(file: string): string[] {
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean);
-    if (typeOnly || names.every((name) => name.startsWith("type "))) continue;
-    if (specifier.startsWith(".")) imported.push(join(dirname(file), `${specifier}.ts`));
-    else if (specifier.startsWith("@/")) imported.push(join("src", `${specifier.slice(2)}.ts`));
-    else expect(SIM_PACKAGES.has(specifier), `${file}: imports the package ${specifier}`).toBe(true);
+    if (typeOnly || names.every((name) => name.startsWith("type "))) {
+      continue;
+    }
+    if (specifier.startsWith(".")) {
+      imported.push(join(dirname(file), `${specifier}.ts`));
+    } else if (specifier.startsWith("@/")) {
+      imported.push(join("src", `${specifier.slice(2)}.ts`));
+    } else {
+      expect(SIM_PACKAGES.has(specifier), `${file}: imports the package ${specifier}`).toBe(true);
+    }
   }
   return imported;
 }
@@ -89,9 +96,13 @@ describe("the sim fingerprint", () => {
   test("covers exactly the modules step(), newNight() and the replay driver import", () => {
     const closure = new Set<string>();
     const visit = (file: string) => {
-      if (closure.has(file)) return;
+      if (closure.has(file)) {
+        return;
+      }
       closure.add(file);
-      for (const imported of importedAtRuntime(file)) visit(imported);
+      for (const imported of importedAtRuntime(file)) {
+        visit(imported);
+      }
     };
     visit("src/game/sim.ts");
     visit("src/game/replay.ts");
@@ -103,17 +114,22 @@ describe("the sim fingerprint", () => {
     // What the sources really import, not the list: so this fails if the sim comes to read either file as a value.
     const closure = new Set<string>();
     const visit = (file: string) => {
-      if (closure.has(file)) return;
+      if (closure.has(file)) {
+        return;
+      }
       closure.add(file);
-      for (const imported of importedAtRuntime(file)) visit(imported);
+      for (const imported of importedAtRuntime(file)) {
+        visit(imported);
+      }
     };
     visit("src/game/sim.ts");
     visit("src/game/replay.ts");
     expect(closure).not.toContain("src/game/legacy.ts");
     expect(closure).not.toContain("src/game/director.ts");
     withCopy((root) => {
-      for (const file of ["src/game/legacy.ts", "src/game/director.ts"])
+      for (const file of ["src/game/legacy.ts", "src/game/director.ts"]) {
         cpSync(join(repository, file), join(root, file));
+      }
       const fingerprint = () => simFingerprint(root, [...closure]);
       const before = fingerprint();
       expect(before).toBe(simFingerprint(root));

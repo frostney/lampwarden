@@ -40,7 +40,9 @@ export function convexHull(points: readonly Point[]): Point[] {
       while (half.length >= 2) {
         const before = half[half.length - 2];
         const last = half[half.length - 1];
-        if (!before || !last || cross(before, last, point) > 0) break;
+        if (!before || !last || cross(before, last, point) > 0) {
+          break;
+        }
         half.pop();
       }
       half.push(point);
@@ -62,10 +64,12 @@ export function measureSprite(rgba: ArrayLike<number>, anchorY: number, band = B
     top: Number.POSITIVE_INFINITY,
     bottom: Number.NEGATIVE_INFINITY,
   };
-  for (let row = 0; row < SPRITE_SIZE; row++)
+  for (let row = 0; row < SPRITE_SIZE; row++) {
     for (let column = 0; column < SPRITE_SIZE; column++) {
       const alpha = rgba[(row * SPRITE_SIZE + column) * 4 + 3] ?? 0;
-      if (alpha === 0) continue;
+      if (alpha === 0) {
+        continue;
+      }
       const x = column - SPRITE_SIZE / 2;
       const y = row - anchorRow;
       if (alpha >= SOLID_ALPHA) {
@@ -74,7 +78,9 @@ export function measureSprite(rgba: ArrayLike<number>, anchorY: number, band = B
         sprite.top = Math.min(sprite.top, y);
         sprite.bottom = Math.max(sprite.bottom, y + 1);
       }
-      if (y < -band) continue;
+      if (y < -band) {
+        continue;
+      }
       for (const [cornerX, cornerY] of [
         [x, y],
         [x + 1, y],
@@ -82,8 +88,11 @@ export function measureSprite(rgba: ArrayLike<number>, anchorY: number, band = B
         [x + 1, y + 1],
       ] as const) {
         painted.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
-        if (alpha >= SOLID_ALPHA) solid.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
+        if (alpha >= SOLID_ALPHA) {
+          solid.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
+        }
       }
     }
+  }
   return { hull: convexHull([...painted.values()]), solid: convexHull([...solid.values()]), band, sprite };
 }

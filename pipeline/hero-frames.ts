@@ -10,6 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { SEXES } from "../src/scene/assets";
 import { assembleHeroAtlas } from "./hero-model";
 import { HERO_DIRECTORY, heroBuildsFor } from "./hero-source";
@@ -32,7 +33,9 @@ const atlases = await Promise.all(
       { vcpus: Number(values.vcpus) },
     );
     const assembled = assembleHeroAtlas(sex, builds, results);
-    if (!assembled.ok) throw new Error(`${sex} (${source}): ${assembled.reason}`);
+    if (!assembled.ok) {
+      throw new Error(`${sex} (${source}): ${assembled.reason}`);
+    }
     return { sex, atlas: assembled.atlas, frames: builds.length, source };
   }),
 );

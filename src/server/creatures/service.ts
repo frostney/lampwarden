@@ -2,6 +2,7 @@
 // network. The routes in src/app/api/creatures are thin: they validate the request, call one of these, and shape the
 // response.
 import type { CreatureJob, NextCreatureRequest, NextCreatureResponse } from "@/game/creature";
+
 import { type CreatureConfig, generationAvailable } from "./config";
 import { checkStartLimits, visitorKey } from "./limits";
 import type { CreatureStore } from "./store";
@@ -32,25 +33,37 @@ function isStale(job: CreatureJob, now: Date, maxDurationSeconds: number): boole
 /** The job as a client should see it: a stale one is reported as failed. */
 export async function readJob(deps: ServiceDeps, jobId: string): Promise<CreatureJob | null> {
   const job = await deps.store.getJob(jobId);
-  if (!job) return null;
-  if (!isStale(job, deps.now(), deps.maxDurationSeconds)) return job;
+  if (!job) {
+    return null;
+  }
+  if (!isStale(job, deps.now(), deps.maxDurationSeconds)) {
+    return job;
+  }
   return { jobId, step: "failed", error: FAILED_AS_STALE, updatedAt: job.updatedAt };
 }
 
 async function newestUnseen(store: CreatureStore, seen: ReadonlySet<string>): Promise<NextCreatureResponse | null> {
   let tried = 0;
   for (const id of await store.listCreatureIds()) {
-    if (seen.has(id)) continue;
+    if (seen.has(id)) {
+      continue;
+    }
     const creature = await store.getCreature(id);
-    if (creature) return { kind: "ready", creature };
-    if (++tried >= SKIPPED_RECORDS_TO_TRY) break;
+    if (creature) {
+      return { kind: "ready", creature };
+    }
+    if (++tried >= SKIPPED_RECORDS_TO_TRY) {
+      break;
+    }
   }
   return null;
 }
 
 /** The job that holds the global slot, if it is still alive. */
 async function runningJob(deps: ServiceDeps, lock: { jobId: string } | null): Promise<CreatureJob | null> {
-  if (!lock) return null;
+  if (!lock) {
+    return null;
+  }
   const job = await readJob(deps, lock.jobId);
   return job && !isFinished(job) ? job : null;
 }
@@ -64,7 +77,9 @@ export interface NextCreatureInput {
 export async function nextCreature(deps: ServiceDeps, input: NextCreatureInput): Promise<NextCreatureResponse> {
   try {
     const unseen = await newestUnseen(deps.store, new Set(input.seen));
-    if (unseen) return unseen;
+    if (unseen) {
+      return unseen;
+    }
     if (!generationAvailable(deps.config) || deps.config.rateSalt === null) {
       return { kind: "none", reason: "unavailable" };
     }
@@ -72,7 +87,9 @@ export async function nextCreature(deps: ServiceDeps, input: NextCreatureInput):
     // one job at a time for the whole site: whoever asks while one runs shares it
     const lock = await deps.store.readRunning();
     const alive = await runningJob(deps, lock);
-    if (alive) return { kind: "generating", jobId: alive.jobId };
+    if (alive) {
+      return { kind: "generating", jobId: alive.jobId };
+    }
 
     const now = deps.now();
     const visitor = visitorKey(input.ip, deps.config.rateSalt);

@@ -59,7 +59,11 @@ const MIN_FIGURE_PIXELS = 100;
 
 const opaquePixels = (rgba: Uint8Array) => {
   let count = 0;
-  for (let offset = 3; offset < rgba.length; offset += 4) if ((rgba[offset] ?? 0) > 200) count++;
+  for (let offset = 3; offset < rgba.length; offset += 4) {
+    if ((rgba[offset] ?? 0) > 200) {
+      count++;
+    }
+  }
   return count;
 };
 
@@ -69,29 +73,33 @@ const sameBytes = (first: Uint8Array, second: Uint8Array) =>
 /** Checks a batch's results and packs them into an atlas, or says why they are not a usable animation. */
 export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResult {
   const layout = creatureAtlasLayout(CREATURE_FRAME_COUNTS);
-  if (results.length !== layout.cells.length)
+  if (results.length !== layout.cells.length) {
     return { ok: false, kind: "incomplete", reason: "the frame batch came back incomplete" };
+  }
   const atlas = new PixelImage(layout.width, layout.height);
   const walking: Uint8Array[] = [];
   for (const [index, cell] of layout.cells.entries()) {
     const result = results[index];
     const pose = creaturePoseName(cell.animation, cell.frame);
-    if (!result?.ok)
+    if (!result?.ok) {
       return { ok: false, kind: "render", reason: `${pose} did not render: ${result?.error ?? "no result"}` };
+    }
     let picture: PixelImage;
     try {
       picture = decodePng(Buffer.from(result.png));
     } catch {
       return { ok: false, kind: "picture", reason: `${pose} is not a PNG` };
     }
-    if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE)
+    if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE) {
       return {
         ok: false,
         kind: "picture",
         reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
       };
-    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS)
+    }
+    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
       return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
+    }
     for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
       const from = row * CREATURE_FRAME_SIZE * 4;
       atlas.data.set(
@@ -99,15 +107,18 @@ export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResu
         ((cell.y + row) * atlas.width + cell.x) * 4,
       );
     }
-    if (cell.animation === "walk") walking.push(picture.data);
+    if (cell.animation === "walk") {
+      walking.push(picture.data);
+    }
   }
   const [firstStep, ...laterSteps] = walking;
-  if (firstStep && laterSteps.every((step) => sameBytes(step, firstStep)))
+  if (firstStep && laterSteps.every((step) => sameBytes(step, firstStep))) {
     return {
       ok: false,
       kind: "static",
       reason: "the walk frames are all the same picture: the builder ignores its pose",
     };
+  }
   return { ok: true, frames: { ...CREATURE_FRAME_COUNTS }, atlas: encodePng(atlas) };
 }
 

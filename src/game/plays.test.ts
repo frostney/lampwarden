@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { newLegacy } from "./legacy";
 import { describeNight, playSchema, replaysExactlyOn } from "./plays";
 import { Recorder } from "./recording";
@@ -55,7 +56,9 @@ describe("the play schema at /api/plays", () => {
       { ...play, inputs: Array.from({ length: 10_000 }, (_, index) => [index, 0, 0, 0, 0, -1, -1]) },
       { ...play, stats: { ...play.stats, kills: -1 } },
     ];
-    for (const sent of broken) expect(playSchema.safeParse(sent).success).toBe(false);
+    for (const sent of broken) {
+      expect(playSchema.safeParse(sent).success).toBe(false);
+    }
   });
 
   test("a creature that could not have been met is refused", () => {
@@ -102,8 +105,9 @@ describe("the sim a play was recorded on", () => {
   });
 
   test("a sim that is not a fingerprint is refused", () => {
-    for (const bad of ["", "dev", "0123456789AB", "0123456789abc", 12, null])
+    for (const bad of ["", "dev", "0123456789AB", "0123456789abc", 12, null]) {
       expect(playSchema.safeParse({ ...play, sim: bad }).success).toBe(false);
+    }
   });
 
   test("a play replays only on the sim it was recorded on", () => {

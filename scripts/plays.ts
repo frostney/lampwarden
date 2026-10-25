@@ -3,7 +3,9 @@
 //   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); `bun run plays` runs this under `varlock run` and hands it
 //   that variable only. --verify replays the finished nights recorded on this checkout's sim (tools/sim-fingerprint) and checks each ends the same; nights from another sim version are counted, not replayed.
 import { join } from "node:path";
+
 import { get, list } from "@vercel/blob";
+
 import { replaysExactlyOn } from "../src/game/plays";
 import type { Play } from "../src/game/recording";
 import { verifyPlay } from "../src/game/replay";
@@ -34,9 +36,13 @@ do {
 const plays: Play[] = [];
 for (const path of paths) {
   const blob = await get(path, { access: "private", token });
-  if (blob?.statusCode !== 200) continue;
+  if (blob?.statusCode !== 200) {
+    continue;
+  }
   const play: Play = JSON.parse(await new Response(blob.stream).text());
-  if (!build || play.build === build) plays.push(play);
+  if (!build || play.build === build) {
+    plays.push(play);
+  }
 }
 if (!plays.length) {
   console.log("no plays");
@@ -92,7 +98,9 @@ for (const night of nights) {
 // nights that met a creature from the sea, per creature (the nights without one are the rows above)
 const metCreatures = new Map<string, Play[]>();
 for (const play of plays) {
-  if (!play.creature) continue;
+  if (!play.creature) {
+    continue;
+  }
   metCreatures.set(play.creature.id, [...(metCreatures.get(play.creature.id) ?? []), play]);
 }
 if (metCreatures.size) {
@@ -102,7 +110,9 @@ if (metCreatures.size) {
   );
   for (const [id, creaturePlays] of [...metCreatures].sort((first, second) => second[1].length - first[1].length)) {
     const [first] = creaturePlays;
-    if (!first?.creature) continue;
+    if (!first?.creature) {
+      continue;
+    }
     const ending = (outcome: string | null) => creaturePlays.filter((play) => play.outcome === outcome).length;
     console.log(
       [
@@ -129,12 +139,13 @@ if (metCreatures.size) {
 const dark = plays.filter((play) => play.outcome === "dark");
 if (dark.length) {
   const litBySecond: number[][] = [];
-  for (const play of dark)
+  for (const play of dark) {
     for (const [second, , lit] of play.timeline) {
       const samples = litBySecond[second] ?? [];
       samples.push(lit);
       litBySecond[second] = samples;
     }
+  }
   const summary = litBySecond
     .map((samples, second) => (samples ? `${second}s:${average(samples).toFixed(1)}` : ""))
     .filter(Boolean)
@@ -154,7 +165,8 @@ if (shouldVerify) {
 }
 
 console.log("\nlatest nights (watch with /?replay=<id>):");
-for (const play of plays.slice(-8))
+for (const play of plays.slice(-8)) {
   console.log(
     `  ${play.id}  night ${play.legacy.night}  ${play.outcome ?? "quit"}  ${play.stats.kills} slain  ${seconds(play).toFixed(0)} s  ${play.legacy.heir.name}`,
   );
+}

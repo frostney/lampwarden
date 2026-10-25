@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
+
 import type { Creature, JobStep } from "./creature";
 import { askForCreature, waitForJob } from "./creature-api";
 
@@ -21,7 +22,9 @@ afterAll(() => fetching.mockRestore());
 // a stand-in for fetch (bun's typing wants its preconnect too)
 const standIn = (respond: () => Promise<Response>): typeof fetch => Object.assign(respond, { preconnect: () => {} });
 const answers = (...bodies: unknown[]) => {
-  for (const body of bodies) fetching.mockImplementationOnce(standIn(async () => Response.json(body)));
+  for (const body of bodies) {
+    fetching.mockImplementationOnce(standIn(async () => Response.json(body)));
+  }
 };
 const job = (step: JobStep, extra: object = {}) => ({
   jobId: "job-1",

@@ -322,14 +322,18 @@ function pickKind(state: State, roll: number): MonsterKind {
   let remaining = roll * weights.reduce((total, [, weight]) => total + weight, 0);
   for (const [kind, weight] of weights) {
     remaining -= weight;
-    if (remaining < 0) return kind;
+    if (remaining < 0) {
+      return kind;
+    }
   }
   return "satyr";
 }
 
 // The stats a kind of monster plays by tonight: the creature's, or the hand-made monster's.
 export function monsterStats(state: Pick<State, "creature">, kind: MonsterKind): CreatureStats {
-  if (kind !== "creature") return MONSTER[kind];
+  if (kind !== "creature") {
+    return MONSTER[kind];
+  }
   return state.creature?.stats ?? MONSTER.satyr;
 }
 
@@ -342,8 +346,9 @@ function spawn(state: State) {
     state.elapsed >= creatureFrom(state.length) &&
     creaturesAlive(state) < CREATURE_CAP &&
     rand(state) < state.creatureShare
-  )
+  ) {
     kind = "creature";
+  }
   // out of the sea: anywhere on the rim, a little more often from the harbour side (bottom)
   const angle = rand(state) < 0.6 ? Math.PI * (0.15 + rand(state) * 0.7) : rand(state) * Math.PI * 2;
   state.monsters.push({
@@ -382,7 +387,9 @@ function inSwing(hero: Hero, targetX: number, targetY: number, reach: number): b
   const offsetX = targetX - hero.x;
   const offsetY = (targetY - hero.y) * 2;
   const distance = Math.hypot(offsetX, offsetY);
-  if (distance >= reach) return false;
+  if (distance >= reach) {
+    return false;
+  }
   const [facingX, facingY] = octantVector(hero.octant);
   return offsetX * facingX + offsetY * facingY >= distance * Math.cos(SWING_HALF_ARC);
 }
@@ -390,12 +397,15 @@ function inSwing(hero: Hero, targetX: number, targetY: number, reach: number): b
 // Faces a heading (ground space); false when there is none.
 function turn(hero: Hero, moveX: number, moveY: number): boolean {
   const length = Math.hypot(moveX, moveY);
-  if (length === 0) return false;
+  if (length === 0) {
+    return false;
+  }
   hero.directionX = moveX / length;
   hero.directionY = moveY / length;
   // he takes the nearest of the eight directions, once the heading is clearly past the edge of the one he faces
-  if (offsetFromOctant(moveX, moveY, hero.octant) > Math.PI / 8 + FACING_HYSTERESIS)
+  if (offsetFromOctant(moveX, moveY, hero.octant) > Math.PI / 8 + FACING_HYSTERESIS) {
     hero.octant = octantOf(moveX, moveY);
+  }
   return true;
 }
 
@@ -425,7 +435,9 @@ function addPuff(
 }
 
 export function step(state: State, deltaTime: number, input: Input) {
-  if (state.outcome) return;
+  if (state.outcome) {
+    return;
+  }
   state.elapsed += deltaTime;
   state.stats.time += deltaTime;
   const hero = state.hero;
@@ -435,7 +447,9 @@ export function step(state: State, deltaTime: number, input: Input) {
   hero.shotCooldown = Math.max(0, hero.shotCooldown - deltaTime);
   const stunned = hero.stun > 0;
   hero.stun = Math.max(0, hero.stun - deltaTime);
-  if (hero.knockX !== 0 || hero.knockY !== 0) knock(hero, deltaTime, HERO_KNOCK_LIMIT);
+  if (hero.knockX !== 0 || hero.knockY !== 0) {
+    knock(hero, deltaTime, HERO_KNOCK_LIMIT);
+  }
   const busy = stunned || hero.animation === "melee" || hero.animation === "ranged";
 
   if (!busy && input.melee) {
@@ -452,7 +466,9 @@ export function step(state: State, deltaTime: number, input: Input) {
     if (input.aim) {
       const aimX = input.aim.x - hero.x;
       const aimY = (input.aim.y - (hero.y - 40)) * 2;
-      if (aimX !== 0 || aimY !== 0) hero.octant = octantOf(aimX, aimY);
+      if (aimX !== 0 || aimY !== 0) {
+        hero.octant = octantOf(aimX, aimY);
+      }
     }
   }
 
@@ -466,8 +482,11 @@ export function step(state: State, deltaTime: number, input: Input) {
       if (inPlaza(nextX, nextY)) {
         hero.x = nextX;
         hero.y = nextY;
-      } else if (inPlaza(nextX, hero.y)) hero.x = nextX;
-      else if (inPlaza(hero.x, nextY)) hero.y = nextY;
+      } else if (inPlaza(nextX, hero.y)) {
+        hero.x = nextX;
+      } else if (inPlaza(hero.x, nextY)) {
+        hero.y = nextY;
+      }
       if (hero.animation !== "walk") {
         hero.animation = "walk";
         hero.frameTime = 0;
@@ -479,7 +498,9 @@ export function step(state: State, deltaTime: number, input: Input) {
   }
 
   hero.hold = Math.max(0, hero.hold - deltaTime);
-  if (hero.hold <= 0 && !stunned) hero.frameTime += deltaTime;
+  if (hero.hold <= 0 && !stunned) {
+    hero.frameTime += deltaTime;
+  }
   const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
   if (attacking && frame >= FRAMES[hero.animation]) {
     hero.animation = "idle";
@@ -491,7 +512,9 @@ export function step(state: State, deltaTime: number, input: Input) {
     hero.fired = true;
     let connected = false;
     for (const monster of state.monsters.slice()) {
-      if (!inSwing(hero, monster.x, monster.y, rules.meleeReach)) continue;
+      if (!inSwing(hero, monster.x, monster.y, rules.meleeReach)) {
+        continue;
+      }
       // thrown straight away from the warden
       const awayX = monster.x - hero.x;
       const awayY = (monster.y - hero.y) * 2;
@@ -508,7 +531,9 @@ export function step(state: State, deltaTime: number, input: Input) {
       });
       connected = true;
     }
-    if (connected) hero.hold = SWING_HOLD;
+    if (connected) {
+      hero.hold = SWING_HOLD;
+    }
   }
   if (hero.animation === "ranged" && !hero.fired && frame >= 3) {
     hero.fired = true;
@@ -542,7 +567,9 @@ export function step(state: State, deltaTime: number, input: Input) {
     shot.y += shot.velocityY * deltaTime;
     shot.life -= deltaTime;
     for (const monster of state.monsters.slice()) {
-      if (shot.hit.includes(monster.id)) continue;
+      if (shot.hit.includes(monster.id)) {
+        continue;
+      }
       const bodyY = monster.y - bodyHeight(state, monster.kind);
       if (Math.hypot(monster.x - shot.x, bodyY - shot.y) < 30) {
         shot.hit.push(monster.id);
@@ -570,7 +597,9 @@ export function step(state: State, deltaTime: number, input: Input) {
   // relight: stand by a dark lamp
   for (const lamp of state.lamps) {
     lamp.flicker += deltaTime;
-    if (lamp.lit) continue;
+    if (lamp.lit) {
+      continue;
+    }
     if (ground(lamp.x, lamp.y, hero.x, hero.y) < 40) {
       lamp.relight += deltaTime;
       if (lamp.relight >= rules.relight) {
@@ -578,7 +607,9 @@ export function step(state: State, deltaTime: number, input: Input) {
         lamp.relight = 0;
         addPuff(state, lamp.x, lamp.y - 40, "light");
       }
-    } else lamp.relight = Math.max(0, lamp.relight - deltaTime * 2);
+    } else {
+      lamp.relight = Math.max(0, lamp.relight - deltaTime * 2);
+    }
   }
 
   for (const monster of state.monsters.slice()) {
@@ -590,7 +621,9 @@ export function step(state: State, deltaTime: number, input: Input) {
       monster.stun = Math.max(0, monster.stun - deltaTime);
       continue;
     }
-    if (monster.knockX !== 0 || monster.knockY !== 0) knock(monster, deltaTime);
+    if (monster.knockX !== 0 || monster.knockY !== 0) {
+      knock(monster, deltaTime);
+    }
     // target: the warden if close, else the nearest lit lamp
     const heroDistance = ground(monster.x, monster.y, hero.x, hero.y);
     let targetX = hero.x;
@@ -598,7 +631,7 @@ export function step(state: State, deltaTime: number, input: Input) {
     let lamp: Lamp | null = null;
     if (heroDistance > AGGRO) {
       let best = Number.POSITIVE_INFINITY;
-      for (const candidate of state.lamps)
+      for (const candidate of state.lamps) {
         if (candidate.lit) {
           const distance = ground(monster.x, monster.y, candidate.x, candidate.y);
           if (distance < best) {
@@ -606,6 +639,7 @@ export function step(state: State, deltaTime: number, input: Input) {
             lamp = candidate;
           }
         }
+      }
       if (lamp) {
         targetX = lamp.x;
         targetY = lamp.y;
@@ -646,7 +680,9 @@ export function step(state: State, deltaTime: number, input: Input) {
     monster.y += (groundY * speed + groundX * lateral) * deltaTime * 0.5;
   }
 
-  for (const puff of state.puffs) puff.age += deltaTime;
+  for (const puff of state.puffs) {
+    puff.age += deltaTime;
+  }
   state.puffs = state.puffs.filter((puff) => puff.age < 0.5);
 
   if (state.elapsed < state.length) {
@@ -657,11 +693,15 @@ export function step(state: State, deltaTime: number, input: Input) {
     }
   }
 
-  if (hero.health <= 0) state.outcome = "fallen";
-  else if (litCount(state) === 0) state.outcome = "dark";
-  else if (state.elapsed >= state.length) {
+  if (hero.health <= 0) {
+    state.outcome = "fallen";
+  } else if (litCount(state) === 0) {
+    state.outcome = "dark";
+  } else if (state.elapsed >= state.length) {
     // dawn: the sun burns the stragglers away
-    for (const monster of state.monsters) addPuff(state, monster.x, monster.y - 30, "kill");
+    for (const monster of state.monsters) {
+      addPuff(state, monster.x, monster.y - 30, "kill");
+    }
     state.monsters = [];
     state.outcome = "dawn";
   }
@@ -698,7 +738,9 @@ function strike(state: State, monster: Monster, blow: Blow) {
     monsterAge: monster.age,
   };
   state.stats.kills++;
-  if (rand(state) < state.rules.oilChance) state.oilEarned += monsterStats(state, monster.kind).oil;
+  if (rand(state) < state.rules.oilChance) {
+    state.oilEarned += monsterStats(state, monster.kind).oil;
+  }
 }
 
 // A monster's blow on the warden: damage, a hit-stop, a push, mercy frames and the impact burst. (blowX, blowY) is the
@@ -733,8 +775,11 @@ function knock(monster: Thrown, deltaTime: number, edge = KNOCK_LIMIT) {
   if (plazaRim(nextX, nextY) <= limit) {
     monster.x = nextX;
     monster.y = nextY;
-  } else if (plazaRim(nextX, monster.y) <= limit) monster.x = nextX;
-  else if (plazaRim(monster.x, nextY) <= limit) monster.y = nextY;
+  } else if (plazaRim(nextX, monster.y) <= limit) {
+    monster.x = nextX;
+  } else if (plazaRim(monster.x, nextY) <= limit) {
+    monster.y = nextY;
+  }
   const drag = Math.max(0, 1 - KNOCK_DRAG * deltaTime);
   monster.knockX *= drag;
   monster.knockY *= drag;
@@ -776,7 +821,9 @@ export function rulesTide(tide: number, night: NightResult): number {
     const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;
     const rise = TIDE_RISE[night.night <= LEARNING_NIGHTS ? "learning" : "settled"];
     next *= clean ? (killRate > 20 ? rise.fast : rise.steady) : 1.0;
-  } else next *= 0.85;
+  } else {
+    next *= 0.85;
+  }
   return Math.min(2, Math.max(0.6, Math.round(next * 100) / 100));
 }
 

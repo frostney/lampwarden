@@ -3,7 +3,9 @@
 // function uses none of this (its filesystem is read-only); it gives the loop its own store.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
 import { z } from "zod";
+
 import type { LoopOutcome, LoopStore } from "./loop";
 
 export function createFileStore(paths: { workDirectory: string; logPath: string }): LoopStore {

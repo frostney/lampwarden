@@ -1,6 +1,7 @@
 // The part of a run that outlives the warden: oil, upgrades, the bloodline and the director's read of the player.
 // Saved to localStorage, so a reload keeps the line going.
 import { z } from "zod";
+
 import { SEXES, type Sex } from "../scene/assets";
 import { checkedDecision, type Director, directorFrom, type EngagementKind, rulesDirector } from "./director";
 import { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
@@ -81,8 +82,12 @@ export function heirChoices(random = Math.random, fallenName?: string): Heir[] {
   const choices: Heir[] = [];
   while (choices.length < 3) {
     const heir = randomHeir(random);
-    if (heir.name === fallenName) continue;
-    if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) choices.push(heir);
+    if (heir.name === fallenName) {
+      continue;
+    }
+    if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) {
+      choices.push(heir);
+    }
   }
   return choices;
 }
@@ -90,7 +95,9 @@ export function heirChoices(random = Math.random, fallenName?: string): Heir[] {
 // The same warden as the other sex: a name from that sex's list (the one at the same place, so choosing back restores
 // the name), the trait kept.
 export function heirAs(heir: Heir, sex: Sex): Heir {
-  if (heir.sex === sex) return heir;
+  if (heir.sex === sex) {
+    return heir;
+  }
   const place = NAMES[heir.sex].indexOf(heir.name);
   return { ...heir, sex, name: NAMES[sex][Math.max(0, place)] ?? NAMES[sex][0] };
 }
@@ -104,7 +111,9 @@ export function drawOffers(seed: number, levels: Levels): UpgradeId[] {
     const draw = nextRandom(state);
     state = draw.seed;
     const [picked] = pool.splice(Math.floor(draw.value * pool.length), 1);
-    if (picked) offers.push(picked);
+    if (picked) {
+      offers.push(picked);
+    }
   }
   return offers;
 }
@@ -118,7 +127,11 @@ export function openShop(legacy: Legacy) {
 
 // The warden falls: what was only theirs falls with them.
 export function endWarden(legacy: Legacy) {
-  for (const id of UPGRADE_IDS) if (UPGRADES[id].wardenOnly) legacy.levels[id] = 0;
+  for (const id of UPGRADE_IDS) {
+    if (UPGRADES[id].wardenOnly) {
+      legacy.levels[id] = 0;
+    }
+  }
 }
 
 // A new line starts from a seed (a fresh one unless the caller names it), which is the only chance in the shop.
@@ -158,10 +171,13 @@ export function setRulesDirector(
 // that night's recording has already replaced it), and it is brought inside the bounds again. True when it was applied.
 export function applyDirector(legacy: Legacy, received: unknown): boolean {
   const waiting = legacy.director;
-  if (waiting.source !== "rules" || waiting.playId === undefined) return false;
-  const decision = checkedDecision(received, waiting.rulesTide, waiting.engagement);
-  if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight)
+  if (waiting.source !== "rules" || waiting.playId === undefined) {
     return false;
+  }
+  const decision = checkedDecision(received, waiting.rulesTide, waiting.engagement);
+  if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight) {
+    return false;
+  }
   legacy.tide = decision.tide;
   legacy.director = decision;
   return true;
@@ -170,7 +186,9 @@ export function applyDirector(legacy: Legacy, received: unknown): boolean {
 // The line meets a creature from the sea: its id joins the bestiary (once), and the oldest drop off past the limit.
 const BESTIARY_LIMIT = 500; // the most `seen` ids the gallery takes (nextCreatureRequestSchema)
 export function meet(legacy: Legacy, creatureId: string) {
-  if (legacy.bestiary.includes(creatureId)) return;
+  if (legacy.bestiary.includes(creatureId)) {
+    return;
+  }
   legacy.bestiary = [...legacy.bestiary, creatureId].slice(-BESTIARY_LIMIT);
 }
 
@@ -181,7 +199,9 @@ export function upgradeCost(legacy: Legacy, id: UpgradeId): number | null {
 // Buys one level of an upgrade on offer. It stays on offer, so a second level can follow in the same shop.
 export function buy(legacy: Legacy, id: UpgradeId): boolean {
   const cost = upgradeCost(legacy, id);
-  if (cost === null || legacy.oil < cost || !legacy.offers.includes(id)) return false;
+  if (cost === null || legacy.oil < cost || !legacy.offers.includes(id)) {
+    return false;
+  }
   legacy.oil -= cost;
   legacy.levels[id]++;
   return true;
@@ -231,7 +251,9 @@ const KEY = "lampwarden:legacy:v1";
 export function loadLegacy(): Legacy {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-    if (raw) return parseLegacy(JSON.parse(raw));
+    if (raw) {
+      return parseLegacy(JSON.parse(raw));
+    }
   } catch {
     /* corrupt or unavailable storage: start a new line */
   }

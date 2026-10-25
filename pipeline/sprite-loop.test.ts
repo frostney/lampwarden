@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
 import { createMubitClient, type FetchImplementation } from "./mubit";
@@ -69,7 +70,9 @@ function contextWith(
   const fetchImplementation: FetchImplementation = async (_url, init) => {
     sent.push(JSON.parse(String(init.body)));
     const answer = answers.shift();
-    if (!answer) throw new Error("the loop made a request the test did not expect");
+    if (!answer) {
+      throw new Error("the loop made a request the test did not expect");
+    }
     return new Response(
       JSON.stringify({
         content: [{ type: "text", text: answer.text }],
@@ -116,7 +119,9 @@ describe("the generate-verify loop's requests", () => {
 
     const verifierContent = sent[1]?.messages[0]?.content;
     expect(Array.isArray(verifierContent)).toBe(true);
-    if (!Array.isArray(verifierContent)) return;
+    if (!Array.isArray(verifierContent)) {
+      return;
+    }
     expect(verifierContent[0]).toEqual({
       type: "text",
       text: `BRIEF: a lamp on a post\n\nENGINE STATS: bbox 42,27,88,105, coverage 8%, parts 78, flags ok\n\nGENERATOR CODE:\n\`\`\`ts\n${GOOD_CODE}\n\`\`\`\n\nRENDERED SPRITE (image):`,

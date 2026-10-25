@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import manifest from "./manifest";
 
 const publicDirectory = join(import.meta.dir, "../../public");
@@ -22,5 +23,7 @@ test("the manifest has 192 and 512 px icons, each as any and as maskable, and th
   const wanted = ["192x192", "512x512"].flatMap((sizes) => ["any", "maskable"].map((purpose) => `${sizes} ${purpose}`));
   expect(icons.map((icon) => `${icon.sizes} ${icon.purpose}`).sort()).toEqual(wanted.sort());
   // each declared size is the file's real size (tools/logo/build.ts --check keeps the files themselves current)
-  for (const icon of icons) expect(sizeOf(join(publicDirectory, icon.src))).toBe(`${icon.sizes}`);
+  for (const icon of icons) {
+    expect(sizeOf(join(publicDirectory, icon.src))).toBe(`${icon.sizes}`);
+  }
 });

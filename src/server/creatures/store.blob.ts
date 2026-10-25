@@ -9,8 +9,10 @@
 //   <prefix>/starts/...               one tiny blob per job start, counted for the rate limits
 import { BlobError, BlobPreconditionFailedError, get, list, put } from "@vercel/blob";
 import { z } from "zod";
+
 import { type CreatureJob, JOB_STEPS } from "@/game/creature";
 import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+
 import type { CreatureStore, RunningLock } from "./store";
 
 const RECORD_ID = /^[a-z0-9-]{8,80}$/;
@@ -43,7 +45,9 @@ export function createBlobStore(prefix: string): CreatureStore {
     let cursor: string | undefined;
     do {
       const page = await list({ prefix: listPrefix, ...(cursor ? { cursor } : {}) });
-      for (const blob of page.blobs) pathnames.push(blob.pathname);
+      for (const blob of page.blobs) {
+        pathnames.push(blob.pathname);
+      }
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
     return pathnames;
@@ -52,7 +56,9 @@ export function createBlobStore(prefix: string): CreatureStore {
   async function readText(pathname: string): Promise<{ text: string; etag: string } | null> {
     // mutable blobs are read from origin: a CDN copy could be a step behind
     const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== 200) return null;
+    if (blob?.statusCode !== 200) {
+      return null;
+    }
     return { text: await new Response(blob.stream).text(), etag: blob.blob.etag };
   }
 
@@ -71,7 +77,9 @@ export function createBlobStore(prefix: string): CreatureStore {
 
     async getCreature(id) {
       const stored = await readText(path.record(id));
-      if (!stored) return null;
+      if (!stored) {
+        return null;
+      }
       try {
         const parsed = creatureRecordSchema.safeParse(JSON.parse(stored.text));
         return parsed.success ? parsed.data : null;
@@ -93,17 +101,23 @@ export function createBlobStore(prefix: string): CreatureStore {
     async putCreature(creature: CreatureRecord, png, code, atlas) {
       const write = { access: "private", addRandomSuffix: false } as const;
       await put(path.sprite(creature.id), Buffer.from(png), { ...write, contentType: "image/png" });
-      if (atlas) await put(path.atlas(creature.id), Buffer.from(atlas), { ...write, contentType: "image/png" });
+      if (atlas) {
+        await put(path.atlas(creature.id), Buffer.from(atlas), { ...write, contentType: "image/png" });
+      }
       await put(path.code(creature.id), code, { ...write, contentType: "text/plain" });
       await put(path.record(creature.id), JSON.stringify(creature), { ...write, contentType: "application/json" });
     },
 
     async getJob(jobId) {
       const stored = await readText(path.job(jobId));
-      if (!stored) return null;
+      if (!stored) {
+        return null;
+      }
       try {
         const parsed = jobSchema.safeParse(JSON.parse(stored.text));
-        if (!parsed.success) return null;
+        if (!parsed.success) {
+          return null;
+        }
         const { creature, error, ...rest } = parsed.data;
         return { ...rest, ...(creature ? { creature } : {}), ...(error ? { error } : {}) } satisfies CreatureJob;
       } catch {
@@ -123,7 +137,9 @@ export function createBlobStore(prefix: string): CreatureStore {
 
     async readRunning(): Promise<RunningLock | null> {
       const stored = await readText(path.running);
-      if (!stored) return null;
+      if (!stored) {
+        return null;
+      }
       try {
         return { jobId: runningSchema.parse(JSON.parse(stored.text)).jobId, version: stored.etag };
       } catch {
@@ -148,8 +164,12 @@ export function createBlobStore(prefix: string): CreatureStore {
         );
         return true;
       } catch (error) {
-        if (error instanceof BlobPreconditionFailedError) return false;
-        if (previous === null && error instanceof BlobError && /already exists/i.test(error.message)) return false;
+        if (error instanceof BlobPreconditionFailedError) {
+          return false;
+        }
+        if (previous === null && error instanceof BlobError && /already exists/i.test(error.message)) {
+          return false;
+        }
         throw error;
       }
     },
@@ -166,7 +186,9 @@ export function createBlobStore(prefix: string): CreatureStore {
       for (const day of days) {
         for (const pathname of await listPathnames(path.visitorStarts(visitor, day))) {
           const startedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
-          if (startedAt >= since.getTime() && startedAt <= until.getTime()) starts.push(new Date(startedAt));
+          if (startedAt >= since.getTime() && startedAt <= until.getTime()) {
+            starts.push(new Date(startedAt));
+          }
         }
       }
       return starts.sort((first, second) => first.getTime() - second.getTime());

@@ -7,7 +7,9 @@
 // are in the sandbox snapshot, not read for rendering.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { ENV } from "varlock/env";
+
 import { createMubitClient } from "../../../pipeline/mubit";
 import { renderBatchSafely, renderSafely } from "../../../pipeline/render-vercel-sandbox";
 import { readRunnerFiles, runnerBundleSha } from "../../../pipeline/runner-bundle";
@@ -35,7 +37,9 @@ function debugSink(directory: string): NonNullable<JobDeps["onOutcome"]> {
     try {
       mkdirSync(directory, { recursive: true });
       for (const candidate of outcome.candidates) {
-        if (candidate.png) writeFileSync(join(directory, `${jobId}-${candidate.name}.png`), candidate.png);
+        if (candidate.png) {
+          writeFileSync(join(directory, `${jobId}-${candidate.name}.png`), candidate.png);
+        }
       }
       const summary = {
         jobId,
@@ -62,7 +66,9 @@ function debugSink(directory: string): NonNullable<JobDeps["onOutcome"]> {
 /** The deployed job's dependencies, or null when generation is not configured. */
 function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | null {
   const { mubitApiKey, snapshotId } = config;
-  if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) return null;
+  if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) {
+    return null;
+  }
   const expectedBundleSha = runnerBundleSha(readRunnerFiles(pipelineDirectory()));
   return {
     store,
@@ -99,7 +105,9 @@ export function createServiceDeps(schedule: (work: () => Promise<unknown>) => vo
       schedule(async () => {
         try {
           const jobDeps = createJobDeps(config, store);
-          if (jobDeps) await runCreatureJob(jobDeps, jobId);
+          if (jobDeps) {
+            await runCreatureJob(jobDeps, jobId);
+          }
         } catch (error) {
           // a job that cannot even start (a file missing from the deployment, say) must not sit "queued" holding the slot
           console.error(

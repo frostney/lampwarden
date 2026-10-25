@@ -61,8 +61,8 @@ function bot(state: State): Input {
   // threat: the monster closest to a lit lamp
   let threat: Monster | null = null;
   let threatDistance = Number.POSITIVE_INFINITY;
-  for (const monster of state.monsters)
-    for (const lamp of state.lamps)
+  for (const monster of state.monsters) {
+    for (const lamp of state.lamps) {
       if (lamp.lit) {
         const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
         if (distance < threatDistance) {
@@ -70,10 +70,15 @@ function bot(state: State): Input {
           threat = monster;
         }
       }
+    }
+  }
   const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
-  if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
+  if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180) {
     return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - bodyHeight(state, threat.kind) } };
-  if (!goal) return NO_INPUT;
+  }
+  if (!goal) {
+    return NO_INPUT;
+  }
   const towardX = goal.x - hero.x;
   const towardY = goal.y - hero.y;
   return {
@@ -104,13 +109,16 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
       if (think <= 0) {
         // ~150 ms reaction time (the novice's is 450 ms, and he never shoots)
         input = policy === "idle" ? NO_INPUT : bot(state);
-        if (policy === "novice") input = { ...input, ranged: false, aim: null };
+        if (policy === "novice") {
+          input = { ...input, ranged: false, aim: null };
+        }
         think = REACTION[policy];
       }
     }
     step(state, STEP, input);
-    if (creatureAt === null && state.monsters.some((monster) => monster.kind === "creature"))
+    if (creatureAt === null && state.monsters.some((monster) => monster.kind === "creature")) {
       creatureAt = state.elapsed;
+    }
     if (input.melee || input.ranged) {
       consumePresses(controls);
       input = { ...input, melee: false, ranged: false };
@@ -168,7 +176,9 @@ function stubDecision(stub: Stub, rulesTide: number, endedNight: number): Direct
     endedNight,
     "2026-10-24-00-00-00-balance",
   );
-  if (!decision) throw new Error("stub decision rejected");
+  if (!decision) {
+    throw new Error("stub decision rejected");
+  }
   return decision;
 }
 
@@ -195,7 +205,9 @@ function directorReport(runs: number) {
           const legacy = newLegacy(run + 1);
           legacy.night = night;
           setRulesDirector(legacy, tide, night - 1, "2026-10-24-00-00-00-balance");
-          if (stub && !applyDirector(legacy, stubDecision(stub, tide, night - 1))) throw new Error("stub not applied");
+          if (stub && !applyDirector(legacy, stubDecision(stub, tide, night - 1))) {
+            throw new Error("stub not applied");
+          }
           return playNight(legacy, policy, night * 100_000 + run);
         });
         const percent = (outcome: string) =>
@@ -218,7 +230,9 @@ const ONLY = ["all", "idle", "bot", "human", "creatures"];
 const words = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
 const runs = Number(words.find((argument) => /^[0-9]+$/.test(argument)) || 200);
 const only = words.find((argument) => !/^[0-9]+$/.test(argument)) ?? "all";
-if (!ONLY.includes(only)) throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
+if (!ONLY.includes(only)) {
+  throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
+}
 const POLICIES = (["idle", "bot", "human"] as const).filter((policy) => only === "all" || only === policy);
 if (process.argv.includes("--director")) {
   directorReport(runs);
@@ -291,7 +305,9 @@ const campaignOf = (policy: Policy) =>
         highest: highestLevel(legacy),
       };
       rows.push(row);
-      if (result.outcome !== "dawn") break;
+      if (result.outcome !== "dawn") {
+        break;
+      }
       legacy.oil += result.income;
       legacy.tide = result.nextTide;
       openShop(legacy);
@@ -301,7 +317,9 @@ const campaignOf = (policy: Policy) =>
           .map((id) => ({ id, cost: upgradeCost(legacy, id) }))
           .filter((offer) => offer.cost !== null && offer.cost <= legacy.oil)
           .sort((first, second) => (first.cost ?? 0) - (second.cost ?? 0))[0];
-        if (!affordable || !buy(legacy, affordable.id)) break;
+        if (!affordable || !buy(legacy, affordable.id)) {
+          break;
+        }
       }
       row.bought = levelsOwned(legacy) - owned;
       row.ownedAfter = levelsOwned(legacy);
@@ -310,14 +328,18 @@ const campaignOf = (policy: Policy) =>
     return rows;
   });
 for (const policy of POLICIES) {
-  if (policy === "idle") continue;
+  if (policy === "idle") {
+    continue;
+  }
   const campaigns = campaignOf(policy);
   console.log(
     `\ncampaign (${policy} warden holds nights in a row, buys the cheapest affordable level; ${runs} lines; outcome rates are of the lines that reach the night):`,
   );
   for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
     const rows = campaigns.flatMap((line) => line[night - 1] ?? []);
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      break;
+    }
     const total = (measure: (row: Row) => number) => rows.reduce((sum, row) => sum + measure(row), 0);
     const average = (measure: (row: Row) => number) => (total(measure) / rows.length).toFixed(1);
     const percent = (outcome: Outcome) =>
@@ -351,16 +373,19 @@ const MODIFIER_SETS = [
   ["weakest", WEAKEST],
 ] as const;
 const withCreatures = only === "all" || only === "creatures";
-if (withCreatures)
+if (withCreatures) {
   console.log(`\nwith a creature from the sea (bot warden, ${runs} nights each, the same seeds as above):`);
+}
 for (const [night, tide] of withCreatures ? CREATURE_SCENARIOS : []) {
   const variants: [string, NightCreature | null][] = [["no creature", null]];
-  for (const archetype of ARCHETYPES)
-    for (const [label, modifiers] of MODIFIER_SETS)
+  for (const archetype of ARCHETYPES) {
+    for (const [label, modifiers] of MODIFIER_SETS) {
       variants.push([
         `${archetype} ${label}`,
         nightCreature({ id: `balance-${archetype}-${label}`, archetype, modifiers, anchorY: 0.8 }),
       ]);
+    }
+  }
   for (const [label, creature] of variants) {
     const results = Array.from({ length: runs }, (_, run) => play(night, tide, "bot", night * 100_000 + run, creature));
     const percent = (outcome: string) =>
@@ -383,7 +408,7 @@ if (withCreatures) {
     modifiers: NEUTRAL,
     anchorY: 0.8,
   });
-  for (const policy of ["bot", "human"] as const)
+  for (const policy of ["bot", "human"] as const) {
     for (const [night, tide] of SCENARIOS) {
       const results = Array.from({ length: runs }, (_, run) =>
         play(night, tide, policy, night * 100_000 + run, skulker),
@@ -395,4 +420,5 @@ if (withCreatures) {
         `  ${policy.padEnd(5)} night ${night} (${nightLength(night)} s, may start at ${creatureFrom(nightLength(night)).toFixed(1)} s): the creature comes in ${((100 * came.length) / runs).toFixed(0).padStart(3)}% of nights, first at ${first} s | dawn ${dawn}%`,
       );
     }
+  }
 }

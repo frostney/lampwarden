@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import { creatureSchema, creatureStats, statsOf } from "@/game/creature";
+
 import {
   briefJson,
   CLEAN_STATS,
@@ -102,7 +104,9 @@ describe("a creature job", () => {
 
     const [id] = await store.listCreatureIds();
     expect(id).toBeDefined();
-    if (!id) return;
+    if (!id) {
+      return;
+    }
     const creature = await store.getCreature(id);
     expect(creature).toEqual(job.creature ?? null);
     expect(creatureSchema.safeParse(creature).success).toBe(true);
@@ -296,7 +300,9 @@ describe("a creature job", () => {
     const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
     const written: string[] = [];
     store.putJob = async (job) => {
-      if (job.step === "done" && written.at(-1) !== "failed") throw new Error("blob hiccup");
+      if (job.step === "done" && written.at(-1) !== "failed") {
+        throw new Error("blob hiccup");
+      }
       written.push(job.step);
     };
     const job = await runCreatureJob(deps, "job-eleven-kkkk");
@@ -321,9 +327,12 @@ describe("a job with several candidates", () => {
     let generated = 0;
     return (request: { system: string; messages: unknown[] }): string | null => {
       const text = JSON.stringify(request.messages);
-      if (request.system.startsWith("CREATURE")) return briefJson();
-      if (request.system.startsWith("GENERATOR"))
+      if (request.system.startsWith("CREATURE")) {
+        return briefJson();
+      }
+      if (request.system.startsWith("GENERATOR")) {
         return request.messages.length === 1 ? variant(generated++) : variant(9);
+      }
       const candidate = /candidate (\d)/.exec(text)?.[1];
       return verdictJson(candidate === "9" ? fixScore : (scores[Number(candidate)] ?? 0));
     };
@@ -436,9 +445,12 @@ describe("a job animates what it accepts", () => {
   test("refuses a builder that ignores its pose, and animates the next best accepted candidate instead", async () => {
     let generated = 0;
     const model = (request: { system: string; messages: unknown[] }): string | null => {
-      if (request.system.startsWith("CREATURE")) return briefJson();
-      if (request.system.startsWith("GENERATOR"))
+      if (request.system.startsWith("CREATURE")) {
+        return briefJson();
+      }
+      if (request.system.startsWith("GENERATOR")) {
         return fenced(generated++ === 0 ? `// candidate 0\n${GOOD_CODE}` : `// candidate 1 ${staticCode}`);
+      }
       return verdictJson(JSON.stringify(request.messages).includes("candidate 1") ? 8 : 7);
     };
     const { deps, store, frameBatch, events } = jobWith(model, { candidates: 2 });

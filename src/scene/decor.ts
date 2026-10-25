@@ -195,7 +195,9 @@ const POLE_HALF_WIDTH = 5;
 
 function extentsOf(key: string): SpriteExtents {
   const extents = SPRITE_EXTENTS[key];
-  if (!extents) throw new Error(`no extents for the sprite ${key}: run bun run decor`);
+  if (!extents) {
+    throw new Error(`no extents for the sprite ${key}: run bun run decor`);
+  }
   return extents;
 }
 
@@ -216,7 +218,9 @@ const MIN_REACH = 1; // iso steps (of BOARD_RISE * 2 across) from the tip to the
 const MAX_REACH = 12;
 function bridgeBoards(tipX: number, tipY: number): Point[] | null {
   const reach = shoreDistance(tipX, tipY) / (BOARD_RISE * 2);
-  if (reach < MIN_REACH || reach > MAX_REACH) return null;
+  if (reach < MIN_REACH || reach > MAX_REACH) {
+    return null;
+  }
   const end = reach - 0.2;
   const count = Math.max(2, Math.round((end * BOARD_RISE * 2) / BOARD_STEP) + 1);
   return Array.from({ length: count }, (_, index): Point => {
@@ -300,30 +304,51 @@ class Placement {
   // Why a land prop may not stand with its anchor at (x, y) as a piece of group `group`, or null when it may.
   rejection(kind: DecorKind, x: number, y: number, group: number): string | null {
     const { hull, solid, sprite } = this.extents(kind.key);
-    if (hull.some(([hullX, hullY]) => plazaInset(x + hullX, y + hullY) < (kind.margin ?? MARGIN))) return "rim";
+    if (hull.some(([hullX, hullY]) => plazaInset(x + hullX, y + hullY) < (kind.margin ?? MARGIN))) {
+      return "rim";
+    }
     const base = groundShape(solid, x, y);
-    if (LAMP_FEET.some((foot) => nearPoint(base, foot, kind.lampRing ?? LAMP_RING))) return "lamp";
-    if (SPAWN_GROUND.some((spawn) => nearPoint(base, spawn, SPAWN_GAP))) return "spawn";
-    if (nearShape(base, LAMP_PENTAGON, PLAY_GAP)) return "play";
+    if (LAMP_FEET.some((foot) => nearPoint(base, foot, kind.lampRing ?? LAMP_RING))) {
+      return "lamp";
+    }
+    if (SPAWN_GROUND.some((spawn) => nearPoint(base, spawn, SPAWN_GAP))) {
+      return "spawn";
+    }
+    if (nearShape(base, LAMP_PENTAGON, PLAY_GAP)) {
+      return "play";
+    }
     // a lantern is not what a prop is seen behind, and a prop in front of a lamp is drawn over its pole
     const body = boxAt(sprite, x, y);
     for (const [index, lamp] of LAMPS_DRAWN.entries()) {
-      if (boxesNear(body, lamp.lantern, SIGHT_GAP)) return "lantern";
-      if (y >= (LAMP_SPOTS[index]?.[1] ?? 0) && boxesNear(body, lamp.pole, SIGHT_GAP)) return "pole";
+      if (boxesNear(body, lamp.lantern, SIGHT_GAP)) {
+        return "lantern";
+      }
+      if (y >= (LAMP_SPOTS[index]?.[1] ?? 0) && boxesNear(body, lamp.pole, SIGHT_GAP)) {
+        return "pole";
+      }
     }
     // what stands in front of the lamps stays low, and leaves the warden in view where he starts
-    if (y > FRONT_LAMP && body.right > LAMPS_LEFT && body.left < LAMPS_RIGHT && body.top < FRONT_LAMP - HEADROOM)
+    if (y > FRONT_LAMP && body.right > LAMPS_LEFT && body.left < LAMPS_RIGHT && body.top < FRONT_LAMP - HEADROOM) {
       return "play";
-    if (y > WARDEN_START[1] && boxesNear(body, WARDEN_IN_VIEW, 0)) return "warden";
+    }
+    if (y > WARDEN_START[1] && boxesNear(body, WARDEN_IN_VIEW, 0)) {
+      return "warden";
+    }
     const clustered = kind.arrange !== undefined && "cluster" in kind.arrange;
     for (const other of this.standing) {
       if (other.group === group) {
         // the pieces of a run stand end to end, but those of a cluster keep a little ground apart
-        if (clustered && nearShape(base, other.base, PIECE_GAP)) return "piece";
+        if (clustered && nearShape(base, other.base, PIECE_GAP)) {
+          return "piece";
+        }
         continue;
       }
-      if (nearShape(base, other.base, PROP_GAP)) return "prop";
-      if (boxesNear(body, other.body, BODY_GAP)) return "body";
+      if (nearShape(base, other.base, PROP_GAP)) {
+        return "prop";
+      }
+      if (boxesNear(body, other.body, BODY_GAP)) {
+        return "body";
+      }
     }
     return null;
   }
@@ -332,10 +357,16 @@ class Placement {
   // has a pier, near enough to the stone to bridge
   private seaworthy(kind: DecorKind, x: number, y: number): boolean {
     const { hull, solid, sprite } = this.extents(kind.key);
-    if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) return false;
-    if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) return false;
+    if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) {
+      return false;
+    }
+    if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) {
+      return false;
+    }
     const whole = boxAt(sprite, x, y);
-    if (whole.left < 0 || whole.right > STAGE_WIDTH || whole.bottom > STAGE_HEIGHT) return false;
+    if (whole.left < 0 || whole.right > STAGE_WIDTH || whole.bottom > STAGE_HEIGHT) {
+      return false;
+    }
     const base = groundShape(solid, x, y);
     return this.standing.every((other) => !nearShape(base, other.base, PROP_GAP));
   }
@@ -360,9 +391,11 @@ class Placement {
           rim === "back-right"
             ? [CENTRE_X + PLAZA_HALF_WIDTH * along, CENTRE_Y - PLAZA_HALF_HEIGHT + PLAZA_HALF_HEIGHT * along, 1]
             : [CENTRE_X - PLAZA_HALF_WIDTH + PLAZA_HALF_WIDTH * along, CENTRE_Y + PLAZA_HALF_HEIGHT * along, -1];
-        for (let depth = 0; depth <= EDGE_DEPTH; depth += 4)
-          if (this.rejection(kind, Math.round(rimX), Math.round(rimY + inwards * depth), group) === null)
+        for (let depth = 0; depth <= EDGE_DEPTH; depth += 4) {
+          if (this.rejection(kind, Math.round(rimX), Math.round(rimY + inwards * depth), group) === null) {
             return [rimX, rimY + inwards * depth];
+          }
+        }
         return [rimX, rimY];
       }
       case "shore-left": {
@@ -377,8 +410,12 @@ class Placement {
   }
 
   private fits(kind: DecorKind, x: number, y: number, group: number): boolean {
-    if (kind.where === "centre") return true;
-    if (kind.where === "shore-left" || kind.where === "shore-right") return this.seaworthy(kind, x, y);
+    if (kind.where === "centre") {
+      return true;
+    }
+    if (kind.where === "shore-left" || kind.where === "shore-right") {
+      return this.seaworthy(kind, x, y);
+    }
     return this.rejection(kind, x, y, group) === null;
   }
 
@@ -387,16 +424,24 @@ class Placement {
     (kind.bobs ? this.layout.boats : this.layout.props).push(placed);
     const { solid, sprite } = this.extents(kind.key);
     this.standing.push({ base: groundShape(solid, x, y), body: boxAt(sprite, x, y), group });
-    for (const ripple of kind.ripples ?? []) this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
-    if (kind.bridge) this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
+    for (const ripple of kind.ripples ?? []) {
+      this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
+    }
+    if (kind.bridge) {
+      this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
+    }
   }
 
   place(listed: DecorKind) {
     const required = listed.chance === undefined ? listed.groups[0] : 0;
     for (let wanted = this.count(listed.groups), left = required; wanted > 0; wanted--, left--) {
-      if (listed.chance !== undefined && this.random() >= listed.chance) continue;
+      if (listed.chance !== undefined && this.random() >= listed.chance) {
+        continue;
+      }
       const limit = listed.pool === undefined ? undefined : POOL_LIMITS[listed.pool];
-      if (listed.pool !== undefined && limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit) continue;
+      if (listed.pool !== undefined && limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit) {
+        continue;
+      }
       // a live building takes the building slot; otherwise a group is sometimes the listed sprite's replacement
       const replaced =
         listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
@@ -407,24 +452,34 @@ class Placement {
       for (let attempt = 0; attempt < (left > 0 ? TRIES_REQUIRED : TRIES) && !first; attempt++) {
         const [spotX, spotY] = this.spot(kind, group);
         const [x, y] = [Math.round(spotX), Math.round(spotY)];
-        if (this.fits(kind, x, y, group)) first = [x, y];
+        if (this.fits(kind, x, y, group)) {
+          first = [x, y];
+        }
       }
-      if (!first) continue;
-      if (listed.pool !== undefined) this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
+      if (!first) {
+        continue;
+      }
+      if (listed.pool !== undefined) {
+        this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
+      }
       this.stand(kind, first[0], first[1], group);
       const arrange = kind.arrange;
       for (let piece = 1, pieces = this.count(kind.pieces ?? [1, 1]); piece < pieces && arrange; piece++) {
         if ("run" in arrange) {
           const x = first[0] + arrange.run[0] * piece;
           const y = first[1] + arrange.run[1] * piece;
-          if (!this.fits(kind, x, y, group)) break;
+          if (!this.fits(kind, x, y, group)) {
+            break;
+          }
           this.stand(kind, x, y, group);
           continue;
         }
         for (let attempt = 0; attempt < PIECE_TRIES; attempt++) {
           const x = Math.round(first[0] + this.between(-arrange.cluster[0], arrange.cluster[0]));
           const y = Math.round(first[1] + this.between(-arrange.cluster[1], arrange.cluster[1]));
-          if (!this.fits(kind, x, y, group)) continue;
+          if (!this.fits(kind, x, y, group)) {
+            continue;
+          }
           this.stand(kind, x, y, group);
           break;
         }
@@ -447,9 +502,13 @@ export function decorFor(seed: number, live: LiveBuilding | null = null): Layout
   for (let index = 0; index < DECOR.length; ) {
     const pool = DECOR[index]?.pool;
     let end = index + 1;
-    while (pool !== undefined && DECOR[end]?.pool === pool) end++;
+    while (pool !== undefined && DECOR[end]?.pool === pool) {
+      end++;
+    }
     const run = DECOR.slice(index, end);
-    for (const kind of pool === undefined ? run : placement.shuffled(run)) placement.place(kind);
+    for (const kind of pool === undefined ? run : placement.shuffled(run)) {
+      placement.place(kind);
+    }
     index = end;
   }
   return placement.layout;

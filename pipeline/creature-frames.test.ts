@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { creatureAtlasLayout, creatureFramesSchema, creatureRecordSchema } from "../src/game/creature-frames";
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
@@ -58,7 +59,9 @@ describe("a frame set", () => {
   test("is packed into the atlas, each frame in its cell", () => {
     const set = assembleFrameSet(distinctSet());
     expect(set.ok).toBe(true);
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     const atlas = decodePng(Buffer.from(set.atlas));
     expect([atlas.width, atlas.height]).toEqual([768, 384]);

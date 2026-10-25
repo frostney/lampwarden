@@ -151,6 +151,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
                      render-checkout.ts is its entry for the command line (runner files from this checkout, snapshot from the environment)
   hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
+  hero-model.ts, hero-loop.ts, hero-generate.ts, hero-source.ts   the warden as Mubit-written code (public/sprites/hero/<sex>.ts): brief, frame scripts, checks and the candidate loop; the frames are drawn from it
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/

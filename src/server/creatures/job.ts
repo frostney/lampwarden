@@ -11,13 +11,17 @@ import type { CreatureJob, JobStep } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
-import { type CandidateOutcome, type LoopStage, type LoopWinner, runCandidateLoop } from "../../../pipeline/loop";
+import {
+  type CandidateOutcome,
+  isAccepted,
+  type LoopStage,
+  type LoopWinner,
+  runCandidateLoop,
+} from "../../../pipeline/loop";
 import { bindMubitSignal, type CallRecord, type MubitClient } from "../../../pipeline/mubit";
 import { bindRenderSignal, type Renderer, withDeadline } from "../../../pipeline/render-types";
 import type { CreatureStore } from "./store";
 
-/** The lowest verifier score that is accepted without a verifier pass, and only with a clean engine report. */
-const MINIMUM_UNPASSED_SCORE = 6;
 /** The lowest pixel under the feet that the shadow adds: the anchor sits this far above the bottom of the bbox. */
 const SHADOW_ROWS = 4;
 const FRAME = 128;
@@ -34,15 +38,9 @@ type JobFailure =
   | "timed out"
   | "something went wrong";
 
-/** Accept a verifier pass, or a score of at least 6 with no engine flags. Anything else fails and stores nothing. */
-export function isAccepted(winner: {
-  verdict: Pick<LoopWinner["verdict"], "pass" | "score">;
-  stats: LoopWinner["stats"];
-}): boolean {
-  if (winner.verdict.pass) return true;
-  const score = winner.verdict.score;
-  return winner.stats.flags === "ok" && score !== null && score >= MINIMUM_UNPASSED_SCORE;
-}
+// A verifier pass, or a score of at least 6 with no engine flags, is accepted; anything else fails and stores nothing.
+// The rule is `isAccepted` in pipeline/loop.ts, which the warden's generator (pipeline/hero-loop.ts) uses as well.
+export { isAccepted };
 
 /** Where its feet touch the ground, as a fraction of the frame: the lowest opaque row of the bbox, less the shadow. */
 export function anchorYFromBbox(bbox: string): number {

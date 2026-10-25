@@ -4,6 +4,8 @@
 
 A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea sends creatures to put out the town's lamps; you strike them down, relight the lamps and keep one burning until dawn. When a warden falls, an heir takes up the lamp. The sprites are code written by a model through Mubit, then rendered, judged and corrected.
 
+![Night 1 in Lychnos: a harpy claws at a lamp while a satyr and a cyclops come up from the shore, and the warden draws his bow](screenshot.png)
+
 ```bash
 bun install && bun run dev
 ```

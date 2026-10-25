@@ -108,6 +108,7 @@ export interface Night {
   sex: Sex;
   driver: Driver | null;
   creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
+  buildingTextures: TextureMap | null; // the building raised on the plaza tonight: its sprite, loaded before the night
   decor: Layout; // where the night's props stand, from its seed (src/scene/decor.ts)
 }
 
@@ -157,7 +158,10 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
-  const sceneTextures = useMemo(() => ({ ...textures, ...night.creatureTextures }), [textures, night.creatureTextures]);
+  const sceneTextures = useMemo(
+    () => ({ ...textures, ...night.creatureTextures, ...night.buildingTextures }),
+    [textures, night.creatureTextures, night.buildingTextures],
+  );
   const lighting = useMemo<Lighting>(() => new Map(), []);
   const shared = useMemo(() => ({ textures: sceneTextures, clock, lighting }), [sceneTextures, lighting]);
 

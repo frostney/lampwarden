@@ -8,7 +8,7 @@
 // reads it and no replay path imports it as a value.
 import { z } from "zod";
 import type { SpriteExtents } from "../scene/extent";
-import { JOB_STEPS, type JobStep } from "./creature";
+import type { JobStep } from "./creature";
 
 const coordinate = z.number().int().min(-512).max(512);
 const pointSchema = z.tuple([coordinate, coordinate]).readonly();
@@ -16,7 +16,7 @@ const outline = z.array(pointSchema).min(3).max(256).readonly();
 
 // Where a building's pixels are, in the form the decor placer reads (src/scene/extent.ts): its base hulls, in pixels from
 // its anchor, and the box of its opaque pixels. The server measures it from the accepted PNG; the client never does.
-export const spriteExtentsSchema = z.object({
+const spriteExtentsSchema = z.object({
   hull: outline,
   solid: outline,
   band: z.number().int().min(1).max(128),
@@ -46,6 +46,12 @@ export type BuildingBrief = z.infer<typeof buildingBriefSchema>;
 export const recordedBuildingSchema = buildingSchema.pick({ id: true, name: true, anchorY: true, extent: true });
 export type RecordedBuilding = z.infer<typeof recordedBuildingSchema>;
 
+/** The building a recording names, or null: a play from before buildings, or one whose record does not validate, has none. */
+export function recordedBuildingOf(play: { building?: unknown }): RecordedBuilding | null {
+  const parsed = recordedBuildingSchema.safeParse(play.building);
+  return parsed.success ? parsed.data : null;
+}
+
 // --- the API ------------------------------------------------------------------------------------------------------
 
 export const BUILDING_API = "/api/buildings";
@@ -57,9 +63,6 @@ export const buildingJobPath = (jobId: string) => `${BUILDING_API}/jobs/${jobId}
 export const nextBuildingRequestSchema = z.object({ seen: z.array(z.string()).max(500) });
 export type NextBuildingRequest = z.infer<typeof nextBuildingRequestSchema>;
 
-export const BUILDING_JOB_STEPS = JOB_STEPS;
-export type BuildingJobStep = JobStep;
-
 export type NextBuildingResponse =
   | { kind: "ready"; building: Building }
   | { kind: "generating"; jobId: string }
@@ -69,7 +72,7 @@ export type NextBuildingResponse =
 // GET /api/buildings/jobs/:jobId
 export interface BuildingJob {
   jobId: string;
-  step: BuildingJobStep;
+  step: JobStep;
   building?: Building; // when done
   error?: string; // when failed: a short reason, never model output or a stack trace
   updatedAt: string;

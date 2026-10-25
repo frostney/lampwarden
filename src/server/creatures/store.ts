@@ -45,7 +45,7 @@ export interface JobStore {
   creatureWaitingSince(): Promise<Date | null>;
 }
 
-export interface CreatureGallery {
+interface CreatureGallery {
   /** Ids of the accepted creatures, newest first (ids start with their creation time). */
   listCreatureIds(): Promise<string[]>;
   /** A gallery record, or null when it is missing or does not validate. */
@@ -61,7 +61,7 @@ export interface CreatureGallery {
 }
 
 /** The marks of past job starts, which the rate limits count. */
-export interface CreatureLedger {
+interface CreatureLedger {
   /** Marks one job start for the rate limits. */
   recordStart(visitor: string, jobId: string, startedAt: Date): Promise<void>;
   /** When this visitor started jobs from `since` to `until`, oldest first. */
@@ -72,7 +72,7 @@ export interface CreatureLedger {
 
 export interface CreatureStore extends JobStore, CreatureGallery, CreatureLedger {}
 
-export interface BuildingGallery {
+interface BuildingGallery {
   /** Ids of the accepted buildings, newest first (ids start with their creation time). */
   listBuildingIds(): Promise<string[]>;
   /** A gallery record, or null when it is missing or does not validate. */
@@ -83,7 +83,7 @@ export interface BuildingGallery {
 }
 
 /** The buildings' own marks, apart from the creatures', so each kind has its own daily cap. */
-export interface BuildingLedger {
+interface BuildingLedger {
   recordBuildingStart(visitor: string, jobId: string, startedAt: Date): Promise<void>;
   buildingVisitorStartsBetween(visitor: string, since: Date, until: Date): Promise<Date[]>;
   buildingStartsOnDay(day: string): Promise<number>;

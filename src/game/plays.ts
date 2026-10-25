@@ -1,5 +1,6 @@
 // Recorded plays: what the API routes that store and serve them share.
 import { z } from "zod";
+import { recordedBuildingSchema } from "./building";
 import { recordedCreatureSchema } from "./creature";
 
 export const PLAY_ID = /^[0-9-]{19}-[a-z0-9]{1,10}$/;
@@ -41,6 +42,7 @@ export const incomingPlay = z.looseObject({
   seed: z.number().int(),
   inputs: z.array(z.array(z.number()).length(7)),
   creature: recordedCreatureSchema.optional(), // the creature from the sea the night met; plays from before have none
+  building: recordedBuildingSchema.optional(), // the building raised on the plaza the night was played beside; plays from before have none
   hiddenSeconds: z.number().min(0).max(86_400).optional(), // seconds the tab was hidden in the night; plays from before have none
   sim: z.string().regex(SIM_FINGERPRINT).optional(), // the sim the night was played on; plays from before have none
 });

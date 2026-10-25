@@ -379,23 +379,36 @@ class Placement {
     if (kind.bridge) this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
   }
 
+  // the first spot where a group of `kind` fits, in at most `tries` tries, or null
+  private search(kind: DecorKind, group: number, tries: number): Point | null {
+    for (let attempt = 0; attempt < tries; attempt++) {
+      const [spotX, spotY] = this.spot(kind, group);
+      const [x, y] = [Math.round(spotX), Math.round(spotY)];
+      if (this.fits(kind, x, y, group)) return [x, y];
+    }
+    return null;
+  }
+
   place(listed: DecorKind) {
     const required = listed.chance === undefined ? listed.groups[0] : 0;
     for (let wanted = this.count(listed.groups), left = required; wanted > 0; wanted--, left--) {
       if (listed.chance !== undefined && this.random() >= listed.chance) continue;
       const limit = listed.pool === undefined ? undefined : POOL_LIMITS[listed.pool];
       if (listed.pool !== undefined && limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit) continue;
-      // a live building takes the building slot; otherwise a group is sometimes the listed sprite's replacement
+      // a group is sometimes the listed sprite's replacement; a live building takes the building slot from the committed
+      // sprite, which stands after all when the live one fits nowhere tonight
       const replaced =
         listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
-      const key = this.live && listed.slot === "building" ? this.live.key : replaced;
-      const kind = key === listed.key ? listed : { ...listed, key };
+      const committed = replaced === listed.key ? listed : { ...listed, key: replaced };
+      const candidates =
+        this.live && listed.slot === "building" ? [{ ...listed, key: this.live.key }, committed] : [committed];
       const group = this.groups++;
+      let kind = committed;
       let first: Point | null = null;
-      for (let attempt = 0; attempt < (left > 0 ? TRIES_REQUIRED : TRIES) && !first; attempt++) {
-        const [spotX, spotY] = this.spot(kind, group);
-        const [x, y] = [Math.round(spotX), Math.round(spotY)];
-        if (this.fits(kind, x, y, group)) first = [x, y];
+      for (const candidate of candidates) {
+        kind = candidate;
+        first = this.search(candidate, group, candidate === committed && left > 0 ? TRIES_REQUIRED : TRIES);
+        if (first) break;
       }
       if (!first) continue;
       if (listed.pool !== undefined) this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);

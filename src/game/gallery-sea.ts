@@ -13,7 +13,7 @@ import type { WaitOptions } from "./gallery-api";
 export type GalleryTonight<Ready> = { kind: "none" } | Ready | { kind: "generating"; step: JobStep };
 
 /** What the gallery says, whatever it holds. */
-export type GalleryAnswer<Made> =
+type GalleryAnswer<Made> =
   | { kind: "ready"; made: Made }
   | { kind: "generating"; jobId: string }
   // `retryAfterSeconds` is how long to wait: a short one means the single slot is busy and the question will be answered

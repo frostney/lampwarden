@@ -12,7 +12,9 @@ import { type Driver, type Night, Scene } from "@/components/Scene";
 import { SeaSends } from "@/components/SeaSends";
 import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
+import { useRaised } from "@/components/useRaised";
 import { useTonight } from "@/components/useTonight";
+import { type RecordedBuilding, recordedBuildingOf, recordedBuildingSchema } from "@/game/building";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
 import { askDirector } from "@/game/director-api";
@@ -43,6 +45,7 @@ import {
 } from "@/game/legacy";
 import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
+import { clearRaised, loadRaised, raise, saveRaised } from "@/game/raised";
 import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import {
@@ -61,7 +64,15 @@ import {
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
-import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
+import {
+  liveBuildingOf,
+  loadBuildingTexture,
+  loadCreatureTextures,
+  loadTextures,
+  NIGHT_SEA,
+  standInTextures,
+  type TextureMap,
+} from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
@@ -75,7 +86,7 @@ const APP = {
 };
 
 const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
-const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
+const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite (and its building's) before going without it
 
 const INTRODUCTION = [
   "Lychnos is a harbour of lamps.",
@@ -86,6 +97,12 @@ const INTRODUCTION = [
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
+
+// The building raised on a night's plaza: its record as a recording keeps it, and its sprite, loaded
+interface Plaza {
+  building: RecordedBuilding;
+  textures: TextureMap;
+}
 
 type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd" | "replayRefused";
 interface Hud {
@@ -184,7 +201,18 @@ export default function Game() {
   const [refusedPlay, setRefusedPlay] = useState<Play | null>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
-  const { tonight, ask, withdraw } = useTonight();
+  const { tonight, ask, withdraw, settled } = useTonight();
+  const { raised, ask: askRaised, withdraw: withdrawRaised } = useRaised();
+  const raisedRef = useRef<string[]>([]); // the ids of the buildings the line has seen go up (src/game/raised.ts)
+  // What the sea sends next: the creature, and once its question has settled the building for the plaza (they share the one
+  // generation slot, and the creature goes first).
+  const askSea = useCallback(
+    (bestiary: string[]) => {
+      ask(bestiary);
+      askRaised(raisedRef.current, settled());
+    },
+    [ask, askRaised, settled],
+  );
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
   const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
 
@@ -330,10 +358,10 @@ export default function Game() {
       saveLegacy(legacy);
       pause(true);
       setReport(nightReport);
-      ask(legacy.bestiary); // what the sea sends next
+      askSea(legacy.bestiary); // what the sea sends next
       if (sent) consultDirector(sent);
     },
-    [sendPlay, consultDirector, pause, ask],
+    [sendPlay, consultDirector, pause, askSea],
   );
 
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
@@ -374,11 +402,24 @@ export default function Game() {
 
   // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
   // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
-  // same plaza.
+  // same plaza. The live building, when there is one, takes the building slot of the layout (src/scene/decor.ts).
   const show = useCallback(
-    (state: State, sex: Sex, driver: Driver | null = null, creatureTextures: TextureMap | null = null) => {
+    (
+      state: State,
+      sex: Sex,
+      driver: Driver | null = null,
+      creatureTextures: TextureMap | null = null,
+      plaza: Plaza | null = null,
+    ) => {
       stateRef.current = state;
-      setNight({ state, sex, driver, creatureTextures, decor: decorFor(state.randomState) });
+      setNight({
+        state,
+        sex,
+        driver,
+        creatureTextures,
+        buildingTextures: plaza?.textures ?? null,
+        decor: decorFor(state.randomState, plaza && liveBuildingOf(plaza.building)),
+      });
     },
     [],
   );
@@ -418,9 +459,15 @@ export default function Game() {
         creatureTextures =
           (await loadCreatureTextures(creature.id)) ??
           standInTextures(await loadTextures(), creature.id, play.creature.archetype);
+      // the building the night's plaza was laid out with is in the recording too (rendering only: the sim never reads it);
+      // a play from before buildings, or one whose sprite is gone, replays on the committed plaza
+      const recordedBuilding = recordedBuildingOf(play);
+      const buildingTextures = recordedBuilding ? await loadBuildingTexture(recordedBuilding) : null;
+      const plaza =
+        recordedBuilding && buildingTextures ? { building: recordedBuilding, textures: buildingTextures } : null;
       const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
-      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures);
+      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures, plaza);
       pause(false);
       setReplay({ play, endsMatch: play.outcome ? verifyPlay(play).endsMatch : null });
       setReplayError(null);
@@ -456,6 +503,7 @@ export default function Game() {
 
   useEffect(() => {
     legacyRef.current = loadLegacy();
+    raisedRef.current = loadRaised();
     refresh();
     let dead = false;
     void loadTextures().then(
@@ -466,7 +514,7 @@ export default function Game() {
         show(newNight(legacyRef.current), legacyRef.current.heir.sex);
         const id = new URLSearchParams(location.search).get("replay");
         if (id) void startReplay(id);
-        else ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+        else askSea(legacyRef.current.bestiary); // before night 1: what does the sea send?
       },
       () => {
         if (!dead) setLoadFailure((current) => current ?? "assets");
@@ -499,7 +547,7 @@ export default function Game() {
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendSnapshot, pause, controls, refresh, show, startReplay, ask]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announced = tonight.kind === "ready" ? tonight.creature.id : null;
@@ -511,6 +559,15 @@ export default function Game() {
     });
   }, [announced, announcedFrames, withdraw]);
 
+  // a building announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
+  const announcedBuilding = raised.kind === "ready" ? raised.building : null;
+  useEffect(() => {
+    if (!announcedBuilding) return;
+    void loadBuildingTexture(announcedBuilding).then((loaded) => {
+      if (!loaded) withdrawRaised(announcedBuilding.id);
+    });
+  }, [announcedBuilding, withdrawRaised]);
+
   const startNight = async () => {
     if (starting.current) return;
     starting.current = true;
@@ -520,6 +577,14 @@ export default function Game() {
     // not load, the night has none; a job still being made carries on through the night and the creature is announced
     // at dawn for the next one.
     const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
+    // The building that was ready stands on the night's plaza the same way: if its sprite is loaded by now. Otherwise the
+    // plaza is the committed one.
+    const buildingLoad = announcedBuilding
+      ? Promise.race([
+          loadBuildingTexture(announcedBuilding),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
+        ])
+      : Promise.resolve(null);
     const loaded = announcedCreature
       ? await Promise.race([
           loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
@@ -533,7 +598,13 @@ export default function Game() {
     }
     // Now that this night's creature is met, ask for the next night's: the ~minute a creature takes to make overlaps the
     // night, so it is ready by dawn. Asking again with the same ids met keeps a job that is still running.
-    ask(legacyRef.current.bestiary);
+    const loadedBuilding = await buildingLoad;
+    const building = announcedBuilding && loadedBuilding ? recordedBuildingSchema.parse(announcedBuilding) : null;
+    if (building) {
+      raisedRef.current = raise(raisedRef.current, building.id);
+      saveRaised(raisedRef.current);
+    }
+    askSea(legacyRef.current.bestiary);
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
     const recorder = new Recorder(
@@ -542,6 +613,7 @@ export default function Game() {
       "",
       creature && recordedCreatureSchema.parse(creature),
       RUNNING_SIM,
+      building,
     );
     recorderRef.current = recorder;
     show(
@@ -552,6 +624,7 @@ export default function Game() {
         return live;
       },
       creature && loaded,
+      building && loadedBuilding ? { building, textures: loadedBuilding } : null,
     );
     starting.current = false;
     pause(false);
@@ -575,9 +648,11 @@ export default function Game() {
     directorAsk.current?.abort();
     clearLegacy();
     legacyRef.current = newLegacy();
+    clearRaised();
+    raisedRef.current = [];
     showPreview();
     refresh();
-    ask(legacyRef.current.bestiary);
+    askSea(legacyRef.current.bestiary);
   };
   // the warden behind the title screen is the one chosen
   const showPreview = () => {
@@ -830,7 +905,7 @@ export default function Game() {
                   </p>
                 ))}
               </div>
-              <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+              <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
               <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
               <div className="scroll-hero">
                 <h2 className="scroll-heading" data-line>
@@ -908,7 +983,7 @@ export default function Game() {
             </p>
             <SeaAnswer report={report} />
             {shop}
-            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+            <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
             <button type="button" className="btn big" onClick={startNight}>
               Into night {legacy.night}
             </button>
@@ -947,7 +1022,7 @@ export default function Game() {
               ))}
             </div>
             {shop}
-            <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
+            <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
             <button
               type="button"
               className="btn big"

@@ -402,6 +402,37 @@ h2.logo:focus {
   line-height: 1.3;
   opacity: 0.9;
 }
+/* the creature and the building announced for the coming night, one block above the button that starts it */
+.sea-sends {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  min-width: 0;
+}
+/* "Raised on the plaza tonight: …" (SeaSends.tsx): the building that stands on the coming night's plaza, one line under the
+   creature, at the page's own text size (16 px, also on touch) */
+.raised {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  color: #ffcf6a;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.raised-name {
+  font-weight: normal;
+  color: #f2e6c8;
+}
+.scroll .raised {
+  color: var(--ink-faded);
+}
+.scroll .raised-name {
+  color: var(--ink);
+}
 .scroll .sea {
   border-color: var(--ink-faded);
   background: #e6cd99;
@@ -420,6 +451,28 @@ h2.logo:focus {
 .scroll .sea-label,
 .scroll .sea-lore.dim {
   color: var(--ink-faded);
+}
+/* The title scroll has no room to spare (the creature's panel alone fills it): with a creature above it, the building's line is
+   held to one line (its full name is the line's title), the creature's lore, which the dawn panel shows whole, to one line, and
+   the gaps round the two close up by a few pixels. */
+.scroll .sea ~ .raised {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scroll .sea-sends:has(.raised) {
+  gap: 2px;
+}
+.scroll .sea:has(~ .raised) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.scroll .sea:has(~ .raised) .sea-text {
+  gap: 0;
+}
+.scroll .sea:has(~ .raised) .sea-lore:not(.dim) {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
 }
 .icon {
   image-rendering: pixelated;
@@ -797,6 +850,10 @@ h2.logo:focus {
   .scroll-hero {
     grid-column: 2;
     grid-row: 1 / 5;
+  }
+  /* a building announced as well takes a line of the left column: the rows sit closer */
+  .scroll-layout:has(.raised) {
+    row-gap: 4px;
   }
 }
 .scroll .brand img {

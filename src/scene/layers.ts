@@ -2,6 +2,7 @@
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
 import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
+import { buildingSpritePath, type RecordedBuilding } from "../game/building";
 import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
   CREATURE_FRAME_COUNTS,
@@ -40,6 +41,7 @@ import {
   sceneryKeyFor,
 } from "./assets";
 import { creatureFrameKey, creatureFrameOf } from "./creature-animation";
+import type { LiveBuilding } from "./decor";
 import type { Point } from "./extent";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
@@ -194,6 +196,48 @@ async function loadCreatureFrames(id: string, frames: CreatureFrames): Promise<T
   animatedCreatures.set(id, frames);
   return textures;
 }
+
+// --- the building raised on the plaza ---------------------------------------------------------------------------------
+// A live building's sprite is a PNG on the gallery's server, loaded when the night is about to start, like the creature's.
+// Its key starts with "building/", and where its base touches the ground is the anchor its record gave (the committed
+// sprites' are in assets.ts), kept here once its sprite has loaded.
+
+const buildingKey = (id: string) => `building/${id}`;
+const buildingLoads = new Map<string, Promise<TextureMap | null>>();
+const buildingAnchors = new Map<string, number>();
+
+// The building's sprite by key; null when it does not load or is not a 128 px frame, which is how a night learns to go
+// with the plaza it always had.
+export function loadBuildingTexture(building: Pick<RecordedBuilding, "id" | "anchorY">): Promise<TextureMap | null> {
+  let load = buildingLoads.get(building.id);
+  if (!load) {
+    load = (async () => {
+      try {
+        const key = buildingKey(building.id);
+        const loaded: Texture = await Assets.load({
+          alias: key,
+          src: buildingSpritePath(building.id),
+          data: { scaleMode: "nearest" },
+        });
+        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
+          return null;
+        buildingAnchors.set(key, building.anchorY);
+        return { [key]: prepared(key, loaded) };
+      } catch {
+        buildingLoads.delete(building.id); // a later night may try again
+        return null;
+      }
+    })();
+    buildingLoads.set(building.id, load);
+  }
+  return load;
+}
+
+// The building as the placer takes it: the sprite's key, and where its pixels are.
+export const liveBuildingOf = (building: Pick<RecordedBuilding, "id" | "extent">): LiveBuilding => ({
+  key: buildingKey(building.id),
+  extents: building.extent,
+});
 
 // What a replay draws when a creature's sprite is gone: the hand-made monster that plays like its archetype.
 const STAND_IN: Record<Archetype, HandMadeKind> = { skulker: "satyr", brute: "cyclops", flyer: "harpy" };
@@ -398,7 +442,7 @@ export function anchorAt(anchorY: number) {
   }
   return spriteAnchor;
 }
-export const anchor = (key: string) => anchorAt(anchorYFor(key));
+export const anchor = (key: string) => anchorAt(buildingAnchors.get(key) ?? anchorYFor(key));
 
 // how far a monster's sprite bobs off its ground position (flyers, like the harpy, hover higher and flap more)
 export const monsterBob = (state: Pick<State, "creature">, kind: MonsterKind, age: number) => {

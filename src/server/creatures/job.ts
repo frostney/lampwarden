@@ -155,6 +155,23 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
   const fail = (reason: JobFailure) => conclude("failed", { error: reason });
   const onCall = (record: CallRecord) => log({ event: "mubit-call", jobId, ...safeCallSummary(record) });
 
+  // The judged sprite is one still. Its code is drawn again in every pose; if that fails (a pose that does not render,
+  // a builder that ignores its pose), the next best accepted candidate gets the same chance. Stops when the job ends.
+  async function animate(outcome: CandidateOutcome): Promise<{ animated: Animated | null; tried: string[] }> {
+    const tried: string[] = [];
+    for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
+      if (ended) {
+        break;
+      }
+      const frameSet = await renderFrameSet(renderBatch, candidate.code);
+      if (frameSet.ok) {
+        return { animated: { candidate, frames: frameSet.frames, atlas: frameSet.atlas }, tried };
+      }
+      tried.push(frameSet.kind);
+    }
+    return { animated: null, tried };
+  }
+
   async function work(): Promise<void> {
     await report("writing");
     const names = await namesOfNewestCreatures(deps.store);
@@ -205,24 +222,10 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       return fail("the sprite was not good enough");
     }
 
-    // The judged sprite is one still. Its code is drawn again in every pose; if that fails (a pose that does not render,
-    // a builder that ignores its pose), the next best accepted candidate gets the same chance.
     await report("rendering");
-    let animated: Animated | null = null;
-    const tried: string[] = [];
-    for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
-      if (ended) {
-        return; // timed out while rendering: do not put a creature in the gallery for a job that failed
-      }
-      const frameSet = await renderFrameSet(renderBatch, candidate.code);
-      if (frameSet.ok) {
-        animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
-        break;
-      }
-      tried.push(frameSet.kind);
-    }
+    const { animated, tried } = await animate(outcome);
     if (ended) {
-      return;
+      return; // timed out while rendering: do not put a creature in the gallery for a job that failed
     }
     log({ event: "creature-job-frames", jobId, animated: animated !== null, refused: tried });
     if (!animated) {

@@ -441,243 +441,25 @@ export function step(state: State, deltaTime: number, input: Input) {
   state.elapsed += deltaTime;
   state.stats.time += deltaTime;
   const hero = state.hero;
-  const rules = state.rules;
-  hero.hurt = Math.max(0, hero.hurt - deltaTime);
-  hero.mercy = Math.max(0, hero.mercy - deltaTime);
-  hero.shotCooldown = Math.max(0, hero.shotCooldown - deltaTime);
-  const stunned = hero.stun > 0;
-  hero.stun = Math.max(0, hero.stun - deltaTime);
-  if (hero.knockX !== 0 || hero.knockY !== 0) {
-    knock(hero, deltaTime, HERO_KNOCK_LIMIT);
-  }
-  const busy = stunned || hero.animation === "melee" || hero.animation === "ranged";
-
-  if (!busy && input.melee) {
-    hero.animation = "melee";
-    hero.frameTime = 0;
-    hero.fired = false;
-    turn(hero, input.moveX, input.moveY);
-  } else if (!busy && input.ranged && hero.shotCooldown <= 0) {
-    hero.animation = "ranged";
-    hero.frameTime = 0;
-    hero.fired = false;
-    hero.aim = input.aim;
-    // a shot with a mouse aim faces the aim, from the first frame of the draw (the ground's y is twice the screen's)
-    if (input.aim) {
-      const aimX = input.aim.x - hero.x;
-      const aimY = (input.aim.y - (hero.y - 40)) * 2;
-      if (aimX !== 0 || aimY !== 0) {
-        hero.octant = octantOf(aimX, aimY);
-      }
-    }
-  }
-
+  const stunned = tickHero(hero, deltaTime);
+  startAttack(hero, input, stunned);
   const attacking = hero.animation === "melee" || hero.animation === "ranged";
   if (!attacking && !stunned) {
-    if (turn(hero, input.moveX, input.moveY)) {
-      const unitX = hero.directionX;
-      const unitY = hero.directionY;
-      const nextX = hero.x + unitX * rules.speed * deltaTime;
-      const nextY = hero.y + unitY * rules.speed * deltaTime * 0.5;
-      if (inPlaza(nextX, nextY)) {
-        hero.x = nextX;
-        hero.y = nextY;
-      } else if (inPlaza(nextX, hero.y)) {
-        hero.x = nextX;
-      } else if (inPlaza(hero.x, nextY)) {
-        hero.y = nextY;
-      }
-      if (hero.animation !== "walk") {
-        hero.animation = "walk";
-        hero.frameTime = 0;
-      }
-    } else if (hero.animation !== "idle") {
-      hero.animation = "idle";
-      hero.frameTime = 0;
-    }
+    walk(hero, input, state.rules.speed, deltaTime);
   }
-
-  hero.hold = Math.max(0, hero.hold - deltaTime);
-  if (hero.hold <= 0 && !stunned) {
-    hero.frameTime += deltaTime;
-  }
-  const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
-  if (attacking && frame >= FRAMES[hero.animation]) {
-    hero.animation = "idle";
-    hero.frameTime = 0;
-  }
+  const frame = animateHero(hero, deltaTime, stunned, attacking);
 
   // attack effects land mid-animation
   if (hero.animation === "melee" && !hero.fired && frame >= 2) {
-    hero.fired = true;
-    let connected = false;
-    for (const monster of state.monsters.slice()) {
-      if (!inSwing(hero, monster.x, monster.y, rules.meleeReach)) {
-        continue;
-      }
-      // thrown straight away from the warden
-      const awayX = monster.x - hero.x;
-      const awayY = (monster.y - hero.y) * 2;
-      const away = Math.hypot(awayX, awayY);
-      const [facingX, facingY] = octantVector(hero.octant);
-      strike(state, monster, {
-        ...MELEE_BLOW,
-        push: MELEE_BLOW.push * rules.pushScale,
-        amount: rules.meleeDamage,
-        directionX: away > 0 ? awayX / away : facingX,
-        directionY: away > 0 ? awayY / away : facingY,
-        x: monster.x,
-        y: monster.y - bodyHeight(state, monster.kind),
-      });
-      connected = true;
-    }
-    if (connected) {
-      hero.hold = SWING_HOLD;
-    }
+    landSwing(state);
   }
   if (hero.animation === "ranged" && !hero.fired && frame >= 3) {
-    hero.fired = true;
-    hero.shotCooldown = rules.shotCooldown;
-    // with no mouse aim the shot flies the way he faces on the ground (the ground's y is twice the screen's, so on the
-    // screen its slope is halved), as the drawn sprite and the swing's wedge show
-    const [facingX, facingY] = octantVector(hero.octant);
-    let aimX = facingX;
-    let aimY = facingY / 2;
-    if (hero.aim) {
-      aimX = hero.aim.x - hero.x;
-      aimY = hero.aim.y - (hero.y - 40);
-    }
-    const base = Math.atan2(aimY, aimX);
-    for (const offset of rules.spread ? [-0.16, 0, 0.16] : [0]) {
-      const angle = base + offset;
-      state.shots.push({
-        id: state.nextId++,
-        x: hero.x,
-        y: hero.y - 40,
-        velocityX: Math.cos(angle) * 420,
-        velocityY: Math.sin(angle) * 420,
-        life: 1.2,
-        hit: [],
-      });
-    }
+    fireShots(state);
   }
-
-  for (const shot of state.shots) {
-    shot.x += shot.velocityX * deltaTime;
-    shot.y += shot.velocityY * deltaTime;
-    shot.life -= deltaTime;
-    for (const monster of state.monsters.slice()) {
-      if (shot.hit.includes(monster.id)) {
-        continue;
-      }
-      const bodyY = monster.y - bodyHeight(state, monster.kind);
-      if (Math.hypot(monster.x - shot.x, bodyY - shot.y) < 30) {
-        shot.hit.push(monster.id);
-        const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
-        strike(state, monster, {
-          ...SHOT_BLOW,
-          push: SHOT_BLOW.push * rules.pushScale,
-          amount: 1,
-          directionX: shot.velocityX / speed,
-          directionY: (shot.velocityY * 2) / speed,
-          x: shot.x,
-          y: shot.y,
-        });
-        if (!rules.pierce) {
-          shot.life = 0;
-          break;
-        }
-      }
-    }
-  }
-  state.shots = state.shots.filter(
-    (shot) => shot.life > 0 && shot.x > -50 && shot.x < STAGE_WIDTH + 50 && shot.y > -50 && shot.y < STAGE_HEIGHT + 50,
-  );
-
-  // relight: stand by a dark lamp
-  for (const lamp of state.lamps) {
-    lamp.flicker += deltaTime;
-    if (lamp.lit) {
-      continue;
-    }
-    if (ground(lamp.x, lamp.y, hero.x, hero.y) < 40) {
-      lamp.relight += deltaTime;
-      if (lamp.relight >= rules.relight) {
-        lamp.lit = true;
-        lamp.relight = 0;
-        addPuff(state, lamp.x, lamp.y - 40, "light");
-      }
-    } else {
-      lamp.relight = Math.max(0, lamp.relight - deltaTime * 2);
-    }
-  }
-
+  moveShots(state, deltaTime);
+  tendLamps(state, deltaTime);
   for (const monster of state.monsters.slice()) {
-    const stats = monsterStats(state, monster.kind);
-    monster.age += deltaTime;
-    monster.attackCooldown = Math.max(0, monster.attackCooldown - deltaTime);
-    monster.hurt = Math.max(0, monster.hurt - deltaTime);
-    if (monster.stun > 0) {
-      monster.stun = Math.max(0, monster.stun - deltaTime);
-      continue;
-    }
-    if (monster.knockX !== 0 || monster.knockY !== 0) {
-      knock(monster, deltaTime);
-    }
-    // target: the warden if close, else the nearest lit lamp
-    const heroDistance = ground(monster.x, monster.y, hero.x, hero.y);
-    let targetX = hero.x;
-    let targetY = hero.y;
-    let lamp: Lamp | null = null;
-    if (heroDistance > AGGRO) {
-      let best = Number.POSITIVE_INFINITY;
-      for (const candidate of state.lamps) {
-        if (candidate.lit) {
-          const distance = ground(monster.x, monster.y, candidate.x, candidate.y);
-          if (distance < best) {
-            best = distance;
-            lamp = candidate;
-          }
-        }
-      }
-      if (lamp) {
-        targetX = lamp.x;
-        targetY = lamp.y;
-      }
-    }
-    const towardX = targetX - monster.x;
-    const towardY = (targetY - monster.y) * 2;
-    const distance = Math.hypot(towardX, towardY) || 1;
-    if (!lamp && distance < 26) {
-      // claw the warden
-      // mercy frames: while they run the monster waits, and claws the moment they end
-      if (monster.attackCooldown <= 0 && hero.mercy <= 0) {
-        monster.attackCooldown = 1.1;
-        wound(state, stats.damage, towardX / distance, towardY / distance);
-      }
-      continue;
-    }
-    if (lamp && distance < 24) {
-      // claw the lamp
-      monster.snuff += deltaTime;
-      if (monster.snuff >= stats.snuff * rules.snuffMultiplier) {
-        lamp.lit = false;
-        lamp.relight = 0;
-        monster.snuff = 0;
-        state.stats.lampsLost++;
-        addPuff(state, lamp.x, lamp.y - 40, "snuff");
-      }
-      continue;
-    }
-    monster.snuff = 0;
-    // move in ground space with a sideways wobble; the light slows them
-    const speed =
-      stats.speed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
-    const groundX = towardX / distance;
-    const groundY = towardY / distance;
-    const lateral = Math.cos(monster.age * 2.2) * monster.wobble * Math.min(1, distance / 80);
-    monster.x += (groundX * speed - groundY * lateral) * deltaTime;
-    monster.y += (groundY * speed + groundX * lateral) * deltaTime * 0.5;
+    actMonster(state, monster, deltaTime);
   }
 
   for (const puff of state.puffs) {
@@ -692,8 +474,291 @@ export function step(state: State, deltaTime: number, input: Input) {
       state.spawnTimer = spawnInterval(state);
     }
   }
+  settle(state);
+}
 
-  if (hero.health <= 0) {
+// Runs down the warden's timers and his push; true when he was stunned at the start of this step.
+function tickHero(hero: Hero, deltaTime: number): boolean {
+  hero.hurt = Math.max(0, hero.hurt - deltaTime);
+  hero.mercy = Math.max(0, hero.mercy - deltaTime);
+  hero.shotCooldown = Math.max(0, hero.shotCooldown - deltaTime);
+  const stunned = hero.stun > 0;
+  hero.stun = Math.max(0, hero.stun - deltaTime);
+  if (hero.knockX !== 0 || hero.knockY !== 0) {
+    knock(hero, deltaTime, HERO_KNOCK_LIMIT);
+  }
+  return stunned;
+}
+
+// A swing or a shot starts when he is free to: not stunned, and not already in one.
+function startAttack(hero: Hero, input: Input, stunned: boolean) {
+  const busy = stunned || hero.animation === "melee" || hero.animation === "ranged";
+  if (busy) {
+    return;
+  }
+  if (input.melee) {
+    hero.animation = "melee";
+    hero.frameTime = 0;
+    hero.fired = false;
+    turn(hero, input.moveX, input.moveY);
+  } else if (input.ranged && hero.shotCooldown <= 0) {
+    hero.animation = "ranged";
+    hero.frameTime = 0;
+    hero.fired = false;
+    hero.aim = input.aim;
+    // a shot with a mouse aim faces the aim, from the first frame of the draw (the ground's y is twice the screen's)
+    if (input.aim) {
+      const aimX = input.aim.x - hero.x;
+      const aimY = (input.aim.y - (hero.y - 40)) * 2;
+      if (aimX !== 0 || aimY !== 0) {
+        hero.octant = octantOf(aimX, aimY);
+      }
+    }
+  }
+}
+
+// Walks the way the input points at `speed`, sliding along the plaza's edge, or stands idle.
+function walk(hero: Hero, input: Input, speed: number, deltaTime: number) {
+  if (!turn(hero, input.moveX, input.moveY)) {
+    if (hero.animation !== "idle") {
+      hero.animation = "idle";
+      hero.frameTime = 0;
+    }
+    return;
+  }
+  const nextX = hero.x + hero.directionX * speed * deltaTime;
+  const nextY = hero.y + hero.directionY * speed * deltaTime * 0.5;
+  if (inPlaza(nextX, nextY)) {
+    hero.x = nextX;
+    hero.y = nextY;
+  } else if (inPlaza(nextX, hero.y)) {
+    hero.x = nextX;
+  } else if (inPlaza(hero.x, nextY)) {
+    hero.y = nextY;
+  }
+  if (hero.animation !== "walk") {
+    hero.animation = "walk";
+    hero.frameTime = 0;
+  }
+}
+
+// Advances his animation (held still by a hit-stop or a stun) and ends an attack that has played out; returns the
+// frame the attack is on.
+function animateHero(hero: Hero, deltaTime: number, stunned: boolean, attacking: boolean): number {
+  hero.hold = Math.max(0, hero.hold - deltaTime);
+  if (hero.hold <= 0 && !stunned) {
+    hero.frameTime += deltaTime;
+  }
+  const frame = Math.floor(hero.frameTime * FRAMES_PER_SECOND[hero.animation]);
+  if (attacking && frame >= FRAMES[hero.animation]) {
+    hero.animation = "idle";
+    hero.frameTime = 0;
+  }
+  return frame;
+}
+
+// The swing lands on everything inside it, each thrown straight away from the warden; a hit holds the swing a moment.
+function landSwing(state: State) {
+  const hero = state.hero;
+  const rules = state.rules;
+  hero.fired = true;
+  let connected = false;
+  for (const monster of state.monsters.slice()) {
+    if (!inSwing(hero, monster.x, monster.y, rules.meleeReach)) {
+      continue;
+    }
+    const awayX = monster.x - hero.x;
+    const awayY = (monster.y - hero.y) * 2;
+    const away = Math.hypot(awayX, awayY);
+    const [facingX, facingY] = octantVector(hero.octant);
+    strike(state, monster, {
+      ...MELEE_BLOW,
+      push: MELEE_BLOW.push * rules.pushScale,
+      amount: rules.meleeDamage,
+      directionX: away > 0 ? awayX / away : facingX,
+      directionY: away > 0 ? awayY / away : facingY,
+      x: monster.x,
+      y: monster.y - bodyHeight(state, monster.kind),
+    });
+    connected = true;
+  }
+  if (connected) {
+    hero.hold = SWING_HOLD;
+  }
+}
+
+function fireShots(state: State) {
+  const hero = state.hero;
+  const rules = state.rules;
+  hero.fired = true;
+  hero.shotCooldown = rules.shotCooldown;
+  // with no mouse aim the shot flies the way he faces on the ground (the ground's y is twice the screen's, so on the
+  // screen its slope is halved), as the drawn sprite and the swing's wedge show
+  const [facingX, facingY] = octantVector(hero.octant);
+  let aimX = facingX;
+  let aimY = facingY / 2;
+  if (hero.aim) {
+    aimX = hero.aim.x - hero.x;
+    aimY = hero.aim.y - (hero.y - 40);
+  }
+  const base = Math.atan2(aimY, aimX);
+  for (const offset of rules.spread ? [-0.16, 0, 0.16] : [0]) {
+    const angle = base + offset;
+    state.shots.push({
+      id: state.nextId++,
+      x: hero.x,
+      y: hero.y - 40,
+      velocityX: Math.cos(angle) * 420,
+      velocityY: Math.sin(angle) * 420,
+      life: 1.2,
+      hit: [],
+    });
+  }
+}
+
+// Flies every shot on, strikes what it passes through (once each), and drops the spent and the gone.
+function moveShots(state: State, deltaTime: number) {
+  for (const shot of state.shots) {
+    shot.x += shot.velocityX * deltaTime;
+    shot.y += shot.velocityY * deltaTime;
+    shot.life -= deltaTime;
+    for (const monster of state.monsters.slice()) {
+      if (shot.hit.includes(monster.id)) {
+        continue;
+      }
+      const bodyY = monster.y - bodyHeight(state, monster.kind);
+      if (Math.hypot(monster.x - shot.x, bodyY - shot.y) >= 30) {
+        continue;
+      }
+      shot.hit.push(monster.id);
+      const speed = Math.hypot(shot.velocityX, shot.velocityY * 2);
+      strike(state, monster, {
+        ...SHOT_BLOW,
+        push: SHOT_BLOW.push * state.rules.pushScale,
+        amount: 1,
+        directionX: shot.velocityX / speed,
+        directionY: (shot.velocityY * 2) / speed,
+        x: shot.x,
+        y: shot.y,
+      });
+      if (!state.rules.pierce) {
+        shot.life = 0;
+        break;
+      }
+    }
+  }
+  state.shots = state.shots.filter(
+    (shot) => shot.life > 0 && shot.x > -50 && shot.x < STAGE_WIDTH + 50 && shot.y > -50 && shot.y < STAGE_HEIGHT + 50,
+  );
+}
+
+// relight: stand by a dark lamp
+function tendLamps(state: State, deltaTime: number) {
+  const hero = state.hero;
+  for (const lamp of state.lamps) {
+    lamp.flicker += deltaTime;
+    if (lamp.lit) {
+      continue;
+    }
+    if (ground(lamp.x, lamp.y, hero.x, hero.y) < 40) {
+      lamp.relight += deltaTime;
+      if (lamp.relight >= state.rules.relight) {
+        lamp.lit = true;
+        lamp.relight = 0;
+        addPuff(state, lamp.x, lamp.y - 40, "light");
+      }
+    } else {
+      lamp.relight = Math.max(0, lamp.relight - deltaTime * 2);
+    }
+  }
+}
+
+// The nearest lit lamp to a monster, or null when every lamp is dark.
+function nearestLitLamp(state: State, monster: Monster): Lamp | null {
+  let lamp: Lamp | null = null;
+  let best = Number.POSITIVE_INFINITY;
+  for (const candidate of state.lamps) {
+    if (candidate.lit) {
+      const distance = ground(monster.x, monster.y, candidate.x, candidate.y);
+      if (distance < best) {
+        best = distance;
+        lamp = candidate;
+      }
+    }
+  }
+  return lamp;
+}
+
+// One monster's step: it goes for the warden if he is close, else for the nearest lit lamp, and claws what it reaches.
+function actMonster(state: State, monster: Monster, deltaTime: number) {
+  const hero = state.hero;
+  const stats = monsterStats(state, monster.kind);
+  monster.age += deltaTime;
+  monster.attackCooldown = Math.max(0, monster.attackCooldown - deltaTime);
+  monster.hurt = Math.max(0, monster.hurt - deltaTime);
+  if (monster.stun > 0) {
+    monster.stun = Math.max(0, monster.stun - deltaTime);
+    return;
+  }
+  if (monster.knockX !== 0 || monster.knockY !== 0) {
+    knock(monster, deltaTime);
+  }
+  const lamp = ground(monster.x, monster.y, hero.x, hero.y) > AGGRO ? nearestLitLamp(state, monster) : null;
+  const targetX = lamp ? lamp.x : hero.x;
+  const targetY = lamp ? lamp.y : hero.y;
+  const towardX = targetX - monster.x;
+  const towardY = (targetY - monster.y) * 2;
+  const distance = Math.hypot(towardX, towardY) || 1;
+  if (!lamp && distance < 26) {
+    // claw the warden
+    // mercy frames: while they run the monster waits, and claws the moment they end
+    if (monster.attackCooldown <= 0 && hero.mercy <= 0) {
+      monster.attackCooldown = 1.1;
+      wound(state, stats.damage, towardX / distance, towardY / distance);
+    }
+    return;
+  }
+  if (lamp && distance < 24) {
+    clawLamp(state, monster, lamp, stats.snuff * state.rules.snuffMultiplier, deltaTime);
+    return;
+  }
+  monster.snuff = 0;
+  advance(state, monster, stats.speed, towardX / distance, towardY / distance, distance, deltaTime);
+}
+
+// Moves a monster along (groundX, groundY) in ground space, `distance` from its target, with a sideways wobble; the
+// light slows it, and so does a wound.
+function advance(
+  state: State,
+  monster: Monster,
+  baseSpeed: number,
+  groundX: number,
+  groundY: number,
+  distance: number,
+  deltaTime: number,
+) {
+  const speed =
+    baseSpeed * haste(state) * (inLight(state, monster.x, monster.y) ? 0.7 : 1) * (monster.hurt > 0 ? 0.3 : 1);
+  const lateral = Math.cos(monster.age * 2.2) * monster.wobble * Math.min(1, distance / 80);
+  monster.x += (groundX * speed - groundY * lateral) * deltaTime;
+  monster.y += (groundY * speed + groundX * lateral) * deltaTime * 0.5;
+}
+
+// A monster at a lamp claws at it; once it has clawed for `snuffTime` the lamp goes out.
+function clawLamp(state: State, monster: Monster, lamp: Lamp, snuffTime: number, deltaTime: number) {
+  monster.snuff += deltaTime;
+  if (monster.snuff >= snuffTime) {
+    lamp.lit = false;
+    lamp.relight = 0;
+    monster.snuff = 0;
+    state.stats.lampsLost++;
+    addPuff(state, lamp.x, lamp.y - 40, "snuff");
+  }
+}
+
+// The night ends when the warden falls, the last lamp goes out, or dawn comes.
+function settle(state: State) {
+  if (state.hero.health <= 0) {
     state.outcome = "fallen";
   } else if (litCount(state) === 0) {
     state.outcome = "dark";

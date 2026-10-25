@@ -69,6 +69,27 @@ function eightWay(horizontal: number, vertical: number): [number, number] {
   return [Math.round(Math.cos((sector * Math.PI) / 4)), Math.round(Math.sin((sector * Math.PI) / 4))];
 }
 
+// The d-pad along one axis: 1 for the positive button, -1 for the negative one, 0 for neither or both.
+const padAxis = (gamepad: Gamepad, positive: number, negative: number) =>
+  (isPressed(gamepad, positive) ? 1 : 0) - (isPressed(gamepad, negative) ? 1 : 0);
+
+// A shot: along the right stick when it is pushed, else the way the warden faces.
+function shootWithPad(controls: Controls, gamepad: Gamepad, state: State) {
+  const aimHorizontal = gamepad.axes[2] ?? 0;
+  const aimVertical = gamepad.axes[3] ?? 0;
+  if (Math.hypot(aimHorizontal, aimVertical) <= AIM_DEADZONE) {
+    press(controls, "ranged", state);
+    return;
+  }
+  // aim along the right stick: a point ahead of the warden in that direction (the ground is foreshortened 2:1)
+  const length = Math.hypot(aimHorizontal, aimVertical);
+  controls.ranged = true;
+  controls.aim = {
+    x: Math.round(state.hero.x + (aimHorizontal / length) * AIM_DISTANCE),
+    y: Math.round(state.hero.y - 40 + (aimVertical / length) * AIM_DISTANCE * 0.5),
+  };
+}
+
 // Called once per frame during a night, before the sim reads the controls.
 export function pollGamepadForPlay(controls: Controls, state: State, memory: GamepadMemory) {
   const gamepad = activeGamepad();
@@ -77,8 +98,8 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
     controls.gamepadY = 0;
     return;
   }
-  const padHorizontal = (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0);
-  const padVertical = (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0);
+  const padHorizontal = padAxis(gamepad, BUTTON.right, BUTTON.left);
+  const padVertical = padAxis(gamepad, BUTTON.down, BUTTON.up);
   const [stickHorizontal, stickVertical] = eightWay(gamepad.axes[0] ?? 0, gamepad.axes[1] ?? 0);
   controls.gamepadX = padHorizontal || stickHorizontal;
   controls.gamepadY = padVertical || stickVertical;
@@ -93,19 +114,7 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
     fresh.has(BUTTON.rightTrigger) ||
     fresh.has(BUTTON.rightBumper)
   ) {
-    const aimHorizontal = gamepad.axes[2] ?? 0;
-    const aimVertical = gamepad.axes[3] ?? 0;
-    if (Math.hypot(aimHorizontal, aimVertical) > AIM_DEADZONE) {
-      // aim along the right stick: a point ahead of the warden in that direction (the ground is foreshortened 2:1)
-      const length = Math.hypot(aimHorizontal, aimVertical);
-      controls.ranged = true;
-      controls.aim = {
-        x: Math.round(state.hero.x + (aimHorizontal / length) * AIM_DISTANCE),
-        y: Math.round(state.hero.y - 40 + (aimVertical / length) * AIM_DISTANCE * 0.5),
-      };
-    } else {
-      press(controls, "ranged", state);
-    }
+    shootWithPad(controls, gamepad, state);
   }
 
   const hurt = state.hero.hurt > 0;
@@ -134,12 +143,8 @@ export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuActi
   if (fresh.has(BUTTON.start)) {
     return "primary";
   }
-  const vertical =
-    (isPressed(gamepad, BUTTON.down) ? 1 : 0) - (isPressed(gamepad, BUTTON.up) ? 1 : 0) ||
-    Math.round(gamepad.axes[1] ?? 0);
-  const horizontal =
-    (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0) ||
-    Math.round(gamepad.axes[0] ?? 0);
+  const vertical = padAxis(gamepad, BUTTON.down, BUTTON.up) || Math.round(gamepad.axes[1] ?? 0);
+  const horizontal = padAxis(gamepad, BUTTON.right, BUTTON.left) || Math.round(gamepad.axes[0] ?? 0);
   const direction = vertical || horizontal;
   if (!direction) {
     memory.menuRepeatAt = 0;

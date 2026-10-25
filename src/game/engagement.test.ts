@@ -156,26 +156,23 @@ describe("nothing gets easier after a night nobody played", () => {
   });
 
   test("whatever the model returns, an idle night never eases", () => {
-    for (const tide of [-3, 0, 0.4, 0.84, 0.99, 1, 1.07, 9]) {
-      for (const weight of [-1, 0, 0.5, 0.99, 1, 1.5, 7]) {
-        for (const share of [0, 0.1, 0.2, 0.25, 0.3, 1]) {
-          const decision = clampProposal(
-            proposal({ tide, mix: { satyr: weight, cyclops: weight, harpy: weight }, creatureShare: share }),
-            1,
-            2,
-            undefined,
-            "idle",
-          );
-          if (!decision) {
-            throw new Error("no decision");
-          }
-          expect(decision.tide).toBeGreaterThanOrEqual(1);
-          for (const mix of Object.values(decision.mix)) {
-            expect(mix).toBeGreaterThanOrEqual(1);
-          }
-          expect(decision.creatureShare).toBeGreaterThanOrEqual(0.25);
-        }
+    const proposals = [-3, 0, 0.4, 0.84, 0.99, 1, 1.07, 9].flatMap((tide) =>
+      [-1, 0, 0.5, 0.99, 1, 1.5, 7].flatMap((weight) =>
+        [0, 0.1, 0.2, 0.25, 0.3, 1].map((share) =>
+          proposal({ tide, mix: { satyr: weight, cyclops: weight, harpy: weight }, creatureShare: share }),
+        ),
+      ),
+    );
+    for (const proposed of proposals) {
+      const decision = clampProposal(proposed, 1, 2, undefined, "idle");
+      if (!decision) {
+        throw new Error("no decision");
       }
+      expect(decision.tide).toBeGreaterThanOrEqual(1);
+      for (const mix of Object.values(decision.mix)) {
+        expect(mix).toBeGreaterThanOrEqual(1);
+      }
+      expect(decision.creatureShare).toBeGreaterThanOrEqual(0.25);
     }
   });
 

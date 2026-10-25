@@ -10,35 +10,43 @@ const HOUR_MILLISECONDS = 3_600_000;
 const IPV6_GROUPS = 8;
 const IPV6_PREFIX_GROUPS = 4;
 
+/** An embedded IPv4 tail ("1.2.3.4") as the two 16-bit groups it stands for, or null when it is not one. */
+function ipv4TailGroups(part: string): number[] | null {
+  const octets = part.split(".").map(Number);
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(part) || octets.some((octet) => octet > 255)) {
+    return null;
+  }
+  return [(octets[0] ?? 0) * 256 + (octets[1] ?? 0), (octets[2] ?? 0) * 256 + (octets[3] ?? 0)];
+}
+
+/** The 16-bit groups of one side of an IPv6 address's `::`, or null when a group is not hex. */
+function sideGroups(text: string): number[] | null {
+  if (text === "") {
+    return [];
+  }
+  const groups: number[] = [];
+  const parts = text.split(":");
+  for (const [index, part] of parts.entries()) {
+    const tail = index === parts.length - 1 && part.includes(".") ? ipv4TailGroups(part) : null;
+    if (tail) {
+      groups.push(...tail);
+    } else if (/^[0-9a-f]{1,4}$/.test(part)) {
+      groups.push(Number.parseInt(part, 16));
+    } else {
+      return null;
+    }
+  }
+  return groups;
+}
+
 /** The eight 16-bit groups of an IPv6 address (`::` expanded, an embedded IPv4 tail turned into two groups), or null. */
 function ipv6Groups(address: string): number[] | null {
   const halves = address.split("::");
   if (halves.length > 2) {
     return null;
   }
-  const toGroups = (text: string): number[] | null => {
-    if (text === "") {
-      return [];
-    }
-    const groups: number[] = [];
-    const parts = text.split(":");
-    for (const [index, part] of parts.entries()) {
-      if (index === parts.length - 1 && part.includes(".")) {
-        const octets = part.split(".").map(Number);
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(part) || octets.some((octet) => octet > 255)) {
-          return null;
-        }
-        groups.push((octets[0] ?? 0) * 256 + (octets[1] ?? 0), (octets[2] ?? 0) * 256 + (octets[3] ?? 0));
-      } else if (/^[0-9a-f]{1,4}$/.test(part)) {
-        groups.push(Number.parseInt(part, 16));
-      } else {
-        return null;
-      }
-    }
-    return groups;
-  };
-  const head = toGroups(halves[0] ?? "");
-  const tail = halves.length === 2 ? toGroups(halves[1] ?? "") : [];
+  const head = sideGroups(halves[0] ?? "");
+  const tail = halves.length === 2 ? sideGroups(halves[1] ?? "") : [];
   if (!head || !tail) {
     return null;
   }

@@ -67,19 +67,17 @@ describe("a creature's modifiers", () => {
       bite: "damage",
       snuffing: "snuff",
     };
-    for (const archetype of ARCHETYPES) {
-      for (const name of MODIFIER_NAMES) {
-        const neutral = creatureStats(archetype, NEUTRAL);
-        for (const level of [-1, 1] as const) {
-          const stats = creatureStats(archetype, { ...NEUTRAL, [name]: level });
-          for (const stat of STAT_NAMES) {
-            if (stat !== moves[name]) {
-              expect(stats[stat]).toBe(neutral[stat]);
-            } else if (level === 1) {
-              expect(stats[stat]).not.toBe(neutral[stat]); // weaker may be held at a floor
-            }
-          }
-        }
+    const cases = ARCHETYPES.flatMap((archetype) =>
+      MODIFIER_NAMES.flatMap((name) => ([-1, 1] as const).map((level) => ({ archetype, name, level }))),
+    );
+    for (const { archetype, name, level } of cases) {
+      const neutral = creatureStats(archetype, NEUTRAL);
+      const stats = creatureStats(archetype, { ...NEUTRAL, [name]: level });
+      for (const stat of STAT_NAMES.filter((other) => other !== moves[name])) {
+        expect(stats[stat]).toBe(neutral[stat]);
+      }
+      if (level === 1) {
+        expect(stats[moves[name]]).not.toBe(neutral[moves[name]]); // weaker may be held at a floor
       }
     }
   });

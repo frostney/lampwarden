@@ -45,6 +45,34 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
     }
   };
 
+  // Puts the sea's answer on show: a creature that is ready, or one being made, followed until it is (or is not).
+  const answer = async (seen: readonly string[], asking: Asking, isCurrent: () => boolean) => {
+    const answered = await deps.askForCreature([...seen]);
+    if (!isCurrent()) {
+      return;
+    }
+    if (!answered || answered.kind === "none") {
+      asking.alive = false;
+      return;
+    }
+    if (answered.kind === "ready") {
+      asking.creatureId = answered.creature.id;
+      show({ kind: "ready", creature: answered.creature });
+      return;
+    }
+    show({ kind: "generating", step: "queued" });
+    const creature = await deps.waitForJob(answered.jobId, {
+      onStep: (step) => isCurrent() && show({ kind: "generating", step }),
+      isCurrent,
+    });
+    if (!isCurrent()) {
+      return;
+    }
+    asking.creatureId = creature?.id ?? null;
+    asking.alive = creature !== null;
+    show(creature ? { kind: "ready", creature } : NONE);
+  };
+
   /**
    * Asks the sea which creature comes next, given the ids the line has met. The same question while its asking is
    * still alive (in flight, being made, or ready) changes nothing; otherwise what it answers replaces what was shown.
@@ -59,32 +87,7 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
     const asking: Asking = { key, alive: true, creatureId: null };
     current = asking;
     show(NONE);
-    const answering = (async () => {
-      const answer = await deps.askForCreature([...seen]);
-      if (!isCurrent()) {
-        return;
-      }
-      if (!answer || answer.kind === "none") {
-        asking.alive = false;
-        return;
-      }
-      if (answer.kind === "ready") {
-        asking.creatureId = answer.creature.id;
-        show({ kind: "ready", creature: answer.creature });
-        return;
-      }
-      show({ kind: "generating", step: "queued" });
-      const creature = await deps.waitForJob(answer.jobId, {
-        onStep: (step) => isCurrent() && show({ kind: "generating", step }),
-        isCurrent,
-      });
-      if (!isCurrent()) {
-        return;
-      }
-      asking.creatureId = creature?.id ?? null;
-      asking.alive = creature !== null;
-      show(creature ? { kind: "ready", creature } : NONE);
-    })();
+    const answering = answer(seen, asking, isCurrent);
     // the game's own calls never throw, but whatever is injected may: the asking ends and the next one is a new one
     answering.catch(() => {
       if (!isCurrent()) {

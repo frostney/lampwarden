@@ -1,6 +1,8 @@
-// What the model is told about a night: numbers worked out from the recorded play the server itself holds (never from a
-// client's claim), in a compact JSON object. The play has no positions, so "where the warden was when a lamp went dark"
-// is not here; what the timeline does give is when each lamp went dark, how the crowd grew and how health fell.
+// What the model is told about a night: numbers worked out from the recorded play the server holds, in a compact JSON
+// object. That recording is what the client uploaded and nothing replays it on the server, so the stats, the timeline and
+// the legacy are the player's word; the model gets them as data, and the decision log says `replayed: false`.
+// The play has no positions, so "where the warden was when a lamp went dark" is not here; what the timeline does give
+// is when each lamp went dark, how the crowd grew and how health fell.
 import { z } from "zod";
 import { recordedCreatureSchema } from "@/game/creature";
 import { directorFrom, type EngagementKind, mayEase, tideRange } from "@/game/director";

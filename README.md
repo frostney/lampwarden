@@ -4,6 +4,8 @@
 
 A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea sends creatures to put out the town's lamps; you strike them down, relight the lamps and keep one burning until dawn. When a warden falls, an heir takes up the lamp. The sprites are code written by a model through Mubit, then rendered, judged and corrected.
 
+![Night 1 in Lychnos: a harpy claws at a lamp while a satyr and a cyclops come up from the shore, and the warden draws his bow](screenshot.png)
+
 ```bash
 bun install && bun run dev
 ```
@@ -63,7 +65,7 @@ echo "VERCEL_SANDBOX_SNAPSHOT_ID=snap_..." >> .env.local   # or export it in you
 
 Rebuild the snapshot after any change to `pipeline/kit/kit.ts` or `pipeline/render/`; a stale one fails the render with the command to run. Details: [`docs/tooling.md`](docs/tooling.md), "Rendering needs Vercel auth".
 
-This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the two lamps, which are hand-written calls to the lampstand builder (with the hand-written temple, house, wall and stall kept as `-handwritten` fallbacks), and the hero's frames, which are deterministic builder code with no model call. Several Mubit sprites scored under the pass mark (lion 5, hydra 5, cyclops 5.5, zeus-statue 6, harpy 6, satyr 6.5); the scores are in the manifest. Details: [`pipeline/README.md`](pipeline/README.md).
+This writes the PNG, its builder code and a row in `public/sprites/manifest.json`. The sprites in `public/sprites/` come from earlier runs of the same loop, except the two lamps, which are hand-written calls to the lampstand builder (with the hand-written temple, house, wall and stall kept as `-handwritten` fallbacks), and the hero's frames, which are deterministic builder code with no model call. Rows re-scored on 24 Oct 2026 carry a `verified` block: the committed sprite scored with that day's verifier and the live acceptance rule (a verifier pass, or 6 or more with no engine flag), with the Mubit request ids (`bun run reverify:sprites`). Every sprite in the game is accepted (cyclops, harpy, galley-dock and trireme 7, satyr and olive 6, the Mubit buildings 6 to 8, the lamps 8) except the zeus-statue at 5.5, which three regeneration runs did not beat in the scene. Details: [`pipeline/README.md`](pipeline/README.md).
 
 ### Live creatures
 

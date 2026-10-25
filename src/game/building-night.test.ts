@@ -7,7 +7,7 @@ import { decorFor } from "../scene/decor";
 import { liveBuildingOf } from "../scene/layers";
 import { recordedBuildingOf, recordedBuildingSchema } from "./building";
 import { newLegacy } from "./legacy";
-import { incomingPlay } from "./plays";
+import { playSchema } from "./plays";
 import { type Play, Recorder } from "./recording";
 import { creatureOf, legacyOf, Replayer, STEP, verifyPlay } from "./replay";
 import { NO_INPUT, newNight, step } from "./sim";
@@ -53,7 +53,8 @@ describe("the building a night was played beside", () => {
     const { play } = recordedNight(RECORDED);
     expect(play.building).toEqual(RECORDED);
     expect(recordedBuildingOf(play)).toEqual(RECORDED);
-    expect(incomingPlay.safeParse(JSON.parse(JSON.stringify(play))).success).toBe(true);
+    // what /api/plays stores is what it parsed: the building is kept, not dropped as an unknown field
+    expect(playSchema.parse(JSON.parse(JSON.stringify(play))).building).toEqual(RECORDED);
   });
 
   test("a night with no live building records none", () => {
@@ -65,9 +66,9 @@ describe("the building a night was played beside", () => {
   test("is validated where plays come in: a damaged record refuses the play", () => {
     const { play } = recordedNight(RECORDED);
     const sent = JSON.parse(JSON.stringify(play));
-    expect(incomingPlay.safeParse({ ...sent, building: { ...RECORDED, anchorY: 3 } }).success).toBe(false);
-    expect(incomingPlay.safeParse({ ...sent, building: { id: "x" } }).success).toBe(false);
-    expect(incomingPlay.safeParse({ ...sent, building: undefined }).success).toBe(true);
+    expect(playSchema.safeParse({ ...sent, building: { ...RECORDED, anchorY: 3 } }).success).toBe(false);
+    expect(playSchema.safeParse({ ...sent, building: { id: "x" } }).success).toBe(false);
+    expect(playSchema.safeParse({ ...sent, building: undefined }).success).toBe(true);
   });
 
   test("a recording whose building does not validate replays as if it had none", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { newLegacy } from "./legacy";
-import { incomingPlay, replaysExactlyOn } from "./plays";
+import { playSchema, replaysExactlyOn } from "./plays";
 import {
   flushQueue,
   MAX_PLAY_CHARS,
@@ -44,10 +44,10 @@ describe("the hidden time a recording keeps", () => {
       expect(play.hiddenSeconds).toBeGreaterThanOrEqual(0.1);
       expect(play.hiddenSeconds).toBeLessThan(1);
       const { hiddenSeconds: _kept, ...older } = play;
-      expect(incomingPlay.safeParse(play).success).toBe(true);
-      expect(incomingPlay.safeParse(older).success).toBe(true);
-      expect(incomingPlay.safeParse({ ...play, hiddenSeconds: -1 }).success).toBe(false);
-      expect(incomingPlay.safeParse({ ...play, hiddenSeconds: "long" }).success).toBe(false);
+      expect(playSchema.safeParse(play).success).toBe(true);
+      expect(playSchema.safeParse(older).success).toBe(true);
+      expect(playSchema.safeParse({ ...play, hiddenSeconds: -1 }).success).toBe(false);
+      expect(playSchema.safeParse({ ...play, hiddenSeconds: "long" }).success).toBe(false);
     });
   });
 

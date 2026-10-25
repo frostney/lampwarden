@@ -12,6 +12,7 @@ import { liveBuildingOf } from "./layers";
 import { plazaInset } from "./plaza";
 
 const SEEDS = 500;
+const TIMEOUT = 60_000; // a few thousand layouts, a few milliseconds each, on a machine other work may share
 const seedOf = (index: number) => Math.imul(index + 1, 2654435761) >>> 0; // spread over all of 32 bits
 const MARGIN = 8; // iso steps from the rim (decor.ts)
 const LAMP_RING = 40; // ground px from a lamp's foot (decor.ts)
@@ -141,44 +142,48 @@ function layoutAt(extents: SpriteExtents | null, index: number): Layout {
 
 describe("a live building on the plaza", () => {
   for (const { name, extents } of BUILDINGS) {
-    test(`${name} stands in the building slot of nearly every layout of ${SEEDS} seeds, within the bounds of a committed building`, () => {
-      let placedCount = 0;
-      for (const [index, layout] of layoutsOf(extents).entries()) {
-        const seed = seedOf(index);
-        const keys = keysOf(layout);
-        // one building in the slot, live or committed, and never an extra
-        const standing = keys.filter((key) => key === KEY || BUILDING_SLOT.includes(key));
-        expect(standing, `seed ${seed}`).toHaveLength(1);
-        // never the temple, which every plaza keeps
-        expect(
-          keys.filter((key) => key === "temple"),
-          `seed ${seed}`,
-        ).toHaveLength(1);
-        const placed = layout.props.find((prop) => prop.key === KEY);
-        if (!placed) continue;
-        placedCount++;
-        // inside the plaza, with the margin, by every corner of its base
-        for (const [hullX, hullY] of extents.hull)
-          must(plazaInset(placed.x + hullX, placed.y + hullY) >= MARGIN, `seed ${seed}: near the rim`);
-        const base = groundShape(extents.solid, placed.x, placed.y);
-        // clear of the lamps and of where monsters come ashore
-        for (const spot of LAMP_SPOTS) must(!nearPoint(base, toGround(spot), LAMP_RING), `seed ${seed}: by a lamp`);
-        for (const spawn of SPAWN_POINTS)
-          must(!nearPoint(base, toGround(spawn), SPAWN_GAP), `seed ${seed}: by a spawn`);
-        // and off the other props
-        for (const other of layout.props) {
-          if (other === placed) continue;
-          const otherExtents = SPRITE_EXTENTS[other.key];
-          if (!otherExtents) continue;
-          const otherBase = groundShape(otherExtents.solid, other.x, other.y);
-          // the pieces of one cluster or run may stand closer: only a different kind is held to the gap
-          if (other.key === placed.key) continue;
-          must(!nearShape(base, otherBase, PROP_GAP), `seed ${seed}: on ${other.key}`);
+    test(
+      `${name} stands in the building slot of nearly every layout of ${SEEDS} seeds, within the bounds of a committed building`,
+      () => {
+        let placedCount = 0;
+        for (const [index, layout] of layoutsOf(extents).entries()) {
+          const seed = seedOf(index);
+          const keys = keysOf(layout);
+          // one building in the slot, live or committed, and never an extra
+          const standing = keys.filter((key) => key === KEY || BUILDING_SLOT.includes(key));
+          expect(standing, `seed ${seed}`).toHaveLength(1);
+          // never the temple, which every plaza keeps
+          expect(
+            keys.filter((key) => key === "temple"),
+            `seed ${seed}`,
+          ).toHaveLength(1);
+          const placed = layout.props.find((prop) => prop.key === KEY);
+          if (!placed) continue;
+          placedCount++;
+          // inside the plaza, with the margin, by every corner of its base
+          for (const [hullX, hullY] of extents.hull)
+            must(plazaInset(placed.x + hullX, placed.y + hullY) >= MARGIN, `seed ${seed}: near the rim`);
+          const base = groundShape(extents.solid, placed.x, placed.y);
+          // clear of the lamps and of where monsters come ashore
+          for (const spot of LAMP_SPOTS) must(!nearPoint(base, toGround(spot), LAMP_RING), `seed ${seed}: by a lamp`);
+          for (const spawn of SPAWN_POINTS)
+            must(!nearPoint(base, toGround(spawn), SPAWN_GAP), `seed ${seed}: by a spawn`);
+          // and off the other props
+          for (const other of layout.props) {
+            if (other === placed) continue;
+            const otherExtents = SPRITE_EXTENTS[other.key];
+            if (!otherExtents) continue;
+            const otherBase = groundShape(otherExtents.solid, other.x, other.y);
+            // the pieces of one cluster or run may stand closer: only a different kind is held to the gap
+            if (other.key === placed.key) continue;
+            must(!nearShape(base, otherBase, PROP_GAP), `seed ${seed}: on ${other.key}`);
+          }
         }
-      }
-      // it is a building a layout can take: placed on most nights (a long one fits less often than a small one)
-      expect(placedCount).toBeGreaterThan(SEEDS * 0.3);
-    });
+        // it is a building a layout can take: placed on most nights (a long one fits less often than a small one)
+        expect(placedCount).toBeGreaterThan(SEEDS * 0.3);
+      },
+      TIMEOUT,
+    );
   }
 
   test("the same night lays out the same plaza, with the building and without it", () => {
@@ -189,34 +194,46 @@ describe("a live building on the plaza", () => {
     }
   });
 
-  test("replaces the house or the ochre house and nothing else: every other prop is one of the committed kinds", () => {
-    const committed = new Set(
-      layoutsOf(null).flatMap((layout) => [...layout.props, ...layout.boats].map((placed) => placed.key)),
-    );
-    for (const layout of layoutsOf(FOUNTAIN_HOUSE)) {
-      for (const placed of [...layout.props, ...layout.boats])
-        must(placed.key === KEY || committed.has(placed.key), `an unknown prop ${placed.key}`);
-    }
-  });
+  test(
+    "replaces the house or the ochre house and nothing else: every other prop is one of the committed kinds",
+    () => {
+      const committed = new Set(
+        layoutsOf(null).flatMap((layout) => [...layout.props, ...layout.boats].map((placed) => placed.key)),
+      );
+      for (const layout of layoutsOf(FOUNTAIN_HOUSE)) {
+        for (const placed of [...layout.props, ...layout.boats])
+          must(placed.key === KEY || committed.has(placed.key), `an unknown prop ${placed.key}`);
+      }
+    },
+    TIMEOUT,
+  );
 
-  test("a building that fits nowhere is skipped for that night, and the committed one stays", () => {
-    for (let index = 0; index < 100; index++) {
-      const seed = seedOf(index);
-      const layout = decorFor(seed, live(IMPOSSIBLE));
-      const keys = keysOf(layout);
-      expect(keys).not.toContain(KEY);
-      expect(
-        keys.filter((key) => BUILDING_SLOT.includes(key)),
-        `seed ${seed}`,
-      ).toHaveLength(1);
-    }
-  });
+  test(
+    "a building that fits nowhere is skipped for that night, and the committed one stays",
+    () => {
+      for (let index = 0; index < 100; index++) {
+        const seed = seedOf(index);
+        const layout = decorFor(seed, live(IMPOSSIBLE));
+        const keys = keysOf(layout);
+        expect(keys).not.toContain(KEY);
+        expect(
+          keys.filter((key) => BUILDING_SLOT.includes(key)),
+          `seed ${seed}`,
+        ).toHaveLength(1);
+      }
+    },
+    TIMEOUT,
+  );
 
-  test("never adds clutter: a plaza with a live building has no more props than the most a committed one has", () => {
-    const most = Math.max(...layoutsOf(null).map((layout) => layout.props.length));
-    for (const layout of layoutsOf(FOUNTAIN_HOUSE))
-      must(layout.props.length <= most, "more props than a committed plaza has");
-  });
+  test(
+    "never adds clutter: a plaza with a live building has no more props than the most a committed one has",
+    () => {
+      const most = Math.max(...layoutsOf(null).map((layout) => layout.props.length));
+      for (const layout of layoutsOf(FOUNTAIN_HOUSE))
+        must(layout.props.length <= most, "more props than a committed plaza has");
+    },
+    TIMEOUT,
+  );
 });
 
 describe("a recording carries the building the plaza was laid out with", () => {

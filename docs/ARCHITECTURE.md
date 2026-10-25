@@ -74,8 +74,9 @@ src/
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
                      bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
-    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5), the atlas layout and the
-                     paces; kept out of creature.ts so the sim fingerprint does not move (frames are drawn, never played)
+    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5, the five directions it is
+                     drawn from and how far each frame was slid along its cell), the atlas layout and the paces; kept out of
+                     creature.ts so the sim fingerprint does not move (frames are drawn, never played)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
     building.ts      the contract with the live building generator (not in the sim fingerprint: a building is only drawn): the
@@ -106,10 +107,16 @@ src/
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
                      warden's eight directions (octants), the five of them drawn and the three mirrored
-    creature-animation.ts  which frame a creature from the sea shows (walk, attack, idle) from what the sim says about it; drawing only
+    creature-animation.ts  which frame a monster with frames shows (walk, attack, idle) from what the sim says about it, and a frame's
+                     texture key; drawing only
+    monster-heading.ts  which way a monster faces on the ground (an octant), read from its own steps (the sim keeps no heading); drawing only
+    monster-sheets.ts  the hand-made monsters' frames (satyr, cyclops, harpy): their atlases, and the canvas and the slides recorded in
+                     monster-frames.json, which `bun run assets:monsters` writes
     layers.ts        textures (and the creature's, loaded at runtime from its sprite path and, with frames, its atlas; a sprite that fails means a
                      night without it), ground (the plaza over the sea, and the boards of the dock's bridge), night tint (the world below the horizon
-                     is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
+                     is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite and
+                     monsterPicture the frame it is drawn with now, from the way it faces (a monster with frames is cut from its atlas,
+                     one texture a frame and direction, the three directions that are not drawn mirrored as the warden's are)
                      and anchor
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
                      warming to dawn with the night tint, stars, a crescent moon, a headland with a lighthouse and far
@@ -158,12 +165,15 @@ scripts/plays.ts     balance report from recorded plays in Blob storage, with a 
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 tools/sim-fingerprint/  the sim fingerprint: a hash of the sources that decide a night (see Sim fingerprint)
-public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
+public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, <kind>-frames.png (the satyr's,
+                     cyclops's and harpy's atlases), manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
-  creature-frames.ts the frame set of a creature: its code rendered in every pose in one batch, checked (every frame renders, the walk moves) and packed into the atlas
+  creature-frames.ts the frame set of a creature: its code rendered in every pose from five directions in one batch (75 frames), checked
+                     (every frame renders, the walk moves, the sides differ, the figure fits its cell) and packed into the atlas;
+                     monster-frames.ts and monster-source.ts draw the hand-made monsters' the same way (`bun run assets:monsters`)
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
   building-brief.ts  the brief writer for live buildings (prompts/building.md, its own Mubit task), validated with src/game/building.ts;
                      brief-writer.ts is what the two share
@@ -176,7 +186,8 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
-  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and png.ts (the PNG encoder)
+  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite: its pose as POSE, its facing as the kit's
+                     turn, and, for a frame of a set, the canvas its still was drawn on) and png.ts (the PNG encoder)
 docs/ARCHITECTURE.md this file
 docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
 docs/LIVE_GENERATION.md  design note: live generation behind a server route, why only Vercel Sandbox renders, with parallelism and Mubit numbers

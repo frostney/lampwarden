@@ -35,8 +35,12 @@ const headings = new WeakMap<object, Heading>();
 
 /** Turns to face (`towardX`, `towardY`) (the ground's, with y at twice the screen's) once it is well past the octant faced. */
 function turnToward(heading: Heading, towardX: number, towardY: number) {
-  if (Math.hypot(towardX, towardY) < 1e-6) return;
-  if (offsetFromOctant(towardX, towardY, heading.octant) > TURN_PAST) heading.octant = octantOf(towardX, towardY);
+  if (Math.hypot(towardX, towardY) < 1e-6) {
+    return;
+  }
+  if (offsetFromOctant(towardX, towardY, heading.octant) > TURN_PAST) {
+    heading.octant = octantOf(towardX, towardY);
+  }
 }
 
 /**

@@ -11,12 +11,16 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
+import { differingPixels } from "../src/lib/pixels";
+import { MILLISECONDS_PER_SECOND } from "../src/lib/units";
 import { heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
+import { SHEET_KINDS } from "../src/scene/monster-sheets";
 import { decodePng } from "../tools/logo/png";
 import { slidesOf } from "./creature-frames";
 import { atlasCellPixels } from "./hero-atlas";
 import { heroBuildsFor } from "./hero-source";
-import { monsterAtlasFile, monsterCodePath, monsterFrameBuilds, SHEET_KINDS } from "./monster-source";
+import { monsterAtlasFile, monsterCodePath, monsterFrameBuilds } from "./monster-source";
 import { renderBatchFromCheckout } from "./render-checkout";
 import type { FrameView } from "./render-types";
 import { SnapshotMismatchError } from "./render-vercel-sandbox";
@@ -42,14 +46,16 @@ const { values } = parseArgs({
   },
 });
 const outputDirectory = values.out ? resolve(values.out) : null;
-if (outputDirectory) mkdirSync(outputDirectory, { recursive: true });
+if (outputDirectory) {
+  mkdirSync(outputDirectory, { recursive: true });
+}
 const spritesDirectory = join(import.meta.dir, "..", "public", "sprites");
 
 const jobs: Job[] = readdirSync(spritesDirectory)
   .filter((file) => file.endsWith(".ts"))
   .sort()
   .map((file) => {
-    const name = file.slice(0, -3);
+    const name = file.slice(0, -".ts".length);
     return {
       name,
       code: readFileSync(join(spritesDirectory, file), "utf8"),
@@ -62,7 +68,9 @@ for (const sex of SEXES) {
   const cells = new Map(heroFrames(sex).map((frame) => [frame.key, frame]));
   for (const build of heroBuildsFor(sex).builds) {
     const cell = cells.get(`hero/${build.name}`);
-    if (!cell) throw new Error(`${build.name} has no cell in the ${sex} atlas`);
+    if (!cell) {
+      throw new Error(`${build.name} has no cell in the ${sex} atlas`);
+    }
     jobs.push({
       name: build.name,
       code: build.code,
@@ -74,7 +82,7 @@ for (const sex of SEXES) {
 
 for (const kind of SHEET_KINDS) {
   const atlas = decodePng(readFileSync(monsterAtlasFile(kind)));
-  for (const build of monsterFrameBuilds(kind, readFileSync(monsterCodePath(kind), "utf8")))
+  for (const build of monsterFrameBuilds(kind, readFileSync(monsterCodePath(kind), "utf8"))) {
     jobs.push({
       name: build.request.name,
       code: build.request.code,
@@ -84,21 +92,12 @@ for (const kind of SHEET_KINDS) {
       shift: build.shift,
       committed: () => atlasCellPixels(atlas, build.x, build.y),
     });
+  }
 }
 
-function differingPixels(first: Uint8Array, second: Uint8Array): number {
-  if (first.length !== second.length) return Math.max(first.length, second.length) / 4;
-  let differing = 0;
-  for (let offset = 0; offset < first.length; offset += 4)
-    if (
-      first[offset] !== second[offset] ||
-      first[offset + 1] !== second[offset + 1] ||
-      first[offset + 2] !== second[offset + 2] ||
-      first[offset + 3] !== second[offset + 3]
-    )
-      differing++;
-  return differing;
-}
+// how the run ends: 1 when a sprite differs (below), 2 when the renders fail, 3 when the snapshot is not this checkout's
+const EXIT = { failed: 2, staleSnapshot: 3 };
+const NAME_COLUMN = 22; // the width of the report's sprite names
 
 // the jobs in interleaved slices, so every VM gets a mix of cheap and expensive sprites
 const batchCount = Math.max(1, Math.min(Math.trunc(Number(values.batches)) || DEFAULT_BATCHES, jobs.length));
@@ -126,9 +125,9 @@ try {
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(error instanceof SnapshotMismatchError ? 3 : 2);
+  process.exit(error instanceof SnapshotMismatchError ? EXIT.staleSnapshot : EXIT.failed);
 }
-const elapsedSeconds = (performance.now() - started) / 1000;
+const elapsedSeconds = (performance.now() - started) / MILLISECONDS_PER_SECOND;
 
 let failures = 0;
 let totalDiffering = 0;
@@ -136,24 +135,28 @@ slices.forEach((slice, sliceIndex) => {
   slice.forEach((job, position) => {
     const result = renderedSlices[sliceIndex]?.[position];
     if (!result?.ok) {
-      console.log(`${job.name.padEnd(22)} ERROR ${result?.error ?? "no result"}`);
+      console.log(`${job.name.padEnd(NAME_COLUMN)} ERROR ${result?.error ?? "no result"}`);
       failures++;
       return;
     }
-    if (outputDirectory) writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
+    if (outputDirectory) {
+      writeFileSync(join(outputDirectory, `${job.name}.png`), result.png);
+    }
     const rendered = decodePng(Buffer.from(result.png)).data;
     const differing = differingPixels(rendered, job.committed());
     // the slide a frame is drawn with is what the game undoes: the one recorded must be the one the kit makes
     const slid = slidesOf(result.stats.fit);
     const shifted = job.shift !== undefined && (slid.dx !== job.shift[0] || slid.dy !== job.shift[1]);
     totalDiffering += differing;
-    if (differing || shifted) failures++;
+    if (differing || shifted) {
+      failures++;
+    }
     console.log(
-      `${job.name.padEnd(22)} ${differing || shifted ? "DIFF" : "ok  "} differing_pixels=${differing}${shifted ? ` slid ${slid.dx},${slid.dy} not ${job.shift?.join(",")}` : ""}`,
+      `${job.name.padEnd(NAME_COLUMN)} ${differing || shifted ? "DIFF" : "ok  "} differing_pixels=${differing}${shifted ? ` slid ${slid.dx},${slid.dy} not ${job.shift?.join(",")}` : ""}`,
     );
   });
 });
 console.log(
   `sprites ${jobs.length}, with differences ${failures}, differing pixels ${totalDiffering}; ${batchCount} sandbox batches of ${vcpus} vCPUs in ${elapsedSeconds.toFixed(1)} s`,
 );
-process.exit(failures ? 1 : 0);
+process.exit(failures > 0 ? 1 : 0);

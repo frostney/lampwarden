@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+
 import { type Building, buildingSchema } from "@/game/building";
 import type { Creature } from "@/game/creature";
+
 import { fakeClock } from "../../../pipeline/fakes";
 import { readCreatureConfig } from "../creatures/config";
 import { nextBuilding, nextCreature, readBuildingJob, readJob, type ServiceDeps } from "../creatures/service";
@@ -76,6 +78,36 @@ function service(env: Record<string, string> = GENERATING_ENV) {
   return { deps, store, clock, started, askBuilding, askCreature, finishJob };
 }
 
+// One thing happens in an evening: a building or a creature is asked for, or both at once, the last job finishes, or
+// time passes.
+async function happen(world: ReturnType<typeof service>, visitor: string, roll: number, random: () => number) {
+  const last = world.started.at(-1);
+  if (roll < 0.35) {
+    await world.askBuilding(visitor);
+  } else if (roll < 0.7) {
+    await world.askCreature(visitor);
+  } else if (roll < 0.8) {
+    await Promise.all([world.askBuilding(visitor), world.askCreature(visitor), world.askBuilding(visitor)]);
+  } else if (roll < 0.9 && last) {
+    await world.finishJob(last.jobId);
+  } else if (roll >= 0.9) {
+    world.clock.advance(Math.floor(random() * 40_000));
+  }
+}
+
+// the jobs an evening started that are neither finished nor stale
+async function aliveJobs(world: ReturnType<typeof service>): Promise<string[]> {
+  const unfinished: string[] = [];
+  for (const job of world.started) {
+    const stored = await world.store.getJob(job.jobId);
+    const stale = stored && world.clock.now().getTime() - Date.parse(stored.updatedAt) > 300_000;
+    if (stored && stored.step !== "done" && stored.step !== "failed" && !stale) {
+      unfinished.push(job.jobId);
+    }
+  }
+  return unfinished;
+}
+
 describe("buildings: the gallery", () => {
   test("answers with the newest building the player has not seen", async () => {
     const { store, askBuilding } = service();
@@ -100,7 +132,9 @@ describe("buildings: the gallery", () => {
   test("serves the gallery without limits and without a job, even with nothing configured", async () => {
     const { store, askBuilding, started } = service({});
     await store.putBuilding(building("0000aaaa-old-aaaaaa"), PNG, "code");
-    for (let call = 0; call < 30; call++) expect((await askBuilding("1.1.1.1")).kind).toBe("ready");
+    for (let call = 0; call < 30; call++) {
+      expect((await askBuilding("1.1.1.1")).kind).toBe("ready");
+    }
     expect(started).toEqual([]);
   });
 });
@@ -293,7 +327,9 @@ describe("one slot for buildings and creatures", () => {
     for (const order of [0, 1]) {
       const { askBuilding, askCreature, started } = service();
       const asks = [() => askBuilding("1.1.1.1"), () => askCreature("2.2.2.2")];
-      if (order === 1) asks.reverse();
+      if (order === 1) {
+        asks.reverse();
+      }
       await Promise.all(asks.map((ask) => ask()));
       expect(started).toHaveLength(1);
     }
@@ -345,7 +381,7 @@ describe("one slot for buildings and creatures", () => {
       return seed / 2 ** 32;
     };
     for (let evening = 0; evening < 60; evening++) {
-      const { store, clock, started, askBuilding, askCreature, finishJob } = service({
+      const world = service({
         ...GENERATING_ENV,
         BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR: "1000",
         CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR: "1000",
@@ -353,22 +389,8 @@ describe("one slot for buildings and creatures", () => {
         CREATURE_MAX_STARTS_PER_DAY: "1000",
       });
       for (let moment = 0; moment < 40; moment++) {
-        const visitor = `10.0.0.${Math.floor(random() * 5)}`;
-        const roll = random();
-        if (roll < 0.35) await askBuilding(visitor);
-        else if (roll < 0.7) await askCreature(visitor);
-        else if (roll < 0.8) await Promise.all([askBuilding(visitor), askCreature(visitor), askBuilding(visitor)]);
-        else if (roll < 0.9) {
-          const last = started.at(-1);
-          if (last) await finishJob(last.jobId);
-        } else clock.advance(Math.floor(random() * 40_000));
-        const alive = [];
-        for (const job of started) {
-          const stored = await store.getJob(job.jobId);
-          const stale = stored && clock.now().getTime() - Date.parse(stored.updatedAt) > 300_000;
-          if (stored && stored.step !== "done" && stored.step !== "failed" && !stale) alive.push(job.jobId);
-        }
-        expect(alive.length).toBeLessThanOrEqual(1);
+        await happen(world, `10.0.0.${Math.floor(random() * 5)}`, random(), random);
+        expect((await aliveJobs(world)).length).toBeLessThanOrEqual(1);
       }
     }
   });

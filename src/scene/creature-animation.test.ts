@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { CREATURE_FRAME_COUNTS } from "../game/creature-frames";
 import { creatureFrameOf, sheetFrameKey } from "./creature-animation";
 

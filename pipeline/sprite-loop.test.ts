@@ -2,19 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
+import { correctionMessage, engineFlagIssues, formatFixed, parseVerdict, slugify } from "./loop";
 import { createMubitClient, type FetchImplementation } from "./mubit";
 import type { RenderRequest, RenderResult, RenderStats } from "./render-types";
-import {
-  correctionMessage,
-  engineFlagIssues,
-  formatFixed,
-  type LoopContext,
-  parseVerdict,
-  processBrief,
-  slugify,
-} from "./sprite-loop";
+import { type LoopContext, processBrief } from "./sprite-loop";
 
 const GENERATOR_PROMPT = "GENERATOR PROMPT";
 const VERIFIER_PROMPT = "VERIFIER PROMPT";
@@ -69,7 +63,9 @@ function contextWith(
   const fetchImplementation: FetchImplementation = async (_url, init) => {
     sent.push(JSON.parse(String(init.body)));
     const answer = answers.shift();
-    if (!answer) throw new Error("the loop made a request the test did not expect");
+    if (!answer) {
+      throw new Error("the loop made a request the test did not expect");
+    }
     return new Response(
       JSON.stringify({
         content: [{ type: "text", text: answer.text }],
@@ -116,7 +112,9 @@ describe("the generate-verify loop's requests", () => {
 
     const verifierContent = sent[1]?.messages[0]?.content;
     expect(Array.isArray(verifierContent)).toBe(true);
-    if (!Array.isArray(verifierContent)) return;
+    if (!Array.isArray(verifierContent)) {
+      return;
+    }
     expect(verifierContent[0]).toEqual({
       type: "text",
       text: `BRIEF: a lamp on a post\n\nENGINE STATS: bbox 42,27,88,105, coverage 8%, parts 78, flags ok\n\nGENERATOR CODE:\n\`\`\`ts\n${GOOD_CODE}\n\`\`\`\n\nRENDERED SPRITE (image):`,

@@ -4,9 +4,16 @@
 //
 // The job reports to the store at every step, and every failure ends as a short fixed reason; no model output and no
 // stack trace is ever stored, returned or logged.
+
 import { createHash } from "node:crypto";
+
 import { z } from "zod";
+
 import type { JobStep } from "@/game/creature";
+import { ignore } from "@/lib/ignore";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
+
+import type { CandidateOutcome } from "../../../pipeline/loop";
 import { bindMubitSignal, type CallRecord, type MubitClient } from "../../../pipeline/mubit";
 import { bindRenderSignal, type Renderer, withDeadline } from "../../../pipeline/render-types";
 import type { JobKind, JobStore, StoredJob } from "./store";
@@ -18,30 +25,49 @@ const FRAME = 128;
 /** Where its feet touch the ground, as a fraction of the frame: the lowest opaque row of the bbox, less the shadow. */
 export function anchorYFromBbox(bbox: string): number {
   const lowestRow = Number(bbox.split(",")[3]);
-  if (!Number.isFinite(lowestRow)) return 0.85;
-  const anchor = Math.round(((lowestRow + 1 - SHADOW_ROWS) / FRAME) * 100) / 100;
-  return Math.min(1, Math.max(0.5, anchor));
+  if (!Number.isFinite(lowestRow)) {
+    return ANCHOR.unknown;
+  }
+  const anchor = Math.round(((lowestRow + 1 - SHADOW_ROWS) / FRAME) * ANCHOR.precision) / ANCHOR.precision;
+  return Math.min(1, Math.max(ANCHOR.highest, anchor));
 }
+// an anchor is in hundredths of the frame, at least halfway down it; one that cannot be read is taken as most are
+const ANCHOR = { precision: 100, highest: 0.5, unknown: 0.85 };
+
+// an id's parts, in characters: its time (base 36), the slug of its name, and the whole id; and the entropy's
+const ID_PARTS = { base: 36, time: 8, slug: 40, whole: 80, entropy: 6 };
 
 const slugOf = (name: string) =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
+    .slice(0, ID_PARTS.slug);
 
 /** Ids start with their creation time in seconds (base 36, fixed width), so sorting them sorts by age. */
 export function galleryId(now: Date, name: string, entropy: string, fallbackSlug: string): string {
-  const seconds = Math.floor(now.getTime() / 1000)
-    .toString(36)
-    .padStart(8, "0");
+  const seconds = Math.floor(now.getTime() / MILLISECONDS_PER_SECOND)
+    .toString(ID_PARTS.base)
+    .padStart(ID_PARTS.time, "0");
   const slug = slugOf(name) || fallbackSlug;
-  return `${seconds}-${slug}-${entropy}`.slice(0, 80).replace(/-+$/, "");
+  return `${seconds}-${slug}-${entropy}`.slice(0, ID_PARTS.whole).replace(/-+$/, "");
 }
+
+/** What the log says of a judged sprite: its scores and flags, never model output. */
+export const judgedEvent = (eventPrefix: string, jobId: string, accepted: boolean, outcome: CandidateOutcome) => ({
+  event: `${eventPrefix}-judged`,
+  jobId,
+  accepted,
+  candidate_scores: outcome.row.candidate_scores,
+  first_score: outcome.row.first_score,
+  fixed_score: outcome.row.fixed_score,
+  final: outcome.row.final,
+  flags: outcome.winner.stats.flags,
+});
 
 /** A random hex string for ids that must not collide (not a secret). */
 export function randomEntropy(): string {
-  return createHash("sha256").update(crypto.randomUUID()).digest("hex").slice(0, 6);
+  return createHash("sha256").update(crypto.randomUUID()).digest("hex").slice(0, ID_PARTS.entropy);
 }
 
 const verdictSummarySchema = z.object({ score: z.number().nullable(), pass: z.boolean() });
@@ -132,13 +158,17 @@ export async function runJobShell<Failure extends string>(
 
   // a step of a job that has already ended (timed out, say) must not overwrite how it ended: it stops the loop instead
   async function report(step: JobStep): Promise<void> {
-    if (ended) throw new Error("the job has ended");
+    if (ended) {
+      throw new Error("the job has ended");
+    }
     await write(step);
   }
 
   // a job ends once: a late "done" (the deadline passed while its record was being stored) never turns a failed job done
   async function conclude(step: "done" | "failed", extra: Pick<StoredJob, "creature" | "building" | "error">) {
-    if (settled) return;
+    if (settled) {
+      return;
+    }
     settled = true;
     ended = true;
     try {
@@ -171,7 +201,7 @@ export async function runJobShell<Failure extends string>(
     log({ event: `${eventPrefix}-failed`, jobId, kind: error instanceof Error ? error.name : "unknown" });
     if (!concluded) {
       const timedOut = error instanceof Error && error.message === "timed out";
-      await failWith(timedOut ? "timed out" : "something went wrong").catch(() => {});
+      await failWith(timedOut ? "timed out" : "something went wrong").catch(ignore);
     }
   }
   ended = true;

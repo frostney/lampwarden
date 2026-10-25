@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
+
 import { clampProposal } from "@/game/director";
 import { nightLength } from "@/game/sim";
+
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
 import { rulesTideAfter, storedPlaySchema, summarise } from "./summary";
 
 const parse = (raw: unknown) => {
   const parsed = storedPlaySchema.safeParse(raw);
-  if (!parsed.success) throw new Error(JSON.stringify(parsed.error.issues));
+  if (!parsed.success) {
+    throw new Error(JSON.stringify(parsed.error.issues));
+  }
   return parsed.data;
 };
 
@@ -114,7 +118,9 @@ describe("the summary of other nights", () => {
       2,
       FIXTURE_PLAY_ID,
     );
-    if (!decision) throw new Error("no decision");
+    if (!decision) {
+      throw new Error("no decision");
+    }
     const play = lostNightTwo({ night: 3, tide: 0.9, outcome: "dawn", director: decision });
     const summary = summarise(parse(play), { reasoning: "They lost early." });
     expect(summary.previousDecision).toMatchObject({

@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+
 import { holdGamepad, newGamepadMemory, pollGamepadForMenu } from "./gamepad";
 
 // a standard-mapping pad whose A button (index 0) is up or down, and whose left stick points down or rests
@@ -16,8 +17,11 @@ afterEach(() => {
   stickDown = false;
 });
 afterAll(() => {
-  if (original) Object.defineProperty(globalThis, "navigator", original);
-  else Reflect.deleteProperty(globalThis, "navigator");
+  if (original) {
+    Object.defineProperty(globalThis, "navigator", original);
+  } else {
+    Reflect.deleteProperty(globalThis, "navigator");
+  }
 });
 
 describe("a pad's presses in the menus", () => {

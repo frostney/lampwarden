@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { MAX_WRITES_PER_PLAY, type PlayUploadDeps, savePlay } from "./service";
 import { createMemoryPlayStore } from "./store.memory";
 
@@ -109,7 +110,9 @@ describe("an uploaded play", () => {
     test("past the limit, the finished night of a stored snapshot still lands, and nothing else does", async () => {
       const { store, deps } = setup(); // three an hour
       await savePlay(deps, { play: night(300, null), ip: address });
-      for (let count = 1; count < 3; count++) await savePlay(deps, { play: playWithId(count), ip: address });
+      for (let count = 1; count < 3; count++) {
+        await savePlay(deps, { play: playWithId(count), ip: address });
+      }
       expect((await savePlay(deps, { play: playWithId(3), ip: address })).kind).toBe("limited");
       expect((await savePlay(deps, { play: night(600, null), ip: address })).kind).toBe("limited");
       expect(await savePlay(deps, { play: night(900, "dawn"), ip: address })).toEqual({ kind: "replaced" });
@@ -142,10 +145,11 @@ describe("an uploaded play", () => {
 
     test("takes a bounded number of snapshots, and the finished night after them", async () => {
       const { store, deps } = setup();
-      for (let write = 1; write <= MAX_WRITES_PER_PLAY; write++)
+      for (let write = 1; write <= MAX_WRITES_PER_PLAY; write++) {
         expect((await savePlay(deps, { play: night(100 * write, null), ip: address })).kind).toBe(
           write === 1 ? "stored" : "replaced",
         );
+      }
       expect(await savePlay(deps, { play: night(100 * (MAX_WRITES_PER_PLAY + 1), null), ip: address })).toEqual({
         kind: "exists",
       });
@@ -168,8 +172,9 @@ describe("an uploaded play", () => {
 describe("the upload limits", () => {
   test("stop a visitor past the hourly allowance, with when to come back, and nobody else", async () => {
     const { store, deps } = setup();
-    for (let count = 0; count < 3; count++)
+    for (let count = 0; count < 3; count++) {
       expect(await savePlay(deps, { play: playWithId(count), ip: "203.0.113.7" })).toEqual({ kind: "stored" });
+    }
     const refused = await savePlay(deps, { play: playWithId(3), ip: "203.0.113.7" });
     expect(refused).toEqual({ kind: "limited", retryAfterSeconds: 3600 });
     expect(store.plays.has(playWithId(3).id)).toBe(false);
@@ -178,23 +183,26 @@ describe("the upload limits", () => {
 
   test("see one visitor in every address of an IPv6 /64", async () => {
     const { deps } = setup();
-    for (let count = 0; count < 3; count++)
+    for (let count = 0; count < 3; count++) {
       await savePlay(deps, { play: playWithId(count), ip: `2001:db8:1:2:${count}::${count + 1}` });
+    }
     const refused = await savePlay(deps, { play: playWithId(3), ip: "2001:db8:1:2:aaaa:bbbb:cccc:dddd" });
     expect(refused.kind).toBe("limited");
   });
 
   test("stop the whole site at the day's cap", async () => {
     const { deps } = setup();
-    for (let count = 0; count < 5; count++)
+    for (let count = 0; count < 5; count++) {
       expect(await savePlay(deps, { play: playWithId(count), ip: `192.0.2.${count}` })).toEqual({ kind: "stored" });
+    }
     const refused = await savePlay(deps, { play: playWithId(5), ip: "192.0.2.99" });
     expect(refused.kind).toBe("limited");
   });
 
   test("are off without a salt, as in local development", async () => {
     const { deps } = setup({ rateSalt: null });
-    for (let count = 0; count < 9; count++)
+    for (let count = 0; count < 9; count++) {
       expect(await savePlay(deps, { play: playWithId(count), ip: "203.0.113.7" })).toEqual({ kind: "stored" });
+    }
   });
 });

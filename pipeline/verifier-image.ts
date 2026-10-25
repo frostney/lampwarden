@@ -3,7 +3,10 @@
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
 
-const BACKDROP = [46, 46, 56, 255] as const;
+// the backdrop's red, green and blue, and opaque
+const BACKDROP_RGB = { red: 46, green: 46, blue: 56 };
+const OPAQUE = 255;
+const BACKDROP = [BACKDROP_RGB.red, BACKDROP_RGB.green, BACKDROP_RGB.blue, OPAQUE] as const;
 const MAGNIFICATION = 4;
 
 function verifierImageBytes(spritePng: Uint8Array): Uint8Array {

@@ -2,7 +2,7 @@
 // step. One mutable object, written by keyboard, pointer and touch handlers and read by the scene's fixed-step loop, so
 // input never causes a React render.
 import { quantise } from "./replay";
-import { bodyHeight, type Input, type State } from "./sim";
+import { bodyHeight, type Input, SHOT_HEIGHT, type State } from "./sim";
 
 export interface Controls {
   keys: Set<string>;
@@ -30,16 +30,15 @@ const held = (controls: Controls, key: string, alternative: string) =>
   controls.keys.has(key) || controls.keys.has(alternative) ? 1 : 0;
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 
-// where a shot leaves the warden, above his feet (as in sim.ts)
-const SHOT_RISE = 40;
-
 // A recording stores "no aim" as a negative x, so an aim left of the stage (a pad aiming left near the left edge, a
 // monster still out at sea) would replay as a shot along the facing. Such an aim is moved back along the line from the
 // shot towards it until x is 0: the shot flies the same way, and the night replays as it was played.
 function aimOnStage(aim: { x: number; y: number } | null, hero: { x: number; y: number }) {
-  if (!aim || aim.x >= 0) return aim;
+  if (!aim || aim.x >= 0) {
+    return aim;
+  }
   const scale = hero.x / (hero.x - aim.x);
-  return { x: 0, y: hero.y - SHOT_RISE + (aim.y - (hero.y - SHOT_RISE)) * scale };
+  return { x: 0, y: hero.y - SHOT_HEIGHT + (aim.y - (hero.y - SHOT_HEIGHT)) * scale };
 }
 
 // the input for the next sim step, quantised so live play and replay see identical numbers
@@ -94,7 +93,9 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
   }
   controls.ranged = true;
   controls.aim = null;
-  if (!state) return;
+  if (!state) {
+    return;
+  }
   let best = Number.POSITIVE_INFINITY;
   for (const monster of state.monsters) {
     const distance = Math.hypot(monster.x - state.hero.x, (monster.y - state.hero.y) * 2);
@@ -111,9 +112,13 @@ export function press(controls: Controls, action: "melee" | "ranged", state: Sta
 export function bindKeyboard(controls: Controls, isLive: () => boolean): () => void {
   const keyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
-    if (isLive() && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
+    if (isLive() && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+      event.preventDefault();
+    }
     if (key === "j" || key === " ") {
-      if (!event.repeat) controls.melee = true;
+      if (!event.repeat) {
+        controls.melee = true;
+      }
       return;
     }
     if (key === "k") {

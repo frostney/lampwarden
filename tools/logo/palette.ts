@@ -70,7 +70,9 @@ const glowColours: readonly Rgba[] = glowRamp.map(({ target, opacity }) => {
 export function glowRings(radii: readonly number[]): GlowRing[] {
   return radii.map((radius, index) => {
     const colour = glowColours[index + glowColours.length - radii.length];
-    if (!colour) throw new Error(`${radii.length} glow rings, but the ramp has ${glowColours.length} steps`);
+    if (!colour) {
+      throw new Error(`${radii.length} glow rings, but the ramp has ${glowColours.length} steps`);
+    }
     return { radius, colour };
   });
 }

@@ -13,12 +13,15 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
 import { countOption } from "./cli-options";
+import { slugify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
 import { checkoutSandboxOptions, renderFromCheckout } from "./render-checkout";
 import { RENDERED_WITH } from "./render-types";
-import { type Brief, type LoopContext, processBrief, processBriefWithCandidates, slugify } from "./sprite-loop";
+import { type Brief, type LoopContext, processBrief, processBriefWithCandidates } from "./sprite-loop";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 /** Briefs in flight at once, each with at most one sandbox render at a time (Vercel Sandbox has been measured to 25). */
@@ -65,12 +68,15 @@ const briefs: Brief[] = values.file
       ([id, [category, text]]) => ({ id, category, text }),
     )
   : positionals.map((text) => ({ id: slugify(text), category: "brief", text }));
-if (briefs.length === 0) throw new Error("give at least one brief");
+if (briefs.length === 0) {
+  throw new Error("give at least one brief");
+}
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey)
+if (!apiKey) {
   throw new Error(
     "MUBIT_API_KEY is not set (export it in your shell, or resolve it from .env.local; see docs/tooling.md)",
   );
+}
 
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
 const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8");
@@ -93,7 +99,9 @@ console.log({
 /** One brief with several candidates. Prints the summary line the sprite tables are made from. */
 async function processWithCandidates(brief: Brief) {
   const run = await processBriefWithCandidates(context, brief, candidateCount);
-  if (!run) throw new Error(`${brief.id}: nothing renderable came out`);
+  if (!run) {
+    throw new Error(`${brief.id}: nothing renderable came out`);
+  }
   const { row, winner } = run.outcome;
   console.log(
     `SUMMARY ${JSON.stringify({
@@ -114,12 +122,15 @@ async function processWithCandidates(brief: Brief) {
     })}`,
   );
   // a brief the live job's rule rejects wrote nothing: the run ends in failure, as when a build does not render
-  if (!run.accepted)
+  if (!run.accepted) {
     throw new Error(`${brief.id}: the best candidate (score ${row.score}) is not accepted, so nothing was written`);
+  }
 }
 
 const failures = await runPool(briefs, concurrency, (brief) =>
   candidateCount > 1 ? processWithCandidates(brief) : processBrief(context, brief),
 );
 console.log("ALL DONE");
-if (failures > 0) process.exit(1);
+if (failures > 0) {
+  process.exit(1);
+}

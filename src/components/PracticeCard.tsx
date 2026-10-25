@@ -68,10 +68,12 @@ export function PracticeCard({
   onSkip: () => void;
 }) {
   const kind = useControlsKind(gamepadConnected);
-  if (lesson === "done") return null;
+  if (lesson === "done") {
+    return null;
+  }
   const { heading, text, control, hint, note } = TEXTS[lesson];
   return (
-    <section className="practice" data-lesson={lesson} aria-label="Practice">
+    <section aria-label="Practice" className="practice" data-lesson={lesson}>
       <div className="practice-top">
         <h2 className="practice-heading">{heading}</h2>
         <span className="practice-step">
@@ -79,7 +81,7 @@ export function PracticeCard({
           {lessonNumber(lesson)} of {LESSONS.length}
         </span>
         {/* the pad's Start presses it (Game's gamepad poll) */}
-        <button type="button" className="btn small practice-skip" disabled={skipping} onClick={onSkip}>
+        <button className="btn small practice-skip" disabled={skipping} onClick={onSkip} type="button">
           {kind === "gamepad" ? "Start: skip practice" : "Skip practice"}
         </button>
       </div>
@@ -89,13 +91,13 @@ export function PracticeCard({
           {text}
         </span>
       </p>
-      {control && (
+      {control ? (
         <div className="practice-control">
           <ControlGlyphs control={control} kind={kind} sex={sex} />
-          {hint && <span>{hint[kind]}</span>}
+          {hint ? <span>{hint[kind]}</span> : null}
         </div>
-      )}
-      {note && <p className="practice-note">{note}</p>}
+      ) : null}
+      {note ? <p className="practice-note">{note}</p> : null}
     </section>
   );
 }

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+import { compareCodeUnits } from "../src/lib/compare";
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "./mubit";
 
 const TEST_KEY = "test-key-not-a-secret";
@@ -18,8 +20,12 @@ function clientWith(responses: Array<Response | Error>, promptCaching?: boolean)
   const fetchImplementation: FetchImplementation = async (url, init) => {
     requests.push({ url, init });
     const next = responses.shift();
-    if (next === undefined) throw new Error("unexpected extra request");
-    if (next instanceof Error) throw next;
+    if (next === undefined) {
+      throw new Error("unexpected extra request");
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
     return next;
   };
   const client = createMubitClient({
@@ -61,7 +67,7 @@ describe("Mubit request", () => {
       "content-type": "application/json",
     });
     const body = JSON.parse(String(request?.init.body));
-    expect(Object.keys(body).sort()).toEqual(["max_tokens", "messages", "metadata", "model", "system"]);
+    expect(Object.keys(body).sort(compareCodeUnits)).toEqual(["max_tokens", "messages", "metadata", "model", "system"]);
     expect(body).toEqual({
       model: "claude-opus-5-5",
       max_tokens: 1500,
@@ -166,7 +172,9 @@ describe("Mubit abort", () => {
       fetchImplementation: (_url, init) =>
         new Promise<Response>((_resolve, reject) => {
           const signal = init.signal;
-          if (!signal) throw new Error("the request carries no signal");
+          if (!signal) {
+            throw new Error("the request carries no signal");
+          }
           seen.push(signal);
           signal.addEventListener("abort", () => reject(new Error("the operation was aborted")), { once: true });
         }),

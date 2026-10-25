@@ -3,12 +3,15 @@
 // same rule, then measure where the accepted sprite's pixels are and store it. A building has no animation, so there is no
 // frame set: the job ends once the record is written. Model output is text and a PNG here; the code it wrote reaches only
 // the renderer (a Vercel Sandbox in production).
+
 import type { Building, BuildingBrief, BuildingJob } from "@/game/building";
+import { ignore } from "@/lib/ignore";
+
 import { writeBuildingBrief } from "../../../pipeline/building-brief";
 import { type CandidateOutcome, isAccepted, type LoopStage, runCandidateLoop } from "../../../pipeline/loop";
 import type { MubitClient } from "../../../pipeline/mubit";
 import type { Renderer } from "../../../pipeline/render-types";
-import { galleryId, runJobShell } from "../creatures/job-shell";
+import { galleryId, judgedEvent, runJobShell } from "../creatures/job-shell";
 import type { BuildingStore } from "../creatures/store";
 import { measurePlacement } from "./placement";
 
@@ -48,6 +51,10 @@ export interface BuildingJobDeps {
   log?: (event: Record<string, unknown>) => void;
 }
 
+// why no building was written: generation is off, or the model gave nothing usable
+const unwrittenReason = (reason: string): BuildingFailure =>
+  reason === "unavailable" ? "generation is unavailable" : "no building was written";
+
 /** Runs one job to its end. Never throws: every outcome is recorded in the job. */
 export async function runBuildingJob(deps: BuildingJobDeps, jobId: string): Promise<BuildingJob> {
   const job = await runJobShell<BuildingFailure>(deps, jobId, "building", "building-job", async (context) => {
@@ -59,7 +66,7 @@ export async function runBuildingJob(deps: BuildingJobDeps, jobId: string): Prom
       `lampwarden-building-${jobId}`,
     );
     if (!written.ok) {
-      return context.fail(written.reason === "unavailable" ? "generation is unavailable" : "no building was written");
+      return context.fail(unwrittenReason(written.reason));
     }
 
     const id = buildingId(deps.now(), written.brief.name, deps.entropy());
@@ -70,35 +77,36 @@ export async function runBuildingJob(deps: BuildingJobDeps, jobId: string): Prom
         pose: "",
         generatorPrompt: deps.prompts.generator,
         verifierPrompt: deps.prompts.verifier,
-        store: { logCall: context.onCall, saveAttemptCode: () => {}, saveAttemptPng: () => {} },
-        print: () => {},
+        store: { logCall: context.onCall, saveAttemptCode: ignore, saveAttemptPng: ignore },
+        print: ignore,
         onStage: (stage: LoopStage) => context.report(stage),
       },
       { id, category: "building", text: written.brief.brief },
       deps.candidates,
       isAccepted,
     );
-    if (context.ended()) return;
-    if (!outcome) return context.fail("no sprite could be drawn");
+    if (context.ended()) {
+      return;
+    }
+    if (!outcome) {
+      return context.fail("no sprite could be drawn");
+    }
     const accepted = isAccepted(outcome.winner);
     deps.onOutcome?.({ jobId, id, brief: written.brief, accepted, outcome });
-    context.log({
-      event: "building-job-judged",
-      jobId,
-      accepted,
-      candidate_scores: outcome.row.candidate_scores,
-      first_score: outcome.row.first_score,
-      fixed_score: outcome.row.fixed_score,
-      final: outcome.row.final,
-      flags: outcome.winner.stats.flags,
-    });
-    if (!accepted) return context.fail("the sprite was not good enough");
+    context.log(judgedEvent("building-job", jobId, accepted, outcome));
+    if (!accepted) {
+      return context.fail("the sprite was not good enough");
+    }
 
     // everything the placer needs is measured here, from the accepted picture, and kept in the record
     const placement = measurePlacement(outcome.winner.png, outcome.winner.stats.bbox);
-    if (!placement) return context.fail("its size could not be measured");
+    if (!placement) {
+      return context.fail("its size could not be measured");
+    }
 
-    if (context.ended()) return; // timed out while measuring: do not put a building in the gallery for a job that failed
+    if (context.ended()) {
+      return; // timed out while measuring: do not put a building in the gallery for a job that failed
+    }
     const building: Building = {
       id,
       ...written.brief,

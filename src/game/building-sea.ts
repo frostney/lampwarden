@@ -21,7 +21,9 @@ export function createBuildingSea(deps: BuildingSeaDeps = { askForBuilding, wait
   return createGallerySea<Building, { kind: "ready"; building: Building }>({
     ask: async (seen) => {
       const answer = await deps.askForBuilding(seen);
-      if (answer?.kind === "ready") return { kind: "ready", made: answer.building };
+      if (answer?.kind === "ready") {
+        return { kind: "ready", made: answer.building };
+      }
       return answer;
     },
     wait: deps.waitForBuildingJob,

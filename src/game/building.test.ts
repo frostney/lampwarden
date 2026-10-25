@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+
+import { compareCodeUnits } from "../lib/compare";
 import {
   BUILDING_API,
   buildingJobPath,
@@ -68,7 +70,7 @@ describe("the building record", () => {
 describe("what a recording keeps", () => {
   test("is the id, the name, the anchor and the extent, and nothing the model wrote at length", () => {
     const recorded = recordedBuildingSchema.parse(building());
-    expect(Object.keys(recorded).sort()).toEqual(["anchorY", "extent", "id", "name"]);
+    expect(Object.keys(recorded).sort(compareCodeUnits)).toEqual(["anchorY", "extent", "id", "name"]);
   });
 
   test("a recording whose extent is damaged does not parse, so a replay lays out the committed plaza", () => {

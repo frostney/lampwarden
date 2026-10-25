@@ -4,12 +4,11 @@
 // canvas, and how far each frame was slid along its cell). `assets:monsters` writes the atlases and that file;
 // `check:pixels` reads both, so they agree.
 import { join } from "node:path";
+
 import { creatureAtlasLayout } from "../src/game/creature-frames";
 import { SHEET_CANVASES, SHEET_FRAMES, type SheetKind } from "../src/scene/monster-sheets";
 import { frameRequests } from "./creature-frames";
 import type { RenderRequest } from "./render-types";
-
-export { SHEET_KINDS } from "../src/scene/monster-sheets";
 
 const MONSTER_DIRECTORY = join(import.meta.dir, "..", "public", "sprites");
 export const monsterCodePath = (kind: SheetKind) => join(MONSTER_DIRECTORY, `${kind}.ts`);
@@ -31,7 +30,9 @@ export function monsterFrameBuilds(kind: SheetKind, code: string): MonsterFrameB
   const requests = frameRequests(code, SHEET_CANVASES[kind]);
   return creatureAtlasLayout(SHEET_FRAMES[kind]).cells.map((cell, index) => {
     const request = requests[index];
-    if (!request) throw new Error(`${kind}: no render for cell ${index}`);
+    if (!request) {
+      throw new Error(`${kind}: no render for cell ${index}`);
+    }
     return { request: { ...request, name: `${kind}_${request.name}` }, x: cell.x, y: cell.y, shift: cell.shift };
   });
 }

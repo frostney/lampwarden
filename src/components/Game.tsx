@@ -3,7 +3,8 @@
 import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+
 import { FailurePanel } from "@/components/FailurePanel";
 import { HeroPortrait } from "@/components/HeroPortrait";
 import { HowToPlay } from "@/components/HowToPlay";
@@ -16,9 +17,11 @@ import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
 import { useRaised } from "@/components/useRaised";
 import { useTonight } from "@/components/useTonight";
-import { type RecordedBuilding, recordedBuildingOf, recordedBuildingSchema } from "@/game/building";
+import { type Building, type RecordedBuilding, recordedBuildingOf, recordedBuildingSchema } from "@/game/building";
+import type { RaisedTonight } from "@/game/building-sea";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
+import type { CreatureRecord } from "@/game/creature-frames";
 import { askDirector } from "@/game/director-api";
 import { engagementOf, heldTide } from "@/game/engagement";
 import { activeGamepad, holdGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
@@ -32,7 +35,6 @@ import {
   heirChoices,
   type Legacy,
   loadLegacy,
-  MAX_LEVEL,
   meet,
   newLegacy,
   openShop,
@@ -42,9 +44,9 @@ import {
   TRAITS,
   type TraitId,
   tideLabel,
-  type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
+import { MAX_LEVEL, type UpgradeId } from "@/game/levels";
 import { newOpening, OPENING_LINES, type Opening as OpeningScene, stageOpening } from "@/game/opening";
 import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { type Lesson, newPractice, type Practice, stagePractice } from "@/game/practice";
@@ -52,6 +54,7 @@ import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { clearRaised, loadRaised, raise, saveRaised } from "@/game/raised";
 import { isVerifying, type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
+import type { Tonight } from "@/game/sea";
 import {
   dawnBonus,
   LAMP_SPOTS,
@@ -67,6 +70,8 @@ import {
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { isNewLine, loadWelcome, markWelcome, type Welcome } from "@/game/welcome";
+import { ignore } from "@/lib/ignore";
+import { PERCENT } from "@/lib/units";
 import { SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
 import {
@@ -202,15 +207,77 @@ const hudOf = (state: State, legacy: Legacy): Hud => ({
   oil: legacy.oil + state.oilEarned,
   dawn: Math.min(1, state.elapsed / state.length),
 });
+const DAWN_STEP = 0.01; // the night bar moves on at every hundredth of the night
 const sameHud = (first: Hud, second: Hud) =>
   first.health === second.health &&
   first.hits === second.hits &&
   first.lit === second.lit &&
   first.kills === second.kills &&
   first.oil === second.oil &&
-  Math.abs(first.dawn - second.dawn) < 0.01;
+  Math.abs(first.dawn - second.dawn) < DAWN_STEP;
 
-export default function Game() {
+// The building that was announced, as the night records it, if its sprite loaded in time; else the plaza's own.
+const buildingForNight = (announced: Building | null, loaded: TextureMap | null) =>
+  announced && loaded ? recordedBuildingSchema.parse(announced) : null;
+
+// What records a live night: its seed, and the creature and building it was played with.
+const nightRecorder = (
+  legacy: Legacy,
+  seed: number,
+  creature: CreatureRecord | null,
+  building: RecordedBuilding | null,
+) => new Recorder(legacy, seed, "", creature && recordedCreatureSchema.parse(creature), RUNNING_SIM, building);
+
+// The creature that was announced, if its sprite loads in time: then it joins the night, and these are its textures.
+async function creatureForNight(
+  announced: CreatureRecord | null,
+): Promise<{ creature: CreatureRecord | null; loaded: TextureMap | null }> {
+  const loaded = announced
+    ? await loadWithin(loadCreatureTextures(announced.id, announced.frames ?? null), CREATURE_LOAD_TIMEOUT)
+    : null;
+  return { creature: announced && loaded ? announced : null, loaded };
+}
+
+// A recording by its id: the last night this browser played ("last"), or one from the plays API. Throws when it cannot
+// be had.
+async function fetchRecording(id: string): Promise<unknown> {
+  if (id === "last") {
+    return JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
+  }
+  const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+// What a replay draws its night with. The night's creature is in the recording; if its sprite is gone the replay draws
+// the monster that plays like it. The building the night's plaza was laid out with is in the recording too (rendering
+// only: the sim never reads it); a play from before buildings, or one whose sprite is gone, replays on the committed plaza.
+async function replayTextures(play: Play): Promise<{ creatureTextures: TextureMap | null; plaza: Plaza | null }> {
+  const creature = creatureOf(play);
+  let creatureTextures: TextureMap | null = null;
+  if (creature && play.creature) {
+    creatureTextures =
+      (await loadCreatureTextures(creature.id)) ??
+      standInTextures(await loadTextures(), creature.id, play.creature.archetype);
+  }
+  const recordedBuilding = recordedBuildingOf(play);
+  const buildingTextures = recordedBuilding ? await loadBuildingTexture(recordedBuilding) : null;
+  const plaza =
+    recordedBuilding && buildingTextures ? { building: recordedBuilding, textures: buildingTextures } : null;
+  return { creatureTextures, plaza };
+}
+
+// What the replay panel says about how a replay ended: null is a night that was abandoned, so has no end to compare.
+function replayVerdict(endsMatch: boolean | null): string {
+  if (endsMatch === null) {
+    return "Abandoned night: no end to compare.";
+  }
+  return endsMatch ? "Replay ends exactly where the live night ended." : "Replay diverged from the live night.";
+}
+
+export function Game() {
   const appRef = useRef<PixiApp | null>(null);
   const stateRef = useRef<State | null>(null); // the night on screen, also read outside React (debug hook, pagehide)
   const [textures, setTextures] = useState<TextureMap | null>(null);
@@ -268,7 +335,9 @@ export default function Game() {
   const sendPlay = useCallback((state: State | null): SentPlay | null => {
     const recorder = recorderRef.current;
     recorderRef.current = null;
-    if (!recorder || !state) return null;
+    if (!recorder || !state) {
+      return null;
+    }
     const play = recorder.finish(state);
     try {
       localStorage.setItem("lampwarden:lastPlay", JSON.stringify(play));
@@ -283,7 +352,9 @@ export default function Game() {
   // stays until the night really ends, when sendPlay sends the finished play under the same id.
   const sendSnapshot = useCallback((state: State | null) => {
     const play = phaseRef.current === "night" && state ? recorderRef.current?.snapshot(state) : null;
-    if (play) void upload(play, true);
+    if (play) {
+      upload(play, true).catch(reportError);
+    }
   }, []);
 
   // Asks the live director about the night that just ended, once its recording is up. The answer is used only if it comes
@@ -293,23 +364,34 @@ export default function Game() {
     directorAsk.current?.abort();
     const asking = new AbortController();
     directorAsk.current = asking;
-    void sent.then(async (uploaded) => {
-      if (!uploaded || asking.signal.aborted) return;
-      const answer = await askDirector(playId, asking.signal);
-      if (!answer || asking.signal.aborted) return;
-      const legacy = legacyRef.current;
-      if (!applyDirector(legacy, answer.decision)) return;
-      saveLegacy(legacy);
-      setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
-    });
+    sent
+      .then(async (uploaded) => {
+        if (!uploaded || asking.signal.aborted) {
+          return;
+        }
+        const answer = await askDirector(playId, asking.signal);
+        if (!answer || asking.signal.aborted) {
+          return;
+        }
+        const legacy = legacyRef.current;
+        if (!applyDirector(legacy, answer.decision)) {
+          return;
+        }
+        saveLegacy(legacy);
+        setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
+      })
+      .catch(reportError);
   }, []);
 
   // pausing also lets go of held keys and the stick
   const pause = useCallback(
     (shouldPause: boolean) => {
       setPaused(shouldPause);
-      if (shouldPause) release(controls);
-      else setAway(false);
+      if (shouldPause) {
+        release(controls);
+      } else {
+        setAway(false);
+      }
     },
     [controls],
   );
@@ -319,15 +401,21 @@ export default function Game() {
   useEffect(() => {
     const holdNight = () => {
       // a practice skipped for the night being put together stays held, without the pause panel
-      if (!playing(phaseRef.current) || starting.current) return;
+      if (!playing(phaseRef.current) || starting.current) {
+        return;
+      }
       pause(true);
       setAway(true);
     };
     const holdHiddenNight = () => {
-      if (document.hidden) holdNight();
+      if (document.hidden) {
+        holdNight();
+      }
     };
     // the visual verifier (?verify) runs several pages in one window, and any of them may lose focus mid-night
-    if (!isVerifying()) window.addEventListener("blur", holdNight);
+    if (!isVerifying()) {
+      window.addEventListener("blur", holdNight);
+    }
     document.addEventListener("visibilitychange", holdHiddenNight);
     return () => {
       window.removeEventListener("blur", holdNight);
@@ -346,10 +434,14 @@ export default function Game() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const rendererFailed = () => {
-      if (appRef.current) return;
+      if (appRef.current) {
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!appRef.current) setLoadFailure("graphics");
+        if (!appRef.current) {
+          setLoadFailure("graphics");
+        }
       }, RENDERER_GRACE);
     };
     window.addEventListener("unhandledrejection", rendererFailed);
@@ -395,7 +487,9 @@ export default function Game() {
     setPhase("opening");
   }, [show, pause]);
   const endOpening = useCallback(() => {
-    if (phaseRef.current !== "opening") return;
+    if (phaseRef.current !== "opening") {
+      return;
+    }
     openingRef.current = null;
     welcomeRef.current = markWelcome(welcomeRef.current, "opening");
     show(newNight(legacyRef.current), legacyRef.current.heir.sex);
@@ -423,7 +517,9 @@ export default function Game() {
   // the practice is learned only when its last lesson is (a night that somehow ended is over, but teaches nothing)
   const endPractice = useCallback(
     (learned: boolean) => {
-      if (learned) welcomeRef.current = markWelcome(welcomeRef.current, "practice");
+      if (learned) {
+        welcomeRef.current = markWelcome(welcomeRef.current, "practice");
+      }
       pause(true);
       phaseRef.current = "practiced";
       setPhase("practiced");
@@ -481,57 +577,83 @@ export default function Game() {
       pause(true);
       setReport(nightReport);
       askSea(legacy.bestiary); // what the sea sends next
-      if (sent) consultDirector(sent.id, sent.uploaded);
+      if (sent) {
+        consultDirector(sent.id, sent.uploaded);
+      }
     },
     [sendPlay, consultDirector, pause, askSea],
   );
 
+  const showHud = useCallback((state: State) => {
+    const nextHud = hudOf(state, legacyRef.current);
+    if (!lastHudRef.current || !sameHud(lastHudRef.current, nextHud)) {
+      lastHudRef.current = nextHud;
+      setHud(nextHud);
+    }
+  }, []);
+  // a frame of the opening scene: its line, and its end
+  const tickOpening = useCallback(
+    (state: State) => {
+      const opening = openingRef.current;
+      if (opening?.state !== state) {
+        return;
+      }
+      setOpeningLine(opening.line);
+      if (opening.ended || state.outcome) {
+        endOpening();
+      }
+    },
+    [endOpening],
+  );
+  // a frame of the practice night: its lesson, and its end once the last is learned
+  const tickPractice = useCallback(
+    (state: State) => {
+      const practice = practiceRef.current;
+      if (practice?.state !== state) {
+        return;
+      }
+      setLesson(practice.lesson);
+      if (practice.lesson === "done" || state.outcome) {
+        endPractice(practice.lesson === "done");
+        return;
+      }
+      showHud(state);
+    },
+    [endPractice, showHud],
+  );
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
   const onTick = useCallback(
     (state: State) => {
-      if (state !== stateRef.current) return; // a night just replaced and not yet on stage
-      const showHud = () => {
-        const nextHud = hudOf(state, legacyRef.current);
-        if (!lastHudRef.current || !sameHud(lastHudRef.current, nextHud)) {
-          lastHudRef.current = nextHud;
-          setHud(nextHud);
-        }
-      };
-      if (phaseRef.current === "opening") {
-        const opening = openingRef.current;
-        if (opening?.state !== state) return;
-        setOpeningLine(opening.line);
-        if (opening.ended || state.outcome) endOpening();
-        return;
+      if (state !== stateRef.current) {
+        return; // a night just replaced and not yet on stage
       }
-      if (phaseRef.current === "practice") {
-        const practice = practiceRef.current;
-        if (practice?.state !== state) return;
-        setLesson(practice.lesson);
-        if (practice.lesson === "done" || state.outcome) {
-          endPractice(practice.lesson === "done");
+      switch (phaseRef.current) {
+        case "opening":
+          tickOpening(state);
           return;
-        }
-        showHud();
-        return;
-      }
-      if (phaseRef.current === "replay") {
-        if (state.outcome) {
-          phaseRef.current = "replayEnd";
-          setPhase("replayEnd");
+        case "practice":
+          tickPractice(state);
           return;
-        }
-        showHud();
-        return;
+        case "replay":
+          if (state.outcome) {
+            phaseRef.current = "replayEnd";
+            setPhase("replayEnd");
+            return;
+          }
+          showHud(state);
+          return;
+        case "night":
+          if (state.outcome) {
+            endNight(state, state.outcome);
+            return;
+          }
+          showHud(state);
+          return;
+        default:
+          return;
       }
-      if (phaseRef.current !== "night") return;
-      if (state.outcome) {
-        endNight(state, state.outcome);
-        return;
-      }
-      showHud();
     },
-    [endNight, endOpening, endPractice],
+    [endNight, tickOpening, tickPractice, showHud],
   );
   const onReady = useCallback(() => setReady(true), []);
   const onInit = useCallback((app: PixiApp) => {
@@ -544,12 +666,7 @@ export default function Game() {
     async (id: string) => {
       let fetched: unknown;
       try {
-        if (id === "last") fetched = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
-        else {
-          const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          fetched = await response.json();
-        }
+        fetched = await fetchRecording(id);
       } catch (error) {
         setReplayError(String(error));
         return;
@@ -578,18 +695,7 @@ export default function Game() {
       const replayLegacy = legacyOf(play);
       legacyRef.current = { ...legacyRef.current, ...replayLegacy }; // shown in the HUD only; never saved
       const creature = creatureOf(play);
-      // the night's creature is in the recording; if its sprite is gone the replay draws the monster that plays like it
-      let creatureTextures: TextureMap | null = null;
-      if (creature && play.creature)
-        creatureTextures =
-          (await loadCreatureTextures(creature.id)) ??
-          standInTextures(await loadTextures(), creature.id, play.creature.archetype);
-      // the building the night's plaza was laid out with is in the recording too (rendering only: the sim never reads it);
-      // a play from before buildings, or one whose sprite is gone, replays on the committed plaza
-      const recordedBuilding = recordedBuildingOf(play);
-      const buildingTextures = recordedBuilding ? await loadBuildingTexture(recordedBuilding) : null;
-      const plaza =
-        recordedBuilding && buildingTextures ? { building: recordedBuilding, textures: buildingTextures } : null;
+      const { creatureTextures, plaza } = await replayTextures(play);
       const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
       show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures, plaza);
@@ -628,12 +734,16 @@ export default function Game() {
       frame = requestAnimationFrame(poll);
       if ((playing(phaseRef.current) && !awayRef.current) || phaseRef.current === "replay") {
         // a button held as the night pauses is not a press on its panel; Start skips the practice
-        if (holdGamepad(memory) && phaseRef.current === "practice")
+        if (holdGamepad(memory) && phaseRef.current === "practice") {
+          // biome-ignore lint/security/noSecrets: a CSS selector
           document.querySelector<HTMLButtonElement>(".practice-skip:not([disabled])")?.click();
+        }
         return;
       }
       const action = pollGamepadForMenu(memory, now);
-      if (action) actOnMenu(action);
+      if (action) {
+        actOnMenu(action);
+      }
     };
     frame = requestAnimationFrame(poll);
     const unbindKeyboardPress = bindKeyboardPress();
@@ -645,34 +755,46 @@ export default function Game() {
     };
   }, []);
 
+  // The live director is asked again about the night that ended, if its answer had not come before the page went away
+  // (once that night's recording, if it was still queued, has been sent).
+  const askDirectorAgain = useCallback(
+    (legacy: Legacy, resent: Promise<unknown>) => {
+      const waiting = legacy.director;
+      if (waiting.source === "rules" && waiting.playId) {
+        consultDirector(
+          waiting.playId,
+          resent.then(() => true),
+        );
+      }
+    },
+    [consultDirector],
+  );
+
   useEffect(() => {
     legacyRef.current = loadLegacy();
     raisedRef.current = loadRaised();
     welcomeRef.current = loadWelcome();
     refresh();
     const replayId = new URLSearchParams(location.search).get("replay");
-    if (replayId) setLoadingReplay(true); // the title is not shown under a replay that is on its way
+    if (replayId) {
+      setLoadingReplay(true); // the title is not shown under a replay that is on its way
+    }
     const resent = resendQueuedPlays(); // nights an earlier page could not send
     let dead = false;
-    void loadTextures().then(
+    loadTextures().then(
       (loaded) => {
-        if (dead) return;
+        if (dead) {
+          return;
+        }
         setTextures(loaded);
         // preview: a quiet plaza behind the title screen
         show(newNight(legacyRef.current), legacyRef.current.heir.sex);
         if (replayId) {
-          void startReplay(replayId);
+          startReplay(replayId).catch(reportError);
           return;
         }
-        // the live director is asked again about the night that ended, if its answer had not come before the page went
-        // away (once that night's recording, if it was still queued, has been sent)
         const legacy = legacyRef.current;
-        const waiting = legacy.director;
-        if (waiting.source === "rules" && waiting.playId)
-          consultDirector(
-            waiting.playId,
-            resent.then(() => true),
-          );
+        askDirectorAgain(legacy, resent);
         // a warden fell and the page went away before an heir took up the lamp: the same choice is offered again
         const choice = legacy.heirChoice;
         if (choice) {
@@ -693,11 +815,15 @@ export default function Game() {
           setPhase("heir");
         }
         // the opening scene the page started on (opensWithOpening), unless it was skipped while the pictures loaded
-        else if (phaseRef.current === "opening") playOpening();
+        else if (phaseRef.current === "opening") {
+          playOpening();
+        }
         askSea(legacy.bestiary); // before the night: what does the sea send?
       },
       () => {
-        if (!dead) setLoadFailure((current) => current ?? "assets");
+        if (!dead) {
+          setLoadFailure((current) => current ?? "assets");
+        }
       },
     );
     // debug hook for the visual verifier and recordings
@@ -717,7 +843,9 @@ export default function Game() {
     // a night abandoned by closing or backgrounding the tab is still recorded (outcome null)
     const leave = () => sendSnapshot(stateRef.current);
     const hide = () => {
-      if (document.visibilityState === "hidden") leave();
+      if (document.visibilityState === "hidden") {
+        leave();
+      }
     };
     window.addEventListener("pagehide", leave);
     document.addEventListener("visibilitychange", hide);
@@ -726,30 +854,46 @@ export default function Game() {
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea, consultDirector, playOpening]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea, askDirectorAgain, playOpening]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
-  const announced = tonight.kind === "ready" ? tonight.creature.id : null;
-  const announcedFrames = tonight.kind === "ready" ? tonight.creature.frames : undefined;
+  const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
+  const announced = announcedCreature?.id;
+  const announcedFrames = announcedCreature?.frames;
   useEffect(() => {
-    if (!announced) return;
-    void loadCreatureTextures(announced, announcedFrames ?? null).then((loaded) => {
-      if (!loaded) withdraw(announced);
-    });
+    if (!announced) {
+      return;
+    }
+    loadCreatureTextures(announced, announcedFrames ?? null)
+      .then((loaded) => {
+        if (!loaded) {
+          withdraw(announced);
+        }
+      })
+      .catch(reportError);
   }, [announced, announcedFrames, withdraw]);
 
   // a building announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
   const announcedBuilding = raised.kind === "ready" ? raised.building : null;
   useEffect(() => {
-    if (!announcedBuilding) return;
-    void loadBuildingTexture(announcedBuilding).then((loaded) => {
-      if (!loaded) withdrawRaised(announcedBuilding.id);
-    });
+    if (!announcedBuilding) {
+      return;
+    }
+    loadBuildingTexture(announcedBuilding)
+      .then((loaded) => {
+        if (!loaded) {
+          withdrawRaised(announcedBuilding.id);
+        }
+      })
+      .catch(reportError);
   }, [announcedBuilding, withdrawRaised]);
 
   // One night at a time; the buttons wait while it is put together, and come back if it cannot be
   const startNight = async () => {
-    if (starting.current) return;
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: a ref that startNight sets below, read again on the next call
+    if (starting.current) {
+      return;
+    }
     starting.current = true;
     setStarting(true);
     try {
@@ -765,19 +909,12 @@ export default function Game() {
     // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
     // not load, the night has none; a job still being made carries on through the night and the creature is announced
     // at dawn for the next one.
-    const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
     // The building that was ready stands on the night's plaza the same way: if its sprite is loaded by now. Otherwise the
     // plaza is the committed one.
     const buildingLoad = announcedBuilding
       ? loadWithin(loadBuildingTexture(announcedBuilding), CREATURE_LOAD_TIMEOUT)
       : Promise.resolve(null);
-    const loaded = announcedCreature
-      ? await loadWithin(
-          loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
-          CREATURE_LOAD_TIMEOUT,
-        )
-      : null;
-    const creature = announcedCreature && loaded ? announcedCreature : null;
+    const { creature, loaded } = await creatureForNight(announcedCreature);
     if (creature) {
       meet(legacyRef.current, creature.id);
       saveLegacy(legacyRef.current);
@@ -786,7 +923,7 @@ export default function Game() {
     // night, so it is ready by dawn on the longer nights (on the 28 to 40 s ones it is still being made at dawn). Asking again
     // with the same ids met keeps a job that is still running.
     const loadedBuilding = await buildingLoad;
-    const building = announcedBuilding && loadedBuilding ? recordedBuildingSchema.parse(announcedBuilding) : null;
+    const building = buildingForNight(announcedBuilding, loadedBuilding);
     if (building) {
       raisedRef.current = raise(raisedRef.current, building.id);
       saveRaised(raisedRef.current);
@@ -794,14 +931,7 @@ export default function Game() {
     askSea(legacyRef.current.bestiary);
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
-    const recorder = new Recorder(
-      legacyRef.current,
-      seed,
-      "",
-      creature && recordedCreatureSchema.parse(creature),
-      RUNNING_SIM,
-      building,
-    );
+    const recorder = nightRecorder(legacyRef.current, seed, creature, building);
     recorderRef.current = recorder;
     show(
       state,
@@ -823,20 +953,32 @@ export default function Game() {
     phaseRef.current = "night";
     setPhase("night");
   };
+  // the panels' buttons into the next night: a night that could not be put together is reported, as from the title
+  const intoNight = () => {
+    startNight().catch(reportError);
+  };
+  const watchAgain = () => {
+    startReplay(new URLSearchParams(location.search).get("replay") || "last").catch(reportError);
+  };
   // A new player's first "Light the lamps" opens the practice night (never under the visual verifier, which asks for it)
   const lightFirstNight = () => {
-    if (!welcomeRef.current.practice && isNewLine(legacyRef.current) && !isVerifying()) startPractice();
-    else void startNight();
+    if (!welcomeRef.current.practice && isNewLine(legacyRef.current) && !isVerifying()) {
+      startPractice();
+    } else {
+      intoNight();
+    }
   };
   // The practice holds still while the real night is put together (its creature's sprite may still be loading), and
   // carries on if the night could not be.
   const skipPractice = () => {
     welcomeRef.current = markWelcome(welcomeRef.current, "practice");
     pause(true);
-    void startNight()
-      .catch(() => {})
+    startNight()
+      .catch(ignore)
       .finally(() => {
-        if (phaseRef.current === "practice") pause(false);
+        if (phaseRef.current === "practice") {
+          pause(false);
+        }
       });
   };
   const chooseHeir = (heir: Heir) => {
@@ -853,7 +995,9 @@ export default function Game() {
   // The first press asks again, and the second, within NEW_LINE_CONFIRM_TIME, ends the line: it takes the oil, the
   // upgrades and the bestiary with it.
   useEffect(() => {
-    if (!confirmingNewLine) return;
+    if (!confirmingNewLine) {
+      return;
+    }
     const timer = setTimeout(() => setConfirmingNewLine(false), NEW_LINE_CONFIRM_TIME);
     return () => clearTimeout(timer);
   }, [confirmingNewLine]);
@@ -881,7 +1025,9 @@ export default function Game() {
     const legacy = legacyRef.current;
     // every choice, the chosen card's again too, has that warden swing once (HeroPortrait)
     setStrike((previous) => ({ sex, count: (previous?.count ?? 0) + 1 }));
-    if (legacy.heir.sex === sex) return;
+    if (legacy.heir.sex === sex) {
+      return;
+    }
     legacy.heir = heirAs(legacy.heir, sex);
     saveLegacy(legacy);
     showPreview();
@@ -902,17 +1048,17 @@ export default function Game() {
         const view = upgradeView(id, shopWarden);
         return (
           <button
-            key={id}
-            type="button"
             className="btn up"
             data-upgrade={id}
             disabled={cost === null || legacy.oil < cost}
+            key={id}
             onClick={() => purchase(id)}
+            type="button"
           >
             <Icon name={view.icon} />
             <div>
               <b>{view.label}</b>
-              <em role="img" aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`}>
+              <em aria-label={`level ${legacy.levels[id]} of ${MAX_LEVEL}`} role="img">
                 {"●".repeat(legacy.levels[id])}
                 {"○".repeat(MAX_LEVEL - legacy.levels[id])}
               </em>
@@ -928,406 +1074,113 @@ export default function Game() {
   return (
     <div
       className="stage"
-      data-phase={phase}
-      data-ready={ready ? 1 : 0}
       data-hp={hud?.health}
-      data-lit={hud?.lit}
       data-kills={hud?.kills}
+      data-lit={hud?.lit}
+      data-phase={phase}
+      data-ready={Number(ready)}
     >
       <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
-          {textures && night && (
+          {textures && night ? (
             <Scene
-              night={night}
-              textures={textures}
               controls={controls}
+              frozenClock={frozenClock}
+              night={night}
+              onReady={onReady}
+              onTick={onTick}
               paused={paused}
               speed={speed}
-              frozenClock={frozenClock}
-              onTick={onTick}
-              onReady={onReady}
+              textures={textures}
             />
-          )}
+          ) : null}
         </Application>
       </div>
       <div className="hud">
-        {(phase === "night" || phase === "replay" || phase === "practice") && hud && (
-          <>
-            <div className="stats">
-              <div>
-                {legacy.heir.name}
-                <span className="long">
-                  , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
-                </span>
-              </div>
-              {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
-              <div
-                className={hud.hits > 0 ? "bar struck" : "bar"}
-                key={hud.hits}
-                role="meter"
-                aria-label="Health"
-                aria-valuemin={0}
-                aria-valuemax={Math.round(hud.maxHealth)}
-                aria-valuenow={Math.round(hud.health)}
-              >
-                <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
-              </div>
-              {/* the practice night's oil is never kept, so it is not counted */}
-              <div
-                className="oilline"
-                role="img"
-                aria-label={phase === "practice" ? `${hud.kills} slain` : `${hud.kills} slain, ${hud.oil} oil`}
-              >
-                <Icon name="slain" size={16} /> {hud.kills}
-                {phase !== "practice" && (
-                  <>
-                    {" "}
-                    <Icon name="oil" size={16} /> {hud.oil}
-                  </>
-                )}
-              </div>
-            </div>
-            {phase === "practice" ? (
-              <PracticeCard
-                lesson={lesson}
-                gamepadConnected={gamepadConnected}
-                sex={legacy.heir.sex}
-                skipping={isStarting}
-                onSkip={skipPractice}
-              />
-            ) : (
-              <div className="nightbar">
-                <div>
-                  Night {legacy.night}
-                  <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
-                </div>
-                <div
-                  className="bar dawnbar"
-                  role="progressbar"
-                  aria-label="Night until dawn"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(hud.dawn * 100)}
-                  aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
-                >
-                  <i style={{ width: `${hud.dawn * 100}%` }} />
-                </div>
-              </div>
-            )}
-            <div className="lamps" role="img" aria-label={`${hud.lit} of ${hud.lamps} lamps lit`}>
-              <span className="long">Lamps </span>
-              {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
-                <span key={slot} className={index < hud.lit ? "lit" : ""}>
-                  {index < hud.lit ? "◆" : "◇"}
-                </span>
-              ))}
-            </div>
-            {phase === "practice" ? null : phase === "night" ? (
-              <div className="help">
-                {gamepadConnected
-                  ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
-                  : "WASD move · J or Space strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
-              </div>
-            ) : (
-              <div className="replaybar">
-                REPLAY {replay?.play.id}
-                {[1, 2, 4].map((multiplier) => (
-                  <button
-                    key={multiplier}
-                    type="button"
-                    className={`btn small ${speed === multiplier ? "on" : ""}`}
-                    aria-pressed={speed === multiplier}
-                    onClick={() => setSpeed(multiplier)}
-                  >
-                    {multiplier}×
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        <NightOverlays
+          away={away}
+          gamepadConnected={gamepadConnected}
+          hud={hud}
+          legacy={legacy}
+          lesson={lesson}
+          onPress={(action) => press(controls, action, stateRef.current)}
+          onResume={resume}
+          onSkipPractice={skipPractice}
+          onSpeed={setSpeed}
+          onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
+          phase={phase}
+          replayId={replay?.play.id}
+          resumeRef={focusResume}
+          skipping={isStarting}
+          speed={speed}
+        />
 
-        {playing(phase) && <div className="rotate">Turn your phone sideways for a bigger view</div>}
-        {playing(phase) && (
-          <TouchControls
-            sex={legacy.heir.sex}
-            onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
-            onPress={(action) => press(controls, action, stateRef.current)}
-          />
-        )}
+        {phase === "replayEnd" && replay && !replayError ? (
+          <ReplayEndPanel onWatchAgain={watchAgain} replay={replay} />
+        ) : null}
+        {phase === "replayRefused" ? <ReplayRefusedPanel play={refusedPlay} /> : null}
+        <LoadFailurePanel failure={loadFailure} />
+        <ReplayErrorPanel error={replayError} />
 
-        {phase === "replayEnd" && replay && !replayError && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              REPLAY OVER
-            </h2>
-            <p>{describeNight(replay.play)}</p>
-            <p className="dim">
-              {replay.endsMatch === null
-                ? "Abandoned night: no end to compare."
-                : replay.endsMatch
-                  ? "Replay ends exactly where the live night ended."
-                  : "Replay diverged from the live night."}
-            </p>
-            <button
-              type="button"
-              className="btn big"
-              onClick={() => void startReplay(new URLSearchParams(location.search).get("replay") || "last")}
-            >
-              Watch again
-            </button>
-            <button type="button" className="btn small" onClick={() => location.assign("/")}>
-              Back to the title
-            </button>
-          </div>
-        )}
-        {phase === "replayRefused" && refusedPlay !== null && (
-          <div className="panel" data-panel="replay-refused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              AN EARLIER VERSION
-            </h2>
-            <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
-            {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
-            <button type="button" className="btn big" onClick={() => location.assign("/")}>
-              Back to the title
-            </button>
-          </div>
-        )}
-        {playing(phase) && away && (
-          <div className="panel" data-panel="paused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID}>
-              PAUSED
-            </h2>
-            <p>The window lost focus, so the night is waiting for you.</p>
-            <button type="button" className="btn big" onClick={resume} ref={focusResume}>
-              Resume
-            </button>
-          </div>
-        )}
-        {loadFailure === "graphics" && (
-          <FailurePanel
-            title="NO LAMPLIGHT"
-            message="Lampwarden could not start its graphics."
-            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
-            action="Reload"
-            onAction={() => location.reload()}
-          />
-        )}
-        {loadFailure === "assets" && (
-          <FailurePanel
-            title="THE LAMPS WON'T LIGHT"
-            message="The pictures for the night would not load."
-            hint="Check your connection, then reload."
-            action="Reload"
-            onAction={() => location.reload()}
-          />
-        )}
-        {replayError && (
-          <div className="panel" data-panel="replay-error" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              NO REPLAY
-            </h2>
-            <p>Could not load that replay: {replayError}</p>
-            <button type="button" className="btn big" onClick={() => location.assign("/")}>
-              Back to the title
-            </button>
-          </div>
-        )}
-
-        {phase === "opening" && !loadFailure && <Opening line={openingLine} onEnd={endOpening} />}
-        {phase === "practiced" && (
-          <div className="panel" data-panel="practiced" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              THE WATCH IS YOURS
-            </h2>
-            <p>That is the whole of it: strike, shoot, relight, and keep a lamp burning until dawn.</p>
-            <p className="dim">
-              On a real night the bar at the top fills towards dawn, and the oil the slain leave buys upgrades. Practice
-              is not recorded and keeps no oil.
-            </p>
-            <button type="button" className="btn big" disabled={isStarting} onClick={startNight}>
-              {isStarting ? "Lighting the lamps…" : `Into night ${legacy.night}`}
-            </button>
-            <button type="button" className="btn small" disabled={isStarting} onClick={startPractice}>
-              Practise again
-            </button>
-          </div>
-        )}
+        <WelcomeScenes
+          loadFailed={loadFailure !== null}
+          night={legacy.night}
+          onAgain={startPractice}
+          onEndOpening={endOpening}
+          onNight={intoNight}
+          openingLine={openingLine}
+          phase={phase}
+          starting={isStarting}
+        />
 
         {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
-        {phase === "title" && !loadFailure && !replayError && !loadingReplay && (
-          <TitleScroll>
-            <div className="scroll-layout">
-              <div className="scroll-intro">
-                <h1 className="brand" data-line>
-                  <Image
-                    src="/logo/logo-noglow.png"
-                    alt="Lampwarden"
-                    width={68}
-                    height={37}
-                    unoptimized
-                    loading="eager"
-                  />
-                </h1>
-                <div className="scroll-prose">
-                  {INTRODUCTION.map((line) => (
-                    <p key={line} data-line>
-                      {line}
-                    </p>
-                  ))}
-                  <p data-line>
-                    <button type="button" className="link" disabled={!ready || isStarting} onClick={playOpening}>
-                      Watch the opening
-                    </button>
-                  </p>
-                </div>
-              </div>
-              <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
-              <HowToPlay
-                gamepadConnected={gamepadConnected}
-                sex={legacy.heir.sex}
-                practiseDisabled={!ready || isStarting}
-                onPractise={startPractice}
-              />
-              <div className="scroll-hero">
-                <h2 className="scroll-heading" data-line>
-                  Who takes up the lamp?
-                </h2>
-                <div className="hero-cards" data-line>
-                  {SEXES.map((sex) => {
-                    const chosen = legacy.heir.sex === sex;
-                    return (
-                      <button
-                        key={sex}
-                        type="button"
-                        className={`hero-card ${chosen ? "chosen" : ""}`}
-                        data-sex={sex}
-                        aria-pressed={chosen}
-                        onClick={() => chooseSex(sex)}
-                      >
-                        <span className="hero-portrait">
-                          <HeroPortrait
-                            sex={sex}
-                            textures={textures}
-                            strike={strike?.sex === sex ? strike.count : null}
-                          />
-                        </span>
-                        <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
-                        <span>{ARMS[sex].loadout}</span>
-                        <span className="hero-mark">
-                          {chosen ? (
-                            <>
-                              <Icon name="wick" size={16} /> chosen
-                            </>
-                          ) : (
-                            "choose"
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="warden" data-line>
-                  {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
-                </p>
-                <p className="dim" data-line>
-                  Night {legacy.night}
-                  {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
-                </p>
-                <button
-                  type="button"
-                  className="btn big"
-                  disabled={!ready || isStarting}
-                  onClick={lightFirstNight}
-                  data-line
-                >
-                  {ready && !isStarting ? "Light the lamps" : "Lighting the lamps…"}
-                </button>
-                {legacy.generation > 1 && (
-                  <button type="button" className="btn small" disabled={isStarting} onClick={newLine} data-line>
-                    {confirmingNewLine
-                      ? `Press again to end the line of ${legacy.generation} wardens`
-                      : "Start a new bloodline"}
-                  </button>
-                )}
-                <p className="privacy dim" data-line>
-                  Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the
-                  game.
-                </p>
-              </div>
-            </div>
-          </TitleScroll>
-        )}
+        {phase === "title" && !loadFailure && !replayError && !loadingReplay ? (
+          <TitleScreen
+            confirmingNewLine={confirmingNewLine}
+            gamepadConnected={gamepadConnected}
+            legacy={legacy}
+            onChooseSex={chooseSex}
+            onNewLine={newLine}
+            onPractise={startPractice}
+            onSpriteBroken={withdraw}
+            onStart={lightFirstNight}
+            onWatchOpening={playOpening}
+            raised={raised}
+            ready={ready}
+            starting={isStarting}
+            strike={strike}
+            textures={textures}
+            tonight={tonight}
+          />
+        ) : null}
 
-        {phase === "dawn" && report && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              DAWN
-            </h2>
-            <p>
-              {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
-              {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
-            </p>
-            <p>
-              +{report.oil} oil from the slain, +{report.bonus} for the lamps still burning.
-            </p>
-            <SeaAnswer report={report} />
-            {shop}
-            <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
-            <button type="button" className="btn big" disabled={isStarting} onClick={startNight}>
-              {isStarting ? "Lighting the lamps…" : `Into night ${legacy.night}`}
-            </button>
-          </div>
-        )}
+        {phase === "dawn" && report ? (
+          <DawnPanel
+            legacy={legacy}
+            onSpriteBroken={withdraw}
+            onStart={intoNight}
+            raised={raised}
+            report={report}
+            shop={shop}
+            starting={isStarting}
+            tonight={tonight}
+          />
+        ) : null}
 
-        {phase === "heir" && report && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
-            <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
-              {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
-            </h2>
-            <p>
-              {report.outcome === "dark"
-                ? `The lamps of Lychnos went dark on night ${report.night}.`
-                : `${report.name} fell on night ${report.night}.`}{" "}
-              Their oil passes to the next warden.
-            </p>
-            <SeaAnswer report={report} />
-            <div className="heirs">
-              {heirs.map((heir) => (
-                <button
-                  key={heir.name}
-                  type="button"
-                  className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
-                  aria-pressed={legacy.heir.name === heir.name}
-                  onClick={() => chooseHeir(heir)}
-                >
-                  <Icon name={heir.trait} />
-                  <div>
-                    <b>{heir.name}</b>
-                    <span>{ARMS[heir.sex].loadout}</span>
-                    <span>
-                      {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-            {shop}
-            <SeaSends tonight={tonight} raised={raised} onSpriteBroken={withdraw} />
-            <button
-              type="button"
-              className="btn big"
-              disabled={isStarting || !heirs.some((heir) => heir.name === legacy.heir.name)}
-              onClick={startNight}
-            >
-              {isStarting
-                ? "Lighting the lamps…"
-                : heirs.some((heir) => heir.name === legacy.heir.name)
-                  ? `${legacy.heir.name} takes up the lamp`
-                  : "Choose an heir"}
-            </button>
-          </div>
-        )}
+        {phase === "heir" && report ? (
+          <HeirPanel
+            heirs={heirs}
+            legacy={legacy}
+            onChooseHeir={chooseHeir}
+            onSpriteBroken={withdraw}
+            onStart={intoNight}
+            raised={raised}
+            report={report}
+            shop={shop}
+            starting={isStarting}
+            tonight={tonight}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1344,6 +1197,625 @@ function focusOnMount(element: HTMLElement | null) {
 }
 
 // a trait's name with its icon (the icon is decoration: the name says it)
+// What lies over a night, the practice or a replay: its bars, and while the player has the warden the touch controls
+// and the paused panel.
+function NightOverlays({
+  phase,
+  hud,
+  legacy,
+  gamepadConnected,
+  replayId,
+  speed,
+  onSpeed,
+  away,
+  onResume,
+  resumeRef,
+  onPress,
+  onStick,
+  lesson,
+  skipping,
+  onSkipPractice,
+}: {
+  phase: Phase;
+  hud: Hud | null;
+  legacy: Legacy;
+  gamepadConnected: boolean;
+  replayId: string | undefined;
+  speed: number;
+  onSpeed: (speed: number) => void;
+  away: boolean;
+  onResume: () => void;
+  resumeRef: (button: HTMLButtonElement | null) => void;
+  onPress: (action: "melee" | "ranged") => void;
+  onStick: (horizontal: number, vertical: number) => void;
+  lesson: Lesson;
+  skipping: boolean;
+  onSkipPractice: () => void;
+}) {
+  const live = playing(phase);
+  if (!(live || phase === "replay")) {
+    return null;
+  }
+  return (
+    <>
+      {hud ? (
+        <NightHud
+          gamepadConnected={gamepadConnected}
+          hud={hud}
+          legacy={legacy}
+          onSpeed={onSpeed}
+          phase={phase}
+          practiceCard={
+            <PracticeCard
+              gamepadConnected={gamepadConnected}
+              lesson={lesson}
+              onSkip={onSkipPractice}
+              sex={legacy.heir.sex}
+              skipping={skipping}
+            />
+          }
+          replayId={replayId}
+          speed={speed}
+        />
+      ) : null}
+      {live ? (
+        <>
+          <div className="rotate">Turn your phone sideways for a bigger view</div>
+          <TouchControls onPress={onPress} onStick={onStick} sex={legacy.heir.sex} />
+        </>
+      ) : null}
+      {live && away ? (
+        <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="paused" role="dialog">
+          <h2 className="logo small" id={PANEL_TITLE_ID}>
+            PAUSED
+          </h2>
+          <p>The window lost focus, so the night is waiting for you.</p>
+          <button className="btn big" onClick={onResume} ref={resumeRef} type="button">
+            Resume
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+const FASTEST_REPLAY = 4;
+const REPLAY_SPEEDS = [1, 2, FASTEST_REPLAY];
+
+// The bars over a night: the warden, health and slain, the night's progress, the lamps, and the controls (or, for a
+// replay, its speed). The practice night shows its lesson in place of the night's progress and controls.
+function NightHud({
+  hud,
+  legacy,
+  phase,
+  practiceCard,
+  gamepadConnected,
+  replayId,
+  speed,
+  onSpeed,
+}: {
+  hud: Hud;
+  legacy: Legacy;
+  phase: Phase;
+  practiceCard: ReactNode;
+  gamepadConnected: boolean;
+  replayId: string | undefined;
+  speed: number;
+  onSpeed: (speed: number) => void;
+}) {
+  const practice = phase === "practice";
+  return (
+    <>
+      <div className="stats">
+        <div>
+          {legacy.heir.name}
+          <span className="long">
+            , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
+          </span>
+        </div>
+        {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
+        <div
+          aria-label="Health"
+          aria-valuemax={Math.round(hud.maxHealth)}
+          aria-valuemin={0}
+          aria-valuenow={Math.round(hud.health)}
+          className={hud.hits > 0 ? "bar struck" : "bar"}
+          key={hud.hits}
+          role="meter"
+        >
+          <i style={{ width: `${(hud.health / hud.maxHealth) * PERCENT}%` }} />
+        </div>
+        {/* the practice night's oil is never kept, so it is not counted */}
+        <div
+          aria-label={practice ? `${hud.kills} slain` : `${hud.kills} slain, ${hud.oil} oil`}
+          className="oilline"
+          role="img"
+        >
+          <Icon name="slain" size={16} /> {hud.kills}
+          {practice ? null : (
+            <>
+              {" "}
+              <Icon name="oil" size={16} /> {hud.oil}
+            </>
+          )}
+        </div>
+      </div>
+      {practice ? practiceCard : <NightBar dawn={hud.dawn} legacy={legacy} />}
+      <div aria-label={`${hud.lit} of ${hud.lamps} lamps lit`} className="lamps" role="img">
+        <span className="long">Lamps </span>
+        {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
+          <span className={index < hud.lit ? "lit" : ""} key={slot}>
+            {index < hud.lit ? "◆" : "◇"}
+          </span>
+        ))}
+      </div>
+      {practice ? null : (
+        <NightFooter
+          gamepadConnected={gamepadConnected}
+          onSpeed={onSpeed}
+          phase={phase}
+          replayId={replayId}
+          speed={speed}
+        />
+      )}
+    </>
+  );
+}
+
+// how far the night has gone towards dawn
+function NightBar({ dawn, legacy }: { dawn: number; legacy: Legacy }) {
+  return (
+    <div className="nightbar">
+      <div>
+        Night {legacy.night}
+        <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
+      </div>
+      <div
+        aria-label="Night until dawn"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(dawn * PERCENT)}
+        aria-valuetext={`${Math.round(dawn * PERCENT)} percent of the night gone`}
+        className="bar dawnbar"
+        role="progressbar"
+      >
+        <i style={{ width: `${dawn * PERCENT}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// a live night's controls, or a replay's speed
+function NightFooter({
+  phase,
+  gamepadConnected,
+  replayId,
+  speed,
+  onSpeed,
+}: {
+  phase: Phase;
+  gamepadConnected: boolean;
+  replayId: string | undefined;
+  speed: number;
+  onSpeed: (speed: number) => void;
+}) {
+  return (
+    <>
+      {phase === "night" ? (
+        <div className="help">
+          {gamepadConnected
+            ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
+            : "WASD move · J or Space strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
+        </div>
+      ) : (
+        <div className="replaybar">
+          REPLAY {replayId}
+          {REPLAY_SPEEDS.map((multiplier) => (
+            <button
+              aria-pressed={speed === multiplier}
+              className={`btn small ${speed === multiplier ? "on" : ""}`}
+              key={multiplier}
+              onClick={() => onSpeed(multiplier)}
+              type="button"
+            >
+              {multiplier}×
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// The title scroll: the story, what the sea sends tonight, how to play, and the choice of warden.
+function TitleScreen({
+  legacy,
+  tonight,
+  raised,
+  gamepadConnected,
+  textures,
+  strike,
+  ready,
+  starting,
+  confirmingNewLine,
+  onChooseSex,
+  onStart,
+  onNewLine,
+  onSpriteBroken,
+  onWatchOpening,
+  onPractise,
+}: {
+  legacy: Legacy;
+  tonight: Tonight;
+  raised: RaisedTonight;
+  gamepadConnected: boolean;
+  textures: TextureMap | null;
+  strike: { sex: Sex; count: number } | null;
+  ready: boolean;
+  starting: boolean;
+  confirmingNewLine: boolean;
+  onChooseSex: (sex: Sex) => void;
+  onStart: () => void;
+  onNewLine: () => void;
+  onSpriteBroken: (creatureId: string) => void;
+  onWatchOpening: () => void;
+  onPractise: () => void;
+}) {
+  return (
+    <TitleScroll>
+      <div className="scroll-layout">
+        <div className="scroll-intro">
+          <h1 className="brand" data-line={true}>
+            <Image
+              alt="Lampwarden"
+              height={37}
+              loading="eager"
+              src="/logo/logo-noglow.png"
+              unoptimized={true}
+              width={68}
+            />
+          </h1>
+          <div className="scroll-prose">
+            {INTRODUCTION.map((line) => (
+              <p data-line={true} key={line}>
+                {line}
+              </p>
+            ))}
+            <p data-line={true}>
+              <button className="link" disabled={!ready || starting} onClick={onWatchOpening} type="button">
+                Watch the opening
+              </button>
+            </p>
+          </div>
+        </div>
+        <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
+        <HowToPlay
+          gamepadConnected={gamepadConnected}
+          onPractise={onPractise}
+          practiseDisabled={!ready || starting}
+          sex={legacy.heir.sex}
+        />
+        <div className="scroll-hero">
+          <h2 className="scroll-heading" data-line={true}>
+            Who takes up the lamp?
+          </h2>
+          <div className="hero-cards" data-line={true}>
+            {SEXES.map((sex) => {
+              const chosen = legacy.heir.sex === sex;
+              return (
+                <button
+                  aria-pressed={chosen}
+                  className={`hero-card ${chosen ? "chosen" : ""}`}
+                  data-sex={sex}
+                  key={sex}
+                  onClick={() => onChooseSex(sex)}
+                  type="button"
+                >
+                  <span className="hero-portrait">
+                    <HeroPortrait sex={sex} strike={strike?.sex === sex ? strike.count : null} textures={textures} />
+                  </span>
+                  <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
+                  <span>{ARMS[sex].loadout}</span>
+                  <span className="hero-mark">
+                    {chosen ? (
+                      <>
+                        <Icon name="wick" size={16} /> chosen
+                      </>
+                    ) : (
+                      "choose"
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="warden" data-line={true}>
+            {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
+          </p>
+          <p className="dim" data-line={true}>
+            Night {legacy.night}
+            {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
+          </p>
+          <button className="btn big" data-line={true} disabled={!ready || starting} onClick={onStart} type="button">
+            {ready && !starting ? "Light the lamps" : "Lighting the lamps…"}
+          </button>
+          {legacy.generation > 1 ? (
+            <button className="btn small" data-line={true} disabled={starting} onClick={onNewLine} type="button">
+              {confirmingNewLine
+                ? `Press again to end the line of ${legacy.generation} wardens`
+                : "Start a new bloodline"}
+            </button>
+          ) : null}
+          <p className="privacy dim" data-line={true}>
+            Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
+          </p>
+        </div>
+      </div>
+    </TitleScroll>
+  );
+}
+
+// What a new player is shown: the opening scene's lines over it, and the panel after the practice night.
+function WelcomeScenes({
+  phase,
+  loadFailed,
+  openingLine,
+  onEndOpening,
+  night,
+  starting,
+  onNight,
+  onAgain,
+}: {
+  phase: Phase;
+  loadFailed: boolean;
+  openingLine: number;
+  onEndOpening: () => void;
+  night: number;
+  starting: boolean;
+  onNight: () => void;
+  onAgain: () => void;
+}) {
+  if (phase === "opening" && !loadFailed) {
+    return <Opening line={openingLine} onEnd={onEndOpening} />;
+  }
+  if (phase === "practiced") {
+    return <PracticedPanel night={night} onAgain={onAgain} onNight={onNight} starting={starting} />;
+  }
+  return null;
+}
+
+// After the practice night: on into the real night, or practise again.
+function PracticedPanel({
+  night,
+  starting,
+  onNight,
+  onAgain,
+}: {
+  night: number;
+  starting: boolean;
+  onNight: () => void;
+  onAgain: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="practiced" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        THE WATCH IS YOURS
+      </h2>
+      <p>That is the whole of it: strike, shoot, relight, and keep a lamp burning until dawn.</p>
+      <p className="dim">
+        On a real night the bar at the top fills towards dawn, and the oil the slain leave buys upgrades. Practice is
+        not recorded and keeps no oil.
+      </p>
+      <button className="btn big" disabled={starting} onClick={onNight} type="button">
+        {starting ? "Lighting the lamps…" : `Into night ${night}`}
+      </button>
+      <button className="btn small" disabled={starting} onClick={onAgain} type="button">
+        Practise again
+      </button>
+    </div>
+  );
+}
+
+// After a night that was lost: what happened, the heirs to choose from, the shop, and on into the next night.
+function HeirPanel({
+  report,
+  starting,
+  heirs,
+  legacy,
+  shop,
+  tonight,
+  raised,
+  onSpriteBroken,
+  onChooseHeir,
+  onStart,
+}: {
+  report: Report;
+  starting: boolean;
+  heirs: readonly Heir[];
+  legacy: Legacy;
+  shop: ReactNode;
+  tonight: Tonight;
+  raised: RaisedTonight;
+  onSpriteBroken: (creatureId: string) => void;
+  onChooseHeir: (heir: Heir) => void;
+  onStart: () => void;
+}) {
+  const picked = heirs.some((heir) => heir.name === legacy.heir.name);
+  const takesUp = picked ? `${legacy.heir.name} takes up the lamp` : "Choose an heir";
+  const label = starting ? "Lighting the lamps…" : takesUp;
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
+      </h2>
+      <p>
+        {report.outcome === "dark"
+          ? `The lamps of Lychnos went dark on night ${report.night}.`
+          : `${report.name} fell on night ${report.night}.`}{" "}
+        Their oil passes to the next warden.
+      </p>
+      <SeaAnswer report={report} />
+      <div className="heirs">
+        {heirs.map((heir) => (
+          <button
+            aria-pressed={legacy.heir.name === heir.name}
+            className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
+            key={heir.name}
+            onClick={() => onChooseHeir(heir)}
+            type="button"
+          >
+            <Icon name={heir.trait} />
+            <div>
+              <b>{heir.name}</b>
+              <span>{ARMS[heir.sex].loadout}</span>
+              <span>
+                {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+      {shop}
+      <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
+      <button className="btn big" disabled={starting || !picked} onClick={onStart} type="button">
+        {label}
+      </button>
+    </div>
+  );
+}
+
+// After a night held to dawn: what it earned, the shop, and on into the next night.
+function DawnPanel({
+  report,
+  starting,
+  legacy,
+  shop,
+  tonight,
+  raised,
+  onSpriteBroken,
+  onStart,
+}: {
+  report: Report;
+  starting: boolean;
+  legacy: Legacy;
+  shop: ReactNode;
+  tonight: Tonight;
+  raised: RaisedTonight;
+  onSpriteBroken: (creatureId: string) => void;
+  onStart: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        DAWN
+      </h2>
+      <p>
+        {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
+        {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
+      </p>
+      <p>
+        +{report.oil} oil from the slain, +{report.bonus} for the lamps still burning.
+      </p>
+      <SeaAnswer report={report} />
+      {shop}
+      <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
+      <button className="btn big" disabled={starting} onClick={onStart} type="button">
+        {starting ? "Lighting the lamps…" : `Into night ${legacy.night}`}
+      </button>
+    </div>
+  );
+}
+
+// The end of a replay: the night it showed, and whether it ended where the live night did.
+function ReplayEndPanel({
+  replay,
+  onWatchAgain,
+}: {
+  replay: { play: Play; endsMatch: boolean | null };
+  onWatchAgain: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        REPLAY OVER
+      </h2>
+      <p>{describeNight(replay.play)}</p>
+      <p className="dim">{replayVerdict(replay.endsMatch)}</p>
+      <button className="btn big" onClick={onWatchAgain} type="button">
+        Watch again
+      </button>
+      <button className="btn small" onClick={() => location.assign("/")} type="button">
+        Back to the title
+      </button>
+    </div>
+  );
+}
+
+// A recording from another version of the sim, which cannot be replayed exactly. Nothing until there is one.
+function ReplayRefusedPanel({ play }: { play: unknown }) {
+  if (play === null) {
+    return null;
+  }
+  const described = describeNight(play);
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-refused" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        AN EARLIER VERSION
+      </h2>
+      <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
+      {described ? <p>{described}</p> : null}
+      <button className="btn big" onClick={() => location.assign("/")} type="button">
+        Back to the title
+      </button>
+    </div>
+  );
+}
+
+// Why the title can never light, when it cannot: the graphics would not start, or the pictures would not load.
+function LoadFailurePanel({ failure }: { failure: "assets" | "graphics" | null }) {
+  if (failure === "graphics") {
+    return (
+      <FailurePanel
+        action="Reload"
+        hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
+        message="Lampwarden could not start its graphics."
+        onAction={() => location.reload()}
+        title="NO LAMPLIGHT"
+      />
+    );
+  }
+  if (failure === "assets") {
+    return (
+      <FailurePanel
+        action="Reload"
+        hint="Check your connection, then reload."
+        message="The pictures for the night would not load."
+        onAction={() => location.reload()}
+        title="THE LAMPS WON'T LIGHT"
+      />
+    );
+  }
+  return null;
+}
+
+// A replay that could not be loaded, and why. Nothing when there is no such error.
+function ReplayErrorPanel({ error }: { error: string | null }) {
+  if (!error) {
+    return null;
+  }
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-error" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        NO REPLAY
+      </h2>
+      <p>Could not load that replay: {error}</p>
+      <button className="btn big" onClick={() => location.assign("/")} type="button">
+        Back to the title
+      </button>
+    </div>
+  );
+}
+
 function TraitMark({ trait }: { trait: TraitId }) {
   return (
     <span className="trait">
@@ -1359,7 +1831,7 @@ function SeaAnswer({ report }: { report: Report }) {
   return (
     <div aria-live="polite">
       {report.line ? (
-        <p className="sea-answer" data-director-line>
+        <p className="sea-answer" data-director-line={true}>
           {report.line}
         </p>
       ) : (
@@ -1370,8 +1842,12 @@ function SeaAnswer({ report }: { report: Report }) {
 }
 
 function tideNote(report: Report) {
-  if (report.tideAfter > report.tideBefore) return `The sea noticed. It is ${tideLabel(report.tideAfter)} now.`;
-  if (report.tideAfter < report.tideBefore) return `The sea draws back. It is ${tideLabel(report.tideAfter)} now.`;
+  if (report.tideAfter > report.tideBefore) {
+    return `The sea noticed. It is ${tideLabel(report.tideAfter)} now.`;
+  }
+  if (report.tideAfter < report.tideBefore) {
+    return `The sea draws back. It is ${tideLabel(report.tideAfter)} now.`;
+  }
   return `The sea stays ${tideLabel(report.tideAfter)}.`;
 }
 
@@ -1382,15 +1858,20 @@ function actOnMenu(action: MenuAction) {
   // the opening scene: A or Start skips it
   const skip = document.querySelector<HTMLButtonElement>(".opening-skip");
   if (skip) {
-    if (action === "confirm" || action === "primary") skip.click();
+    if (action === "confirm" || action === "primary") {
+      skip.click();
+    }
     return;
   }
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const unrolling = document.querySelector<HTMLElement>(".scroll:not([data-stage='done'])");
   if (unrolling) {
     unrolling.click();
     return;
   }
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const buttons = [...document.querySelectorAll<HTMLButtonElement>(".panel button:not([disabled])")];
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const primary = document.querySelector<HTMLButtonElement>(".panel .btn.big:not([disabled])");
   const focused =
     document.activeElement instanceof HTMLButtonElement && buttons.includes(document.activeElement)
@@ -1398,7 +1879,9 @@ function actOnMenu(action: MenuAction) {
       : null;
   // the pad's press shows as a press (:active does not fire for a click made by code)
   const pressButton = (button: HTMLButtonElement | null | undefined) => {
-    if (!button) return;
+    if (!button) {
+      return;
+    }
     flashPressed(button);
     button.click();
   };
@@ -1410,9 +1893,12 @@ function actOnMenu(action: MenuAction) {
     pressButton(focused ?? primary);
     return;
   }
-  if (!buttons.length) return;
+  if (!buttons.length) {
+    return;
+  }
   const index = focused ? buttons.indexOf(focused) : -1;
-  const next = action === "next" ? (index + 1) % buttons.length : index <= 0 ? buttons.length - 1 : index - 1;
+  const previous = index <= 0 ? buttons.length - 1 : index - 1;
+  const next = action === "next" ? (index + 1) % buttons.length : previous;
   buttons[next]?.focus();
   buttons[next]?.scrollIntoView({ block: "nearest" });
 }

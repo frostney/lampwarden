@@ -11,14 +11,18 @@ const storedRaised = z.array(z.string()).catch([]);
 
 /** A building goes up on the plaza the line is seeing: its id joins the list (once), and the oldest drop off past the limit. */
 export function raise(raised: readonly string[], buildingId: string): string[] {
-  if (raised.includes(buildingId)) return [...raised];
+  if (raised.includes(buildingId)) {
+    return [...raised];
+  }
   return [...raised, buildingId].slice(-RAISED_LIMIT);
 }
 
 export function loadRaised(): string[] {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-    if (raw) return [...new Set(storedRaised.parse(JSON.parse(raw)))].slice(-RAISED_LIMIT);
+    if (raw) {
+      return [...new Set(storedRaised.parse(JSON.parse(raw)))].slice(-RAISED_LIMIT);
+    }
   } catch {
     /* corrupt or unavailable storage: nothing has been raised yet */
   }

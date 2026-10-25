@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+
 import { clearRaised, loadRaised, raise, saveRaised } from "./raised";
 
 const storage = new Map<string, string>();
@@ -13,8 +14,11 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 afterEach(() => storage.clear());
 afterAll(() => {
-  if (original) Object.defineProperty(globalThis, "localStorage", original);
-  else Reflect.deleteProperty(globalThis, "localStorage");
+  if (original) {
+    Object.defineProperty(globalThis, "localStorage", original);
+  } else {
+    Reflect.deleteProperty(globalThis, "localStorage");
+  }
 });
 
 describe("the buildings a line has seen go up", () => {

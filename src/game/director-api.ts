@@ -2,7 +2,9 @@
 // the decision about a night that just ended. The answer comes over the network, so it is parsed, not trusted; any
 // failure is null, and the night simply keeps the rules' decision.
 import { z } from "zod";
-import { directorSchema, FALLBACK_REASONS } from "./director";
+
+import { FALLBACK_REASONS } from "./director";
+import { directorSchema } from "./director-decision";
 import { PLAY_ID } from "./plays";
 
 export const DIRECTOR_API = "/api/director";
@@ -30,7 +32,9 @@ export async function askDirector(playId: string, signal: AbortSignal): Promise<
       body: JSON.stringify(request),
       signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT)]),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return null;
+    }
     const parsed = directorAnswerSchema.safeParse(await response.json());
     return parsed.success ? parsed.data : null;
   } catch {

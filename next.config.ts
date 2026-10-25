@@ -1,5 +1,6 @@
 import { varlockNextConfigPlugin } from "@varlock/nextjs-integration/plugin";
 import type { NextConfig } from "next";
+
 import { simFingerprint } from "./tools/sim-fingerprint/sim-fingerprint";
 
 // Varlock loads .env.schema (instead of @next/env, see the override in package.json): it validates the environment before

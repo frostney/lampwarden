@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import { measureSprite } from "@/scene/extent";
+
 import { buildingPng, framePng, spritePng } from "../../../pipeline/fakes";
 import { PixelImage } from "../../../tools/logo/image";
 import { decodePng, encodePng } from "../../../tools/logo/png";
@@ -47,7 +49,9 @@ describe("a picture whose measure is not a record", () => {
   test("a frame with nothing solid in it, or with only a faint shadow, has no extent a record can hold", () => {
     expect(measurePlacement(encodePng(new PixelImage(128, 128)), "34,70,93,109")).toBeNull();
     const shadow = new PixelImage(128, 128);
-    for (let column = 40; column < 80; column++) shadow.set(column, 100, [0, 0, 0, 150]);
+    for (let column = 40; column < 80; column++) {
+      shadow.set(column, 100, [0, 0, 0, 150]);
+    }
     expect(measurePlacement(encodePng(shadow), "34,70,93,109")).toBeNull();
   });
 });

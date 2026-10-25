@@ -10,6 +10,7 @@
 // This file is deliberately not part of creature.ts: that file is in the sim fingerprint, and frames are only ever
 // drawn, never played (the sim neither reads nor writes them), so adding them must not make old recordings unplayable.
 import { z } from "zod";
+
 import { CREATURE_API, creatureSchema } from "./creature";
 
 const CREATURE_ANIMATIONS = ["idle", "walk", "attack"] as const;
@@ -32,14 +33,17 @@ export const CREATURE_FRAME_SIZE = 128;
 /** The builder's pose names for a frame (`walk3`), which is also the render's name: `idle1`..`idle4`, `walk1`..`walk6`, `attack1`..`attack5`. */
 export const creaturePoseName = (animation: CreatureAnimation, frame: number) => `${animation}${frame + 1}`;
 
-const frameCount = z.number().int().min(1).max(8);
+const MAX_FRAMES = 8; // in one animation
+const MAX_CELLS = 120; // in one atlas: every frame of every animation from every side, and room to spare
+const frameCount = z.number().int().min(1).max(MAX_FRAMES);
 const directionList = z
   .array(z.enum(CREATURE_DIRECTIONS))
   .min(1)
   .max(CREATURE_DIRECTIONS.length)
   .refine((directions) => new Set(directions).size === directions.length, "a direction twice");
 /** How far a frame was slid along its cell, in pixels: across, then down. */
-const cellShift = z.tuple([z.number().int().min(-128).max(128), z.number().int().min(-128).max(128)]);
+const cellOffset = z.number().int().min(-CREATURE_FRAME_SIZE).max(CREATURE_FRAME_SIZE);
+const cellShift = z.tuple([cellOffset, cellOffset]);
 export const creatureFramesSchema = z.object({
   idle: frameCount,
   walk: frameCount,
@@ -47,7 +51,7 @@ export const creatureFramesSchema = z.object({
   /** The directions the atlas has a column for, in order; none means one direction (south-east) in a row of frames. */
   directions: directionList.optional(),
   /** For each cell of the atlas, in `creatureAtlasLayout`'s order, how far its figure was slid from where it stands; none means none was. */
-  shifts: z.array(cellShift).max(120).optional(),
+  shifts: z.array(cellShift).max(MAX_CELLS).optional(),
 });
 export type CreatureFrames = z.infer<typeof creatureFramesSchema>;
 
@@ -89,7 +93,7 @@ export function creatureAtlasLayout(frames: CreatureFrames): { width: number; he
       shift: shift(index),
     });
   let size: { width: number; height: number };
-  let cells: Array<Omit<AtlasCell, "shift">>;
+  let cells: Omit<AtlasCell, "shift">[];
   if (directions) {
     cells = directions.flatMap((direction, column) => {
       let row = 0;

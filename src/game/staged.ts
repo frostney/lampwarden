@@ -8,6 +8,7 @@ import {
   CENTRE_Y,
   type HandMadeKind,
   type Input,
+  LANTERN_HEIGHT,
   type Lamp,
   litCount,
   MONSTER,
@@ -70,7 +71,7 @@ export function snuff(state: State, lamp: Lamp) {
 const puffAt = (state: State, lamp: Lamp, kind: "snuff" | "light") => ({
   id: state.nextId++,
   x: lamp.x,
-  y: lamp.y - 40,
+  y: lamp.y - LANTERN_HEIGHT,
   age: 0,
   kind,
   directionX: 0,
@@ -86,8 +87,12 @@ export function spare(state: State, keepDark: Lamp | null = null) {
   const clawing = state.monsters.filter((monster) => monster.snuff > 0).length;
   const kept = Math.max(LAMPS_KEPT, clawing + 1);
   for (const lamp of state.lamps) {
-    if (litCount(state) >= kept) return;
-    if (lamp.lit || lamp === keepDark) continue;
+    if (litCount(state) >= kept) {
+      return;
+    }
+    if (lamp.lit || lamp === keepDark) {
+      continue;
+    }
     lamp.lit = true;
     lamp.relight = 0;
     state.puffs.push(puffAt(state, lamp, "light"));
@@ -100,12 +105,16 @@ export function toward(state: State, x: number, y: number, arrive: number): Inpu
   const offsetX = x - state.hero.x;
   const offsetY = (y - state.hero.y) * 2;
   const distance = Math.hypot(offsetX, offsetY);
-  if (distance === 0 || distance < arrive) return NO_INPUT;
+  if (distance === 0 || distance < arrive) {
+    return NO_INPUT;
+  }
   return { ...NO_INPUT, moveX: offsetX / distance, moveY: offsetY / distance };
 }
 
 // How near a monster the warden walks before he swings: inside his reach, with room for it to wobble.
 const SWING_ROOM = 14;
+// how near a dark lamp the autopilot walks to relight it
+const AT_LAMP = 16;
 
 // A warden played by code: he walks up to the nearest monster and strikes it, turning to face it as he swings, and
 // once none is left he walks to a dark lamp and stands by it until it lights. Null when there is nothing left to do.
@@ -114,13 +123,17 @@ export function wardenAutopilot(state: State): Input | null {
   let nearest: { x: number; y: number; distance: number } | null = null;
   for (const monster of state.monsters) {
     const distance = Math.hypot(monster.x - hero.x, (monster.y - hero.y) * 2);
-    if (!nearest || distance < nearest.distance) nearest = { x: monster.x, y: monster.y, distance };
+    if (!nearest || distance < nearest.distance) {
+      nearest = { x: monster.x, y: monster.y, distance };
+    }
   }
   if (nearest) {
     const heading = toward(state, nearest.x, nearest.y, 0);
-    if (nearest.distance < state.rules.meleeReach - SWING_ROOM) return { ...heading, melee: true };
+    if (nearest.distance < state.rules.meleeReach - SWING_ROOM) {
+      return { ...heading, melee: true };
+    }
     return heading;
   }
   const dark = state.lamps.find((lamp) => !lamp.lit);
-  return dark ? toward(state, dark.x, dark.y, 16) : null;
+  return dark ? toward(state, dark.x, dark.y, AT_LAMP) : null;
 }

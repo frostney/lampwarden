@@ -8,6 +8,8 @@
 // finds a creature job running, or a creature waiting, is told the same.
 import type { Building, BuildingJob, NextBuildingResponse } from "@/game/building";
 import type { CreatureJob, NextCreatureRequest, NextCreatureResponse } from "@/game/creature";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
+
 import { type CreatureConfig, generationAvailable, type StartLimits } from "./config";
 import { checkStartLimits, type StartLedger, visitorKey } from "./limits";
 import { type GalleryStore, type JobKind, kindOf, type StoredJob } from "./store";
@@ -36,14 +38,18 @@ const isFinished = (job: StoredJob) => job.step === "done" || job.step === "fail
 
 /** A job that is neither done nor failed but has not moved for longer than `maxDuration` can only be dead. */
 function isStale(job: StoredJob, now: Date, maxDurationSeconds: number): boolean {
-  return !isFinished(job) && now.getTime() - Date.parse(job.updatedAt) > maxDurationSeconds * 1000;
+  return !isFinished(job) && now.getTime() - Date.parse(job.updatedAt) > maxDurationSeconds * MILLISECONDS_PER_SECOND;
 }
 
 /** A stored job as a client should see it: a stale one is reported as failed. */
 async function readStoredJob(deps: ServiceDeps, jobId: string): Promise<StoredJob | null> {
   const job = await deps.store.getJob(jobId);
-  if (!job) return null;
-  if (!isStale(job, deps.now(), deps.maxDurationSeconds)) return job;
+  if (!job) {
+    return null;
+  }
+  if (!isStale(job, deps.now(), deps.maxDurationSeconds)) {
+    return job;
+  }
   return {
     jobId,
     ...(job.kind ? { kind: job.kind } : {}),
@@ -62,7 +68,9 @@ export async function readJob(deps: ServiceDeps, jobId: string): Promise<Creatur
 /** A building job as a client should see it, or null when there is none by that id. */
 export async function readBuildingJob(deps: ServiceDeps, jobId: string): Promise<BuildingJob | null> {
   const job = await readStoredJob(deps, jobId);
-  if (!job || kindOf(job) !== "building") return null;
+  if (!job || kindOf(job) !== "building") {
+    return null;
+  }
   const { building, error, step, updatedAt } = job;
   return { jobId, step, ...(building ? { building } : {}), ...(error ? { error } : {}), updatedAt };
 }
@@ -74,17 +82,25 @@ async function newestUnseen<Record extends { id: string }>(
 ): Promise<Record | null> {
   let tried = 0;
   for (const id of await ids) {
-    if (seen.has(id)) continue;
+    if (seen.has(id)) {
+      continue;
+    }
     const record = await get(id);
-    if (record) return record;
-    if (++tried >= SKIPPED_RECORDS_TO_TRY) break;
+    if (record) {
+      return record;
+    }
+    if (++tried >= SKIPPED_RECORDS_TO_TRY) {
+      break;
+    }
   }
   return null;
 }
 
 /** The job that holds the global slot, if it is still alive. */
 async function runningJob(deps: ServiceDeps, lock: { jobId: string } | null): Promise<StoredJob | null> {
-  if (!lock) return null;
+  if (!lock) {
+    return null;
+  }
   const job = await readStoredJob(deps, lock.jobId);
   return job && !isFinished(job) ? job : null;
 }
@@ -105,24 +121,41 @@ interface SlotRequest {
   record: (visitor: string, jobId: string, startedAt: Date) => Promise<void>;
 }
 
+/**
+ * What the caller gets while the slot is not free for it: the running job when it is of the caller's kind, else a busy
+ * answer. The other kind's job cannot be shared. A creature waits for a building: it is noted, so no building starts
+ * before the creature asks again. A building waits for a creature, or for the creature that is waiting. Null when the
+ * caller may start a job.
+ */
+async function slotTaken(deps: ServiceDeps, kind: JobKind, alive: StoredJob | null, now: Date): Promise<Slot | null> {
+  const busy: Slot = { kind: "refused", reason: "busy", retryAfterSeconds: BUSY_RETRY_SECONDS };
+  if (alive) {
+    if (kindOf(alive) === kind) {
+      return { kind: "job", jobId: alive.jobId };
+    }
+    if (kind === "creature") {
+      await deps.store.noteCreatureWaiting(now);
+    }
+    return busy;
+  }
+  if (kind === "building") {
+    const waiting = await deps.store.creatureWaitingSince();
+    if (waiting && now.getTime() - waiting.getTime() < CREATURE_PRIORITY_SECONDS * MILLISECONDS_PER_SECOND) {
+      return busy;
+    }
+  }
+  return null;
+}
+
 /** Follows the job that holds the slot when it is the caller's kind, or starts one when the limits allow. */
 async function followOrStart(deps: ServiceDeps, request: SlotRequest, rateSalt: string): Promise<Slot> {
   // one job at a time for the whole site: whoever asks while one runs shares it
   const lock = await deps.store.readRunning();
   const alive = await runningJob(deps, lock);
   const now = deps.now();
-  if (alive) {
-    if (kindOf(alive) === request.kind) return { kind: "job", jobId: alive.jobId };
-    // The other kind holds the slot and cannot be shared. A creature waits for a building: it is noted, so no building
-    // starts before the creature asks again. A building waits for a creature, or for the creature that is waiting.
-    if (request.kind === "creature") await deps.store.noteCreatureWaiting(now);
-    return { kind: "refused", reason: "busy", retryAfterSeconds: BUSY_RETRY_SECONDS };
-  }
-  if (request.kind === "building") {
-    const waiting = await deps.store.creatureWaitingSince();
-    if (waiting && now.getTime() - waiting.getTime() < CREATURE_PRIORITY_SECONDS * 1000) {
-      return { kind: "refused", reason: "busy", retryAfterSeconds: BUSY_RETRY_SECONDS };
-    }
+  const taken = await slotTaken(deps, request.kind, alive, now);
+  if (taken) {
+    return taken;
   }
 
   const visitor = visitorKey(request.ip, rateSalt);
@@ -144,7 +177,9 @@ async function followOrStart(deps: ServiceDeps, request: SlotRequest, rateSalt: 
       updatedAt: deps.now().toISOString(),
     });
     const winner = await runningJob(deps, await deps.store.readRunning());
-    if (!winner) return { kind: "refused", reason: "unavailable" };
+    if (!winner) {
+      return { kind: "refused", reason: "unavailable" };
+    }
     return kindOf(winner) === request.kind
       ? { kind: "job", jobId: winner.jobId }
       : { kind: "refused", reason: "busy", retryAfterSeconds: BUSY_RETRY_SECONDS };
@@ -178,7 +213,9 @@ export async function nextCreature(deps: ServiceDeps, input: NextCreatureInput):
       (id) => deps.store.getCreature(id),
       new Set(input.seen),
     );
-    if (unseen) return { kind: "ready", creature: unseen };
+    if (unseen) {
+      return { kind: "ready", creature: unseen };
+    }
     if (!generationAvailable(deps.config) || deps.config.rateSalt === null) {
       return { kind: "none", reason: "unavailable" };
     }
@@ -193,10 +230,14 @@ export async function nextCreature(deps: ServiceDeps, input: NextCreatureInput):
       },
       deps.config.rateSalt,
     );
-    if (slot.kind === "job") return { kind: "generating", jobId: slot.jobId };
+    if (slot.kind === "job") {
+      return { kind: "generating", jobId: slot.jobId };
+    }
     // The contract has no "busy": a creature that has to wait for a building job's slot is told what a rate limit is told,
     // a delay (a short one), and asks again.
-    if (slot.reason === "unavailable") return { kind: "none", reason: "unavailable" };
+    if (slot.reason === "unavailable") {
+      return { kind: "none", reason: "unavailable" };
+    }
     return { kind: "none", reason: "rate-limited", retryAfterSeconds: slot.retryAfterSeconds };
   } catch (error) {
     console.error(
@@ -218,7 +259,9 @@ export async function nextBuilding(deps: ServiceDeps, input: NextBuildingInput):
       (id) => deps.store.getBuilding(id),
       new Set(input.seen),
     );
-    if (unseen) return { kind: "ready", building: unseen };
+    if (unseen) {
+      return { kind: "ready", building: unseen };
+    }
     if (!generationAvailable(deps.config) || deps.config.rateSalt === null) {
       return { kind: "none", reason: "unavailable" };
     }
@@ -237,8 +280,12 @@ export async function nextBuilding(deps: ServiceDeps, input: NextBuildingInput):
       },
       deps.config.rateSalt,
     );
-    if (slot.kind === "job") return { kind: "generating", jobId: slot.jobId };
-    if (slot.reason === "unavailable") return { kind: "none", reason: "unavailable" };
+    if (slot.kind === "job") {
+      return { kind: "generating", jobId: slot.jobId };
+    }
+    if (slot.reason === "unavailable") {
+      return { kind: "none", reason: "unavailable" };
+    }
     return { kind: "none", reason: slot.reason, retryAfterSeconds: slot.retryAfterSeconds };
   } catch (error) {
     console.error(

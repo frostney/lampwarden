@@ -10,6 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { SEXES } from "../src/scene/assets";
 import { countOption } from "./cli-options";
 import { assembleHeroAtlas } from "./hero-model";
@@ -22,7 +23,8 @@ const { values } = parseArgs({
     vcpus: { type: "string" },
   },
 });
-const vcpus = countOption("vcpus", values.vcpus, 4);
+const DEFAULT_VCPUS = 4;
+const vcpus = countOption("vcpus", values.vcpus, DEFAULT_VCPUS);
 const outputDirectory = resolve(values.out);
 mkdirSync(outputDirectory, { recursive: true });
 
@@ -34,7 +36,9 @@ const atlases = await Promise.all(
       { vcpus },
     );
     const assembled = assembleHeroAtlas(sex, builds, results);
-    if (!assembled.ok) throw new Error(`${sex} (${source}): ${assembled.reason}`);
+    if (!assembled.ok) {
+      throw new Error(`${sex} (${source}): ${assembled.reason}`);
+    }
     return { sex, atlas: assembled.atlas, frames: builds.length, source };
   }),
 );

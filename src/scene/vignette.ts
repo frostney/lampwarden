@@ -2,6 +2,7 @@
 // ring of hard pixels over the stage, dithered with the Bayer pattern so its inner edge thins out in steps, in two reds
 // (the denser outer band is the darker). There is no blur and no gradient; a stronger pulse is a wider ring.
 import type { Texture } from "pixi.js";
+
 import { STAGE_HEIGHT, STAGE_WIDTH } from "../game/sim";
 import { bayerThreshold, bufferTexture, hexRgb, type Rgb } from "./paint";
 
@@ -19,8 +20,10 @@ const VERTICAL_WEIGHT = STAGE_WIDTH / STAGE_HEIGHT;
 export function vignettePixels(strength: number, width = STAGE_WIDTH, height = STAGE_HEIGHT): Uint8Array {
   const depth = DEPTHS[Math.max(0, Math.min(VIGNETTE_STRENGTHS, strength))] ?? 0;
   const pixels = new Uint8Array(width * height * 4);
-  if (depth === 0) return pixels;
-  for (let row = 0; row < height; row++)
+  if (depth === 0) {
+    return pixels;
+  }
+  for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
       // how far in from the nearest edge; near a corner the two edges combine into less than either (their harmonic
       // mean), so the ring reaches further in there
@@ -28,7 +31,9 @@ export function vignettePixels(strength: number, width = STAGE_WIDTH, height = S
       const fromTop = Math.min(row, height - 1 - row) * VERTICAL_WEIGHT;
       const inward = fromSide + fromTop === 0 ? 0 : (fromSide * fromTop) / (fromSide + fromTop);
       const coverage = 1 - inward / depth;
-      if (coverage <= bayerThreshold(column, row)) continue;
+      if (coverage <= bayerThreshold(column, row)) {
+        continue;
+      }
       const colour = coverage > 0.62 ? DARK : BRIGHT;
       const index = (row * width + column) * 4;
       pixels[index] = Math.round((colour[0] * ALPHA) / 255);
@@ -36,6 +41,7 @@ export function vignettePixels(strength: number, width = STAGE_WIDTH, height = S
       pixels[index + 2] = Math.round((colour[2] * ALPHA) / 255);
       pixels[index + 3] = ALPHA;
     }
+  }
   return pixels;
 }
 
@@ -45,7 +51,9 @@ export const vignetteStrength = (remaining: number, total: number) =>
 
 const textures: (Texture | undefined)[] = [];
 export function vignetteTexture(strength: number): Texture | null {
-  if (strength < 1 || strength > VIGNETTE_STRENGTHS) return null;
+  if (strength < 1 || strength > VIGNETTE_STRENGTHS) {
+    return null;
+  }
   let texture = textures[strength];
   if (!texture) {
     texture = bufferTexture(vignettePixels(strength), STAGE_WIDTH, STAGE_HEIGHT);

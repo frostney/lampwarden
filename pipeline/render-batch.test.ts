@@ -5,6 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { decodePng } from "../tools/logo/png";
 import { batchResultsSchema, interpretOutcome, type RenderResult } from "./render-types";
 import { renderBatchInSandbox } from "./render-vercel-sandbox";
@@ -17,7 +18,9 @@ const lampBuild = readFileSync(join(import.meta.dir, "kit", "examples", "ex_lamp
 const committedLamp = decodePng(readFileSync(join(import.meta.dir, "..", "public", "sprites", "lamp-lit.png"))).data;
 
 async function runBatch(builds: Array<{ name: string; pose: string; code: string }>): Promise<RenderResult[]> {
-  for (const [index, build] of builds.entries()) writeFileSync(join(workDirectory, `${index}.ts`), build.code);
+  for (const [index, build] of builds.entries()) {
+    writeFileSync(join(workDirectory, `${index}.ts`), build.code);
+  }
   writeFileSync(
     join(workDirectory, "batch.json"),
     JSON.stringify({
@@ -45,7 +48,9 @@ describe("the batch driver", () => {
     ]);
     expect(good?.ok).toBe(true);
     expect(goodAgain?.ok).toBe(true);
-    if (good?.ok) expect(decodePng(Buffer.from(good.png)).data).toEqual(committedLamp);
+    if (good?.ok) {
+      expect(decodePng(Buffer.from(good.png)).data).toEqual(committedLamp);
+    }
     expect(thrown).toMatchObject({ ok: false });
     expect(thrown && !thrown.ok ? thrown.error : "").toContain("boom");
     expect(hung).toEqual({ ok: false, error: `render timed out after ${ITEM_DEADLINE_MILLISECONDS} ms` });

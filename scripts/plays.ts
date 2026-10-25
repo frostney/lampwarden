@@ -3,10 +3,13 @@
 //   needs BLOB_READ_WRITE_TOKEN (vercel env pull .env.local); `bun run plays` runs this under `varlock run` and hands it
 //   that variable only. --verify replays the finished nights recorded on this checkout's sim (tools/sim-fingerprint) and checks each ends the same; nights from another sim version are counted, not replayed.
 import { join } from "node:path";
+
 import { get, list } from "@vercel/blob";
+
 import { replaysExactlyOn } from "../src/game/plays";
 import type { Play } from "../src/game/recording";
 import { verifyPlay } from "../src/game/replay";
+import { HTTP_OK, PERCENT } from "../src/lib/units";
 import { simFingerprint } from "../tools/sim-fingerprint/sim-fingerprint";
 
 const argument = (name: string) => {
@@ -23,27 +26,40 @@ if (!token) {
   process.exit(1);
 }
 
+const PLAYS_PREFIX = "plays/";
+// widths of the report's columns
+const COLUMN = { count: 6, fallen: 7, length: 8, rate: 10, lamps: 11, health: 8, creature: 32, plays: 7 };
+const SHORT_ID = 8; // characters of a creature's id the report shows
+const SUMMARY_EVERY = 5; // seconds between the lit-lamp samples the summary shows
+const LATEST = 8; // nights listed at the end
+
 const paths: string[] = [];
 let cursor: string | undefined;
 do {
-  const page = await list({ prefix: "plays/", token, ...(cursor ? { cursor } : {}) });
-  paths.push(...page.blobs.map((blob) => blob.pathname).filter((path) => !since || path.slice(6, 16) >= since));
+  const page = await list({ prefix: PLAYS_PREFIX, token, ...(cursor ? { cursor } : {}) });
+  // a play's path starts with the day it was played: plays/2026-10-24-...
+  const dayOf = (path: string) => path.slice(PLAYS_PREFIX.length, PLAYS_PREFIX.length + 10);
+  paths.push(...page.blobs.map((blob) => blob.pathname).filter((path) => !since || dayOf(path) >= since));
   cursor = page.hasMore ? page.cursor : undefined;
 } while (cursor);
 
 const plays: Play[] = [];
 for (const path of paths) {
   const blob = await get(path, { access: "private", token });
-  if (blob?.statusCode !== 200) continue;
+  if (blob?.statusCode !== HTTP_OK) {
+    continue;
+  }
   const play: Play = JSON.parse(await new Response(blob.stream).text());
-  if (!build || play.build === build) plays.push(play);
+  if (!build || play.build === build) {
+    plays.push(play);
+  }
 }
 if (!plays.length) {
   console.log("no plays");
   process.exit(0);
 }
 
-const percent = (count: number, total: number) => `${total ? Math.round((100 * count) / total) : 0}%`;
+const percent = (count: number, total: number) => `${total ? Math.round((PERCENT * count) / total) : 0}%`;
 const average = (values: number[]) =>
   values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 const seconds = (play: Play) => play.steps / 60;
@@ -71,20 +87,20 @@ for (const night of nights) {
   const ending = (outcome: string | null) => nightPlays.filter((play) => play.outcome === outcome).length;
   console.log(
     [
-      String(night).padEnd(6),
-      String(nightPlays.length).padEnd(6),
-      percent(ending("dawn"), nightPlays.length).padEnd(6),
-      percent(ending("dark"), nightPlays.length).padEnd(6),
-      percent(ending("fallen"), nightPlays.length).padEnd(7),
-      percent(ending(null), nightPlays.length).padEnd(6),
-      `${average(nightPlays.map(seconds)).toFixed(0)} s`.padEnd(8),
-      average(nightPlays.map(killsPerMinute)).toFixed(1).padEnd(10),
+      String(night).padEnd(COLUMN.count),
+      String(nightPlays.length).padEnd(COLUMN.count),
+      percent(ending("dawn"), nightPlays.length).padEnd(COLUMN.count),
+      percent(ending("dark"), nightPlays.length).padEnd(COLUMN.count),
+      percent(ending("fallen"), nightPlays.length).padEnd(COLUMN.fallen),
+      percent(ending(null), nightPlays.length).padEnd(COLUMN.count),
+      `${average(nightPlays.map(seconds)).toFixed(0)} s`.padEnd(COLUMN.length),
+      average(nightPlays.map(killsPerMinute)).toFixed(1).padEnd(COLUMN.rate),
       average(nightPlays.map((play) => play.stats.lampsLost))
         .toFixed(1)
-        .padEnd(11),
+        .padEnd(COLUMN.lamps),
       average(nightPlays.map((play) => play.stats.hpLost))
         .toFixed(0)
-        .padEnd(8),
+        .padEnd(COLUMN.health),
       average(nightPlays.map((play) => play.legacy.tide)).toFixed(2),
     ].join(" "),
   );
@@ -93,7 +109,9 @@ for (const night of nights) {
 // nights that met a creature from the sea, per creature (the nights without one are the rows above)
 const metCreatures = new Map<string, Play[]>();
 for (const play of plays) {
-  if (!play.creature) continue;
+  if (!play.creature) {
+    continue;
+  }
   metCreatures.set(play.creature.id, [...(metCreatures.get(play.creature.id) ?? []), play]);
 }
 if (metCreatures.size) {
@@ -103,21 +121,23 @@ if (metCreatures.size) {
   );
   for (const [id, creaturePlays] of [...metCreatures].sort((first, second) => second[1].length - first[1].length)) {
     const [first] = creaturePlays;
-    if (!first?.creature) continue;
+    if (!first?.creature) {
+      continue;
+    }
     const ending = (outcome: string | null) => creaturePlays.filter((play) => play.outcome === outcome).length;
     console.log(
       [
-        `${first.creature.name} (${id.slice(0, 8)})`.padEnd(32),
-        first.creature.archetype.padEnd(10),
-        String(creaturePlays.length).padEnd(7),
-        percent(ending("dawn"), creaturePlays.length).padEnd(6),
-        percent(ending("dark"), creaturePlays.length).padEnd(6),
-        percent(ending("fallen"), creaturePlays.length).padEnd(7),
-        percent(ending(null), creaturePlays.length).padEnd(6),
-        average(creaturePlays.map(killsPerMinute)).toFixed(1).padEnd(10),
+        `${first.creature.name} (${id.slice(0, SHORT_ID)})`.padEnd(COLUMN.creature),
+        first.creature.archetype.padEnd(COLUMN.rate),
+        String(creaturePlays.length).padEnd(COLUMN.plays),
+        percent(ending("dawn"), creaturePlays.length).padEnd(COLUMN.count),
+        percent(ending("dark"), creaturePlays.length).padEnd(COLUMN.count),
+        percent(ending("fallen"), creaturePlays.length).padEnd(COLUMN.fallen),
+        percent(ending(null), creaturePlays.length).padEnd(COLUMN.count),
+        average(creaturePlays.map(killsPerMinute)).toFixed(1).padEnd(COLUMN.rate),
         average(creaturePlays.map((play) => play.stats.lampsLost))
           .toFixed(1)
-          .padEnd(11),
+          .padEnd(COLUMN.lamps),
         average(creaturePlays.map((play) => play.stats.hpLost)).toFixed(0),
       ].join(" "),
     );
@@ -128,16 +148,17 @@ if (metCreatures.size) {
 const dark = plays.filter((play) => play.outcome === "dark");
 if (dark.length) {
   const litBySecond: number[][] = [];
-  for (const play of dark)
+  for (const play of dark) {
     for (const [second, , lit] of play.timeline) {
       const samples = litBySecond[second] ?? [];
       samples.push(lit);
       litBySecond[second] = samples;
     }
+  }
   const summary = litBySecond
     .map((samples, second) => (samples ? `${second}s:${average(samples).toFixed(1)}` : ""))
     .filter(Boolean)
-    .filter((_, index) => index % 5 === 0);
+    .filter((_, index) => index % SUMMARY_EVERY === 0);
   console.log(`\nlamps still lit in nights lost to darkness (by second): ${summary.join("  ")}`);
 }
 
@@ -153,7 +174,8 @@ if (shouldVerify) {
 }
 
 console.log("\nlatest nights (watch with /?replay=<id>):");
-for (const play of plays.slice(-8))
+for (const play of plays.slice(-LATEST)) {
   console.log(
     `  ${play.id}  night ${play.legacy.night}  ${play.outcome ?? "quit"}  ${play.stats.kills} slain  ${seconds(play).toFixed(0)} s  ${play.legacy.heir.name}`,
   );
+}

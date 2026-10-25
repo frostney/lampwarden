@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { DRAWN_DIRECTIONS, FRAMES, HERO_ANIMATIONS, heroFrames, SEXES } from "../src/scene/assets";
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
@@ -100,7 +101,9 @@ describe("an atlas of model frames", () => {
   test("is packed into the cells the scene cuts it from", () => {
     const assembled = assembleHeroAtlas("male", builds, results());
     expect(assembled.ok).toBe(true);
-    if (!assembled.ok) return;
+    if (!assembled.ok) {
+      return;
+    }
     const atlas = decodePng(assembled.atlas);
     expect(atlas.width).toBe(DRAWN_DIRECTIONS.length * 128);
     expect(atlas.height).toBe(HERO_ANIMATIONS.reduce((total, animation) => total + FRAMES[animation], 0) * 128);

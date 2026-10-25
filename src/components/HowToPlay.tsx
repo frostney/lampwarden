@@ -5,6 +5,7 @@
 // the main pointer is coarse (the phone's on-screen stick and buttons), the gamepad while one is connected, otherwise
 // the keyboard and mouse. Presentation only: the bindings themselves are in game/controls.ts and game/gamepad.ts.
 import { useSyncExternalStore } from "react";
+
 import { Icon, PALETTE } from "@/components/Icon";
 import { ARMS, type ShootIcon, type StrikeIcon } from "@/game/weapons";
 import type { Sex } from "@/scene/assets";
@@ -32,16 +33,27 @@ const LETTERS: Record<string, readonly string[]> = {
 const LETTER_SIZE = 5;
 const textWidth = (text: string) => text.length * LETTER_SIZE + (text.length - 1);
 
+// visits every cell of a grid, row by row
+function eachCell(grid: Grid, visit: (row: number, column: number, line: string[]) => void) {
+  for (const [row, line] of grid.entries()) {
+    for (const column of line.keys()) {
+      visit(row, column, line);
+    }
+  }
+}
+
 // text in ink, its top left at (left, top)
 function writeText(grid: Grid, text: string, left: number, top: number) {
   for (const [index, letter] of [...text].entries()) {
-    const rows = LETTERS[letter] ?? [];
-    for (const [rowIndex, row] of rows.entries())
-      for (const [columnIndex, symbol] of [...row].entries())
-        if (symbol === "X") {
-          const target = grid[top + rowIndex];
-          if (target) target[left + index * (LETTER_SIZE + 1) + columnIndex] = "K";
+    const letterLeft = left + index * (LETTER_SIZE + 1);
+    for (const [rowIndex, row] of (LETTERS[letter] ?? []).entries()) {
+      const target = grid[top + rowIndex];
+      for (const [columnIndex, symbol] of [...row].entries()) {
+        if (symbol === "X" && target) {
+          target[letterLeft + columnIndex] = "K";
         }
+      }
+    }
   }
 }
 
@@ -50,13 +62,15 @@ function keycap(text: string, face: string, shade: string): Grid {
   const width = textWidth(text) + 4;
   const height = LETTER_SIZE + 4;
   const grid = blank(width, height);
-  for (const [row, line] of grid.entries())
-    for (const column of line.keys()) {
-      const onEdgeRow = row === 0 || row === height - 1;
-      const onEdgeColumn = column === 0 || column === width - 1;
-      if (onEdgeRow && onEdgeColumn) continue; // rounded corner
-      line[column] = onEdgeRow || onEdgeColumn ? "K" : row === height - 2 ? shade : face;
+  eachCell(grid, (row, column, line) => {
+    const onEdgeRow = row === 0 || row === height - 1;
+    const onEdgeColumn = column === 0 || column === width - 1;
+    if (onEdgeRow && onEdgeColumn) {
+      return; // rounded corner
     }
+    const fill = row === height - 2 ? shade : face;
+    line[column] = onEdgeRow || onEdgeColumn ? "K" : fill;
+  });
   writeText(grid, text, 2, 2);
   return grid;
 }
@@ -65,14 +79,22 @@ function keycap(text: string, face: string, shade: string): Grid {
 function disc(diameter: number, face: string, shade: string, text?: string): Grid {
   const grid = blank(diameter, diameter);
   const middle = (diameter - 1) / 2;
-  for (const [row, line] of grid.entries())
+  for (const [row, line] of grid.entries()) {
     for (const column of line.keys()) {
       const distance = Math.hypot(column - middle, row - middle);
-      if (distance > diameter / 2) continue;
-      if (distance > diameter / 2 - 1) line[column] = "K";
-      else line[column] = column - middle + (row - middle) > diameter / 3 ? shade : face;
+      if (distance > diameter / 2) {
+        continue;
+      }
+      if (distance > diameter / 2 - 1) {
+        line[column] = "K";
+      } else {
+        line[column] = column - middle + (row - middle) > diameter / 3 ? shade : face;
+      }
     }
-  if (text) writeText(grid, text, Math.round(middle - 2), Math.round(middle - 2));
+  }
+  if (text) {
+    writeText(grid, text, Math.round(middle - 2), Math.round(middle - 2));
+  }
   return grid;
 }
 
@@ -85,32 +107,42 @@ interface StickLook {
   text?: string;
   pips?: true;
 }
+// a small arrowhead towards each side of a stick's well
+function drawPips(grid: Grid, middle: number) {
+  let offsets: [number, number][] = [
+    [0, 2 - middle],
+    [-1, 3 - middle],
+    [0, 3 - middle],
+    [1, 3 - middle],
+  ];
+  for (let turn = 0; turn < 4; turn++) {
+    for (const [across, down] of offsets) {
+      const target = grid[middle + down];
+      if (target) {
+        target[middle + across] = "e";
+      }
+    }
+    offsets = offsets.map(([across, down]) => [-down, across]);
+  }
+}
+
 function stickGlyph({ diameter, knobRadius, knob, knobShade, text, pips }: StickLook): Grid {
   const grid = disc(diameter, "l", "l");
   const middle = (diameter - 1) / 2;
-  for (const [row, line] of grid.entries())
-    for (const column of line.keys()) {
-      const distance = Math.hypot(column - middle, row - middle);
-      if (distance <= knobRadius) line[column] = column - middle + (row - middle) > knobRadius - 1 ? knobShade : knob;
-      else if (distance <= knobRadius + 1 && line[column] === "l") line[column] = "K";
+  eachCell(grid, (row, column, line) => {
+    const distance = Math.hypot(column - middle, row - middle);
+    if (distance <= knobRadius) {
+      line[column] = column - middle + (row - middle) > knobRadius - 1 ? knobShade : knob;
+    } else if (distance <= knobRadius + 1 && line[column] === "l") {
+      line[column] = "K";
     }
+  });
   if (pips) {
-    // a small arrowhead towards each side
-    let offsets: [number, number][] = [
-      [0, 2 - middle],
-      [-1, 3 - middle],
-      [0, 3 - middle],
-      [1, 3 - middle],
-    ];
-    for (let turn = 0; turn < 4; turn++) {
-      for (const [across, down] of offsets) {
-        const target = grid[middle + down];
-        if (target) target[middle + across] = "e";
-      }
-      offsets = offsets.map(([across, down]) => [-down, across]);
-    }
+    drawPips(grid, middle);
   }
-  if (text) writeText(grid, text, Math.round(middle - 2), Math.round(middle - 2));
+  if (text) {
+    writeText(grid, text, Math.round(middle - 2), Math.round(middle - 2));
+  }
   return grid;
 }
 
@@ -164,7 +196,9 @@ function glyphRects(grid: Grid) {
         continue;
       }
       let end = column + 1;
-      while (line[end] === symbol) end++;
+      while (line[end] === symbol) {
+        end++;
+      }
       rects.push({ column, row, length: end - column, colour });
       column = end;
     }
@@ -177,16 +211,16 @@ function Glyph({ name }: { name: GlyphName }) {
   const width = grid[0]?.length ?? 0;
   return (
     <svg
+      aria-hidden="true"
       className="glyph"
       data-glyph={name}
-      viewBox={`0 0 ${width} ${grid.length}`}
-      width={width * PIXEL}
       height={grid.length * PIXEL}
       shapeRendering="crispEdges"
-      aria-hidden="true"
+      viewBox={`0 0 ${width} ${grid.length}`}
+      width={width * PIXEL}
     >
       {glyphRects(grid).map(({ column, row, length, colour }) => (
-        <rect key={`${column},${row}`} x={column} y={row} width={length} height={1} fill={colour} />
+        <rect fill={colour} height={1} key={`${column},${row}`} width={length} x={column} y={row} />
       ))}
     </svg>
   );
@@ -220,7 +254,9 @@ const hasCoarsePointer = () => matchMedia("(pointer: coarse)").matches;
 // the input the player is likely using: a connected gamepad, else the touch screen, else the keyboard and mouse
 export function useControlsKind(gamepadConnected: boolean): ControlsKind {
   const coarse = useSyncExternalStore(subscribeToPointer, hasCoarsePointer, () => false);
-  if (gamepadConnected) return "gamepad";
+  if (gamepadConnected) {
+    return "gamepad";
+  }
   return coarse ? "touch" : "keyboard";
 }
 
@@ -258,9 +294,15 @@ export function ControlGlyphs({ control, kind, sex }: { control: ControlId; kind
   return (
     <span className="glyphs">
       {pieces.map((piece) => {
-        if (piece === "or") return <span key={piece}>or</span>;
-        if (piece === "touch-strike") return <TouchButton key={piece} backdrop={piece} weapon={arms.strikeIcon} />;
-        if (piece === "touch-shoot") return <TouchButton key={piece} backdrop={piece} weapon={arms.shootIcon} />;
+        if (piece === "or") {
+          return <span key={piece}>or</span>;
+        }
+        if (piece === "touch-strike") {
+          return <TouchButton backdrop={piece} key={piece} weapon={arms.strikeIcon} />;
+        }
+        if (piece === "touch-shoot") {
+          return <TouchButton backdrop={piece} key={piece} weapon={arms.shootIcon} />;
+        }
         return <Glyph key={piece} name={piece} />;
       })}
     </span>
@@ -281,11 +323,11 @@ export function HowToPlay({
   const kind = useControlsKind(gamepadConnected);
   const guide = GUIDES[kind];
   return (
-    <section className="controls" data-line data-controls={kind} aria-label="How to play">
+    <section aria-label="How to play" className="controls" data-controls={kind} data-line={true}>
       <h2 className="controls-heading">How to play</h2>
       <div className="controls-row">
         {guide.controls.map((control) => (
-          <div key={control.id} className="control">
+          <div className="control" key={control.id}>
             <ControlGlyphs control={control.id} kind={kind} sex={sex} />
             <span>{control.label}</span>
           </div>
@@ -293,7 +335,7 @@ export function HowToPlay({
       </div>
       <p>
         {guide.hint}{" "}
-        <button type="button" className="link" disabled={practiseDisabled} onClick={onPractise}>
+        <button className="link" disabled={practiseDisabled} onClick={onPractise} type="button">
           Practise first
         </button>
       </p>

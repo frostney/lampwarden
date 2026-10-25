@@ -2,6 +2,8 @@
 // tonight, and following a job that is still making one. Answers come over the network, so they are parsed, not
 // trusted; any failure is null, and the night simply has no new creature.
 import { z } from "zod";
+
+import { SECONDS_PER_DAY } from "../lib/units";
 import {
   CREATURE_API,
   type CreatureJob,
@@ -21,7 +23,7 @@ const nextCreatureAnswer: z.ZodType<NextCreatureResponse> = z.discriminatedUnion
   z.object({
     kind: z.literal("none"),
     reason: z.enum(["rate-limited", "unavailable"]),
-    retryAfterSeconds: z.number().min(0).max(86_400).exactOptional(),
+    retryAfterSeconds: z.number().min(0).max(SECONDS_PER_DAY).exactOptional(),
   }),
 ]);
 

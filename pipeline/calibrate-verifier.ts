@@ -6,10 +6,15 @@
 // Every sprite is re-rendered from its committed build code, all of them in one Vercel Sandbox batch (the PNG is
 // byte-identical to the committed one), so the verifier gets the same engine stats it would in a job. Needs Vercel auth
 // (docs/tooling.md, "Rendering needs Vercel auth"). Costs about one verifier call per sprite and repeat.
+
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
+import { ignore } from "../src/lib/ignore";
+import { PERCENT } from "../src/lib/units";
 import { countOption } from "./cli-options";
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
@@ -17,6 +22,7 @@ import { createMubitClient } from "./mubit";
 import { renderBatchFromCheckout } from "./render-checkout";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
+const COLUMN = { name: 20, scores: 14 }; // widths of the report's columns
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
 const manifestSchema = z.object({ sprites: z.record(z.string(), z.object({ brief: z.string(), code: z.string() })) });
 
@@ -28,9 +34,12 @@ const { values } = parseArgs({
   },
 });
 const repeats = countOption("repeat", values.repeat, 1);
-const concurrency = countOption("concurrency", values.concurrency, 4);
+const DEFAULT_CONCURRENCY = 4; // sprites rendered and judged at once
+const concurrency = countOption("concurrency", values.concurrency, DEFAULT_CONCURRENCY);
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey) throw new Error("MUBIT_API_KEY is not set");
+if (!apiKey) {
+  throw new Error("MUBIT_API_KEY is not set");
+}
 
 interface Item {
   name: string;
@@ -51,7 +60,9 @@ for (const [sex, animation, frame, brief] of [
   ["male", "idle", 0, "male hero warrior standing at ease"],
 ] as const) {
   const build = heroFrameBuilds(sex, animation)[frame];
-  if (build) items.push({ name: build.name, brief, code: build.code });
+  if (build) {
+    items.push({ name: build.name, brief, code: build.code });
+  }
 }
 
 const loop: LoopCore = {
@@ -60,8 +71,8 @@ const loop: LoopCore = {
   pose: "",
   generatorPrompt: "",
   verifierPrompt: readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8"),
-  store: { logCall: () => {}, saveAttemptCode: () => {}, saveAttemptPng: () => {} },
-  print: () => {},
+  store: { logCall: ignore, saveAttemptCode: ignore, saveAttemptPng: ignore },
+  print: ignore,
 };
 
 const requests = items.map((item) => ({
@@ -96,7 +107,7 @@ const worker = async () => {
       }),
     );
     results.push({ name: item.name, scores, flags: rendered.stats.flags });
-    console.log(item.name.padEnd(20), scores.join(" ").padEnd(14), rendered.stats.flags);
+    console.log(item.name.padEnd(COLUMN.name), scores.join(" ").padEnd(COLUMN.scores), rendered.stats.flags);
   }
 };
 await Promise.all(Array.from({ length: concurrency }, worker));
@@ -105,6 +116,11 @@ const all = results.flatMap((result) => result.scores).filter((score): score is 
 all.sort((first, second) => first - second);
 const reaching = (bar: number) => all.filter((score) => score >= bar).length / all.length;
 console.log(`\n${all.length} scores, min ${all[0]}, median ${all[Math.floor(all.length / 2)]}, max ${all.at(-1)}`);
-for (const bar of [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8])
-  console.log(`share at or above ${bar}: ${(100 * reaching(bar)).toFixed(0)}%`);
-if (values.out) writeFileSync(values.out, `${JSON.stringify(results, null, 1)}\n`);
+// the share of scores at or above every half point from 4 to 8, the range an acceptance bar is set in
+const BARS = { lowest: 4, highest: 8, step: 0.5 };
+for (let bar = BARS.lowest; bar <= BARS.highest; bar += BARS.step) {
+  console.log(`share at or above ${bar}: ${(PERCENT * reaching(bar)).toFixed(0)}%`);
+}
+if (values.out) {
+  writeFileSync(values.out, `${JSON.stringify(results, null, 1)}\n`);
+}

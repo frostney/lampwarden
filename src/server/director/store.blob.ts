@@ -21,7 +21,9 @@ export function createBlobStore(prefix: string, playsPrefix: string): DirectorSt
 
   async function readJson(pathname: string): Promise<unknown> {
     const stored = await readWithVersion(pathname);
-    if (!stored) return null;
+    if (!stored) {
+      return null;
+    }
     try {
       return JSON.parse(stored.text);
     } catch {

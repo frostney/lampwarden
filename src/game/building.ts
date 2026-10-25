@@ -7,29 +7,36 @@
 // Deliberately not part of the sim fingerprint (tools/sim-fingerprint): a building is only ever drawn. The sim never
 // reads it and no replay path imports it as a value.
 import { z } from "zod";
+
 import type { SpriteExtents } from "../scene/extent";
 import type { JobStep } from "./creature";
 
-const coordinate = z.number().int().min(-512).max(512);
+// the bounds of what a building's record may hold: pixel coordinates from its anchor, points of an outline, rows of a
+// 128 px frame, and characters of its words
+const LIMITS = { coordinate: 512, leastPoints: 3, mostPoints: 256, frame: 128, name: 40, leastText: 8, brief: 400 };
+const LOWEST_ANCHOR = 0.5; // its base stands at least halfway down its frame
+const SEEN_MAX = 500; // buildings a line can have seen, and far more than the gallery holds
+
+const coordinate = z.number().int().min(-LIMITS.coordinate).max(LIMITS.coordinate);
 const pointSchema = z.tuple([coordinate, coordinate]).readonly();
-const outline = z.array(pointSchema).min(3).max(256).readonly();
+const outline = z.array(pointSchema).min(LIMITS.leastPoints).max(LIMITS.mostPoints).readonly();
 
 // Where a building's pixels are, in the form the decor placer reads (src/scene/extent.ts): its base hulls, in pixels from
 // its anchor, and the box of its opaque pixels. The server measures it from the accepted PNG; the client never does.
 const spriteExtentsSchema = z.object({
   hull: outline,
   solid: outline,
-  band: z.number().int().min(1).max(128),
+  band: z.number().int().min(1).max(LIMITS.frame),
   sprite: z.object({ left: coordinate, right: coordinate, top: coordinate, bottom: coordinate }),
 }) satisfies z.ZodType<SpriteExtents>;
 
-const edge = z.number().int().min(0).max(128);
+const edge = z.number().int().min(0).max(LIMITS.frame);
 
 export const buildingSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{8,80}$/),
-  name: z.string().min(2).max(40), // "Fountain house of the Nymphs"
-  brief: z.string().min(8).max(400), // the sprite brief the generator drew from
-  anchorY: z.number().min(0.5).max(1), // where its base touches the ground, as a fraction of the 128 px frame
+  name: z.string().min(2).max(LIMITS.name), // "Fountain house of the Nymphs"
+  brief: z.string().min(LIMITS.leastText).max(LIMITS.brief), // the sprite brief the generator drew from
+  anchorY: z.number().min(LOWEST_ANCHOR).max(1), // where its base touches the ground, as a fraction of the 128 px frame
   bbox: z.tuple([edge, edge, edge, edge]), // left, top, right, bottom pixel of what was painted, as the render reported it
   extent: spriteExtentsSchema,
   score: z.number().min(0).max(10), // the verifier's score for the accepted sprite
@@ -60,7 +67,7 @@ export const buildingJobPath = (jobId: string) => `${BUILDING_API}/jobs/${jobId}
 
 // POST /api/buildings/next: the newest gallery building this player hasn't seen. When there is none, the server may start
 // making one (within its limits) and answers with the job to poll.
-export const nextBuildingRequestSchema = z.object({ seen: z.array(z.string()).max(500) });
+export const nextBuildingRequestSchema = z.object({ seen: z.array(z.string()).max(SEEN_MAX) });
 export type NextBuildingRequest = z.infer<typeof nextBuildingRequestSchema>;
 
 export type NextBuildingResponse =

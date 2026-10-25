@@ -13,9 +13,13 @@
 //
 // It prints the snapshot id: set it as VERCEL_SANDBOX_SNAPSHOT_ID on the deployment. Rebuild it (and set the new id)
 // whenever pipeline/kit/kit.ts or pipeline/render/ changes, or when the pinned Bun moves.
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { Sandbox } from "@vercel/sandbox";
+
+import { ignore } from "../src/lib/ignore";
 import { batchResultsSchema, interpretOutcome } from "./render-types";
 import {
   kitSha,
@@ -35,18 +39,23 @@ const SMOKE_BUILD = join(PIPELINE_DIRECTORY, "kit", "examples", "ex_lamp_lit.ts"
 const SMOKE_EXPECTED_PNG = join(PIPELINE_DIRECTORY, "..", "public", "sprites", "lamp-lit.png");
 const SMOKE_DIRECTORY = "/vercel/sandbox/job/smoke";
 const BUN_DOWNLOAD_HOSTS = ["github.com", "*.githubusercontent.com"];
+const SNAPSHOT_TIMEOUT_MILLISECONDS = 600_000; // ten minutes for the whole build
+const SMOKE_DEADLINE_MILLISECONDS = 30_000;
+const ERROR_KEPT = 400; // characters of a failed command's error output kept
 
 const sandbox = await Sandbox.create({
   persistent: false,
   resources: { vcpus: 1 },
-  timeout: 10 * 60_000,
+  timeout: SNAPSHOT_TIMEOUT_MILLISECONDS,
   networkPolicy: { allow: BUN_DOWNLOAD_HOSTS },
 });
 
 async function run(description: string, command: string, sudo = false): Promise<string> {
   const result = await sandbox.runCommand({ cmd: "bash", args: ["-c", command], sudo });
   if (result.exitCode !== 0) {
-    throw new Error(`${description} failed (exit ${result.exitCode}): ${(await result.stderr()).trim().slice(-400)}`);
+    throw new Error(
+      `${description} failed (exit ${result.exitCode}): ${(await result.stderr()).trim().slice(-ERROR_KEPT)}`,
+    );
   }
   return (await result.stdout()).trim();
 }
@@ -108,8 +117,10 @@ try {
   const smokeOutcome = smokeResults
     ? batchResultsSchema.parse(JSON.parse(smokeResults.toString("utf8"))).items[0]
     : undefined;
-  const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, 30_000) : undefined;
-  if (!smoke?.ok) throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
+  const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, SMOKE_DEADLINE_MILLISECONDS) : undefined;
+  if (!smoke?.ok) {
+    throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
+  }
   if (!Buffer.from(smoke.png).equals(readFileSync(SMOKE_EXPECTED_PNG))) {
     throw new Error("the smoke render of ex_lamp_lit.ts does not reproduce public/sprites/lamp-lit.png");
   }
@@ -120,7 +131,7 @@ try {
   console.log(`\nVERCEL_SANDBOX_SNAPSHOT_ID=${snapshot.snapshotId}`);
   console.log(JSON.stringify(manifest, null, 2));
 } catch (error) {
-  await sandbox.stop().catch(() => {});
+  await sandbox.stop().catch(ignore);
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }

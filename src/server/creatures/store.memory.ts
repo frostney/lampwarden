@@ -1,6 +1,9 @@
 // An in-memory GalleryStore with the same semantics as the Blob one (newest first, atomic claim), for tests.
+
 import type { Building } from "@/game/building";
 import type { CreatureRecord } from "@/game/creature-frames";
+import { compareCodeUnits } from "@/lib/compare";
+
 import type { GalleryStore, RunningLock, StoredJob } from "./store";
 
 export interface MemoryStore extends GalleryStore {
@@ -47,7 +50,7 @@ export function createMemoryStore(): MemoryStore {
     buildingSprites,
     buildingCodes,
     async listCreatureIds() {
-      return [...creatures.keys()].sort().reverse();
+      return [...creatures.keys()].sort(compareCodeUnits).reverse();
     },
     async getCreature(id) {
       return creatures.get(id) ?? null;
@@ -62,13 +65,15 @@ export function createMemoryStore(): MemoryStore {
     },
     async putCreature(creature, png, code, atlas, signal) {
       sprites.set(creature.id, png);
-      if (atlas) atlases.set(creature.id, atlas);
+      if (atlas) {
+        atlases.set(creature.id, atlas);
+      }
       codes.set(creature.id, code);
       signal?.throwIfAborted(); // as the Blob store: no record once the job has ended
       creatures.set(creature.id, creature);
     },
     async listBuildingIds() {
-      return [...buildings.keys()].sort().reverse();
+      return [...buildings.keys()].sort(compareCodeUnits).reverse();
     },
     async getBuilding(id) {
       return buildings.get(id) ?? null;
@@ -94,7 +99,9 @@ export function createMemoryStore(): MemoryStore {
     },
     async claimRunning(jobId, previous) {
       const currentVersion = running ? String(running.version) : null;
-      if (currentVersion !== (previous?.version ?? null)) return false;
+      if (currentVersion !== (previous?.version ?? null)) {
+        return false;
+      }
       running = { jobId, version: ++versionCounter };
       return true;
     },

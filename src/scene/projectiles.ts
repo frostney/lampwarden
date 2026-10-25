@@ -2,6 +2,7 @@
 // one by one on a small canvas and outlined like the game's sprites, so the shots stay on the pixel grid instead of
 // being rotated and resampled.
 import { Texture } from "pixi.js";
+
 import type { Sex } from "./assets";
 
 export type ProjectileKind = "arrow" | "stone";
@@ -41,14 +42,17 @@ function outline(pixels: PixelMap) {
   for (const [column = 0, row = 0] of drawn) {
     for (const [stepColumn, stepRow] of NEIGHBOUR_STEPS) {
       const neighbour = pixelKey(column + stepColumn, row + stepRow);
-      if (!pixels.has(neighbour)) pixels.set(neighbour, OUTLINE);
+      if (!pixels.has(neighbour)) {
+        pixels.set(neighbour, OUTLINE);
+      }
     }
   }
 }
 
 function toTexture(pixels: PixelMap): Texture {
   const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = CANVAS_SIZE;
+  canvas.width = CANVAS_SIZE;
+  canvas.height = CANVAS_SIZE;
   const context = canvas.getContext("2d");
   if (context) {
     for (const [key, colour] of pixels) {
@@ -65,17 +69,21 @@ function toTexture(pixels: PixelMap): Texture {
 // An arrow pointing along `angle` (radians, screen space): the tip at +7 pixels from the centre, the nock at -6.
 function arrowPixels(angle: number): PixelMap {
   const pixels: PixelMap = new Map();
-  const alongX = Math.cos(angle),
-    alongY = Math.sin(angle);
-  const acrossX = -alongY,
-    acrossY = alongX;
+  const alongX = Math.cos(angle);
+  const alongY = Math.sin(angle);
+  const acrossX = -alongY;
+  const acrossY = alongX;
   const pointAt = (along: number, across: number): [number, number] => [
     CENTRE + alongX * along + acrossX * across,
     CENTRE + alongY * along + acrossY * across,
   ];
-  for (let along = -6; along <= 4; along += 0.5) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.shaft);
+  for (let along = -6; along <= 4; along += 0.5) {
+    setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.shaft);
+  }
   // a broad leaf-shaped head: two pixels of point, then a barb on each side
-  for (const along of [5, 6, 7]) setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.head);
+  for (const along of [5, 6, 7]) {
+    setPixel(pixels, ...pointAt(along, 0), ARROW_COLOURS.head);
+  }
   for (const side of [1, -1]) {
     setPixel(pixels, ...pointAt(5, side), ARROW_COLOURS.head);
     setPixel(pixels, ...pointAt(4, side), ARROW_COLOURS.headShade);
@@ -93,7 +101,9 @@ function stonePixels(): PixelMap {
   STONE_PIXELS.forEach((line, row) => {
     [...line].forEach((symbol, column) => {
       const colour = STONE_COLOURS[symbol];
-      if (colour) setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
+      if (colour) {
+        setPixel(pixels, CENTRE - 2 + column, CENTRE - 2 + row, colour);
+      }
     });
   });
   return pixels;

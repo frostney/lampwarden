@@ -19,7 +19,10 @@ export function quantise(input: Input): Input {
 export class Replayer {
   private nextRow = 0;
   private current: Input = { moveX: 0, moveY: 0, melee: false, ranged: false, aim: null };
-  constructor(public play: Play) {}
+  readonly play: Play;
+  constructor(play: Play) {
+    this.play = play;
+  }
   input(stepIndex: number): Input {
     const rows = this.play.inputs;
     let edge = false;
@@ -68,7 +71,9 @@ export function verifyPlay(play: Play): { state: State; endsMatch: boolean } {
   const state = newNight(legacyOf(play), play.seed, creatureOf(play));
   const replayer = new Replayer(play);
   let stepIndex = 0;
-  for (; stepIndex < play.steps && !state.outcome; stepIndex++) step(state, STEP, replayer.input(stepIndex));
+  for (; stepIndex < play.steps && !state.outcome; stepIndex++) {
+    step(state, STEP, replayer.input(stepIndex));
+  }
   const endsMatch =
     state.outcome === play.outcome &&
     stepIndex === play.steps &&

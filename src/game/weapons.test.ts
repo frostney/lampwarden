@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { endWarden, heirAs, newLegacy, UPGRADE_IDS } from "./legacy";
+
+import { endWarden, heirAs, newLegacy } from "./legacy";
+import { UPGRADE_IDS } from "./levels";
 import { shopSex, upgradeView } from "./weapons";
 
 const SONS_WEAPONS = /arrow|quiver|blade|sword|\bbow\b|xiphos/i;
@@ -17,7 +19,9 @@ describe("upgradeView", () => {
 
   test("the upgrades that are not about a weapon read the same for both", () => {
     for (const id of UPGRADE_IDS) {
-      if (id === "blade" || id === "quiver") continue;
+      if (id === "blade" || id === "quiver") {
+        continue;
+      }
       expect(upgradeView(id, "female")).toEqual(upgradeView(id, "male"));
     }
   });

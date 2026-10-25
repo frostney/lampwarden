@@ -1,12 +1,16 @@
 "use client";
+
 // "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one, and
 // under it one line for the building that will stand on the coming night's plaza ("Raised on the plaza tonight: …"), when
 // there is one. Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever
 // an announcement: nothing here has to finish before the night can begin.
+
 import { useEffect, useRef } from "react";
+
 import type { RaisedTonight } from "@/game/building-sea";
 import { creatureSpritePath, type JobStep } from "@/game/creature";
 import type { Tonight } from "@/game/sea";
+import { ALPHA_BYTE, BYTES_PER_PIXEL } from "@/lib/pixels";
 
 const STEP_TEXT: Record<JobStep, string> = {
   queued: "the tide gathers",
@@ -26,13 +30,15 @@ interface SeaSendsProps {
 }
 
 export function SeaSends({ tonight, raised, onSpriteBroken }: SeaSendsProps) {
-  if (tonight.kind === "none" && raised.kind !== "ready") return null;
+  if (tonight.kind === "none" && raised.kind !== "ready") {
+    return null;
+  }
   // one block, so the title scroll's grid gives the announcements one row and not two
   return (
     <div className="sea-sends">
-      <TheCreature tonight={tonight} onSpriteBroken={onSpriteBroken} />
+      <TheCreature onSpriteBroken={onSpriteBroken} tonight={tonight} />
       {raised.kind === "ready" && (
-        <p className="raised" data-line data-state="ready" data-building={raised.building.id}>
+        <p className="raised" data-building={raised.building.id} data-line={true} data-state="ready">
           Raised on the plaza tonight: <b className="raised-name">{raised.building.name}</b>
         </p>
       )}
@@ -45,11 +51,11 @@ function TheCreature({ tonight, onSpriteBroken }: Pick<SeaSendsProps, "tonight" 
     const { creature } = tonight;
     return (
       <section
-        className="sea"
-        data-line
-        data-state="ready"
-        data-creature={creature.id}
         aria-label="The creature coming tonight"
+        className="sea"
+        data-creature={creature.id}
+        data-line={true}
+        data-state="ready"
       >
         <CreaturePortrait creatureId={creature.id} onBroken={onSpriteBroken} />
         <div className="sea-text">
@@ -60,9 +66,9 @@ function TheCreature({ tonight, onSpriteBroken }: Pick<SeaSendsProps, "tonight" 
       </section>
     );
   }
-  if (tonight.kind === "generating")
+  if (tonight.kind === "generating") {
     return (
-      <section className="sea" data-line data-state="generating" data-step={tonight.step} aria-live="polite">
+      <section aria-live="polite" className="sea" data-line={true} data-state="generating" data-step={tonight.step}>
         <div className="sea-text">
           <span className="sea-label">The sea is shaping something…</span>
           <span className="sea-lore">{STEP_TEXT[tonight.step]}</span>
@@ -70,6 +76,7 @@ function TheCreature({ tonight, onSpriteBroken }: Pick<SeaSendsProps, "tonight" 
         </div>
       </section>
     );
+  }
   return null;
 }
 
@@ -78,38 +85,50 @@ function TheCreature({ tonight, onSpriteBroken }: Pick<SeaSendsProps, "tonight" 
 const PORTRAIT_HEIGHT = 72;
 const OPAQUE = 128;
 
+// The box around a picture's opaque pixels, or null when it has none.
+function opaqueBounds({ data, width, height }: ImageData) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if ((data[(y * width + x) * BYTES_PER_PIXEL + ALPHA_BYTE] ?? 0) >= OPAQUE) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  return right < 0 ? null : { left, top, right, bottom };
+}
+
 function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBroken: (creatureId: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const image = new window.Image();
     let current = true;
     image.onerror = () => {
-      if (current) onBroken(creatureId);
+      if (current) {
+        onBroken(creatureId);
+      }
     };
     image.onload = () => {
       const canvas = canvasRef.current;
       const context = canvas?.getContext("2d", { willReadFrequently: true });
-      if (!current || !canvas || !context) return;
+      if (!current || !canvas || !context) {
+        return;
+      }
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
       context.drawImage(image, 0, 0);
-      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-      let left = canvas.width;
-      let top = canvas.height;
-      let right = -1;
-      let bottom = -1;
-      for (let y = 0; y < canvas.height; y++)
-        for (let x = 0; x < canvas.width; x++)
-          if ((data[(y * canvas.width + x) * 4 + 3] ?? 0) >= OPAQUE) {
-            left = Math.min(left, x);
-            right = Math.max(right, x);
-            top = Math.min(top, y);
-            bottom = Math.max(bottom, y);
-          }
-      if (right < 0) {
+      const bounds = opaqueBounds(context.getImageData(0, 0, canvas.width, canvas.height));
+      if (!bounds) {
         onBroken(creatureId);
         return;
       }
+      const { left, top, right, bottom } = bounds;
       const width = right - left + 1;
       const height = bottom - top + 1;
       const scale = Math.max(1, Math.floor(PORTRAIT_HEIGHT / height));
@@ -127,5 +146,6 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
       current = false;
     };
   }, [creatureId, onBroken]);
-  return <canvas ref={canvasRef} className="sea-sprite" data-src={creatureSpritePath(creatureId)} aria-hidden />;
+  // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without a tabIndex is not focusable; the portrait is decoration
+  return <canvas aria-hidden={true} className="sea-sprite" data-src={creatureSpritePath(creatureId)} ref={canvasRef} />;
 }

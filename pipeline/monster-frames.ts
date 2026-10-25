@@ -11,14 +11,19 @@
 // usage: bun --no-env-file pipeline/monster-frames.ts [--vcpus 8]
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+
+import { MILLISECONDS_PER_SECOND } from "../src/lib/units";
 import { SHEET_KINDS } from "../src/scene/monster-sheets";
 import { countOption } from "./cli-options";
 import { canvasOfStill, renderFrameSet } from "./creature-frames";
 import { MONSTER_FRAMES_FILE, monsterAtlasFile, monsterCodePath } from "./monster-source";
 import { renderBatchFromCheckout } from "./render-checkout";
 
+const SCALE_DIGITS = 3; // the canvas scale, as the report prints it
+const DEFAULT_VCPUS = 8;
+
 const { values } = parseArgs({ options: { vcpus: { type: "string" } } });
-const vcpus = countOption("vcpus", values.vcpus, 8);
+const vcpus = countOption("vcpus", values.vcpus, DEFAULT_VCPUS);
 
 const codes = SHEET_KINDS.map((kind) => ({ kind, code: readFileSync(monsterCodePath(kind), "utf8") }));
 
@@ -31,28 +36,32 @@ const stills = await renderBatchFromCheckout(
 const written = await Promise.all(
   codes.map(async ({ kind, code }, index) => {
     const still = stills[index];
-    if (!still?.ok) throw new Error(`${kind}: its still did not render: ${still?.error ?? "no result"}`);
+    if (!still?.ok) {
+      throw new Error(`${kind}: its still did not render: ${still?.error ?? "no result"}`);
+    }
     const started = performance.now();
     const set = await renderFrameSet(
       (requests) => renderBatchFromCheckout(requests, { vcpus }),
       code,
       canvasOfStill(still.stats),
     );
-    if (!set.ok) throw new Error(`${kind}: ${set.kind}: ${set.reason}`);
-    if (!set.frames.directions)
+    if (!set.ok) {
+      throw new Error(`${kind}: ${set.kind}: ${set.reason}`);
+    }
+    if (!set.frames.directions) {
       throw new Error(`${kind} could not be drawn from every side (${set.earlier.join(", ")})`);
-    return { kind, set, seconds: (performance.now() - started) / 1000 };
+    }
+    return { kind, set, seconds: (performance.now() - started) / MILLISECONDS_PER_SECOND };
   }),
 );
 
-const recorded: Record<string, { canvas: { scale: number; dx: number; dy: number }; shifts: Array<[number, number]> }> =
-  {};
+const recorded: Record<string, { canvas: { scale: number; dx: number; dy: number }; shifts: [number, number][] }> = {};
 for (const { kind, set, seconds } of written) {
   writeFileSync(monsterAtlasFile(kind), set.atlas);
   recorded[kind] = { canvas: set.canvas, shifts: set.frames.shifts ?? Array.from({ length: 75 }, () => [0, 0]) };
   const slid = (set.frames.shifts ?? []).filter(([across, down]) => across !== 0 || down !== 0).length;
   console.log(
-    `wrote ${monsterAtlasFile(kind)} (${set.atlas.length} bytes, ${set.batches} batch${set.batches === 1 ? "" : "es"} in ${seconds.toFixed(1)} s, canvas scale ${set.canvas.scale.toFixed(3)} shift ${set.canvas.dx},${set.canvas.dy}, ${slid} frames slid)`,
+    `wrote ${monsterAtlasFile(kind)} (${set.atlas.length} bytes, ${set.batches} batch${set.batches === 1 ? "" : "es"} in ${seconds.toFixed(1)} s, canvas scale ${set.canvas.scale.toFixed(SCALE_DIGITS)} shift ${set.canvas.dx},${set.canvas.dy}, ${slid} frames slid)`,
   );
 }
 writeFileSync(MONSTER_FRAMES_FILE, `${JSON.stringify(recorded, null, 2)}\n`);

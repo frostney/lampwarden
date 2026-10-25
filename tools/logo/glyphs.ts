@@ -2,6 +2,7 @@
 // The text is drawn at 10x and sampled at each pixel's centre, so a font drawn on the requested pixel grid comes out
 // exact; any half-covered sample means the font or size is off-grid, and the build stops.
 import { readFileSync } from "node:fs";
+
 import { chromium } from "playwright";
 
 export interface TextRequest {
@@ -15,9 +16,25 @@ export interface TextRequest {
 /** Rows of '#' (ink) and '.' (empty), cropped to the ink, keeping up to two columns of left side bearing. */
 export type TextMask = readonly string[];
 
-interface RasterisedText {
-  readonly rows: string[];
-  readonly ambiguousSamples: number;
+// the alpha of the sample at the middle of each pixel, row by row, `width` to a row
+interface SampledText {
+  readonly alphas: number[];
+  readonly width: number;
+}
+
+// The '#'/'.' rows of a sampled text, and how many samples were neither clearly ink nor clearly paper.
+function maskOf(alphas: readonly number[], width: number): { rows: string[]; ambiguousSamples: number } {
+  const rows: string[] = [];
+  for (let start = 0; start < alphas.length; start += width) {
+    rows.push(
+      alphas
+        .slice(start, start + width)
+        .map((alpha) => (alpha >= 128 ? "#" : "."))
+        .join(""),
+    );
+  }
+  const ambiguousSamples = alphas.filter((alpha) => alpha > 20 && alpha < 235).length;
+  return { rows, ambiguousSamples };
 }
 
 export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<TextMask[]> {
@@ -29,9 +46,9 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
-    const results = await page.evaluate(async (pageJobs): Promise<RasterisedText[]> => {
+    const results = await page.evaluate(async (pageJobs): Promise<SampledText[]> => {
       const supersample = 10;
-      const output: RasterisedText[] = [];
+      const output: SampledText[] = [];
       for (const [index, { text, pixelSize, fontBase64 }] of pageJobs.entries()) {
         const family = `logo-font-${index}`;
         const fontFace = new FontFace(family, `url(data:font/ttf;base64,${fontBase64})`);
@@ -43,29 +60,25 @@ export async function rasteriseTexts(requests: readonly TextRequest[]): Promise<
         canvas.width = width * supersample;
         canvas.height = height * supersample;
         const context = canvas.getContext("2d");
-        if (!context) throw new Error("No 2D canvas context");
+        if (!context) {
+          throw new Error("No 2D canvas context");
+        }
         context.font = `${pixelSize * supersample}px ${family}`;
         context.fillStyle = "#000";
         context.fillText(text, 2 * supersample, Math.round(pixelSize * 1.25) * supersample);
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        const rows: string[] = [];
-        let ambiguousSamples = 0;
-        for (let y = 0; y < height; y++) {
-          let row = "";
-          for (let x = 0; x < width; x++) {
-            const sampleY = y * supersample + supersample / 2;
-            const sampleX = x * supersample + supersample / 2;
-            const alpha = pixels[(sampleY * canvas.width + sampleX) * 4 + 3] ?? 0;
-            if (alpha > 20 && alpha < 235) ambiguousSamples++;
-            row += alpha >= 128 ? "#" : ".";
-          }
-          rows.push(row);
-        }
-        output.push({ rows, ambiguousSamples });
+        // each pixel is the sample at its middle
+        const alphas = Array.from({ length: width * height }, (_, cell) => {
+          const sampleY = Math.floor(cell / width) * supersample + supersample / 2;
+          const sampleX = (cell % width) * supersample + supersample / 2;
+          return pixels[(sampleY * canvas.width + sampleX) * 4 + 3] ?? 0;
+        });
+        output.push({ alphas, width });
       }
       return output;
     }, jobs);
-    return results.map(({ rows, ambiguousSamples }, index) => {
+    return results.map(({ alphas, width }, index) => {
+      const { rows, ambiguousSamples } = maskOf(alphas, width);
       if (ambiguousSamples > 0) {
         throw new Error(`"${requests[index]?.text}" is off the pixel grid (${ambiguousSamples} half-covered samples)`);
       }

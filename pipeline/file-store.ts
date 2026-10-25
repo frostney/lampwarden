@@ -3,7 +3,9 @@
 // function uses none of this (its filesystem is read-only); it gives the loop its own store.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
 import { z } from "zod";
+
 import type { LoopOutcome, LoopStore } from "./loop";
 
 export function createFileStore(paths: { workDirectory: string; logPath: string }): LoopStore {
@@ -24,7 +26,7 @@ export function createFileStore(paths: { workDirectory: string; logPath: string 
 }
 
 const manifestSchema = z.record(z.string(), z.unknown());
-const spritesSchema = z.record(z.string(), z.unknown());
+const spritesSchema = z.record(z.string(), z.unknown()).default({});
 
 function writeManifestRow(outputDirectory: string, spriteName: string, entry: Record<string, unknown>): void {
   const manifestPath = join(outputDirectory, "manifest.json");
@@ -32,7 +34,7 @@ function writeManifestRow(outputDirectory: string, spriteName: string, entry: Re
   const manifest = existsSync(manifestPath)
     ? manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
     : { sprites: {} };
-  manifest.sprites = { ...spritesSchema.parse(manifest.sprites ?? {}), [spriteName]: entry };
+  manifest.sprites = { ...spritesSchema.parse(manifest.sprites), [spriteName]: entry };
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
 }
 

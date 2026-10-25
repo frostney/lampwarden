@@ -7,6 +7,8 @@
 // body still on its way is not cut.
 import { get, head, list, put } from "@vercel/blob";
 
+import { HTTP_OK } from "@/lib/units";
+
 const BLOB_DEADLINE_MS = 10_000;
 
 /** Raised when a Blob call does not answer within the deadline. */
@@ -70,7 +72,9 @@ export const blobGet = (pathname: string, options: GetOptions) =>
 export const blobGetText = (pathname: string, options: GetOptions) =>
   withinDeadline(async (abortSignal) => {
     const blob = await get(pathname, { ...options, abortSignal });
-    if (blob?.statusCode !== 200) return null;
+    if (blob?.statusCode !== HTTP_OK) {
+      return null;
+    }
     return { text: await new Response(blob.stream).text(), version: blob.blob.etag };
   });
 

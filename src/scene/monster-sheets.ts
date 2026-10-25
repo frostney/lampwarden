@@ -6,8 +6,9 @@
 // a frame that far the other way. Kept out of assets.ts, which the sim fingerprint covers, because frames are only ever
 // drawn.
 import { z } from "zod";
+
 import { CREATURE_ALL_DIRECTIONS, type CreatureFrames, creatureFramesSchema } from "../game/creature-frames";
-import recorded from "./monster-frames.json";
+import recorded from "./monster-frames.json" with { type: "json" };
 
 export const SHEET_KINDS = ["satyr", "cyclops", "harpy"] as const;
 export type SheetKind = (typeof SHEET_KINDS)[number];

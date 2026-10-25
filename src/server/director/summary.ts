@@ -4,20 +4,29 @@
 // The play has no positions, so "where the warden was when a lamp went dark" is not here; what the timeline does give
 // is when each lamp went dark, how the crowd grew and how health fell.
 import { z } from "zod";
+
 import { recordedCreatureSchema } from "@/game/creature";
-import { directorFrom, type EngagementKind, mayEase, tideRange } from "@/game/director";
+import { tideRange } from "@/game/director";
+import { directorFrom, type EngagementKind, mayEase } from "@/game/director-decision";
 import { type Engagement, engagementOf, heldTide } from "@/game/engagement";
-import { levelsOf, UPGRADE_IDS } from "@/game/legacy";
+import { levelsOf, UPGRADE_IDS } from "@/game/levels";
 import { PLAY_ID } from "@/game/plays";
 import { LAMP_SPOTS, nightLength, rulesTide } from "@/game/sim";
+import { SECONDS_PER_DAY } from "@/lib/units";
 
 const finite = z.number().finite();
 const TIMELINE_SAMPLE_SECONDS = 5;
+// the most a stored play may hold: characters of session, rows of timeline and of inputs
+const SESSION_MAX = 80;
+const TIMELINE_MAX = 1000;
+const INPUTS_MAX = 60_000;
+const CROWD_AT_SECOND = 15; // the second whose crowd the summary reports
+const WENT_DARK_LISTED = 12; // lamps that went dark, at most, listed one by one
 
 /** The parts of a stored recording the director reads. Everything else in it is ignored. */
 export const storedPlaySchema = z.looseObject({
   id: z.string().regex(PLAY_ID),
-  session: z.string().max(80),
+  session: z.string().max(SESSION_MAX),
   legacy: z.looseObject({
     night: z.number().int().min(1),
     generation: z.number().int().min(1),
@@ -28,12 +37,12 @@ export const storedPlaySchema = z.looseObject({
   }),
   creature: recordedCreatureSchema.optional(),
   // [second, kills, lampsLit, health, monsters, lampsLost]
-  timeline: z.array(z.tuple([finite, finite, finite, finite, finite, finite])).max(1000),
+  timeline: z.array(z.tuple([finite, finite, finite, finite, finite, finite])).max(TIMELINE_MAX),
   outcome: z.enum(["dawn", "dark", "fallen"]).nullable(),
   // [step, moveX, moveY, strike, shot, aimX, aimY] when the input changed: what says whether the player was there
-  inputs: z.array(z.array(finite)).max(60_000),
+  inputs: z.array(z.array(finite)).max(INPUTS_MAX),
   steps: finite,
-  hiddenSeconds: z.number().min(0).max(86_400).optional(),
+  hiddenSeconds: z.number().min(0).max(SECONDS_PER_DAY).optional(),
   stats: z.looseObject({
     kills: finite,
     lampsLost: finite,
@@ -83,8 +92,11 @@ export function summarise(
   let lampSecondsDark = 0;
   let before = lampCount;
   for (const [second, , lit] of timeline) {
-    if (lit < before) wentDark.push({ atSecond: second, lampsLitAfter: lit });
-    else if (lit > before) relit += lit - before;
+    if (lit < before) {
+      wentDark.push({ atSecond: second, lampsLitAfter: lit });
+    } else if (lit > before) {
+      relit += lit - before;
+    }
     lampSecondsDark += lampCount - lit;
     before = lit;
   }
@@ -93,9 +105,11 @@ export function summarise(
   let lowestHealth = { atSecond: 0, health: stats.maxHp };
   for (const [second, , , health, monsters] of timeline) {
     peakMonsters = Math.max(peakMonsters, monsters);
-    if (health < lowestHealth.health) lowestHealth = { atSecond: second, health };
+    if (health < lowestHealth.health) {
+      lowestHealth = { atSecond: second, health };
+    }
   }
-  const monstersAtFifteen = timeline.find(([second]) => second === 15)?.[4] ?? null;
+  const monstersAtFifteen = timeline.find(([second]) => second === CROWD_AT_SECOND)?.[4] ?? null;
 
   const upgrades = levelsOf(legacy.levels);
   const upgradeLevels = Object.fromEntries(
@@ -143,7 +157,7 @@ export function summarise(
       litAtEnd: stats.lit,
       lostCount: stats.lampsLost,
       relightedCount: relit,
-      wentDark: wentDark.slice(0, 12),
+      wentDark: wentDark.slice(0, WENT_DARK_LISTED),
       lampSecondsDark,
     },
     health: {

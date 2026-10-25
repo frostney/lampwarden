@@ -9,10 +9,10 @@ export default function ErrorPage({ reset }: { error: Error & { digest?: string 
       <div className="stage">
         <div className="hud">
           <FailurePanel
-            title="THE LAMPS WENT OUT"
-            message="Something went wrong, and the page could not carry on."
             action="Try again"
+            message="Something went wrong, and the page could not carry on."
             onAction={reset}
+            title="THE LAMPS WENT OUT"
           />
         </div>
       </div>

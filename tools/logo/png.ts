@@ -1,16 +1,21 @@
 // Minimal PNG (8-bit RGBA) encoder and decoder, and an ICO container that embeds PNG frames.
 import { deflateSync, inflateSync } from "node:zlib";
+
 import { PixelImage } from "./image";
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
   let value = index;
-  for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  for (let bit = 0; bit < 8; bit++) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
   return value;
 });
 
 function crc32(bytes: Uint8Array): number {
   let value = -1;
-  for (const byte of bytes) value = (crcTable[(value ^ byte) & 255] ?? 0) ^ (value >>> 8);
+  for (const byte of bytes) {
+    value = (crcTable[(value ^ byte) & 255] ?? 0) ^ (value >>> 8);
+  }
   return (value ^ -1) >>> 0;
 }
 
@@ -28,8 +33,9 @@ const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 export function encodePng(image: PixelImage): Buffer {
   const stride = image.width * 4;
   const filtered = Buffer.alloc((stride + 1) * image.height); // filter byte 0 (none) on every row
-  for (let y = 0; y < image.height; y++)
+  for (let y = 0; y < image.height; y++) {
     filtered.set(image.data.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+  }
   const header = Buffer.alloc(13);
   header.writeUInt32BE(image.width, 0);
   header.writeUInt32BE(image.height, 4);
@@ -43,10 +49,34 @@ export function encodePng(image: PixelImage): Buffer {
   ]);
 }
 
-/** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
-export function decodePng(bytes: Buffer): PixelImage {
-  let width = 0,
-    height = 0;
+/** The byte a scanline's filter adds back: none, left, above, their average, or Paeth's pick of the three. */
+function predictorFor(filter: number | undefined, left: number, above: number, aboveLeft: number): number {
+  if (filter === 1) {
+    return left;
+  }
+  if (filter === 2) {
+    return above;
+  }
+  if (filter === 3) {
+    return (left + above) >> 1;
+  }
+  if (filter === 4) {
+    const estimate = left + above - aboveLeft;
+    const distanceLeft = Math.abs(estimate - left);
+    const distanceAbove = Math.abs(estimate - above);
+    const distanceAboveLeft = Math.abs(estimate - aboveLeft);
+    if (distanceLeft <= distanceAbove && distanceLeft <= distanceAboveLeft) {
+      return left;
+    }
+    return distanceAbove <= distanceAboveLeft ? above : aboveLeft;
+  }
+  return 0;
+}
+
+/** A PNG's size from its header and its compressed image data, from its chunks. */
+function readChunks(bytes: Buffer): { width: number; height: number; compressed: Buffer[] } {
+  let width = 0;
+  let height = 0;
   const compressed: Buffer[] = [];
   for (let position = 8; position < bytes.length; ) {
     const length = bytes.readUInt32BE(position);
@@ -56,10 +86,19 @@ export function decodePng(bytes: Buffer): PixelImage {
     if (type === "IHDR") {
       width = contents.readUInt32BE(0);
       height = contents.readUInt32BE(4);
-      if (contents[8] !== 8 || contents[9] !== 6 || contents[12] !== 0)
+      if (contents[8] !== 8 || contents[9] !== 6 || contents[12] !== 0) {
         throw new Error("Only non-interlaced 8-bit RGBA PNGs are supported");
-    } else if (type === "IDAT") compressed.push(contents);
+      }
+    } else if (type === "IDAT") {
+      compressed.push(contents);
+    }
   }
+  return { width, height, compressed };
+}
+
+/** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
+export function decodePng(bytes: Buffer): PixelImage {
+  const { width, height, compressed } = readChunks(bytes);
   const filtered = inflateSync(Buffer.concat(compressed));
   const image = new PixelImage(width, height);
   const stride = width * 4;
@@ -72,23 +111,7 @@ export function decodePng(bytes: Buffer): PixelImage {
       const left = index >= 4 ? (current[index - 4] ?? 0) : 0;
       const above = previous[index] ?? 0;
       const aboveLeft = index >= 4 ? (previous[index - 4] ?? 0) : 0;
-      let predictor = 0;
-      if (filter === 1) predictor = left;
-      else if (filter === 2) predictor = above;
-      else if (filter === 3) predictor = (left + above) >> 1;
-      else if (filter === 4) {
-        const estimate = left + above - aboveLeft;
-        const distanceLeft = Math.abs(estimate - left),
-          distanceAbove = Math.abs(estimate - above),
-          distanceAboveLeft = Math.abs(estimate - aboveLeft);
-        predictor =
-          distanceLeft <= distanceAbove && distanceLeft <= distanceAboveLeft
-            ? left
-            : distanceAbove <= distanceAboveLeft
-              ? above
-              : aboveLeft;
-      }
-      current[index] = ((row[index] ?? 0) + predictor) & 255;
+      current[index] = ((row[index] ?? 0) + predictorFor(filter, left, above, aboveLeft)) & 255;
     }
     image.data.set(current, y * stride);
     previous.set(current);

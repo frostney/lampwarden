@@ -1,15 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import {
-  clampProposal,
-  directorSchema,
-  type EngagementKind,
-  EVEN_MIX,
-  mayEase,
-  type Proposal,
-  rulesDirector,
-  tideRange,
-} from "./director";
+
+import { clampProposal, type Proposal, tideRange } from "./director";
+import { directorSchema, type EngagementKind, EVEN_MIX, mayEase, rulesDirector } from "./director-decision";
 import { engagementOf, heldTide, type RecordedEngagement } from "./engagement";
 import { applyDirector, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
 import { rulesTide } from "./sim";
@@ -30,8 +23,12 @@ const row = (step: number, moveX: number, moveY: number, strike = 0, shot = 0): 
 function night(movingSteps: number, actions: number, overrides: Partial<RecordedEngagement> = {}): RecordedEngagement {
   const steps = 2400;
   const rows: Row[] = [row(0, movingSteps > 0 ? 1 : 0, 0)];
-  if (movingSteps > 0 && movingSteps < steps) rows.push(row(movingSteps, 0, 0));
-  for (let action = 0; action < actions; action++) rows.push(row(movingSteps + 10 + action * 5, 0, 0, 1, 0));
+  if (movingSteps > 0 && movingSteps < steps) {
+    rows.push(row(movingSteps, 0, 0));
+  }
+  for (let action = 0; action < actions; action++) {
+    rows.push(row(movingSteps + 10 + action * 5, 0, 0, 1, 0));
+  }
   rows.sort((first, second) => first[0] - second[0]);
   return { inputs: rows, steps, outcome: "dark", ...overrides };
 }
@@ -170,21 +167,24 @@ describe("nothing gets easier after a night nobody played", () => {
   });
 
   test("whatever the model returns, an idle night never eases", () => {
-    for (const tide of [-3, 0, 0.4, 0.84, 0.99, 1, 1.07, 9])
-      for (const weight of [-1, 0, 0.5, 0.99, 1, 1.5, 7])
-        for (const share of [0, 0.1, 0.2, 0.25, 0.3, 1]) {
-          const decision = clampProposal(
-            proposal({ tide, mix: { satyr: weight, cyclops: weight, harpy: weight }, creatureShare: share }),
-            1,
-            2,
-            undefined,
-            "idle",
-          );
-          if (!decision) throw new Error("no decision");
-          expect(decision.tide).toBeGreaterThanOrEqual(1);
-          for (const mix of Object.values(decision.mix)) expect(mix).toBeGreaterThanOrEqual(1);
-          expect(decision.creatureShare).toBeGreaterThanOrEqual(0.25);
-        }
+    const proposals = [-3, 0, 0.4, 0.84, 0.99, 1, 1.07, 9].flatMap((tide) =>
+      [-1, 0, 0.5, 0.99, 1, 1.5, 7].flatMap((weight) =>
+        [0, 0.1, 0.2, 0.25, 0.3, 1].map((share) =>
+          proposal({ tide, mix: { satyr: weight, cyclops: weight, harpy: weight }, creatureShare: share }),
+        ),
+      ),
+    );
+    for (const proposed of proposals) {
+      const decision = clampProposal(proposed, 1, 2, undefined, "idle");
+      if (!decision) {
+        throw new Error("no decision");
+      }
+      expect(decision.tide).toBeGreaterThanOrEqual(1);
+      for (const mix of Object.values(decision.mix)) {
+        expect(mix).toBeGreaterThanOrEqual(1);
+      }
+      expect(decision.creatureShare).toBeGreaterThanOrEqual(0.25);
+    }
   });
 
   test("an engaged night, and one with no engagement on record, can still ease (as far as the bounds allow)", () => {
@@ -198,7 +198,9 @@ describe("nothing gets easier after a night nobody played", () => {
     expect(tideRange(1)).toEqual([0.85, 1.15]);
     expect(mayEase(undefined)).toBe(true);
     expect(mayEase("engaged")).toBe(true);
-    for (const kind of away) expect(mayEase(kind)).toBe(false);
+    for (const kind of away) {
+      expect(mayEase(kind)).toBe(false);
+    }
   });
 
   test("a stored decision that eases after such a night does not validate, so it loads as the rules'", () => {
@@ -227,7 +229,9 @@ describe("nothing gets easier after a night nobody played", () => {
     };
     const eased = rulesTide(1.1, loss);
     expect(eased).toBe(0.94);
-    for (const kind of away) expect(heldTide(1.1, eased, kind)).toBe(1.1); // an idle, paused or left loss holds the tide
+    for (const kind of away) {
+      expect(heldTide(1.1, eased, kind)).toBe(1.1); // an idle, paused or left loss holds the tide
+    }
     expect(heldTide(1.1, eased, "engaged")).toBe(0.94); // an engaged loss still eases
     expect(heldTide(1.1, eased, undefined)).toBe(0.94); // so does a night with no engagement on record (an old save)
     // a dawn never eased, and a push after a night nobody played is kept
@@ -277,6 +281,8 @@ describe.skipIf(!existsSync(REAL_PLAYS))("the recorded plays on this machine", (
   const plays: RecordedEngagement[] = JSON.parse(existsSync(REAL_PLAYS) ? readFileSync(REAL_PLAYS, "utf8") : "[]");
   test("every night played to its end is engaged, every night left early is left, and none is idle or paused", () => {
     expect(plays).toHaveLength(9);
-    for (const play of plays) expect(engagementOf(play).kind).toBe(play.outcome === null ? "left" : "engaged");
+    for (const play of plays) {
+      expect(engagementOf(play).kind).toBe(play.outcome === null ? "left" : "engaged");
+    }
   });
 });

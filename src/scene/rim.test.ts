@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { decodePng } from "../../tools/logo/png";
 import { isCharacterKey, paintedShadowPixels, rimPixels, withoutShadowPixels } from "./rim";
 
@@ -12,7 +13,11 @@ function sprite() {
     const index = (row * SIZE + column) * 4;
     pixels.set([90, 60, 40, alpha], index);
   };
-  for (let row = 2; row <= 4; row++) for (let column = 2; column <= 4; column++) set(column, row, 255);
+  for (let row = 2; row <= 4; row++) {
+    for (let column = 2; column <= 4; column++) {
+      set(column, row, 255);
+    }
+  }
   set(5, 5, 120);
   return pixels;
 }
@@ -36,9 +41,11 @@ describe("paintedShadowPixels", () => {
       new Uint8Array([Math.round((90 * 120) / 255), Math.round((60 * 120) / 255), Math.round((40 * 120) / 255)]),
     );
     const clean = withoutShadowPixels(sprite());
-    for (let column = 0; column < SIZE; column++)
-      for (let row = 0; row < SIZE; row++)
+    for (let column = 0; column < SIZE; column++) {
+      for (let row = 0; row < SIZE; row++) {
         expect((alphaAt(shadow, column, row) ?? 0) > 0 && (alphaAt(clean, column, row) ?? 0) > 0).toBe(false);
+      }
+    }
   });
 });
 
@@ -58,9 +65,13 @@ describe("rimPixels", () => {
   const rimAt = (octant: number) => {
     const rim = rimPixels(withoutShadowPixels(sprite()), SIZE, SIZE, octant);
     const edge: string[] = [];
-    for (let row = 0; row < SIZE; row++)
-      for (let column = 0; column < SIZE; column++)
-        if (alphaAt(rim, column, row) === 255) edge.push(`${column},${row}`);
+    for (let row = 0; row < SIZE; row++) {
+      for (let column = 0; column < SIZE; column++) {
+        if (alphaAt(rim, column, row) === 255) {
+          edge.push(`${column},${row}`);
+        }
+      }
+    }
     return edge;
   };
 

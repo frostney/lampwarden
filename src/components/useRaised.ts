@@ -3,6 +3,7 @@
 // creature (useTonight.ts) it never blocks play: while it is asking, when nothing is coming and when the network fails,
 // the answer is "none" and the night has the plaza it always had.
 import { useEffect, useState, useSyncExternalStore } from "react";
+
 import { createBuildingSea } from "@/game/building-sea";
 
 export function useRaised() {

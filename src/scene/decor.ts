@@ -195,7 +195,9 @@ const POLE_HALF_WIDTH = 5;
 
 function extentsOf(key: string): SpriteExtents {
   const extents = SPRITE_EXTENTS[key];
-  if (!extents) throw new Error(`no extents for the sprite ${key}: run bun run decor`);
+  if (!extents) {
+    throw new Error(`no extents for the sprite ${key}: run bun run decor`);
+  }
   return extents;
 }
 
@@ -216,7 +218,9 @@ const MIN_REACH = 1; // iso steps (of BOARD_RISE * 2 across) from the tip to the
 const MAX_REACH = 12;
 function bridgeBoards(tipX: number, tipY: number): Point[] | null {
   const reach = shoreDistance(tipX, tipY) / (BOARD_RISE * 2);
-  if (reach < MIN_REACH || reach > MAX_REACH) return null;
+  if (reach < MIN_REACH || reach > MAX_REACH) {
+    return null;
+  }
   const end = reach - 0.2;
   const count = Math.max(2, Math.round((end * BOARD_RISE * 2) / BOARD_STEP) + 1);
   return Array.from({ length: count }, (_, index): Point => {
@@ -257,16 +261,47 @@ interface Standing {
   group: number; // what a prop may touch: the others of its group
 }
 
+// Why a land prop's base may not stand where it is: too near a lamp's foot, a spawn point or the play area; or null.
+function groundRejection(kind: DecorKind, base: Shape): string | null {
+  if (LAMP_FEET.some((foot) => nearPoint(base, foot, kind.lampRing ?? LAMP_RING))) {
+    return "lamp";
+  }
+  if (SPAWN_GROUND.some((spawn) => nearPoint(base, spawn, SPAWN_GAP))) {
+    return "spawn";
+  }
+  return nearShape(base, LAMP_PENTAGON, PLAY_GAP) ? "play" : null;
+}
+
+// Why a land prop's body, its anchor's y at `y`, would stand in the way of what has to be seen, or null.
+function sightRejection(body: Box, y: number): string | null {
+  // a lantern is not what a prop is seen behind, and a prop in front of a lamp is drawn over its pole
+  for (const [index, lamp] of LAMPS_DRAWN.entries()) {
+    if (boxesNear(body, lamp.lantern, SIGHT_GAP)) {
+      return "lantern";
+    }
+    if (y >= (LAMP_SPOTS[index]?.[1] ?? 0) && boxesNear(body, lamp.pole, SIGHT_GAP)) {
+      return "pole";
+    }
+  }
+  // what stands in front of the lamps stays low, and leaves the warden in view where he starts
+  if (y > FRONT_LAMP && body.right > LAMPS_LEFT && body.left < LAMPS_RIGHT && body.top < FRONT_LAMP - HEADROOM) {
+    return "play";
+  }
+  if (y > WARDEN_START[1] && boxesNear(body, WARDEN_IN_VIEW, 0)) {
+    return "warden";
+  }
+  return null;
+}
+
 class Placement {
   readonly layout: Layout = { props: [], boats: [], ripples: [], planks: [] };
   private readonly standing: Standing[] = [];
   private readonly random: () => number;
   private groups = 0;
   private readonly drawn = new Map<string, number>(); // groups laid out so far, by pool
-  constructor(
-    seed: number,
-    private readonly live: LiveBuilding | null,
-  ) {
+  private readonly live: LiveBuilding | null;
+  constructor(seed: number, live: LiveBuilding | null) {
+    this.live = live;
     this.random = decorStream(seed);
   }
 
@@ -300,30 +335,31 @@ class Placement {
   // Why a land prop may not stand with its anchor at (x, y) as a piece of group `group`, or null when it may.
   rejection(kind: DecorKind, x: number, y: number, group: number): string | null {
     const { hull, solid, sprite } = this.extents(kind.key);
-    if (hull.some(([hullX, hullY]) => plazaInset(x + hullX, y + hullY) < (kind.margin ?? MARGIN))) return "rim";
-    const base = groundShape(solid, x, y);
-    if (LAMP_FEET.some((foot) => nearPoint(base, foot, kind.lampRing ?? LAMP_RING))) return "lamp";
-    if (SPAWN_GROUND.some((spawn) => nearPoint(base, spawn, SPAWN_GAP))) return "spawn";
-    if (nearShape(base, LAMP_PENTAGON, PLAY_GAP)) return "play";
-    // a lantern is not what a prop is seen behind, and a prop in front of a lamp is drawn over its pole
-    const body = boxAt(sprite, x, y);
-    for (const [index, lamp] of LAMPS_DRAWN.entries()) {
-      if (boxesNear(body, lamp.lantern, SIGHT_GAP)) return "lantern";
-      if (y >= (LAMP_SPOTS[index]?.[1] ?? 0) && boxesNear(body, lamp.pole, SIGHT_GAP)) return "pole";
+    if (hull.some(([hullX, hullY]) => plazaInset(x + hullX, y + hullY) < (kind.margin ?? MARGIN))) {
+      return "rim";
     }
-    // what stands in front of the lamps stays low, and leaves the warden in view where he starts
-    if (y > FRONT_LAMP && body.right > LAMPS_LEFT && body.left < LAMPS_RIGHT && body.top < FRONT_LAMP - HEADROOM)
-      return "play";
-    if (y > WARDEN_START[1] && boxesNear(body, WARDEN_IN_VIEW, 0)) return "warden";
+    const base = groundShape(solid, x, y);
+    const body = boxAt(sprite, x, y);
+    return groundRejection(kind, base) ?? sightRejection(body, y) ?? this.crowdRejection(kind, base, body, group);
+  }
+
+  // Why a prop would crowd one already standing (`group` is the arrangement it is a piece of), or null when it would not.
+  private crowdRejection(kind: DecorKind, base: Shape, body: Box, group: number): string | null {
     const clustered = kind.arrange !== undefined && "cluster" in kind.arrange;
     for (const other of this.standing) {
       if (other.group === group) {
         // the pieces of a run stand end to end, but those of a cluster keep a little ground apart
-        if (clustered && nearShape(base, other.base, PIECE_GAP)) return "piece";
+        if (clustered && nearShape(base, other.base, PIECE_GAP)) {
+          return "piece";
+        }
         continue;
       }
-      if (nearShape(base, other.base, PROP_GAP)) return "prop";
-      if (boxesNear(body, other.body, BODY_GAP)) return "body";
+      if (nearShape(base, other.base, PROP_GAP)) {
+        return "prop";
+      }
+      if (boxesNear(body, other.body, BODY_GAP)) {
+        return "body";
+      }
     }
     return null;
   }
@@ -332,10 +368,16 @@ class Placement {
   // has a pier, near enough to the stone to bridge
   private seaworthy(kind: DecorKind, x: number, y: number): boolean {
     const { hull, solid, sprite } = this.extents(kind.key);
-    if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) return false;
-    if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) return false;
+    if (kind.bridge && !bridgeBoards(x + kind.bridge[0], y + kind.bridge[1])) {
+      return false;
+    }
+    if (hull.some(([hullX, hullY]) => shoreDistance(x + hullX, y + hullY) < SEA_GAP)) {
+      return false;
+    }
     const whole = boxAt(sprite, x, y);
-    if (whole.left < 0 || whole.right > STAGE_WIDTH || whole.bottom > STAGE_HEIGHT) return false;
+    if (whole.left < 0 || whole.right > STAGE_WIDTH || whole.bottom > STAGE_HEIGHT) {
+      return false;
+    }
     const base = groundShape(solid, x, y);
     return this.standing.every((other) => !nearShape(base, other.base, PROP_GAP));
   }
@@ -360,9 +402,11 @@ class Placement {
           rim === "back-right"
             ? [CENTRE_X + PLAZA_HALF_WIDTH * along, CENTRE_Y - PLAZA_HALF_HEIGHT + PLAZA_HALF_HEIGHT * along, 1]
             : [CENTRE_X - PLAZA_HALF_WIDTH + PLAZA_HALF_WIDTH * along, CENTRE_Y + PLAZA_HALF_HEIGHT * along, -1];
-        for (let depth = 0; depth <= EDGE_DEPTH; depth += 4)
-          if (this.rejection(kind, Math.round(rimX), Math.round(rimY + inwards * depth), group) === null)
+        for (let depth = 0; depth <= EDGE_DEPTH; depth += 4) {
+          if (this.rejection(kind, Math.round(rimX), Math.round(rimY + inwards * depth), group) === null) {
             return [rimX, rimY + inwards * depth];
+          }
+        }
         return [rimX, rimY];
       }
       case "shore-left": {
@@ -377,8 +421,12 @@ class Placement {
   }
 
   private fits(kind: DecorKind, x: number, y: number, group: number): boolean {
-    if (kind.where === "centre") return true;
-    if (kind.where === "shore-left" || kind.where === "shore-right") return this.seaworthy(kind, x, y);
+    if (kind.where === "centre") {
+      return true;
+    }
+    if (kind.where === "shore-left" || kind.where === "shore-right") {
+      return this.seaworthy(kind, x, y);
+    }
     return this.rejection(kind, x, y, group) === null;
   }
 
@@ -387,8 +435,12 @@ class Placement {
     (kind.bobs ? this.layout.boats : this.layout.props).push(placed);
     const { solid, sprite } = this.extents(kind.key);
     this.standing.push({ base: groundShape(solid, x, y), body: boxAt(sprite, x, y), group });
-    for (const ripple of kind.ripples ?? []) this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
-    if (kind.bridge) this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
+    for (const ripple of kind.ripples ?? []) {
+      this.layout.ripples.push({ ...ripple, x: x + ripple.x, y: y + ripple.y });
+    }
+    if (kind.bridge) {
+      this.layout.planks.push(...(bridgeBoards(x + kind.bridge[0], y + kind.bridge[1]) ?? []));
+    }
   }
 
   // the first spot where a group of `kind` fits, in at most `tries` tries, or null
@@ -396,7 +448,9 @@ class Placement {
     for (let attempt = 0; attempt < tries; attempt++) {
       const [spotX, spotY] = this.spot(kind, group);
       const [x, y] = [Math.round(spotX), Math.round(spotY)];
-      if (this.fits(kind, x, y, group)) return [x, y];
+      if (this.fits(kind, x, y, group)) {
+        return [x, y];
+      }
     }
     return null;
   }
@@ -404,43 +458,77 @@ class Placement {
   place(listed: DecorKind) {
     const required = listed.chance === undefined ? listed.groups[0] : 0;
     for (let wanted = this.count(listed.groups), left = required; wanted > 0; wanted--, left--) {
-      if (listed.chance !== undefined && this.random() >= listed.chance) continue;
-      const limit = listed.pool === undefined ? undefined : POOL_LIMITS[listed.pool];
-      if (listed.pool !== undefined && limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit) continue;
-      // a group is sometimes the listed sprite's replacement; a live building takes the building slot from the committed
-      // sprite, which stands after all when the live one fits nowhere tonight
-      const replaced =
-        listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
-      const committed = replaced === listed.key ? listed : { ...listed, key: replaced };
-      const candidates =
-        this.live && listed.slot === "building" ? [{ ...listed, key: this.live.key }, committed] : [committed];
-      const group = this.groups++;
-      let kind = committed;
-      let first: Point | null = null;
-      for (const candidate of candidates) {
-        kind = candidate;
-        first = this.search(candidate, group, candidate === committed && left > 0 ? TRIES_REQUIRED : TRIES);
-        if (first) break;
+      if (listed.chance !== undefined && this.random() >= listed.chance) {
+        continue;
       }
-      if (!first) continue;
-      if (listed.pool !== undefined) this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
-      this.stand(kind, first[0], first[1], group);
-      const arrange = kind.arrange;
-      for (let piece = 1, pieces = this.count(kind.pieces ?? [1, 1]); piece < pieces && arrange; piece++) {
-        if ("run" in arrange) {
-          const x = first[0] + arrange.run[0] * piece;
-          const y = first[1] + arrange.run[1] * piece;
-          if (!this.fits(kind, x, y, group)) break;
-          this.stand(kind, x, y, group);
-          continue;
+      if (!this.poolFull(listed)) {
+        this.placeGroup(listed, left > 0);
+      }
+    }
+  }
+
+  // whether the pool a kind draws from has given all the groups it may tonight
+  private poolFull(listed: DecorKind): boolean {
+    if (listed.pool === undefined) {
+      return false;
+    }
+    const limit = POOL_LIMITS[listed.pool];
+    return limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit;
+  }
+
+  // The kinds a group of `listed` may be, in the order they are tried. A group is sometimes the listed sprite's
+  // replacement; a live building takes the building slot from the committed sprite, which stands after all when the live
+  // one fits nowhere tonight.
+  private candidatesFor(listed: DecorKind): { committed: DecorKind; candidates: DecorKind[] } {
+    const replaced = listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
+    const committed = replaced === listed.key ? listed : { ...listed, key: replaced };
+    const candidates =
+      this.live && listed.slot === "building" ? [{ ...listed, key: this.live.key }, committed] : [committed];
+    return { committed, candidates };
+  }
+
+  // One group of `listed`: the first of its candidates that fits somewhere, then the rest of its arrangement. A group the
+  // night requires gets more tries for its committed sprite.
+  private placeGroup(listed: DecorKind, required: boolean) {
+    const { committed, candidates } = this.candidatesFor(listed);
+    const group = this.groups++;
+    for (const kind of candidates) {
+      const first = this.search(kind, group, kind === committed && required ? TRIES_REQUIRED : TRIES);
+      if (first) {
+        if (listed.pool !== undefined) {
+          this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
         }
-        for (let attempt = 0; attempt < PIECE_TRIES; attempt++) {
-          const x = Math.round(first[0] + this.between(-arrange.cluster[0], arrange.cluster[0]));
-          const y = Math.round(first[1] + this.between(-arrange.cluster[1], arrange.cluster[1]));
-          if (!this.fits(kind, x, y, group)) continue;
-          this.stand(kind, x, y, group);
-          break;
-        }
+        this.stand(kind, first[0], first[1], group);
+        this.arrangePieces(kind, first, group);
+        return;
+      }
+    }
+  }
+
+  // the pieces after the first: end to end along a run, or each somewhere in a cluster around the first
+  private arrangePieces(kind: DecorKind, first: Point, group: number) {
+    const arrange = kind.arrange;
+    for (let piece = 1, pieces = this.count(kind.pieces ?? [1, 1]); piece < pieces && arrange; piece++) {
+      if (!("run" in arrange)) {
+        this.standClusterPiece(kind, first, arrange.cluster, group);
+        continue;
+      }
+      const x = first[0] + arrange.run[0] * piece;
+      const y = first[1] + arrange.run[1] * piece;
+      if (!this.fits(kind, x, y, group)) {
+        break;
+      }
+      this.stand(kind, x, y, group);
+    }
+  }
+
+  private standClusterPiece(kind: DecorKind, first: Point, spread: readonly [number, number], group: number) {
+    for (let attempt = 0; attempt < PIECE_TRIES; attempt++) {
+      const x = Math.round(first[0] + this.between(-spread[0], spread[0]));
+      const y = Math.round(first[1] + this.between(-spread[1], spread[1]));
+      if (this.fits(kind, x, y, group)) {
+        this.stand(kind, x, y, group);
+        return;
       }
     }
   }
@@ -460,9 +548,13 @@ export function decorFor(seed: number, live: LiveBuilding | null = null): Layout
   for (let index = 0; index < DECOR.length; ) {
     const pool = DECOR[index]?.pool;
     let end = index + 1;
-    while (pool !== undefined && DECOR[end]?.pool === pool) end++;
+    while (pool !== undefined && DECOR[end]?.pool === pool) {
+      end++;
+    }
     const run = DECOR.slice(index, end);
-    for (const kind of pool === undefined ? run : placement.shuffled(run)) placement.place(kind);
+    for (const kind of pool === undefined ? run : placement.shuffled(run)) {
+      placement.place(kind);
+    }
     index = end;
   }
   return placement.layout;

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+
 import { z } from "zod";
+
+import { compareCodeUnits } from "../src/lib/compare";
 import { CLEAN_STATS, fakeModel, fakeRenderer, fenced, spritePng, verdictJson } from "./fakes";
 import { attemptVerdict, judgeHeroCode, runHeroLoop } from "./hero-loop";
 import { REPRESENTATIVE_FRAMES } from "./hero-model";
@@ -54,10 +57,16 @@ function scripted(
       );
       return verdictJson(score(code ?? ""));
     }
-    if (messages.length === 3) return fenced(codes.fixed);
+    if (messages.length === 3) {
+      return fenced(codes.fixed);
+    }
     const brief = firstText(messages);
-    if (brief.includes("as simple as possible")) return fenced(codes.simple);
-    if (brief.includes("strong, contrasting")) return fenced(codes.contrast);
+    if (brief.includes("as simple as possible")) {
+      return fenced(codes.simple);
+    }
+    if (brief.includes("strong, contrasting")) {
+      return fenced(codes.contrast);
+    }
     return fenced(codes.plain);
   });
 }
@@ -76,7 +85,12 @@ describe("judging a hero's code", () => {
       "session",
       {},
     );
-    expect(renderer.requests.map((request) => request.pose).sort()).toEqual(["idle1", "melee3", "ranged3", "walk2"]);
+    expect(renderer.requests.map((request) => request.pose).sort(compareCodeUnits)).toEqual([
+      "idle1",
+      "melee3",
+      "ranged3",
+      "walk2",
+    ]);
     for (const request of renderer.requests) {
       expect(request.code).toMatch(/^const FACING = -?\d+;/);
       expect(request.code).toContain("k.noScale = true;");

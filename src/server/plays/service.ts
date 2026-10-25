@@ -9,6 +9,7 @@
 // are limited per visitor per hour and for the whole site per UTC day, by the salted address hash the director and the
 // creature routes use; without a salt (local development) every upload is accepted.
 import { z } from "zod";
+
 import type { StartLimits } from "../creatures/config";
 import { checkStartLimits, visitorKey } from "../creatures/limits";
 import type { PlayStore } from "./store";
@@ -65,11 +66,19 @@ const progressOf = (play: unknown): Progress => {
 
 /** Whether the stored recording stays: it is finished, at least as complete as the one that came in, or not its tab's. */
 function keepsStored(stored: Progress, incoming: Progress): boolean {
-  if (stored.outcome !== null) return true; // a finished night is final
+  if (stored.outcome !== null) {
+    return true; // a finished night is final
+  }
   // a recording from before sessions has none, and gives way as it did then
-  if (stored.session !== undefined && stored.session !== incoming.session) return true;
-  if (incoming.outcome !== null) return incoming.steps < stored.steps; // the finished night, also at the snapshot's step
-  if ((stored.writes ?? 1) >= MAX_WRITES_PER_PLAY) return true;
+  if (stored.session !== undefined && stored.session !== incoming.session) {
+    return true;
+  }
+  if (incoming.outcome !== null) {
+    return incoming.steps < stored.steps; // the finished night, also at the snapshot's step
+  }
+  if ((stored.writes ?? 1) >= MAX_WRITES_PER_PLAY) {
+    return true;
+  }
   return stored.steps >= incoming.steps;
 }
 
@@ -94,12 +103,18 @@ async function settle(
     const current = await deps.store.read(id);
     if (!current) {
       // gone between the put and the read: as if the id were new
-      if (!mayCreate || !(await deps.store.putIfAbsent(id, written(1)))) continue;
+      if (!mayCreate || !(await deps.store.putIfAbsent(id, written(1)))) {
+        continue;
+      }
       return { kind: "stored" };
     }
     const earlier = parseStored(current.json);
-    if (earlier && keepsStored(earlier, incoming)) return { kind: "exists" };
-    if (await deps.store.replace(id, written((earlier?.writes ?? 1) + 1), current.version)) return { kind: "replaced" };
+    if (earlier && keepsStored(earlier, incoming)) {
+      return { kind: "exists" };
+    }
+    if (await deps.store.replace(id, written((earlier?.writes ?? 1) + 1), current.version)) {
+      return { kind: "replaced" };
+    }
   }
   return { kind: "exists" };
 }
@@ -121,14 +136,17 @@ export async function savePlay(
       // same id, written once more, and only a snapshot gives way to it.
       const current = await deps.store.read(id);
       const earlier = current && parseStored(current.json);
-      if (earlier && earlier.outcome === null && incoming.outcome !== null)
+      if (earlier && earlier.outcome === null && incoming.outcome !== null) {
         return settle(deps, id, written, incoming, false);
+      }
       return { kind: "limited", retryAfterSeconds: decision.retryAfterSeconds };
     }
   }
   if (await deps.store.putIfAbsent(id, written(1))) {
     // the recording is kept whether or not it can be counted
-    if (visitor !== null) await deps.store.recordUpload(visitor, id, now).catch(() => undefined);
+    if (visitor !== null) {
+      await deps.store.recordUpload(visitor, id, now).catch(() => undefined);
+    }
     return { kind: "stored" };
   }
   return settle(deps, id, written, incoming, true);

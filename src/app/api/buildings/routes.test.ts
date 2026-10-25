@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { BUILDING_API, buildingJobPath, buildingSpritePath } from "@/game/building";
 import { JOB_MAX_DURATION_SECONDS } from "@/server/creatures/config";
 
@@ -9,7 +10,9 @@ const ROUTES = join(import.meta.dir, "..", "..", "..", "..", "src", "app");
 
 const routeFileFor = (path: string, dynamicSegments: Record<string, string>) => {
   let relative = path;
-  for (const [value, name] of Object.entries(dynamicSegments)) relative = relative.replace(value, `[${name}]`);
+  for (const [value, name] of Object.entries(dynamicSegments)) {
+    relative = relative.replace(value, `[${name}]`);
+  }
   return join(ROUTES, relative, "route.ts");
 };
 

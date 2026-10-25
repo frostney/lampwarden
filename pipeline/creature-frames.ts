@@ -12,6 +12,7 @@
 // does, and the slide is the frame's `shift`: the atlas records it, and the game draws the frame that far the other way, so
 // the figure stays where it stands and only its weapon reaches past the cell. A figure too big for the canvas in any frame,
 // slid or not, is drawn smaller in all of them, by one factor, until none touches an edge.
+
 import {
   CREATURE_DIRECTIONS,
   CREATURE_FRAME_COUNTS,
@@ -22,6 +23,7 @@ import {
   creaturePoseName,
   STILL_DIRECTION,
 } from "../src/game/creature-frames";
+import { BYTES_PER_PIXEL, differingPixels, solidPixels } from "../src/lib/pixels";
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
 import { kitFacing } from "./hero-animation";
@@ -80,11 +82,11 @@ const FRAME_SLIDES = 14;
  * Why a frame set was refused. `kind` is a fixed word, safe to log; `reason` is for a person and may quote the sandbox's
  * error, which can carry model text, so it is never stored or logged by the job.
  */
-export type FrameSetFailure = {
+export interface FrameSetFailure {
   ok: false;
   kind: "incomplete" | "render" | "picture" | "blank" | "static" | "directions" | "fit";
   reason: string;
-};
+}
 
 interface FrameSet {
   frames: CreatureFrames;
@@ -131,30 +133,82 @@ export function frameRequests(
 /** A frame that draws less than this is a pose that drew nothing (a figure is hundreds of pixels). */
 const MIN_FIGURE_PIXELS = 100;
 
-const opaquePixels = (rgba: Uint8Array) => {
-  let count = 0;
-  for (let offset = 3; offset < rgba.length; offset += 4) if ((rgba[offset] ?? 0) > 200) count++;
-  return count;
-};
-
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
 /** Two sides that differ in fewer pixels than this are one figure drawn twice: a real turn changes thousands. */
 const MIN_SIDE_DIFFERENCE = 200;
 
-const differingPixels = (first: Uint8Array, second: Uint8Array) => {
-  let differing = 0;
-  for (let offset = 0; offset < first.length; offset += 4)
-    if (
-      first[offset] !== second[offset] ||
-      first[offset + 1] !== second[offset + 1] ||
-      first[offset + 2] !== second[offset + 2] ||
-      first[offset + 3] !== second[offset + 3]
-    )
-      differing++;
-  return differing;
-};
+/** One rendered frame as a picture of the frame's size with a figure in it, with its render's stats; or why it is not one. */
+function framePicture(
+  result: RenderResult | undefined,
+  pose: string,
+): { picture: PixelImage; stats: RenderStats } | FrameSetFailure {
+  if (!result?.ok) {
+    return { ok: false, kind: "render", reason: `${pose} did not render: ${result?.error ?? "no result"}` };
+  }
+  let picture: PixelImage;
+  try {
+    picture = decodePng(Buffer.from(result.png));
+  } catch {
+    return { ok: false, kind: "picture", reason: `${pose} is not a PNG` };
+  }
+  if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE) {
+    return {
+      ok: false,
+      kind: "picture",
+      reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
+    };
+  }
+  if (solidPixels(picture.data) < MIN_FIGURE_PIXELS) {
+    return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
+  }
+  return { picture, stats: result.stats };
+}
+
+// copies a frame into its cell of the atlas
+function copyCell(atlas: PixelImage, picture: PixelImage, cell: { x: number; y: number }) {
+  for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
+    const from = row * CREATURE_FRAME_SIZE * BYTES_PER_PIXEL;
+    atlas.data.set(
+      picture.data.subarray(from, from + CREATURE_FRAME_SIZE * BYTES_PER_PIXEL),
+      ((cell.y + row) * atlas.width + cell.x) * BYTES_PER_PIXEL,
+    );
+  }
+}
+
+/**
+ * Why the frames do not animate, or null when they do: the walk must move, seen from every side it is drawn from, and
+ * the sides must differ (a builder that ignores the turn draws one figure five times, or turns only its head).
+ */
+function motionRefusal(
+  walking: ReadonlyMap<CreatureDirection, Uint8Array[]>,
+  standing: ReadonlyMap<CreatureDirection, Uint8Array>,
+): FrameSetFailure | null {
+  for (const steps of walking.values()) {
+    const [firstStep, ...laterSteps] = steps;
+    if (firstStep && laterSteps.every((step) => sameBytes(step, firstStep))) {
+      return {
+        ok: false,
+        kind: "static",
+        reason: "the walk frames are all the same picture: the builder ignores its pose",
+      };
+    }
+  }
+  const sides = [...standing.entries()];
+  for (const [position, [direction, picture]] of sides.entries()) {
+    for (const [otherDirection, other] of sides.slice(position + 1)) {
+      if (differingPixels(picture, other) < MIN_SIDE_DIFFERENCE) {
+        return {
+          ok: false,
+          kind: "directions",
+          reason: `${direction} and ${otherDirection} are the same picture: the builder ignores its facing`,
+        };
+      }
+    }
+  }
+  return null;
+}
 
 /** Checks a batch's results and packs them into an atlas, or says why they are not a usable animation. */
 export function assembleFrameSet(
@@ -163,63 +217,33 @@ export function assembleFrameSet(
 ): FrameSetFailure | { ok: true; frames: CreatureFrames; atlas: Uint8Array } {
   const frames = framesFor(directions);
   const layout = creatureAtlasLayout(frames);
-  if (results.length !== layout.cells.length)
+  if (results.length !== layout.cells.length) {
     return { ok: false, kind: "incomplete", reason: "the frame batch came back incomplete" };
+  }
   const atlas = new PixelImage(layout.width, layout.height);
   const walking = new Map<CreatureDirection, Uint8Array[]>();
   const standing = new Map<CreatureDirection, Uint8Array>();
-  const shifts: Array<[number, number]> = [];
+  const shifts: [number, number][] = [];
   for (const [index, cell] of layout.cells.entries()) {
-    const result = results[index];
-    const pose = `${cell.direction} ${creaturePoseName(cell.animation, cell.frame)}`;
-    if (!result?.ok)
-      return { ok: false, kind: "render", reason: `${pose} did not render: ${result?.error ?? "no result"}` };
-    let picture: PixelImage;
-    try {
-      picture = decodePng(Buffer.from(result.png));
-    } catch {
-      return { ok: false, kind: "picture", reason: `${pose} is not a PNG` };
+    const framed = framePicture(results[index], `${cell.direction} ${creaturePoseName(cell.animation, cell.frame)}`);
+    if ("reason" in framed) {
+      return framed;
     }
-    if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE)
-      return {
-        ok: false,
-        kind: "picture",
-        reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
-      };
-    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS)
-      return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
-    for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
-      const from = row * CREATURE_FRAME_SIZE * 4;
-      atlas.data.set(
-        picture.data.subarray(from, from + CREATURE_FRAME_SIZE * 4),
-        ((cell.y + row) * atlas.width + cell.x) * 4,
-      );
-    }
-    const slid = slidesOf(result.stats.fit);
+    const { picture, stats } = framed;
+    copyCell(atlas, picture, cell);
+    const slid = slidesOf(stats.fit);
     shifts.push([slid.dx, slid.dy]);
-    if (cell.animation === "walk") walking.set(cell.direction, [...(walking.get(cell.direction) ?? []), picture.data]);
-    if (cell.animation === "idle" && cell.frame === 0) standing.set(cell.direction, picture.data);
+    if (cell.animation === "walk") {
+      walking.set(cell.direction, [...(walking.get(cell.direction) ?? []), picture.data]);
+    }
+    if (cell.animation === "idle" && cell.frame === 0) {
+      standing.set(cell.direction, picture.data);
+    }
   }
-  // the walk must move, seen from every side it is drawn from
-  for (const steps of walking.values()) {
-    const [firstStep, ...laterSteps] = steps;
-    if (firstStep && laterSteps.every((step) => sameBytes(step, firstStep)))
-      return {
-        ok: false,
-        kind: "static",
-        reason: "the walk frames are all the same picture: the builder ignores its pose",
-      };
+  const refusal = motionRefusal(walking, standing);
+  if (refusal) {
+    return refusal;
   }
-  // and the sides must differ: a builder that ignores the turn draws one figure five times, or turns only its head
-  const sides = [...standing.entries()];
-  for (const [position, [direction, picture]] of sides.entries())
-    for (const [otherDirection, other] of sides.slice(position + 1))
-      if (differingPixels(picture, other) < MIN_SIDE_DIFFERENCE)
-        return {
-          ok: false,
-          kind: "directions",
-          reason: `${direction} and ${otherDirection} are the same picture: the builder ignores its facing`,
-        };
   return {
     ok: true,
     frames: shifts.some(([across, down]) => across !== 0 || down !== 0) ? { ...frames, shifts } : frames,
@@ -255,8 +279,12 @@ export function extentOf(
   let height = 0;
   let touching = false;
   for (const result of results) {
-    if (!result.ok) continue;
-    if (result.stats.flags.split("|").includes("clipped_at_edge")) touching = true;
+    if (!result.ok) {
+      continue;
+    }
+    if (result.stats.flags.split("|").includes("clipped_at_edge")) {
+      touching = true;
+    }
     const [left = 0, top = 0, right = 0, bottom = 0] = boxOf(result.stats.bbox);
     width = Math.max(width, (right - left + 1) / drawnAt);
     height = Math.max(height, (bottom - top + 1) / drawnAt);
@@ -289,21 +317,35 @@ async function renderFitted(
 ): Promise<Fitted> {
   const first = await renderBatch(frameRequests(code, still, directions));
   // a failure of the batch is every frame's, and a smaller figure will not mend it
-  if (first.some((result) => !result.ok)) return { results: first, canvas: still, batches: 1 };
-  if (!extentOf(first).touching) return { results: first, canvas: still, batches: 1 };
+  if (first.some((result) => !result.ok)) {
+    return { results: first, canvas: still, batches: 1 };
+  }
+  if (!extentOf(first).touching) {
+    return { results: first, canvas: still, batches: 1 };
+  }
   const probeCanvas: CanvasFit = { ...still, scale: still.scale * PROBE_SCALE };
   const probe = await renderBatch(frameRequests(code, probeCanvas, directions));
-  if (probe.some((result) => !result.ok)) return { results: probe, canvas: probeCanvas, batches: 2 };
+  if (probe.some((result) => !result.ok)) {
+    return { results: probe, canvas: probeCanvas, batches: 2 };
+  }
   const probed = extentOf(probe, PROBE_SCALE);
-  if (probed.touching) return { results: null, canvas: still, batches: 2 };
+  if (probed.touching) {
+    return { results: null, canvas: still, batches: 2 };
+  }
   let canvas: CanvasFit = { ...still, scale: still.scale * fitFactor(probed) * FIT_SLACK };
   let batches = 2;
   for (let tries = 1; tries <= MAX_FINAL_TRIES; tries++) {
-    if (canvas.scale < still.scale * MIN_SHRINK) return { results: null, canvas, batches };
+    if (canvas.scale < still.scale * MIN_SHRINK) {
+      return { results: null, canvas, batches };
+    }
     batches++;
     const results = await renderBatch(frameRequests(code, canvas, directions));
-    if (results.some((result) => !result.ok)) return { results, canvas, batches };
-    if (!extentOf(results).touching) return { results, canvas, batches };
+    if (results.some((result) => !result.ok)) {
+      return { results, canvas, batches };
+    }
+    if (!extentOf(results).touching) {
+      return { results, canvas, batches };
+    }
     canvas = { ...canvas, scale: canvas.scale * SHRINK_STEP };
   }
   return { results: null, canvas, batches };
@@ -316,8 +358,9 @@ async function renderDirections(
   directions: readonly CreatureDirection[],
 ): Promise<FrameSetResult & { batches: number }> {
   const fitted = await renderFitted(renderBatch, code, still, directions);
-  if (!fitted.results)
+  if (!fitted.results) {
     return { ok: false, kind: "fit", reason: "the figure does not fit its frame", batches: fitted.batches };
+  }
   const assembled = assembleFrameSet(fitted.results, directions);
   return assembled.ok
     ? { ...assembled, canvas: fitted.canvas, batches: fitted.batches }
@@ -336,7 +379,9 @@ export async function renderFrameSet(
   still: CanvasFit,
 ): Promise<FrameSetOutcome> {
   const all = await renderDirections(renderBatch, code, still, CREATURE_DIRECTIONS);
-  if (all.ok) return { ...all, earlier: [] };
+  if (all.ok) {
+    return { ...all, earlier: [] };
+  }
   const one = await renderDirections(renderBatch, code, still, [STILL_DIRECTION]);
   return { ...one, batches: all.batches + one.batches, earlier: [all.kind] };
 }

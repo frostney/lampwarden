@@ -136,8 +136,14 @@ export const ANCHOR_Y: Record<SingleKey | SceneryKey | "hero", number> = {
 
 // the anchor for any sprite key; hero frames and unknown keys fall back to sensible defaults
 export function anchorYFor(key: string): number {
-  if (key.startsWith("hero/")) return ANCHOR_Y.hero;
-  for (const [name, anchorY] of Object.entries(ANCHOR_Y)) if (name === key) return anchorY;
+  if (key.startsWith("hero/")) {
+    return ANCHOR_Y.hero;
+  }
+  for (const [name, anchorY] of Object.entries(ANCHOR_Y)) {
+    if (name === key) {
+      return anchorY;
+    }
+  }
   return 0.85;
 }
 
@@ -160,7 +166,9 @@ export const HERO_ATLAS_SIZE = {
 export function heroAtlasCell(animation: HeroAnimation, frame: number, direction: DrawnDirection) {
   let row = frame;
   for (const earlier of HERO_ANIMATIONS) {
-    if (earlier === animation) break;
+    if (earlier === animation) {
+      break;
+    }
     row += FRAMES[earlier];
   }
   return { x: DRAWN_DIRECTIONS.indexOf(direction) * HERO_FRAME_SIZE, y: row * HERO_FRAME_SIZE };
@@ -179,9 +187,12 @@ export function heroFrames(sex: Sex) {
 
 export function assetList(): { alias: string; src: string; data: { scaleMode: "nearest" } }[] {
   const list: { alias: string; src: string; data: { scaleMode: "nearest" } }[] = [];
-  for (const key of SINGLE) list.push({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } });
-  for (const sex of SEXES)
+  for (const key of SINGLE) {
+    list.push({ alias: key, src: `/sprites/${key}.png`, data: { scaleMode: "nearest" } });
+  }
+  for (const sex of SEXES) {
     list.push({ alias: heroAtlasKey(sex), src: heroAtlasPath(sex), data: { scaleMode: "nearest" } });
+  }
   return list;
 }
 

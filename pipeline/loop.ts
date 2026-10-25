@@ -2,14 +2,20 @@
 // best-of. The model, the renderer and the store (where call logs and attempts go) are injected, so tests drive the
 // loop with a fake fetch and a fake renderer, and a Vercel function runs it without a filesystem: this module imports
 // nothing from node:fs. sprite-loop.ts is the command line's file-backed wrapper around it.
+
 import { z } from "zod";
+
+import { bestIndexBy } from "../src/lib/best";
+import { PERCENT } from "../src/lib/units";
 import { rejectionReason } from "./build-code";
 import type { CallRecord, ContentBlock, ModelCall, ModelMessage, MubitClient } from "./mubit";
 import { RENDERED_WITH, type Renderer, type RenderRequest, type RenderResult, type RenderStats } from "./render-types";
 import { verifierImageBase64 } from "./verifier-image";
 
 const PASSING_SCORE = 7;
-const BORDERLINE_SCORES = [6, 7] as const;
+const BORDERLINE_LOW = 6;
+const BORDERLINE_SCORES = [BORDERLINE_LOW, PASSING_SCORE] as const;
+const UNPARSED_KEPT = 200; // characters of a reply that could not be read, kept for the log
 export const GENERATOR_MAX_TOKENS = 1500;
 const GENERATOR_RETRY_MAX_TOKENS = 4000;
 export const FIX_MAX_TOKENS = 3000;
@@ -23,7 +29,9 @@ export function isAccepted(winner: {
   verdict: { pass: boolean; score: number | null };
   stats: { flags: string };
 }): boolean {
-  if (winner.verdict.pass) return true;
+  if (winner.verdict.pass) {
+    return true;
+  }
   const score = winner.verdict.score;
   return winner.stats.flags === "ok" && score !== null && score >= MINIMUM_UNPASSED_SCORE;
 }
@@ -114,7 +122,9 @@ function isScore(value: unknown): value is number {
 export function formatFixed(value: number, digits: number): string {
   const scaledByPowerOfTwo = value * 2 ** (digits + 1);
   const isExactTie = Number.isInteger(scaledByPowerOfTwo) && scaledByPowerOfTwo % 2 !== 0;
-  if (!isExactTie) return value.toFixed(digits);
+  if (!isExactTie) {
+    return value.toFixed(digits);
+  }
   const scale = 10 ** digits;
   const lower = Math.floor(value * scale);
   return ((lower % 2 === 0 ? lower : lower + 1) / scale).toFixed(digits);
@@ -123,10 +133,14 @@ export function formatFixed(value: number, digits: number): string {
 /** The first `{ ... }` span of the reply as a verdict, or null when the reply is not a JSON verdict. */
 export function parseVerdict(text: string | null): Verdict | null {
   const span = /\{[\s\S]*\}/.exec(text ?? "")?.[0];
-  if (!span) return null;
+  if (!span) {
+    return null;
+  }
   try {
     const parsed = verdictReplySchema.safeParse(JSON.parse(span));
-    if (!parsed.success) return null;
+    if (!parsed.success) {
+      return null;
+    }
     const { score, pass, issues, fix, lesson } = parsed.data;
     const numericScore = isScore(score) ? score : null;
     return {
@@ -142,7 +156,7 @@ export function parseVerdict(text: string | null): Verdict | null {
 }
 
 function verifierMessage(brief: string, code: string, stats: RenderStats, png: Uint8Array): ModelMessage {
-  const statsSummary = `bbox ${stats.bbox}, coverage ${formatFixed(100 * stats.coverage, 0)}%, parts ${stats.parts}, flags ${stats.flags}`;
+  const statsSummary = `bbox ${stats.bbox}, coverage ${formatFixed(PERCENT * stats.coverage, 0)}%, parts ${stats.parts}, flags ${stats.flags}`;
   const content: ContentBlock[] = [
     {
       type: "text",
@@ -175,7 +189,7 @@ async function verifyOnce(
     logFields,
     VERIFIER_MAX_TOKENS,
   );
-  const unparsed = (text || (typeof record.error === "string" ? record.error : "")).slice(0, 200);
+  const unparsed = (text || (typeof record.error === "string" ? record.error : "")).slice(0, UNPARSED_KEPT);
   const verdict = parseVerdict(text) ?? {
     pass: false,
     score: null,
@@ -265,27 +279,44 @@ export async function generate(
 /** What the engine's own checks say about a render; a non-empty list scores 0 without a verifier call. */
 export function engineFlagIssues(stats: RenderStats): string[] {
   const issues: string[] = [];
-  if (stats.flags.includes("clipped_at_edge"))
+  if (stats.flags.includes("clipped_at_edge")) {
     issues.push(`sprite touches the canvas edge (bbox ${stats.bbox}): keep everything within |u|,|v|<=14 and z<=40`);
-  if (stats.flags.includes("too_small"))
-    issues.push(`sprite covers only ${formatFixed(100 * stats.coverage, 1)}% of the canvas: make it bigger`);
-  if (stats.flags.includes("too_big"))
-    issues.push(`sprite covers ${formatFixed(100 * stats.coverage, 0)}% of the canvas: make it smaller`);
-  if (stats.flags.includes("too_short")) issues.push("sprite is under 24 px tall: make it taller");
+  }
+  if (stats.flags.includes("too_small")) {
+    issues.push(`sprite covers only ${formatFixed(PERCENT * stats.coverage, 1)}% of the canvas: make it bigger`);
+  }
+  if (stats.flags.includes("too_big")) {
+    issues.push(`sprite covers ${formatFixed(PERCENT * stats.coverage, 0)}% of the canvas: make it smaller`);
+  }
+  if (stats.flags.includes("too_short")) {
+    issues.push("sprite is under 24 px tall: make it taller");
+  }
   return issues;
 }
+
+const SESSION_BRIEF = 34; // characters of the brief a session's name carries
+
+/** The Mubit session a brief's calls group under: its id and the start of its text. */
+export const sessionOf = (id: string, text: string) =>
+  `lampwarden-${id}-${Array.from(text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
+    .slice(0, SESSION_BRIEF)
+    .join("")}`;
+
+const SLUG_LENGTH = 48;
 
 export function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
+    .slice(0, SLUG_LENGTH);
 }
 
 /** A score as the fix prompt shows it: `None` without one, and an averaged score always with a decimal (`6.0`). */
 function scoreText(verdict: Verdict): string {
-  if (verdict.score === null) return "None";
+  if (verdict.score === null) {
+    return "None";
+  }
   return verdict.scores && Number.isInteger(verdict.score) ? verdict.score.toFixed(1) : String(verdict.score);
 }
 
@@ -316,8 +347,9 @@ export async function renderAndVerify(
 ): Promise<Attempt> {
   const rejection = rejectionReason(code);
   let render: RenderResult;
-  if (rejection) render = { ok: false, error: rejection };
-  else {
+  if (rejection) {
+    render = { ok: false, error: rejection };
+  } else {
     await context.store.saveAttemptCode(name, code);
     await context.onStage?.("rendering");
     render = await context.render({ code, name, pose: context.pose } satisfies RenderRequest);
@@ -366,9 +398,7 @@ export interface LoopOutcome {
 /** Runs the whole loop for one brief. Returns its manifest row and the winning attempt, or null when nothing renderable came out. */
 export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutcome | null> {
   const print = context.print ?? console.log;
-  const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
-    .slice(0, 34)
-    .join("")}`;
+  const session = sessionOf(brief.id, brief.text);
   const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const messages: ModelMessage[] = [{ role: "user", content: `Brief: ${brief.text}` }];
   await context.onStage?.("drawing");
@@ -418,7 +448,9 @@ export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutc
       row.fixed_score = fixed.verdict.score;
       print(`   fix ${fixCall.record.rid} | ${describeAttempt(fixed)}`);
       // best-of: ties go to the first attempt
-      if ((fixed.verdict.score ?? 0) > (first.verdict.score ?? 0)) best = { attempt: fixed, which: "fixed" };
+      if ((fixed.verdict.score ?? 0) > (first.verdict.score ?? 0)) {
+        best = { attempt: fixed, which: "fixed" };
+      }
     }
   }
   const { attempt, which } = best;
@@ -480,7 +512,9 @@ function reportingEachStageOnce(context: LoopCore): { context: LoopCore; reset: 
     context: {
       ...context,
       onStage: (stage) => {
-        if (seen.has(stage)) return;
+        if (seen.has(stage)) {
+          return;
+        }
         seen.add(stage);
         return context.onStage?.(stage);
       },
@@ -515,9 +549,7 @@ export async function runCandidateLoop(
 ): Promise<CandidateOutcome | null> {
   const print = context.print ?? console.log;
   const staging = reportingEachStageOnce(context);
-  const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
-    .slice(0, 34)
-    .join("")}`;
+  const session = sessionOf(brief.id, brief.text);
   const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const spriteName = slugify(brief.id);
 
@@ -554,13 +586,12 @@ export async function runCandidateLoop(
   );
   const records = attempts.map((attempt) => recordOf(attempt, false));
   // the best candidate; ties go to the lower-numbered one
-  let bestIndex = 0;
-  for (const [index, attempt] of attempts.entries()) {
-    if ((attempt.verdict.score ?? 0) > (attempts[bestIndex]?.verdict.score ?? 0)) bestIndex = index;
-  }
+  const bestIndex = bestIndexBy(attempts, (attempt) => attempt.verdict.score ?? 0);
   const first = attempts[bestIndex];
   const chosen = drawn[bestIndex];
-  if (!first || !chosen) return null;
+  if (!first || !chosen) {
+    return null;
+  }
   const row: SpriteRow = { id: brief.id, brief: brief.text, session, gen: chosen.generation.record.rid };
   row.verify = first.requestIds;
   row.first_score = first.verdict.score;
@@ -609,7 +640,9 @@ export async function runCandidateLoop(
       row.fixed_score = fixed.verdict.score;
       records.push(recordOf(fixed, true));
       print(`   fix ${fixCall.record.rid} | ${describeAttempt(fixed)}`);
-      if ((fixed.verdict.score ?? 0) > (first.verdict.score ?? 0)) best = { attempt: fixed, which: "fixed" };
+      if ((fixed.verdict.score ?? 0) > (first.verdict.score ?? 0)) {
+        best = { attempt: fixed, which: "fixed" };
+      }
     }
   }
   const { attempt, which } = best;

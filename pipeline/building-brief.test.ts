@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import {
   BUILDING_BRIEF_TASK,
   buildingRequestMessage,
@@ -43,7 +44,7 @@ describe("validating a building brief", () => {
 describe("the building brief writer's Mubit call", () => {
   test("sends the documented request under its own task: Mubit URL, model, cached system prompt, no temperature", async () => {
     const model = fakeModel([buildingBriefJson()]);
-    const records: Array<Record<string, unknown>> = [];
+    const records: Record<string, unknown>[] = [];
     const result = await writeBuildingBrief(
       { model: model.client, prompt: "BUILDING PROMPT", random: () => 0, onCall: (record) => records.push(record) },
       ["Fountain house", "Granary"],
@@ -56,7 +57,9 @@ describe("the building brief writer's Mubit call", () => {
     expect(request).not.toHaveProperty("temperature");
     expect(request?.system).toEqual([{ type: "text", text: "BUILDING PROMPT", cache_control: { type: "ephemeral" } }]);
     const message = JSON.stringify(request?.messages);
-    for (const name of ["Fountain house", "Granary", "Temple", "House", "Stall"]) expect(message).toContain(name);
+    for (const name of ["Fountain house", "Granary", "Temple", "House", "Stall"]) {
+      expect(message).toContain(name);
+    }
     expect(message).toContain("stoa"); // the kind picked when random() is 0
     // its own Mubit task, apart from the creatures' "brief"
     expect(BUILDING_BRIEF_TASK).not.toBe("brief");

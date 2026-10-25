@@ -17,7 +17,9 @@ export function createMemoryPlayStore(): MemoryPlayStore {
   return {
     plays,
     async putIfAbsent(playId, json) {
-      if (plays.has(playId)) return false;
+      if (plays.has(playId)) {
+        return false;
+      }
       write(playId, json);
       return true;
     },
@@ -26,7 +28,9 @@ export function createMemoryPlayStore(): MemoryPlayStore {
       return json === undefined ? null : { json, version: String(versions.get(playId)) };
     },
     async replace(playId, json, version) {
-      if (String(versions.get(playId)) !== version) return false;
+      if (String(versions.get(playId)) !== version) {
+        return false;
+      }
       write(playId, json);
       return true;
     },

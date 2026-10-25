@@ -40,6 +40,25 @@ export const briefJson = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   });
 
+export const buildingBriefJson = (overrides: Record<string, unknown> = {}) =>
+  JSON.stringify({
+    name: "Stoa of the net-menders",
+    brief:
+      "long Ionic marble colonnade, two columns across the front and ten along each side, with a terracotta tiled roof",
+    ...overrides,
+  });
+
+/** What a building's render says of the picture `buildingPng` is: its painted box, and the engine's clean report. */
+export const BUILDING_STATS: RenderStats = { ...CLEAN_STATS, name: "building", bbox: "34,70,93,109", coverage: 0.14 };
+
+/** A 128 px building: a 60 x 40 px block standing on row 109, so the placer's measurements of it are known. */
+export function buildingPng(): Uint8Array {
+  const frame = new PixelImage(128, 128);
+  for (let row = 70; row <= 109; row++)
+    for (let column = 34; column <= 93; column++) frame.set(column, row, [220, 200, 160, 255]);
+  return encodePng(frame);
+}
+
 export const verdictJson = (score: number) =>
   JSON.stringify({ pass: score >= 7, score, issues: ["too plain"], fix: "add a tail", lesson: "" });
 

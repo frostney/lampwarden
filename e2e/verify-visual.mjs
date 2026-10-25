@@ -13,7 +13,7 @@ import { CREATURE_FRAME_COUNTS, CREATURE_FRAME_SIZE, creatureAtlasLayout } from 
 import { newLegacy, openShop } from "../src/game/legacy.ts";
 import { anchorYFor, heroAtlasCell } from "../src/scene/assets.ts";
 import { decorFor } from "../src/scene/decor.ts";
-import { baseBandOf } from "../src/scene/extent.ts";
+import { baseBandOf, measureSprite } from "../src/scene/extent.ts";
 import { onPlaza, plazaInset, shoreDistance as shoreDistanceOf } from "../src/scene/plaza.ts";
 import { PixelImage } from "../tools/logo/image.ts";
 import { decodePng, encodePng } from "../tools/logo/png.ts";
@@ -140,7 +140,69 @@ async function serveSea(route) {
   }
   return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
 }
-const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
+
+// The building API is stubbed beside it (src/game/building.ts): the fixture building is a recoloured committed house (its
+// red and blue swapped), so the stand-in is a picture the committed plaza does not have, and its extents are measured from
+// that picture the way the server measures an accepted sprite. plaza.mode picks the answer to POST /api/buildings/next:
+// "none" (the default, so every older scenario plays as before), "ready", or "broken" (ready, but its sprite never arrives).
+// plaza.asked logs the `seen` lists.
+const PLAZA_ANCHOR_Y = anchorYFor("house");
+const PLAZA_PICTURE = (() => {
+  const house = decodePng(readFileSync("public/sprites/house.png"));
+  const swapped = new PixelImage(128, 128);
+  for (let index = 0; index < 128 * 128; index++) {
+    const offset = index * 4;
+    swapped.data[offset] = house.data[offset + 2];
+    swapped.data[offset + 1] = house.data[offset + 1];
+    swapped.data[offset + 2] = house.data[offset];
+    swapped.data[offset + 3] = house.data[offset + 3];
+  }
+  return swapped;
+})();
+const PLAZA_SPRITE = encodePng(PLAZA_PICTURE);
+const PLAZA_BUILDING = (() => {
+  let [left, top, right, bottom] = [128, 128, 0, 0];
+  for (let row = 0; row < 128; row++)
+    for (let column = 0; column < 128; column++)
+      if (PLAZA_PICTURE.data[(row * 128 + column) * 4 + 3] > 0) {
+        left = Math.min(left, column);
+        right = Math.max(right, column);
+        top = Math.min(top, row);
+        bottom = Math.max(bottom, row);
+      }
+  return {
+    id: "0000aaaa-fountain-house-verifier",
+    name: "Treasury of the Sea-Captains of Lychnos", // a name as long as the contract allows (40) and a real one would be
+    brief: "small stone fountain house with a tiled terracotta gable roof, the verifier's fixture",
+    anchorY: PLAZA_ANCHOR_Y,
+    bbox: [left, top, right, bottom],
+    extent: measureSprite(PLAZA_PICTURE.data, PLAZA_ANCHOR_Y),
+    score: 8,
+    createdAt: "2026-10-25T09:00:00.000Z",
+  };
+})();
+if (PLAZA_BUILDING.name.length < 38 || PLAZA_BUILDING.name.length > 40)
+  throw new Error("the building fixture must hold a name as long as the building contract allows");
+const plaza = { mode: "none", asked: [] };
+async function servePlaza(route) {
+  const request = route.request();
+  const { pathname } = new URL(request.url());
+  if (pathname.endsWith("/sprite.png"))
+    return plaza.mode === "broken"
+      ? route.abort()
+      : route.fulfill({ status: 200, contentType: "image/png", body: PLAZA_SPRITE });
+  if (pathname.endsWith("/next")) {
+    plaza.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    return plaza.mode === "ready" || plaza.mode === "broken"
+      ? route.fulfill({ json: { kind: "ready", building: PLAZA_BUILDING } })
+      : route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+  }
+  return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
+}
+const stubSea = async (target) => {
+  await target.route("**/api/creatures/**", serveSea);
+  await target.route("**/api/buildings/**", servePlaza);
+};
 
 // The recording and director APIs are stubbed on every page and context too: no night is stored and the model is never
 // asked. /api/plays keeps the bodies it was sent (the nights a page uploaded). /api/director answers by mode:
@@ -729,6 +791,49 @@ async function checkCreatureText(tag, screen, creature) {
     problems.join("; ") || `name ${shown.name.lines} line(s), lore ${shown.lore.lines} line(s)`,
   );
 }
+// A building's whole name is shown wherever the announcement appears, as a creature's is: the line reads in full, nothing
+// ellipsizes or line-clamps it, it holds no more than it shows, and it lies inside the screen's content (the scroll's body,
+// or the panel) and not clipped by it
+async function checkBuildingText(tag, screen, building) {
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  const shown = await page.evaluate(() => {
+    const line = document.querySelector('.raised[data-state="ready"]');
+    if (!line) return null;
+    const style = getComputedStyle(line);
+    const box = line.getBoundingClientRect();
+    const frame = (line.closest(".scroll-body") ?? line.closest(".panel") ?? document.body).getBoundingClientRect();
+    return {
+      text: line.textContent,
+      name: line.querySelector(".raised-name")?.textContent,
+      ellipsis: style.textOverflow === "ellipsis",
+      clamped: [style.getPropertyValue("-webkit-line-clamp"), style.getPropertyValue("line-clamp")].some(
+        (value) => value !== "" && value !== "none",
+      ),
+      holdsMore: line.scrollHeight > line.clientHeight + 1 || line.scrollWidth > line.clientWidth + 1,
+      clips: style.overflow !== "visible" && style.whiteSpace === "nowrap",
+      inside: box.left >= frame.left - 1 && box.right <= frame.right + 1,
+      lines: Math.round(box.height / Number.parseFloat(style.lineHeight)),
+    };
+  });
+  const problems = [];
+  if (!shown) problems.push("no line");
+  else {
+    if (shown.text !== `Raised on the plaza tonight: ${building.name}`)
+      problems.push(`reads "${shown.text.slice(0, 40)}"`);
+    if (shown.name !== building.name) problems.push("the name is not whole");
+    if (shown.ellipsis) problems.push("an ellipsis");
+    if (shown.clamped) problems.push("line-clamped");
+    if (shown.clips) problems.push("one line that clips");
+    if (shown.holdsMore) problems.push("holds more than it shows");
+    if (!shown.inside) problems.push("spills out of its frame");
+  }
+  check(
+    tag,
+    `${screen}: the building's whole name is shown`,
+    problems.length === 0,
+    problems.join("; ") || `${shown.lines} line(s), ${building.name.length} characters`,
+  );
+}
 // The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
 // glyphs (keys, mouse, pad buttons, touch buttons) in this order, with the weapon icons on the touch buttons, and saying
 // how to relight a lamp
@@ -853,7 +958,9 @@ const drawnProps = () =>
       const found = [];
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`));
+        // a live building is drawn from the gallery's sprite
+        const liveId = /\/api\/buildings\/([a-z0-9-]+)\/sprite\.png$/.exec(label)?.[1];
+        const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`)) ?? (liveId && `building/${liveId}`);
         if (key && node.visible !== false) found.push([key, Math.round(node.x), Math.round(node.y)]);
         for (const child of node.children ?? []) visit(child);
       };
@@ -863,8 +970,11 @@ const drawnProps = () =>
     }, PROP_KEYS)
     .then((found) => found.sort(byKeyThenPlace));
 // the props a seed lays out, in the same form
-const laidOutProps = (seed) => {
-  const layout = decorFor(seed | 0);
+const laidOutProps = (seed, withBuilding = false) => {
+  const layout = decorFor(
+    seed | 0,
+    withBuilding ? { key: `building/${PLAZA_BUILDING.id}`, extents: PLAZA_BUILDING.extent } : null,
+  );
   return [...layout.props, ...layout.boats].map((placed) => [placed.key, placed.x, placed.y]).sort(byKeyThenPlace);
 };
 // whether the stage shows exactly these props (the trireme rocks on the water, so its y is only close)
@@ -880,11 +990,12 @@ const propSprites = new Map();
 function basePixelsOf(key) {
   let pixels = propSprites.get(key);
   if (!pixels) {
-    const image = decodePng(readFileSync(`public/sprites/${key}.png`));
-    const anchorRow = anchorYFor(key) * 128;
+    const live = key.startsWith("building/"); // the fixture building: its picture is made in code
+    const image = live ? PLAZA_PICTURE : decodePng(readFileSync(`public/sprites/${key}.png`));
+    const anchorRow = (live ? PLAZA_ANCHOR_Y : anchorYFor(key)) * 128;
     pixels = [];
     for (let row = 0; row < 128; row++)
-      if (row - anchorRow >= -baseBandOf(key))
+      if (row - anchorRow >= -(key.startsWith("building/") ? 28 : baseBandOf(key)))
         for (let column = 0; column < 128; column++)
           if (image.data[(row * 128 + column) * 4 + 3] > 0) pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
     propSprites.set(key, pixels);
@@ -3270,6 +3381,268 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   sea.mode = "none";
 }
 
+// 21c the building raised on the plaza (API stubbed, see above): the line where the creature is announced, the building
+// drawn in the layout's building slot and recorded with the night, shown again on replay, and the committed plaza when its
+// sprite will not load or the play is from before buildings
+{
+  const plazaContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(plazaContext);
+  await stubDirector(plazaContext);
+  const plazaPage = await plazaContext.newPage();
+  plazaPage.on("pageerror", (error) => errors.push(`plaza: ${error}`));
+  plazaPage.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+      errors.push(`plaza: ${message.text()}`);
+  });
+  plazaPage.on("response", (response) => {
+    if (response.status() >= 400) errors.push(`plaza: HTTP ${response.status()} ${response.url()}`);
+  });
+  const mainPage = page;
+  page = plazaPage;
+  const openTitle = async () => {
+    await page.goto(`${BASE_URL}/?verify=1`);
+    await page.evaluate(() => localStorage.clear());
+    plaza.asked.length = 0;
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+  };
+  const startFromTitle = async () => {
+    await page.getByRole("button", { name: "Light the lamps" }).click();
+    await page.waitForSelector('[data-phase="night"]');
+    await freeze();
+  };
+  const toDawn = async () => {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.elapsed = state.length - 0.01;
+      state.oilEarned = 12;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+    await freeze();
+  };
+  const liveKey = `building/${PLAZA_BUILDING.id}`;
+  const liveSprites = (props) => props.filter(([key]) => key === liveKey);
+  const slotSprites = (props) => props.filter(([key]) => key === liveKey || key === "house" || key === "house-ochre");
+  const lastSeen = () => JSON.stringify(plaza.asked.at(-1));
+  const expectedPlaza = (seed, withBuilding) => laidOutProps(seed, withBuilding);
+
+  // nothing is coming: no line, the committed plaza
+  plaza.mode = "none";
+  await openTitle();
+  await page.waitForTimeout(300);
+  check("plaza-none", "the buildings gallery was asked, with nothing seen yet", lastSeen() === "[]", lastSeen());
+  check("plaza-none", "no building line on the title", (await page.locator(".raised").count()) === 0);
+  await startFromTitle();
+  const plainProps = await drawnProps();
+  check(
+    "plaza-none",
+    "the night's plaza has its committed building and no live one",
+    liveSprites(plainProps).length === 0 && slotSprites(plainProps).length === 1,
+    JSON.stringify(slotSprites(plainProps)),
+  );
+
+  // a building ready: the line on the title, with and without the creature
+  plaza.mode = "ready";
+  sea.mode = "none";
+  await openTitle();
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  const line = await page.evaluate(() => {
+    const element = document.querySelector(".raised");
+    return {
+      text: element?.textContent ?? "",
+      building: element?.getAttribute("data-building") ?? "",
+      size: Number.parseFloat(getComputedStyle(element).fontSize),
+      inked: element?.hasAttribute("data-line") ?? false,
+    };
+  });
+  check(
+    "plaza-title",
+    "the line says what was raised on the plaza, by name",
+    line.text === `Raised on the plaza tonight: ${PLAZA_BUILDING.name}` && line.building === PLAZA_BUILDING.id,
+    line.text,
+  );
+  check(
+    "plaza-title",
+    "the line is a line of the scroll, in text of 16 px or more",
+    line.inked && line.size >= 16,
+    `${line.size}px`,
+  );
+  check("plaza-title", "the gallery was asked with nothing seen", lastSeen() === "[]", lastSeen());
+  await checkBuildingText("plaza-title", "title", PLAZA_BUILDING);
+  await checkTitleScroll("plaza-title", 1000, 640);
+  await checkScrollFits("plaza-title");
+  await shoot("21c-plaza-title");
+  // and with a creature announced too: the scroll still holds both
+  sea.mode = "ready";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  check(
+    "plaza-title-both",
+    "the creature and the building are both announced",
+    (await page.locator(".sea").count()) === 1 && (await page.locator(".raised").count()) === 1,
+  );
+  await checkTitleScroll("plaza-title-both", 1000, 640);
+  await checkCreatureText("plaza-title-both", "title", SEA_CREATURE);
+  await checkBuildingText("plaza-title-both", "title", PLAZA_BUILDING);
+  await checkScrollFits("plaza-title-both");
+  await shoot("21c-plaza-title-both");
+  sea.mode = "none";
+
+  // the night: the building stands in the building slot, drawn from its sprite at the anchor its record gave. A night's seed
+  // is random, and a building that fits no spot of the seed's layout is skipped for that night and the committed one stays
+  // (src/scene/decor.ts), so a night where it was skipped is checked for that and the next is tried.
+  let nightProps = [];
+  let placed;
+  let skippedNights = 0;
+  for (let attempt = 0; attempt < 12 && !placed; attempt++) {
+    await openTitle();
+    await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+    await startFromTitle();
+    nightProps = await drawnProps();
+    placed = nightProps.find(([key]) => key === liveKey);
+    if (!placed) {
+      skippedNights++;
+      check(
+        "plaza-night",
+        "a night the building fits nowhere keeps the committed one, and no more than one",
+        slotSprites(nightProps).length === 1,
+        JSON.stringify(slotSprites(nightProps)),
+      );
+    }
+  }
+  console.log(`  the live building was skipped on ${skippedNights} night(s) before one placed it`);
+  const slot = slotSprites(nightProps);
+  check(
+    "plaza-night",
+    "the live building is drawn, once, instead of the committed one",
+    slot.length === 1 && !!placed,
+    JSON.stringify(slot),
+  );
+  check("plaza-night", "no line in the night", (await page.locator(".raised").count()) === 0);
+  const anchored = await page.evaluate((id) => {
+    let anchorY = null;
+    const visit = (node) => {
+      if ((node.texture?.source?.label ?? "").includes(`/api/buildings/${id}/sprite.png`) && node.visible)
+        anchorY = node.anchor?.y ?? null;
+      for (const child of node.children ?? []) visit(child);
+    };
+    const app = window.lampwarden.app();
+    if (app) visit(app.stage);
+    return anchorY;
+  }, PLAZA_BUILDING.id);
+  check(
+    "plaza-night",
+    "it is drawn at the anchor its record gave",
+    anchored !== null && Math.abs(anchored - PLAZA_BUILDING.anchorY) < 1e-6,
+    String(anchored),
+  );
+  checkPropsOnPlaza("plaza-night", "the night's plaza", nightProps);
+  await shoot("21c-plaza-night");
+  check(
+    "plaza-night",
+    "the line has seen it: the next question carries its id",
+    lastSeen() === JSON.stringify([PLAZA_BUILDING.id]),
+    lastSeen(),
+  );
+  check(
+    "plaza-night",
+    "seeing it is saved",
+    (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === JSON.stringify([PLAZA_BUILDING.id]),
+  );
+  await toDawn();
+  await checkBuildingText("plaza-dawn", "dawn", PLAZA_BUILDING);
+  const played = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:lastPlay") ?? "null"));
+  check(
+    "plaza-night",
+    "the night is recorded with its building",
+    played?.building?.id === PLAZA_BUILDING.id && played.building.anchorY === PLAZA_BUILDING.anchorY,
+    JSON.stringify(played?.building?.id),
+  );
+  check(
+    "plaza-night",
+    "and its plaza is the one its seed lays out with that building",
+    sameProps(nightProps, expectedPlaza(played.seed, true)),
+    JSON.stringify(nightProps),
+  );
+
+  // replay: the same plaza, from the recording alone
+  await page.goto(`${BASE_URL}/?replay=last`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(800);
+  await freeze();
+  const replayedProps = await drawnProps();
+  check(
+    "plaza-replay",
+    "a replay shows the plaza with the building the night was played beside",
+    sameProps(replayedProps, nightProps) && liveSprites(replayedProps).length === 1,
+    JSON.stringify(replayedProps),
+  );
+  await shoot("21c-plaza-replay");
+
+  // a recording from before buildings has none: it replays on the committed plaza
+  const older = { ...played, id: "2026-10-25-09-00-00-nobuilding" };
+  delete older.building;
+  await page.route(`**/api/plays/${older.id}`, (route) => route.fulfill({ json: older }));
+  await page.goto(`${BASE_URL}/?replay=${older.id}`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(500);
+  await freeze();
+  const olderProps = await drawnProps();
+  check(
+    "plaza-replay",
+    "a recording with no building replays on the committed plaza",
+    liveSprites(olderProps).length === 0 && sameProps(olderProps, expectedPlaza(older.seed, false)),
+    JSON.stringify(olderProps),
+  );
+
+  // its sprite will not load: not announced, and the night is the committed plaza
+  plaza.mode = "broken";
+  await openTitle();
+  await page.waitForTimeout(1500);
+  check(
+    "plaza-broken",
+    "a building whose sprite will not load is not announced",
+    (await page.locator(".raised").count()) === 0,
+  );
+  await startFromTitle();
+  const brokenProps = await drawnProps();
+  check(
+    "plaza-broken",
+    "the night has the committed plaza",
+    liveSprites(brokenProps).length === 0 && slotSprites(brokenProps).length === 1,
+    JSON.stringify(slotSprites(brokenProps)),
+  );
+  check(
+    "plaza-broken",
+    "and the line has not seen it",
+    (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === null,
+  );
+  // the recording of the night that had the building, whose sprite is gone now, replays on the committed plaza
+  const gone = { ...played, id: "2026-10-25-09-00-01-bldgone" };
+  await page.route(`**/api/plays/${gone.id}`, (route) => route.fulfill({ json: gone }));
+  await page.goto(`${BASE_URL}/?replay=${gone.id}`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(500);
+  await freeze();
+  const goneProps = await drawnProps();
+  check(
+    "plaza-broken",
+    "a replay whose building's sprite has gone shows the committed plaza, and does not crash",
+    liveSprites(goneProps).length === 0 && sameProps(goneProps, expectedPlaza(gone.seed, false)),
+    JSON.stringify(goneProps),
+  );
+
+  page = mainPage;
+  await plazaContext.close();
+  plaza.mode = "none";
+  sea.mode = "none";
+}
+
 // 22 to 25 the live director (APIs stubbed, see above). A reduced-motion context with no ?verify=1, so the title scroll
 // is open and the night's recording is really sent to /api/plays before the director is asked about it.
 {
@@ -3585,6 +3958,7 @@ const overlap = (first, second) =>
 const inView = (box, viewportWidth, viewportHeight) =>
   box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
 sea.mode = "ready"; // the phone passes show the creature panel on the title and at dawn
+plaza.mode = "ready"; // and the line for the building raised on the plaza
 director.mode = "answer"; // and the sea's answer at dawn
 for (const [tag, device, sex] of [
   ["phone-land", devices["iPhone 14 landscape"], "male"],
@@ -3616,6 +3990,7 @@ for (const [tag, device, sex] of [
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
   await checkPhoneText(tag, "title");
   await checkCreatureText(tag, "title", SEA_CREATURE);
+  await checkBuildingText(tag, "title", PLAZA_BUILDING);
   await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
   const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
   check(
@@ -3779,6 +4154,7 @@ for (const [tag, device, sex] of [
   await checkWeaponShop(tag, sex);
   await checkPhoneText(tag, "dawn");
   await checkCreatureText(tag, "dawn", SEA_CREATURE);
+  await checkBuildingText(tag, "dawn", PLAZA_BUILDING);
   await shoot(`${tag}-3-dawn`, true);
   const seaDawn = page.locator(".panel .sea").first();
   await seaDawn.scrollIntoViewIfNeeded();

@@ -1,8 +1,10 @@
 "use client";
-// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one.
-// Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever an
-// announcement: nothing here has to finish before the night can begin.
+// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one, and
+// under it one line for the building that will stand on the coming night's plaza ("Raised on the plaza tonight: …"), when
+// there is one. Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever
+// an announcement: nothing here has to finish before the night can begin.
 import { useEffect, useRef } from "react";
+import type { RaisedTonight } from "@/game/building-sea";
 import { creatureSpritePath, type JobStep } from "@/game/creature";
 import type { Tonight } from "@/game/sea";
 
@@ -19,10 +21,26 @@ const STEP_TEXT: Record<JobStep, string> = {
 
 interface SeaSendsProps {
   tonight: Tonight;
+  raised: RaisedTonight;
   onSpriteBroken: (creatureId: string) => void; // the sprite will not show: the creature is not announced
 }
 
-export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
+export function SeaSends({ tonight, raised, onSpriteBroken }: SeaSendsProps) {
+  if (tonight.kind === "none" && raised.kind !== "ready") return null;
+  // one block, so the title scroll's grid gives the announcements one row and not two
+  return (
+    <div className="sea-sends">
+      <TheCreature tonight={tonight} onSpriteBroken={onSpriteBroken} />
+      {raised.kind === "ready" && (
+        <p className="raised" data-line data-state="ready" data-building={raised.building.id}>
+          Raised on the plaza tonight: <b className="raised-name">{raised.building.name}</b>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TheCreature({ tonight, onSpriteBroken }: Pick<SeaSendsProps, "tonight" | "onSpriteBroken">) {
   if (tonight.kind === "ready") {
     const { creature } = tonight;
     return (

@@ -22,8 +22,9 @@ Four Mubit calls, and the rest is my own code. The deck and the demo video walk 
 
 Night Shift's brief: build a product that routes its LLM calls through Mubit and turns corrections into model updates for a recurring task. Lampwarden's recurring task is making game art: every sprite is written as code by a model, rendered, judged and corrected, the same way each time. The model never draws a pixel. It writes `build(k)` against the kit's API (the sprites' code is `public/sprites/*.ts`, next to the PNGs) and the renderer in `pipeline/kit/` draws it, with no model in the loop.
 - **Every model call goes through Mubit**: `https://api.mubit.ai/anthropic/v1/messages`, model `claude-opus-5-5`, no temperature (`pipeline/mubit.ts`). Each call carries an anonymous session in `metadata.user_id`.
-- **Four recurring tasks.** Mubit groups calls into a task when they share their system prompt, so each prompt is a fixed file and everything that changes per call (the brief, the creatures already made, the variation for each candidate, the night's recorded play) sits in the user message:
+- **Five recurring tasks.** Mubit groups calls into a task when they share their system prompt, so each prompt is a fixed file and everything that changes per call (the brief, the creatures already made, the variation for each candidate, the night's recorded play) sits in the user message:
   - the creature brief writer (`pipeline/prompts/creature.md`): the creatures that exist in, the next one out (live creatures only);
+  - the building brief writer (`pipeline/prompts/building.md`): the buildings that exist in, the next one out (live buildings only);
   - the generator (`pipeline/prompts/generator.md`): a brief in, kit code out (it also writes the fix);
   - the verifier (`pipeline/prompts/verifier.md`): the render, brief, code and stats in, a score with issues and a fix out;
   - the director (`pipeline/prompts/director.md`): after each night, that night's recorded play in, bounded balance tweaks and a line for the next night out. The game clamps every number and falls back to the rules if the call fails or is late (see "Live director").
@@ -43,7 +44,9 @@ Next.js 16 (App Router), React 19 and Pixi 8 through `@pixi/react`, run with Bun
 7. **The tide.** A director reads each night (kills per minute, lamps lost, health kept) and sets the next night's tide between 0.6 and 2: calm, restless, rising or raging. A clean dawn raises it, a lost night lowers it; it scales how often monsters spawn and how many are alive at once. Nothing is asked of the player.
 8. **Creatures from the sea.** Before each night the title screen and the dawn and heir panels announce "Tonight the sea sends…" with the newest creature from a shared gallery that this player has not met, or say that one is still being made. The night never waits for it, and the next one is already being made: as each night begins the game asks for the following night's creature (a job takes about a minute; a night lasts 28 to 64 s, so on the 28 to 40 s nights the creature is still being made when the dawn panel comes up, and the night never waits for it), and a job still running is followed through the night, not dropped. From a fifth of the night in (7 s into night 2, 13 s into night 7), about a quarter of the spawns are that creature, at most two at once. Its stats come from an archetype (skulker, brute or flyer, playing like the satyr, cyclops or harpy) and four modifiers of -1, 0 or 1, never from numbers the model wrote.
 
-Progress (generation, night, oil, upgrades, tide, the creatures met) is saved in `localStorage`.
+9. **Buildings on the plaza.** The same title and dawn panels add one line, "Raised on the plaza tonight: …", when a live building is ready: a Greek civic or domestic building (a stoa, a fountain house, a small shrine, a granary, a potter's workshop, a watchtower) that a model drew through Mubit and that takes the place of the night's committed house in the plaza's layout. It is scenery: it has no stats, no animation and no effect on play, and a night with no building, or one whose sprite will not load, has the plaza it always had. It is asked for the same way as the creature, as each night begins, after the creature's question has settled.
+
+Progress (generation, night, oil, upgrades, tide, the creatures met and the buildings raised) is saved in `localStorage`.
 
 ### Controls
 
@@ -96,6 +99,16 @@ This writes the PNG, its builder code and a row in `public/sprites/manifest.json
 
 Starting a job is rate limited, to 12 an hour per visitor (a salted hash of the address, never stored) and 40 a UTC day for the site; reading the gallery is not. Only one job runs at a time. Measured on 24 October 2026, 8 of 10 jobs were accepted, in about 40 s each. Design, limits and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md).
 
+### Live buildings
+
+`POST /api/buildings/next` (`src/app/api/buildings/`) is the creatures' route for the plaza's buildings: the newest gallery building the player has not seen, or a job to follow at `GET /api/buildings/jobs/:jobId`, with `GET /api/buildings/:id/sprite.png` for the picture. A building job is the creature job without the animation (`src/server/buildings/job.ts` and the shared `src/server/creatures/job-shell.ts`):
+- its own Mubit call (`pipeline/prompts/building.md`, so its own recurring task) writes the building's name and a sprite brief that stays inside the kit's building builders (`temple`, `house`, `stall`), validated by the contract in `src/game/building.ts`;
+- the same generator, verifier, one fix and best-of-three, each candidate rendered in a Vercel Sandbox, and the same acceptance rule;
+- on acceptance the server measures where the sprite's pixels are (its anchor, its bbox and the hulls of its base, `src/scene/extent.ts`) and stores that with the record, so the client never measures a picture;
+- the record, sprite and code go under their own Blob prefix (`buildings`).
+
+A building and a creature job share the one slot, so at most one model job and one sandbox render run at a time; creatures go first (a creature told to wait asks again in 15 s, and no building job starts while one has waited). Buildings have their own limits: 12 an hour per visitor and 20 a UTC day for the site (`BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR`, `BUILDING_MAX_STARTS_PER_DAY`). In the game the building takes the plaza's building slot (`decorFor(seed, live)`, `docs/ARCHITECTURE.md`, "Decorations") and is recorded with the night so a replay shows the same plaza. Design and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), "Buildings".
+
 Creatures are drawn from frames rendered in the sandbox and shipped as an image. Running the model's code in process (QuickJS in WebAssembly, [#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) or in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)) was measured and not adopted: `docs/LIVE_GENERATION.md`, "Why only the sandbox".
 
 ## Run it
@@ -131,6 +144,7 @@ Playing needs no keys: the sprites are static files. Recorded plays and the crea
 | `VERCEL_SANDBOX_SNAPSHOT_ID`                                                                                             | Live creatures: printed by `bun run sandbox:snapshot` after `vercel link`; rebuild it when `pipeline/kit/kit.ts` or `pipeline/render/` changes.   |
 | `CREATURE_RATE_SALT`                                                                                                     | Live creatures: at least 16 random characters, for example `openssl rand -hex 24`. Changing it resets the per-visitor counts.                     |
 | `CREATURE_MAX_STARTS_PER_VISITOR_PER_HOUR`, `CREATURE_MAX_STARTS_PER_DAY`, `CREATURE_CANDIDATES`, `CREATURE_BLOB_PREFIX` | Optional: defaults 12, 40, 3 (at most 5) and `creatures`.                                                                                         |
+| `BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR`, `BUILDING_MAX_STARTS_PER_DAY`, `BUILDING_BLOB_PREFIX`                        | Optional, live buildings (the same keys and slot as creatures): defaults 12, 20 and `buildings`.                                                  |
 | `DIRECTOR_RATE_SALT` (else `CREATURE_RATE_SALT`)                                                                         | Live director: at least 16 characters; without a salt, or without `MUBIT_API_KEY`, every answer is the rules'.                                    |
 | `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`, `DIRECTOR_BLOB_PREFIX`, `DIRECTOR_PLAYS_PREFIX` | Optional: defaults 40, 2000, `director` (where decisions are logged) and `plays` (where it reads recorded plays; a test run points it elsewhere). |
 
@@ -138,7 +152,7 @@ A build for `preview` or `production` fails when `MUBIT_API_KEY`, `VERCEL_SANDBO
 
 ## Recorded plays and replays
 
-Every night is recorded and sent to `/api/plays`: its seed, the legacy it started from, the creature it met, the warden's input changes at the fixed 60 Hz step, a per-second timeline, and a fingerprint of the sim it ran on. There is no personal data, only a random per-browser session id, and the title screen says so. The sim is deterministic, so a recording replays exactly on the sim it was recorded with.
+Every night is recorded and sent to `/api/plays`: its seed, the legacy it started from, the creature it met, the building the plaza was laid out with (rendering only: the sim never reads it, and a play without one replays on the committed plaza), the warden's input changes at the fixed 60 Hz step, a per-second timeline, and a fingerprint of the sim it ran on. There is no personal data, only a random per-browser session id, and the title screen says so. The sim is deterministic, so a recording replays exactly on the sim it was recorded with.
 - Watch one at `/?replay=<id>`, or `/?replay=last` for your own last night, at 1x, 2x or 4x. The end screen says whether the replay ended where the live night did. A night recorded on another version of the sim isn't replayed: the game shows its recorded summary instead.
 - `bun run plays [--since 2026-10-24] [--build <sha>] [--verify]` reports outcomes, length and kills per minute from the store; `--verify` replays the finished nights recorded on this checkout's sim and counts the others separately.
 - Nights opened with `?verify=1`, as the visual verifier does, are not uploaded.

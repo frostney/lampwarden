@@ -33,3 +33,14 @@ describe("the route that runs the job", () => {
     expect(Number(/export const maxDuration = (\d+);/.exec(source)?.[1])).toBe(JOB_MAX_DURATION_SECONDS);
   });
 });
+
+describe("the image routes", () => {
+  // a sprite or atlas never changes under its id, so Vercel's CDN keeps it too (cdn-cache-control), not only the browser
+  const IMAGE_ROUTES = ["creatures/[id]/sprite.png", "creatures/[id]/atlas.png", "buildings/[id]/sprite.png"];
+  for (const route of IMAGE_ROUTES)
+    test(`${route} is cached in the browser and the CDN`, () => {
+      const source = readFileSync(join(ROUTES, "api", route, "route.ts"), "utf8");
+      expect(source).toContain('"cache-control": "public, max-age=31536000, immutable"');
+      expect(source).toContain('"cdn-cache-control": "public, max-age=31536000, immutable"');
+    });
+});

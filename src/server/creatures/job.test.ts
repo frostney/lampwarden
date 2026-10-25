@@ -228,6 +228,28 @@ describe("a creature job", () => {
     expect(await store.listCreatureIds()).toEqual([]);
   });
 
+  test("a creature whose files are still being written at the deadline never reaches the gallery", async () => {
+    const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    let releaseWrite: () => void = () => {};
+    let writing = false;
+    const realPut = store.putCreature;
+    store.putCreature = async (...written) => {
+      writing = true;
+      await new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      return realPut(...written);
+    };
+    deps.budgetMilliseconds = 1000; // the fakes reach the write in a few ms, and the write then outlasts the budget
+    const job = await runCreatureJob(deps, "job-late-write");
+    expect(writing).toBe(true);
+    expect(job).toMatchObject({ step: "failed", error: "timed out" });
+    releaseWrite();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await store.listCreatureIds()).toEqual([]);
+    expect((await store.getJob("job-late-write"))?.step).toBe("failed");
+  });
+
   test("a model call in flight at the deadline sees the abort, and the job makes no further model call or render", async () => {
     const renderer = fakeRenderer();
     const { deps, model } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)], { render: renderer });

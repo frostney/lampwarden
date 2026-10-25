@@ -7,7 +7,7 @@ export type Rendered = {
 };
 export class Kit {
   sanitized = false; parts: Part[] = []; nobj = 0; shadow = true; ground: string | null = null; ox = OX; oy = OY; fit: string = ''; dropped = 0; snapped = 0;
-  mono: string | null = null; noScale = false; scaled = 0; scaleF = 1; inBody = false; guarded = 0; fireKept = 0;
+  mono: string | null = null; noScale = false; scaled = 0; scaleF = 1; fixedScale: number | null = null; maxSlides = 5; inBody = false; guarded = 0; fireKept = 0;
   obj(): number { return ++this.nobj; }
   // add any raw shape with a material. tex(p) may return a shade shift (int) or [material, shift] for decals.
   solid(s: Shape, m: string, o: Opts = {}): number {
@@ -94,10 +94,10 @@ export class Kit {
   render(): Rendered {
     if (!this.sanitized) { this.sanitized = true; this.sanitize(); }
     let rendered: Rendered | null = null;
-    if (!this.scaled && !this.noScale) rendered = this.autoscale();
+    if (!this.scaled && (!this.noScale || this.fixedScale !== null)) rendered = this.autoscale();
     if (!rendered) rendered = this.render1(false);
     let tries = 0;
-    while (tries < 5) {
+    while (tries < this.maxSlides) {
       let x0 = W, x1 = -1, y0 = H, y1 = -1;
       for (let i = 0; i < W * H; i++) if (rendered.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       let dx = 0, dy = 0;
@@ -115,17 +115,22 @@ export class Kit {
   // Returns the probe pass when the scene was left as it is (the caller reuses it), null when there was no probe or the scene was rescaled.
   autoscale(): Rendered | null {
     this.scaled = 1; if (!this.parts.length) return null;
+    if (this.fixedScale !== null) { if (this.fixedScale !== 1) this.rescale(this.fixedScale); return null; }   // a frame of a set: the scale its still was given
     const r = this.render1(false); let x0 = W, x1 = -1, y0 = H, y1 = -1;
     for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
     if (x1 < 0) return r; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
     if (ex >= 62) return r; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return r;
+    this.rescale(f);
+    return null;
+  }
+  // scales the whole scene about the ground origin by f
+  rescale(f: number): void {
     this.scaleF = f;
     this.parts = this.parts.map((P) => {
       const s0 = P.s; const t0 = P.tex;
       const ns: Shape = { f: (x, y, z) => s0.f(x / f, y / f, z / f) * f, lo: mul(s0.lo, f), hi: mul(s0.hi, f), lip: s0.lip };
       return { ...P, s: ns, tex: t0 ? ((p: V) => t0([p[0] / f, p[1] / f, p[2] / f])) : null, c: mul(P.c, f), R: P.R * f };
     });
-    return null;
   }
   pj(q: V): [number, number] { return [this.ox + 2 * (q[0] - q[1]), this.oy + q[0] + q[1] - ZK * q[2]]; }
   render1(withShadow: boolean): Rendered {

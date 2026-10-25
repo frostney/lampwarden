@@ -23,6 +23,7 @@
     "calibrate:verifier": "varlock run --inject vars --filter=MUBIT_API_KEY,VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/calibrate-verifier.ts",
     "reverify:sprites": "varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/reverify.ts",
     "assets:hero": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/hero-frames.ts",
+    "assets:monsters": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/monster-frames.ts",
     "assets:hero:generate": "varlock run --inject vars --filter=#pipeline -- bun --no-env-file pipeline/hero-generate.ts",
     "render": "varlock run --inject vars --filter=VERCEL_SANDBOX_SNAPSHOT_ID,VERCEL_OIDC_TOKEN -- bun --no-env-file pipeline/render-file.ts",
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; lefthook install",

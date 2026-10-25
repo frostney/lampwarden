@@ -1,5 +1,6 @@
-// Which frame of its animation a creature from the sea shows, from what the sim already says about it. Drawing only: the
-// sim never reads this, and a creature without frames shows its one sprite as it did before.
+// Which frame of its animation a monster with frames shows (a creature from the sea, or one of the hand-made three), from what
+// the sim already says about it. Drawing only: the sim never reads this, and a monster without frames shows its one sprite
+// as it did before.
 //
 // The creature walks while it travels towards a lamp or the warden, claws (the attack frames) while it snuffs a lamp
 // and for the first moments after a blow on the warden, and stands (idle) when it waits for its next blow or is held by a
@@ -9,6 +10,7 @@ import {
   CREATURE_FRAME_COUNTS,
   CREATURE_FRAMES_PER_SECOND,
   type CreatureAnimation,
+  type CreatureDirection,
   type CreatureFrames,
   creaturePoseName,
 } from "../game/creature-frames";
@@ -17,11 +19,18 @@ import { ground, type Monster } from "../game/sim";
 /** What the sim sets a monster's `attackCooldown` to when it strikes the warden (src/game/sim.ts, "claw the warden"). */
 const CLAW_COOLDOWN = 1.1;
 /** Within this ground distance of the warden a monster stands and claws instead of walking (the sim's 26). */
-const CLAW_REACH = 26;
+export const CLAW_REACH = 26;
 
-/** The texture key of one frame of a creature, such as `creature/<id>/walk3`. */
-export const creatureFrameKey = (id: string, animation: CreatureAnimation, frame: number) =>
-  `creature/${id}/${creaturePoseName(animation, frame)}`;
+/**
+ * The texture key of one frame of a sheet, seen from one direction, such as `creature/<id>/ne/walk3`: the sheet is a
+ * creature's key (`creature/<id>`) or a hand-made monster's kind (`satyr`).
+ */
+export const sheetFrameKey = (
+  sheet: string,
+  direction: CreatureDirection,
+  animation: CreatureAnimation,
+  frame: number,
+) => `${sheet}/${direction}/${creaturePoseName(animation, frame)}`;
 
 export interface CreatureFrameChoice {
   animation: CreatureAnimation;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { creatureSchema, creatureStats, statsOf } from "@/game/creature";
+import { DRAWN_DIRECTIONS } from "@/scene/assets";
 import {
   briefJson,
   CLEAN_STATS,
@@ -12,6 +13,7 @@ import {
   spritePng,
   verdictJson,
 } from "../../../pipeline/fakes";
+import { kitFacing } from "../../../pipeline/hero-animation";
 import { isAccepted } from "../../../pipeline/loop";
 import { decodePng } from "../../../tools/logo/png";
 import { creatureId, type JobDeps, runCreatureJob } from "./job";
@@ -404,10 +406,10 @@ describe("a job animates what it accepts", () => {
     const job = await runCreatureJob(deps, "job-anim-aaaa");
     expect(job.step).toBe("done");
     expect(steps).toEqual(["writing", "drawing", "rendering", "judging", "rendering", "done"]);
-    // one batch: idle 4, walk 6, attack 5, each named and posed alike, from the code that was judged
+    // one batch: five directions of idle 4, walk 6, attack 5, each named by direction and pose, from the code that was judged
     expect(frameBatch.batches).toHaveLength(1);
     const [batch] = frameBatch.batches;
-    expect(batch?.map((request) => request.pose)).toEqual([
+    const poses = [
       "idle1",
       "idle2",
       "idle3",
@@ -423,16 +425,66 @@ describe("a job animates what it accepts", () => {
       "attack3",
       "attack4",
       "attack5",
-    ]);
-    expect(batch?.every((request) => request.code === GOOD_CODE && request.name === request.pose)).toBe(true);
+    ];
+    expect(batch?.map((request) => request.pose)).toEqual([...poses, ...poses, ...poses, ...poses, ...poses]);
+    expect(batch?.map((request) => request.facing)).toEqual(
+      DRAWN_DIRECTIONS.flatMap((direction) => poses.map(() => kitFacing(direction))),
+    );
+    expect(batch?.every((request) => request.code === GOOD_CODE && request.name.endsWith(`_${request.pose}`))).toBe(
+      true,
+    );
     const [id] = await store.listCreatureIds();
     const record = await store.getCreature(id ?? "");
-    expect(record?.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
+    expect(record?.frames).toEqual({ idle: 4, walk: 6, attack: 5, directions: ["e", "se", "s", "ne", "n"] });
     const atlas = store.atlases.get(id ?? "");
     expect(atlas).toBeDefined();
     const picture = decodePng(Buffer.from(atlas ?? new Uint8Array()));
-    expect([picture.width, picture.height]).toEqual([768, 384]);
+    expect([picture.width, picture.height]).toEqual([640, 1920]);
     expect(await store.getAtlas(id ?? "")).not.toBeNull();
+  });
+
+  test("stores how far a frame was slid along its cell, so the game can draw it back", async () => {
+    // facing north-east (the fourth direction, requests 45 to 59) the kit slides the figure 12 px down to keep it off the edge
+    const renderBatch = fakeFrameBatch({
+      statsOf: (request) => (request.name.startsWith("ne_") ? { ...CLEAN_STATS, fit: "0:6,0:6" } : CLEAN_STATS),
+    });
+    const { deps, store } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)], { renderBatch });
+    const job = await runCreatureJob(deps, "job-anim-shift");
+    expect(job.step).toBe("done");
+    const [id] = await store.listCreatureIds();
+    const frames = (await store.getCreature(id ?? ""))?.frames;
+    expect(frames?.shifts).toHaveLength(75);
+    expect(frames?.shifts?.slice(45, 60).every(([across, down]) => across === 0 && down === 12)).toBe(true);
+    expect(frames?.shifts?.slice(0, 45).every(([across, down]) => across === 0 && down === 0)).toBe(true);
+  });
+
+  test("a builder that ignores its facing is drawn from its one south-east side, as before directions", async () => {
+    const poses = ["idle1", "idle2", "idle3", "idle4", "walk1", "walk2", "walk3", "walk4", "walk5", "walk6"];
+    const renderBatch = fakeFrameBatch({
+      seedOf: (request) => poses.indexOf(request.pose) + 1 + (request.pose.startsWith("a") ? 20 : 0),
+    });
+    const { deps, store, events } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)], { renderBatch });
+    const job = await runCreatureJob(deps, "job-anim-onedirection");
+    expect(job.step).toBe("done");
+    const [id] = await store.listCreatureIds();
+    expect((await store.getCreature(id ?? ""))?.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
+    const atlas = decodePng(Buffer.from(store.atlases.get(id ?? "") ?? new Uint8Array()));
+    expect([atlas.width, atlas.height]).toEqual([768, 384]);
+    expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
+      animated: true,
+      directions: 1,
+      batches: 2,
+      refused: ["directions"],
+    });
+  });
+
+  test("reports how many directions, batches and bytes the frames took", async () => {
+    const { deps, events } = jobWith([briefJson(), fenced(GOOD_CODE), verdictJson(8)]);
+    await runCreatureJob(deps, "job-anim-report");
+    const framed = events.find((event) => event.event === "creature-job-frames");
+    expect(framed).toMatchObject({ animated: true, directions: 5, batches: 1, refused: [] });
+    expect(framed?.atlasBytes).toBeGreaterThan(1000);
+    expect(typeof framed?.milliseconds).toBe("number");
   });
 
   test("refuses a builder that ignores its pose, and animates the next best accepted candidate instead", async () => {
@@ -447,13 +499,14 @@ describe("a job animates what it accepts", () => {
     const job = await runCreatureJob(deps, "job-anim-bbbb");
     expect(job.step).toBe("done");
     expect(job.creature?.score).toBe(7);
-    expect(frameBatch.batches).toHaveLength(2);
+    // the static one is drawn from every side, then from the south-east, before the next candidate is tried
+    expect(frameBatch.batches).toHaveLength(3);
     const [id] = await store.listCreatureIds();
     expect(store.codes.get(id ?? "")).toContain("// candidate 0");
     expect(store.atlases.has(id ?? "")).toBe(true);
     expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
       animated: true,
-      refused: ["static"],
+      refused: ["static", "static"],
     });
   });
 
@@ -473,7 +526,7 @@ describe("a job animates what it accepts", () => {
     expect(JSON.stringify(events)).not.toContain("boom");
     expect(events.find((event) => event.event === "creature-job-frames")).toMatchObject({
       animated: false,
-      refused: ["render"],
+      refused: ["render", "render"],
     });
   });
 });

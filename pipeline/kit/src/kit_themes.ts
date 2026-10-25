@@ -104,5 +104,5 @@ export function ship(k: Kit, P: { at?: number[]; facing?: number; kind?: string;
   }
   R.key(P3(0, 0, 0.5), 0);
   const fc = P.facing === undefined ? 5 : P.facing;
-  R.emit(new Frame(P.at || [0, 0], fc, 0));
+  R.emit(new Frame(P.at || [0, 0], fc + TURN.degrees, 0));
 }

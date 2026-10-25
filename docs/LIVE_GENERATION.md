@@ -125,7 +125,7 @@ Races that remain, because the counts come from Blob listings and not from a tra
 - The slot is atomic, and a job's marks are written before its job starts, so two jobs never overlap and a count is complete whenever a new job is considered. What can still slip through is a listing that lags a just-written mark (Blob listings are not documented as read-after-write consistent), letting one extra start through at the limit.
 - A job that dies without finishing holds the slot until `maxDuration` has passed since its last step, so for up to 5 minutes nobody can start a new one (they follow the dead job and see it fail).
 - Marks are never deleted, so a very old visitor key or day prefix is just a few tiny blobs; the daily and hourly windows ignore them.
-- The same visitor behind many addresses (IPv6 privacy addresses, a mobile network) gets more starts; one address shared by many (an office) shares 12 an hour. The daily ceiling bounds the cost either way.
+- An IPv6 address counts as its /64 prefix (an IPv4-mapped one as the IPv4 address), so privacy addresses within one /64 are one visitor; the same visitor behind many networks (a phone moving between them) gets more starts; one address shared by many (an office) shares 12 an hour. The daily ceiling bounds the cost either way.
 
 ### The sandbox: a snapshot with Bun 1.4.4
 

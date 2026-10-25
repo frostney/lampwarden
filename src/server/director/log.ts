@@ -25,6 +25,11 @@ export const decisionLogSchema = z.looseObject({
   session: z.string(),
   at: z.string(),
   night: z.number().int(),
+  /**
+   * Whether the server replayed the play's inputs to check the numbers the model was told. It does not: the stats, the
+   * timeline and the legacy are what the client uploaded. Logs from before this field have none.
+   */
+  replayed: z.boolean().optional(),
   source: z.enum(["mubit", "rules"]),
   /** Set when the source is the rules because the model did not answer. */
   fallback: z.enum(FALLBACK_REASONS).nullable(),

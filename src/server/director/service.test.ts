@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { directorSchema, type FallbackReason, LINE_MAX, rulesDirector } from "@/game/director";
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "../../../pipeline/mubit";
+import { visitorKey } from "../creatures/limits";
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
 import { decisionLogSchema } from "./log";
-import { type DirectorDeps, decide } from "./service";
+import { CALL_WINDOW_MILLISECONDS, type DirectorDeps, decide } from "./service";
 import { createMemoryStore, type MemoryDirectorStore } from "./store.memory";
 
 const SALT = "a-long-enough-test-salt-0123456789";
@@ -492,5 +493,90 @@ describe("the correction loop", () => {
     const text = JSON.stringify(world.sent[0]?.body.messages);
     expect(text).not.toContain("Ignore all previous");
     expect(text).toContain("no model decision applied");
+  });
+});
+
+describe("a burst of calls for one play", () => {
+  const BURST = 8;
+  const visitor = visitorKey("203.0.113.7", SALT);
+
+  test("reaches the model once: the others get the rules, and the visitor is marked once", async () => {
+    const results = await Promise.all(Array.from({ length: BURST }, () => ask()));
+    expect(world.calls()).toBe(1);
+    const fallbacks = results.map((result) => (result.kind === "decision" ? result.fallback : "no-play"));
+    expect(fallbacks.filter((fallback) => fallback === null)).toHaveLength(1);
+    expect(fallbacks.filter((fallback) => fallback === "rate-limited")).toHaveLength(BURST - 1);
+    expect(await world.store.visitorStartsBetween(visitor, new Date(0), NOW)).toHaveLength(1);
+    expect(world.logged.filter((entry) => entry.event === "director-busy")).toHaveLength(BURST - 1);
+    expect(world.store.decisions.get(FIXTURE_PLAY_ID)?.source).toBe("mubit");
+  });
+
+  test("is held to the hourly and the daily limits, however many ask at once", async () => {
+    world = setup({ DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR: "1", DIRECTOR_MAX_CALLS_PER_DAY: "1" });
+    world.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
+    await Promise.all(Array.from({ length: BURST }, () => ask()));
+    expect(world.calls()).toBe(1);
+    const next = "2026-10-24-16-11-49-cccccccc";
+    world.store.plays.set(next, lostNightTwo({ id: next }));
+    const refused = await decide(world.deps, { playId: next, ip: "198.51.100.9" });
+    expect(refused.kind === "decision" && refused.fallback).toBe("rate-limited");
+    expect(world.calls()).toBe(1);
+  });
+
+  test("can claim the play again once the minute is over, so a call that fell back can be retried", async () => {
+    world = setup({}, () => new Response("busy", { status: 500 }));
+    world.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
+    await ask();
+    const again = await ask();
+    expect(again.kind === "decision" && again.fallback).toBe("rate-limited");
+    expect(world.calls()).toBe(1);
+    world.deps.now = () => new Date(NOW.getTime() + CALL_WINDOW_MILLISECONDS);
+    const later = await ask();
+    expect(later.kind === "decision" && later.fallback).toBe("error");
+    expect(world.calls()).toBe(2);
+  });
+
+  test("is claimed per play: two plays by one visitor at once both go through", async () => {
+    const other = "2026-10-24-16-11-49-dddddddd";
+    world.store.plays.set(other, lostNightTwo({ id: other }));
+    await Promise.all([ask(), ask("203.0.113.7", other)]);
+    expect(world.calls()).toBe(2);
+  });
+
+  test("the claim is first come, first served in the store", async () => {
+    const store = createMemoryStore();
+    const claims = await Promise.all(Array.from({ length: BURST }, () => store.claim("play-1")));
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(await store.claim("play-2")).toBe(true);
+  });
+});
+
+describe("the limit mark", () => {
+  test("is written before the model is asked, so a call that never answers is still counted", async () => {
+    const markedWhenAsked: number[] = [];
+    world = setup({}, async () => {
+      const marks = await world.store.visitorStartsBetween(visitorKey("203.0.113.7", SALT), new Date(0), NOW);
+      markedWhenAsked.push(marks.length);
+      return new Response("busy", { status: 500 });
+    });
+    world.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
+    await ask();
+    expect(markedWhenAsked).toEqual([1]);
+  });
+
+  test("that cannot be written keeps the model from being called", async () => {
+    world.store.recordCall = async () => {
+      throw new Error("storage down");
+    };
+    const result = await ask();
+    expect(result.kind === "decision" && result.fallback).toBe("error");
+    expect(world.calls()).toBe(0);
+  });
+});
+
+describe("the decision log", () => {
+  test("says the play was not replayed on the server", async () => {
+    await ask();
+    expect(world.store.decisions.get(FIXTURE_PLAY_ID)?.replayed).toBe(false);
   });
 });

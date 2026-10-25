@@ -8,6 +8,8 @@ export interface DirectorStore extends StartLedger {
   getPlay(playId: string): Promise<unknown>;
   getDecision(playId: string): Promise<DecisionLog | null>;
   putDecision(log: DecisionLog): Promise<void>;
-  /** Marks one call to the model for the limits. */
+  /** Marks one call to the model for the limits. Every mark is its own record, even for the same play in the same millisecond. */
   recordCall(visitor: string, playId: string, calledAt: Date): Promise<void>;
+  /** Takes `key` for the caller: true for exactly one caller however many ask at once, false for every later one. */
+  claim(key: string): Promise<boolean>;
 }

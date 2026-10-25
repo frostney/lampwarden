@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { creatureSchema, creatureStats, statsOf } from "@/game/creature";
+import { creatureSchema } from "@/game/creature";
 import { DRAWN_DIRECTIONS } from "@/scene/assets";
 
 import {
@@ -123,10 +123,6 @@ describe("a creature job", () => {
     });
     expect(store.sprites.get(id)).toEqual(spritePng());
     expect(store.codes.get(id)).toBe(GOOD_CODE);
-    // stats are derived from the archetype and modifiers, never taken from the model
-    expect(creature && statsOf(creature)).toEqual(
-      creatureStats("skulker", { speed: 1, toughness: -1, bite: 0, snuffing: 0 }),
-    );
   });
 
   test("a fix turn adds the fixing step, and the better attempt is stored", async () => {

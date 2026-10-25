@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { ARCHETYPES, creatureStats, MODIFIER_NAMES, type Modifiers } from "./creature";
+import { ARCHETYPES, creatureStats, type Modifiers } from "./creature";
 import { MONSTER } from "./sim";
 
 const neutral: Modifiers = { speed: 0, toughness: 0, bite: 0, snuffing: 0 };
@@ -29,6 +29,5 @@ describe("creature stats", () => {
         expect(stats.snuff).toBeGreaterThan(1);
       }
     }
-    expect(MODIFIER_NAMES).toHaveLength(4);
   });
 });

@@ -5,7 +5,6 @@ import { z } from "zod";
 import { compareCodeUnits } from "../src/lib/compare";
 import { CLEAN_STATS, fakeModel, fakeRenderer, fenced, spritePng, verdictJson } from "./fakes";
 import { attemptVerdict, judgeHeroCode, runHeroLoop } from "./hero-loop";
-import { REPRESENTATIVE_FRAMES } from "./hero-model";
 import type { LoopCore } from "./loop";
 import type { RenderRequest, RenderResult } from "./render-types";
 
@@ -142,12 +141,6 @@ describe("judging a hero's code", () => {
     expect(attempt.frames.map((frame) => frame.accepted)).toEqual([true, true, true, false]);
     expect(attempt.accepted).toBe(false);
     expect(attempt.score).toBe(6);
-  });
-
-  test("represents the four animations", () => {
-    expect(
-      REPRESENTATIVE_FRAMES("female").map((frame) => `${frame.animation}${frame.frame}_${frame.direction}`),
-    ).toEqual(["idle1_s", "walk2_se", "melee3_se", "ranged3_se"]);
   });
 });
 

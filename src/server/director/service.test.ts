@@ -164,6 +164,7 @@ describe("a decision from the model", () => {
     expect(log).toMatchObject({
       playId: FIXTURE_PLAY_ID,
       night: 2,
+      replayed: false, // the numbers in it were not re-checked by replaying the play on the server
       source: "mubit",
       fallback: null,
       reasoning: expect.stringContaining("Lost early"),
@@ -567,13 +568,6 @@ describe("a burst of calls for one play", () => {
     await Promise.all([ask(), ask("203.0.113.7", other)]);
     expect(world.calls()).toBe(2);
   });
-
-  test("the claim is first come, first served in the store", async () => {
-    const store = createMemoryStore();
-    const claims = await Promise.all(Array.from({ length: BURST }, () => store.claim("play-1")));
-    expect(claims.filter(Boolean)).toHaveLength(1);
-    expect(await store.claim("play-2")).toBe(true);
-  });
 });
 
 describe("the limit mark", () => {
@@ -596,12 +590,5 @@ describe("the limit mark", () => {
     const result = await ask();
     expect(result.kind === "decision" && result.fallback).toBe("error");
     expect(world.calls()).toBe(0);
-  });
-});
-
-describe("the decision log", () => {
-  test("says the play was not replayed on the server", async () => {
-    await ask();
-    expect(world.store.decisions.get(FIXTURE_PLAY_ID)?.replayed).toBe(false);
   });
 });

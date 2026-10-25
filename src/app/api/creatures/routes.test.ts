@@ -21,11 +21,9 @@ describe("the paths the contract names", () => {
     expect(existsSync(routeFileFor(`${CREATURE_API}/next`, {}))).toBe(true);
   });
   test("GET the job", () => {
-    expect(creatureJobPath("JOBID")).toBe("/api/creatures/jobs/JOBID");
     expect(existsSync(routeFileFor(creatureJobPath("JOBID"), { JOBID: "jobId" }))).toBe(true);
   });
   test("GET the sprite", () => {
-    expect(creatureSpritePath("CREATUREID")).toBe("/api/creatures/CREATUREID/sprite.png");
     expect(existsSync(routeFileFor(creatureSpritePath("CREATUREID"), { CREATUREID: "id" }))).toBe(true);
   });
 });

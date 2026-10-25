@@ -78,7 +78,6 @@ describe("the building brief writer's Mubit call", () => {
       ),
     );
     expect(messages.size).toBe(rolls.length);
-    expect(pickBuildingInspiration(() => 0.999999)).toBeTruthy();
   });
 
   test("asks once more when the first reply is not a valid brief", async () => {

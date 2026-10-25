@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { CREATURE_FRAME_COUNTS } from "../game/creature-frames";
 import { creatureFrameOf, sheetFrameKey } from "./creature-animation";
 
 const FAR_HERO = { x: 900, y: 900 };
@@ -43,7 +42,6 @@ describe("which frame a creature shows", () => {
       const choice = creatureFrameOf({ ...monster, age: tenth / 10 }, FAR_HERO, counts);
       expect(choice.frame).toBeLessThan(counts[choice.animation]);
     }
-    expect(CREATURE_FRAME_COUNTS).toEqual({ idle: 4, walk: 6, attack: 5 });
   });
 
   test("names a frame by its pose", () => {

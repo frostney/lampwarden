@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { compareCodeUnits } from "../src/lib/compare";
-import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "./mubit";
+import { createMubitClient, type FetchImplementation } from "./mubit";
 
 const TEST_KEY = "test-key-not-a-secret";
 
@@ -59,7 +58,6 @@ describe("Mubit request", () => {
     expect(requests).toHaveLength(1);
     const [request] = requests;
     expect(request?.url).toBe("https://api.mubit.ai/anthropic/v1/messages");
-    expect(request?.url).toBe(MUBIT_MESSAGES_URL);
     expect(request?.init.method).toBe("POST");
     expect(request?.init.headers).toEqual({
       "x-api-key": TEST_KEY,
@@ -67,7 +65,6 @@ describe("Mubit request", () => {
       "content-type": "application/json",
     });
     const body = JSON.parse(String(request?.init.body));
-    expect(Object.keys(body).sort(compareCodeUnits)).toEqual(["max_tokens", "messages", "metadata", "model", "system"]);
     expect(body).toEqual({
       model: "claude-opus-5-5",
       max_tokens: 1500,
@@ -75,7 +72,6 @@ describe("Mubit request", () => {
       messages: [{ role: "user", content: "Brief: lamp" }],
       metadata: { user_id: "session-1" },
     });
-    expect(body.model).toBe(MUBIT_MODEL);
     expect(call.text).toBe("hello");
     expect(call.record).toMatchObject({
       task: "gen",

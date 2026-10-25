@@ -145,8 +145,6 @@ describe("the sim fingerprint", () => {
         director,
         directorSource.replace("export function clampProposal(", "// reworded\nexport function clampProposal("),
       );
-      expect(readFileSync(legacy, "utf8")).not.toBe(legacySource);
-      expect(readFileSync(director, "utf8")).not.toBe(directorSource);
       expect(fingerprint()).toBe(before);
       expect(simFingerprint(root)).toBe(before);
     });

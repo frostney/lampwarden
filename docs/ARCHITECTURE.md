@@ -6,7 +6,8 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png), api/director (the live director: one POST per finished night)
+                     :id/sprite.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
+                     one POST per finished night)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
                      arrow beside the daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon`
@@ -19,7 +20,9 @@ src/
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
-                     of the job still making one; on the title and the dawn and heir panels
+                     of the job still making one, and under it the line "Raised on the plaza tonight: …" when a live building
+                     is ready; on the title and the dawn and heir panels
+    useRaised.ts     asks the buildings gallery which building goes up tonight (the same never-blocking asking as useTonight)
     useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
                      begins, for the next night's creature, and keeps a job that is still running through the night);
                      never blocks play (none, a network error and "still generating" all mean the night starts without it)
@@ -71,19 +74,31 @@ src/
     gamepad.ts       Gamepad API: the warden during a night, focus and presses in the menus
     creature.ts      the contract with the live generator: the Creature record, its stats from an archetype plus
                      bounded modifiers, the API paths and shapes (see docs/LIVE_GENERATION.md)
-    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5), the atlas layout and the
-                     paces; kept out of creature.ts so the sim fingerprint does not move (frames are drawn, never played)
+    creature-frames.ts  the animation extension of the creature record (`frames`: idle 4, walk 6, attack 5, the five directions it is
+                     drawn from and how far each frame was slid along its cell), the atlas layout and the paces; kept out of
+                     creature.ts so the sim fingerprint does not move (frames are drawn, never played)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
+    building.ts      the contract with the live building generator (not in the sim fingerprint: a building is only drawn): the
+                     Building record with the anchor, bbox and base extents the placer needs, what a recording keeps of it,
+                     the API paths and shapes
+    building-api.ts, building-sea.ts  the game's side of that API and the asking for tonight's building; gallery-api.ts and
+                     gallery-sea.ts are what it shares with the creatures' (reading answers, following a job, the question
+                     per set of ids met, a busy slot asked again after its delay); sea.ts is the creatures' asking
+    raised.ts        the ids of the buildings the line has seen go up (localStorage), sent as `seen`, apart from the legacy
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
                      the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
                      recorder (the creature a night met and the sim fingerprint it was played on are optional fields), the
                      running build's fingerprint (RUNNING_SIM) and replaysExactlyOn
-  server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
-                     stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
-                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
-                     (the only module that reads env and files and wires Mubit, the sandbox and Blob)
+  server/creatures/  what the creature and building routes do, with storage, clock and the job starter injected: service (next for
+                     each, job reads, the stale rule, the one slot they share and the creatures' priority), job-shell (what every
+                     job does: steps, deadline, fixed failure reasons, the acceptance rule, ids), job (one creature job), limits
+                     (salted-hash visitors, hourly and daily starts), store (the interface) with store.blob (private Vercel Blob)
+                     and store.memory (tests), config (env), deps (the only module that reads env and files and wires Mubit, the
+                     sandbox and Blob)
+  server/buildings/  one building job (job: the creature job without frames) and the measuring of an accepted sprite (placement:
+                     anchor, bbox, the hulls and box of its pixels, from the PNG, in the form decor-extents.ts has)
   server/director/   what the director route does, with store, clock, model and log injected: service (the play, the limits,
                      the model call, the fallbacks, the log), summary (the night as the model is told it, from the stored play),
                      log (the decision record), config (env, limits), store (the interface) with store.blob and store.memory,
@@ -92,10 +107,16 @@ src/
   scene/             what the scene looks like, plain Pixi
     assets.ts        sprite keys, frame counts and frames per second, ground anchors, asset list for Assets.load; the
                      warden's eight directions (octants), the five of them drawn and the three mirrored
-    creature-animation.ts  which frame a creature from the sea shows (walk, attack, idle) from what the sim says about it; drawing only
+    creature-animation.ts  which frame a monster with frames shows (walk, attack, idle) from what the sim says about it, and a frame's
+                     texture key; drawing only
+    monster-heading.ts  which way a monster faces on the ground (an octant), read from its own steps (the sim keeps no heading); drawing only
+    monster-sheets.ts  the hand-made monsters' frames (satyr, cyclops, harpy): their atlases, and the canvas and the slides recorded in
+                     monster-frames.json, which `bun run assets:monsters` writes
     layers.ts        textures (and the creature's, loaded at runtime from its sprite path and, with frames, its atlas; a sprite that fails means a
                      night without it), ground (the plaza over the sea, and the boards of the dock's bridge), night tint (the world below the horizon
-                     is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite
+                     is tinted; the sky is not), per-frame strokes; monsterLook is the one lookup of a monster's sprite and
+                     monsterPicture the frame it is drawn with now, from the way it faces (a monster with frames is cut from its atlas,
+                     one texture a frame and direction, the three directions that are not drawn mirrored as the warden's are)
                      and anchor
     sky.ts           the night sky above the horizon, painted per stage in its final colours: stepped, dithered bands
                      warming to dawn with the night tint, stars, a crescent moon, a headland with a lighthouse and far
@@ -144,13 +165,18 @@ scripts/plays.ts     balance report from recorded plays in Blob storage, with a 
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 tools/sim-fingerprint/  the sim fingerprint: a hash of the sources that decide a night (see Sim fingerprint)
-public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, manifest.json
+public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, <kind>-frames.png (the satyr's,
+                     cyclops's and harpy's atlases), manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
   run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
-  creature-frames.ts the frame set of a creature: its code rendered in every pose in one batch, checked (every frame renders, the walk moves) and packed into the atlas
+  creature-frames.ts the frame set of a creature: its code rendered in every pose from five directions in one batch (75 frames), checked
+                     (every frame renders, the walk moves, the sides differ, the figure fits its cell) and packed into the atlas;
+                     monster-frames.ts and monster-source.ts draw the hand-made monsters' the same way (`bun run assets:monsters`)
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
+  building-brief.ts  the brief writer for live buildings (prompts/building.md, its own Mubit task), validated with src/game/building.ts;
+                     brief-writer.ts is what the two share
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the renderer's contract (RenderStats, RenderResult) and the validation of what a sandbox sends back
   render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
@@ -160,7 +186,8 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
-  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite) and png.ts (the PNG encoder)
+  render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite: its pose as POSE, its facing as the kit's
+                     turn, and, for a frame of a set, the canvas its still was drawn on) and png.ts (the PNG encoder)
 docs/ARCHITECTURE.md this file
 docs/DIRECTOR.md  design note: the live director (state, bounds, route, loop, a live run against Mubit, balance with stub decisions)
 docs/LIVE_GENERATION.md  design note: live generation behind a server route, why only Vercel Sandbox renders, with parallelism and Mubit numbers
@@ -206,6 +233,13 @@ The rules, in `decor.ts`:
 - **A live building**: `decorFor(seed, live)` takes an optional `{ key, extents }` (the extents from `measureSprite`) that
   stands in the building slot (`slot: "building"`, the house) instead of the committed house; the scene draws that key's
   texture at that key's anchor, so a night can have one building from a live gallery with nothing in the committed table.
+  The extents are the ones the server measured when it accepted the sprite and kept in the record (`src/game/building.ts`,
+  `src/server/buildings/placement.ts`); the client never measures a picture. The live building is held to the rules above like
+  any prop, tried in the slot before the committed house, and when it fits nowhere that night the committed house stands
+  (`live-building.test.ts` checks 500 seeds). `Game.tsx` loads its sprite before the night (`loadBuildingTexture`, which also
+  keeps its anchor for the scene) and goes without it, with the plaza it always had, when the sprite will not load. The night's
+  recording carries the building (`building`: id, name, anchor, extent), so a replay lays out the same plaza from the recording
+  alone, and a play without one replays on the committed layout. The sim, the replay and the sim fingerprint never read it.
 
 
 ## Sim fingerprint

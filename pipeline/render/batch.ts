@@ -18,7 +18,7 @@ export interface BatchManifest {
   /** Each build process is killed after this long. */
   itemDeadlineMilliseconds: number;
   /** Item `index` is built by `<job>/<index>.ts`. */
-  items: Array<{ name: string; pose: string }>;
+  items: Array<{ name: string; pose: string; facing?: number; view?: string }>;
 }
 
 export interface BatchItemOutcome {
@@ -57,7 +57,15 @@ async function renderItem(jobDirectory: string, manifest: BatchManifest, index: 
   const outputDirectory = join(jobDirectory, "out", String(index));
   const started = performance.now();
   const subprocess = Bun.spawn(
-    [process.execPath, "runner.ts", join(jobDirectory, `${index}.ts`), item.name, item.pose],
+    [
+      process.execPath,
+      "runner.ts",
+      join(jobDirectory, `${index}.ts`),
+      item.name,
+      item.pose,
+      String(item.facing ?? 0),
+      ...(item.view ? [item.view] : []),
+    ],
     { cwd: RUNNER_DIRECTORY, env: { KIT_OUT: outputDirectory }, stdout: "pipe", stderr: "pipe" },
   );
   let timedOut = false;

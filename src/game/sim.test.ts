@@ -467,11 +467,11 @@ describe("the upgrades", () => {
 });
 
 describe("the length of a night", () => {
-  test("is 16 s on night 1 and 6 s longer each night, up to 52 s from night 7", () => {
-    expect([1, 2, 3, 4, 5, 6, 7].map(nightLength)).toEqual([16, 22, 28, 34, 40, 46, 52]);
-    expect(nightLength(8)).toBe(52);
-    expect(nightLength(50)).toBe(52);
-    expect(nightLength(Number.POSITIVE_INFINITY)).toBe(52);
+  test("is 28 s on night 1 and 6 s longer each night, up to 64 s from night 7", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(nightLength)).toEqual([28, 34, 40, 46, 52, 58, 64]);
+    expect(nightLength(8)).toBe(64);
+    expect(nightLength(50)).toBe(64);
+    expect(nightLength(Number.POSITIVE_INFINITY)).toBe(64);
   });
 
   test("a night starts with that length, and dawn comes when it has passed", () => {
@@ -519,6 +519,24 @@ describe("the pace of the sea", () => {
     return times.slice(1).map((time, index) => time - (times[index] ?? 0));
   }
   const gap = (night: number, tide = 1) => spawnGaps(night, tide).reduce((total, next) => total + next, 0) / 3;
+
+  test("the first monster rises a second into every night, and night 1 sends one every 2.6 s after it", () => {
+    for (const night of [1, 4, 8]) {
+      const legacy = newLegacy(1);
+      legacy.night = night;
+      const state = newNight(legacy, 1);
+      state.hero.health = Number.POSITIVE_INFINITY;
+      let first: number | null = null;
+      while (first === null && !state.outcome) {
+        step(state, STEP, NO_INPUT);
+        if (state.monsters.length > 0) {
+          first = state.elapsed;
+        }
+      }
+      expect(first).toBeCloseTo(1, 1);
+    }
+    expect(gap(1)).toBeCloseTo(2.6, 1);
+  });
 
   test("each night sends monsters faster than the last", () => {
     for (let night = 2; night <= 7; night++) {

@@ -90,8 +90,13 @@ const CLUMSINESS_LIMIT = 4; // the clumsiest night is four times the typical one
 const HISTORY_SECONDS = 2; // what the eye can look back on: longer than the slowest reaction
 const RELIGHT_STANDING = 30; // the warden stands this close to a lamp to relight it (the sim asks for 40)
 const HOME = { x: 480, y: 350 }; // where an idle warden drifts back to: the middle of the plaza
-const DEGREES = Math.PI / 180;
-const KEEP_HEADING = Math.PI / 8 + 0.2; // radians off the held direction before the hands change it
+const HALF_TURN_DEGREES = 180;
+const DEGREES = Math.PI / HALF_TURN_DEGREES;
+const OCTANTS = 8;
+const HEADING_SLACK = 0.2;
+// radians off the held direction before the hands change it: past the edge of its octant, and some
+const KEEP_HEADING = Math.PI / OCTANTS + HEADING_SLACK;
+const SHOT_HEIGHT = 40; // where a shot leaves the warden, above his feet
 
 export interface HumanBot {
   // Reconsiders the night for one sim step and writes the keys, mouse and buttons a person would, to `controls`.
@@ -318,7 +323,7 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     const hero = state.hero;
     const busy = hero.animation === "melee" || hero.animation === "ranged" || hero.stun > 0;
     if (!busy && targetDistance > traits.shotRange && hero.shotCooldown <= 0 && random() < traits.shotChance) {
-      const originY = hero.y - 40;
+      const originY = hero.y - SHOT_HEIGHT;
       const bodyY = target.y - bodyHeight(state, target.kind);
       const angle =
         Math.atan2(bodyY - originY, target.x - hero.x) + gaussian() * traits.aimError * clumsiness * DEGREES;

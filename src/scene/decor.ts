@@ -443,6 +443,18 @@ class Placement {
     }
   }
 
+  // the first spot where a group of `kind` fits, in at most `tries` tries, or null
+  private search(kind: DecorKind, group: number, tries: number): Point | null {
+    for (let attempt = 0; attempt < tries; attempt++) {
+      const [spotX, spotY] = this.spot(kind, group);
+      const [x, y] = [Math.round(spotX), Math.round(spotY)];
+      if (this.fits(kind, x, y, group)) {
+        return [x, y];
+      }
+    }
+    return null;
+  }
+
   place(listed: DecorKind) {
     const required = listed.chance === undefined ? listed.groups[0] : 0;
     for (let wanted = this.count(listed.groups), left = required; wanted > 0; wanted--, left--) {
@@ -450,7 +462,7 @@ class Placement {
         continue;
       }
       if (!this.poolFull(listed)) {
-        this.placeGroup(listed, left > 0 ? TRIES_REQUIRED : TRIES);
+        this.placeGroup(listed, left > 0);
       }
     }
   }
@@ -464,34 +476,33 @@ class Placement {
     return limit !== undefined && (this.drawn.get(listed.pool) ?? 0) >= limit;
   }
 
-  // the kind a group of `listed` is: a live building takes the building slot; otherwise a group is sometimes the listed
-  // sprite's replacement
-  private kindFor(listed: DecorKind): DecorKind {
+  // The kinds a group of `listed` may be, in the order they are tried. A group is sometimes the listed sprite's
+  // replacement; a live building takes the building slot from the committed sprite, which stands after all when the live
+  // one fits nowhere tonight.
+  private candidatesFor(listed: DecorKind): { committed: DecorKind; candidates: DecorKind[] } {
     const replaced = listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
-    const key = this.live && listed.slot === "building" ? this.live.key : replaced;
-    return key === listed.key ? listed : { ...listed, key };
+    const committed = replaced === listed.key ? listed : { ...listed, key: replaced };
+    const candidates =
+      this.live && listed.slot === "building" ? [{ ...listed, key: this.live.key }, committed] : [committed];
+    return { committed, candidates };
   }
 
-  // One group of `listed`: its first piece where it fits within `tries` spots, then the rest of its arrangement.
-  private placeGroup(listed: DecorKind, tries: number) {
-    const kind = this.kindFor(listed);
+  // One group of `listed`: the first of its candidates that fits somewhere, then the rest of its arrangement. A group the
+  // night requires gets more tries for its committed sprite.
+  private placeGroup(listed: DecorKind, required: boolean) {
+    const { committed, candidates } = this.candidatesFor(listed);
     const group = this.groups++;
-    let first: Point | null = null;
-    for (let attempt = 0; attempt < tries && !first; attempt++) {
-      const [spotX, spotY] = this.spot(kind, group);
-      const [x, y] = [Math.round(spotX), Math.round(spotY)];
-      if (this.fits(kind, x, y, group)) {
-        first = [x, y];
+    for (const kind of candidates) {
+      const first = this.search(kind, group, kind === committed && required ? TRIES_REQUIRED : TRIES);
+      if (first) {
+        if (listed.pool !== undefined) {
+          this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
+        }
+        this.stand(kind, first[0], first[1], group);
+        this.arrangePieces(kind, first, group);
+        return;
       }
     }
-    if (!first) {
-      return;
-    }
-    if (listed.pool !== undefined) {
-      this.drawn.set(listed.pool, (this.drawn.get(listed.pool) ?? 0) + 1);
-    }
-    this.stand(kind, first[0], first[1], group);
-    this.arrangePieces(kind, first, group);
   }
 
   // the pieces after the first: end to end along a run, or each somewhere in a cluster around the first

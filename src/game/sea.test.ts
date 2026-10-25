@@ -149,4 +149,28 @@ describe("asking the sea", () => {
     await settle();
     expect(world.sea.get().kind).toBe("generating");
   });
+
+  test("a creature told to wait for the slot a building holds asks again after the short delay it was given", async () => {
+    const slept: number[] = [];
+    const replies: Array<NextCreatureResponse | null> = [
+      { kind: "none", reason: "rate-limited", retryAfterSeconds: 15 },
+      { kind: "ready", creature: creature("after-the-wait") },
+    ];
+    const questions: string[][] = [];
+    const sea = createSea({
+      askForCreature: async (seen) => {
+        questions.push([...seen]);
+        return replies.shift() ?? null;
+      },
+      waitForJob: async () => null,
+      sleep: async (milliseconds) => {
+        slept.push(milliseconds);
+      },
+    });
+    sea.ask([]);
+    await settle();
+    expect(slept).toEqual([15_000]);
+    expect(questions).toEqual([[], []]);
+    expect(sea.get()).toEqual({ kind: "ready", creature: creature("after-the-wait") });
+  });
 });

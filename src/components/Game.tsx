@@ -13,9 +13,13 @@ import { type Driver, type Night, Scene } from "@/components/Scene";
 import { SeaSends } from "@/components/SeaSends";
 import { TitleScroll } from "@/components/TitleScroll";
 import { TouchControls } from "@/components/TouchControls";
+import { useRaised } from "@/components/useRaised";
 import { useTonight } from "@/components/useTonight";
+import { type Building, type RecordedBuilding, recordedBuildingOf, recordedBuildingSchema } from "@/game/building";
+import type { RaisedTonight } from "@/game/building-sea";
 import { newControls, press, release, stick } from "@/game/controls";
 import { recordedCreatureSchema } from "@/game/creature";
+import type { CreatureRecord } from "@/game/creature-frames";
 import { askDirector } from "@/game/director-api";
 import { engagementOf, heldTide } from "@/game/engagement";
 import { activeGamepad, type MenuAction, newGamepadMemory, pollGamepadForMenu } from "@/game/gamepad";
@@ -43,6 +47,7 @@ import {
 import { MAX_LEVEL, type UpgradeId } from "@/game/levels";
 import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
+import { clearRaised, loadRaised, raise, saveRaised } from "@/game/raised";
 import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
 import type { Tonight } from "@/game/sea";
@@ -62,7 +67,15 @@ import {
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
-import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
+import {
+  liveBuildingOf,
+  loadBuildingTexture,
+  loadCreatureTextures,
+  loadTextures,
+  NIGHT_SEA,
+  standInTextures,
+  type TextureMap,
+} from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
 const APP = {
@@ -76,7 +89,16 @@ const APP = {
 };
 
 const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
-const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite before going without it
+const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite (and its building's) before going without it
+
+// A load that gives up after `milliseconds` with null, and stops its timer when it does not need to wait that long
+function loadWithin<Loaded>(load: Promise<Loaded | null>, milliseconds: number): Promise<Loaded | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const giveUp = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), milliseconds);
+  });
+  return Promise.race([load, giveUp]).finally(() => clearTimeout(timer));
+}
 
 const INTRODUCTION = [
   "Lychnos is a harbour of lamps.",
@@ -87,6 +109,12 @@ const INTRODUCTION = [
 
 // one HUD diamond per lamp, keyed by where the lamp stands
 const LAMP_SLOTS = LAMP_SPOTS.map(([x, y]) => `${x},${y}`);
+
+// The building raised on a night's plaza: its record as a recording keeps it, and its sprite, loaded
+interface Plaza {
+  building: RecordedBuilding;
+  textures: TextureMap;
+}
 
 type Phase = "title" | "night" | "dawn" | "heir" | "replay" | "replayEnd" | "replayRefused";
 interface Hud {
@@ -157,6 +185,59 @@ const sameHud = (first: Hud, second: Hud) =>
   first.oil === second.oil &&
   Math.abs(first.dawn - second.dawn) < DAWN_STEP;
 
+// The building that was announced, as the night records it, if its sprite loaded in time; else the plaza's own.
+const buildingForNight = (announced: Building | null, loaded: TextureMap | null) =>
+  announced && loaded ? recordedBuildingSchema.parse(announced) : null;
+
+// What records a live night: its seed, and the creature and building it was played with.
+const nightRecorder = (
+  legacy: Legacy,
+  seed: number,
+  creature: CreatureRecord | null,
+  building: RecordedBuilding | null,
+) => new Recorder(legacy, seed, "", creature && recordedCreatureSchema.parse(creature), RUNNING_SIM, building);
+
+// The creature that was announced, if its sprite loads in time: then it joins the night, and these are its textures.
+async function creatureForNight(
+  announced: CreatureRecord | null,
+): Promise<{ creature: CreatureRecord | null; loaded: TextureMap | null }> {
+  const loaded = announced
+    ? await loadWithin(loadCreatureTextures(announced.id, announced.frames ?? null), CREATURE_LOAD_TIMEOUT)
+    : null;
+  return { creature: announced && loaded ? announced : null, loaded };
+}
+
+// A recording by its id: the last night this browser played ("last"), or one from the plays API. Throws when it cannot
+// be had.
+async function fetchRecording(id: string): Promise<unknown> {
+  if (id === "last") {
+    return JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
+  }
+  const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+// What a replay draws its night with. The night's creature is in the recording; if its sprite is gone the replay draws
+// the monster that plays like it. The building the night's plaza was laid out with is in the recording too (rendering
+// only: the sim never reads it); a play from before buildings, or one whose sprite is gone, replays on the committed plaza.
+async function replayTextures(play: Play): Promise<{ creatureTextures: TextureMap | null; plaza: Plaza | null }> {
+  const creature = creatureOf(play);
+  let creatureTextures: TextureMap | null = null;
+  if (creature && play.creature) {
+    creatureTextures =
+      (await loadCreatureTextures(creature.id)) ??
+      standInTextures(await loadTextures(), creature.id, play.creature.archetype);
+  }
+  const recordedBuilding = recordedBuildingOf(play);
+  const buildingTextures = recordedBuilding ? await loadBuildingTexture(recordedBuilding) : null;
+  const plaza =
+    recordedBuilding && buildingTextures ? { building: recordedBuilding, textures: buildingTextures } : null;
+  return { creatureTextures, plaza };
+}
+
 // What the replay panel says about how a replay ended: null is a night that was abandoned, so has no end to compare.
 function replayVerdict(endsMatch: boolean | null): string {
   if (endsMatch === null) {
@@ -194,7 +275,18 @@ export function Game() {
   const [refusedPlay, setRefusedPlay] = useState<unknown>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
-  const { tonight, ask, withdraw } = useTonight();
+  const { tonight, ask, withdraw, settled } = useTonight();
+  const { raised, ask: askRaised, withdraw: withdrawRaised } = useRaised();
+  const raisedRef = useRef<string[]>([]); // the ids of the buildings the line has seen go up (src/game/raised.ts)
+  // What the sea sends next: the creature, and once its question has settled the building for the plaza (they share the one
+  // generation slot, and the creature goes first).
+  const askSea = useCallback(
+    (bestiary: string[]) => {
+      ask(bestiary);
+      askRaised(raisedRef.current, settled());
+    },
+    [ask, askRaised, settled],
+  );
   const starting = useRef(false); // a night is being put together (its creature's sprite may still be loading)
   const directorAsk = useRef<AbortController | null>(null); // the live director being asked about the night that ended
 
@@ -365,12 +457,12 @@ export function Game() {
       saveLegacy(legacy);
       pause(true);
       setReport(nightReport);
-      ask(legacy.bestiary); // what the sea sends next
+      askSea(legacy.bestiary); // what the sea sends next
       if (sent) {
         consultDirector(sent);
       }
     },
-    [sendPlay, consultDirector, pause, ask],
+    [sendPlay, consultDirector, pause, askSea],
   );
 
   // every frame, after the sim has stepped: HUD, end of the night, end of a replay
@@ -415,11 +507,24 @@ export function Game() {
 
   // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
   // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
-  // same plaza.
+  // same plaza. The live building, when there is one, takes the building slot of the layout (src/scene/decor.ts).
   const show = useCallback(
-    (state: State, sex: Sex, driver: Driver | null = null, creatureTextures: TextureMap | null = null) => {
+    (
+      state: State,
+      sex: Sex,
+      driver: Driver | null = null,
+      creatureTextures: TextureMap | null = null,
+      plaza: Plaza | null = null,
+    ) => {
       stateRef.current = state;
-      setNight({ state, sex, driver, creatureTextures, decor: decorFor(state.randomState) });
+      setNight({
+        state,
+        sex,
+        driver,
+        creatureTextures,
+        buildingTextures: plaza?.textures ?? null,
+        decor: decorFor(state.randomState, plaza && liveBuildingOf(plaza.building)),
+      });
     },
     [],
   );
@@ -428,15 +533,7 @@ export function Game() {
     async (id: string) => {
       let fetched: unknown;
       try {
-        if (id === "last") {
-          fetched = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
-        } else {
-          const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          fetched = await response.json();
-        }
+        fetched = await fetchRecording(id);
       } catch (error) {
         setReplayError(String(error));
         return;
@@ -465,16 +562,10 @@ export function Game() {
       const replayLegacy = legacyOf(play);
       legacyRef.current = { ...legacyRef.current, ...replayLegacy }; // shown in the HUD only; never saved
       const creature = creatureOf(play);
-      // the night's creature is in the recording; if its sprite is gone the replay draws the monster that plays like it
-      let creatureTextures: TextureMap | null = null;
-      if (creature && play.creature) {
-        creatureTextures =
-          (await loadCreatureTextures(creature.id)) ??
-          standInTextures(await loadTextures(), creature.id, play.creature.archetype);
-      }
+      const { creatureTextures, plaza } = await replayTextures(play);
       const state = newNight(replayLegacy, play.seed, creature);
       const replayer = new Replayer(play);
-      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures);
+      show(state, replayLegacy.heir.sex, (stepIndex) => replayer.input(stepIndex), creatureTextures, plaza);
       pause(false);
       setReplay({ play, endsMatch: play.outcome ? verifyPlay(play).endsMatch : null });
       setReplayError(null);
@@ -514,6 +605,7 @@ export function Game() {
 
   useEffect(() => {
     legacyRef.current = loadLegacy();
+    raisedRef.current = loadRaised();
     refresh();
     let dead = false;
     loadTextures().then(
@@ -528,7 +620,7 @@ export function Game() {
         if (id) {
           startReplay(id).catch(reportError);
         } else {
-          ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
+          askSea(legacyRef.current.bestiary); // before night 1: what does the sea send?
         }
       },
       () => {
@@ -566,11 +658,12 @@ export function Game() {
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [sendSnapshot, pause, controls, refresh, show, startReplay, ask]);
+  }, [sendSnapshot, pause, controls, refresh, show, startReplay, askSea]);
 
   // a creature announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
-  const announced = tonight.kind === "ready" ? tonight.creature.id : null;
-  const announcedFrames = tonight.kind === "ready" ? tonight.creature.frames : undefined;
+  const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
+  const announced = announcedCreature?.id;
+  const announcedFrames = announcedCreature?.frames;
   useEffect(() => {
     if (!announced) {
       return;
@@ -584,6 +677,21 @@ export function Game() {
       .catch(reportError);
   }, [announced, announcedFrames, withdraw]);
 
+  // a building announced for tonight has its sprite loaded ahead of the night; if it will not load, it is not announced
+  const announcedBuilding = raised.kind === "ready" ? raised.building : null;
+  useEffect(() => {
+    if (!announcedBuilding) {
+      return;
+    }
+    loadBuildingTexture(announcedBuilding)
+      .then((loaded) => {
+        if (!loaded) {
+          withdrawRaised(announcedBuilding.id);
+        }
+      })
+      .catch(reportError);
+  }, [announcedBuilding, withdrawRaised]);
+
   const startNight = async () => {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: a ref that startNight sets below, read again on the next call
     if (starting.current) {
@@ -595,30 +703,29 @@ export function Game() {
     // The creature that was ready joins the night if its sprite is loaded by now. If it is still being made, or does
     // not load, the night has none; a job still being made carries on through the night and the creature is announced
     // at dawn for the next one.
-    const announcedCreature = tonight.kind === "ready" ? tonight.creature : null;
-    const loaded = announcedCreature
-      ? await Promise.race([
-          loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
-        ])
-      : null;
-    const creature = announcedCreature && loaded ? announcedCreature : null;
+    // The building that was ready stands on the night's plaza the same way: if its sprite is loaded by now. Otherwise the
+    // plaza is the committed one.
+    const buildingLoad = announcedBuilding
+      ? loadWithin(loadBuildingTexture(announcedBuilding), CREATURE_LOAD_TIMEOUT)
+      : Promise.resolve(null);
+    const { creature, loaded } = await creatureForNight(announcedCreature);
     if (creature) {
       meet(legacyRef.current, creature.id);
       saveLegacy(legacyRef.current);
     }
     // Now that this night's creature is met, ask for the next night's: the ~minute a creature takes to make overlaps the
-    // night, so it is ready by dawn on the longer nights (on the 16 to 28 s ones it is still being made at dawn). Asking again with the same ids met keeps a job that is still running.
-    ask(legacyRef.current.bestiary);
+    // night, so it is ready by dawn on the longer nights (on the 28 to 40 s ones it is still being made at dawn). Asking again
+    // with the same ids met keeps a job that is still running.
+    const loadedBuilding = await buildingLoad;
+    const building = buildingForNight(announcedBuilding, loadedBuilding);
+    if (building) {
+      raisedRef.current = raise(raisedRef.current, building.id);
+      saveRaised(raisedRef.current);
+    }
+    askSea(legacyRef.current.bestiary);
     const seed = newSeed();
     const state = newNight(legacyRef.current, seed, creature && nightCreature(creature));
-    const recorder = new Recorder(
-      legacyRef.current,
-      seed,
-      "",
-      creature && recordedCreatureSchema.parse(creature),
-      RUNNING_SIM,
-    );
+    const recorder = nightRecorder(legacyRef.current, seed, creature, building);
     recorderRef.current = recorder;
     show(
       state,
@@ -628,6 +735,7 @@ export function Game() {
         return live;
       },
       creature && loaded,
+      building && loadedBuilding ? { building, textures: loadedBuilding } : null,
     );
     starting.current = false;
     pause(false);
@@ -654,9 +762,11 @@ export function Game() {
     directorAsk.current?.abort();
     clearLegacy();
     legacyRef.current = newLegacy();
+    clearRaised();
+    raisedRef.current = [];
     showPreview();
     refresh();
-    ask(legacyRef.current.bestiary);
+    askSea(legacyRef.current.bestiary);
   };
   // the warden behind the title screen is the one chosen
   const showPreview = () => {
@@ -769,6 +879,7 @@ export function Game() {
             onNewLine={newLine}
             onSpriteBroken={withdraw}
             onStart={startNight}
+            raised={raised}
             ready={ready}
             strike={strike}
             textures={textures}
@@ -781,6 +892,7 @@ export function Game() {
             legacy={legacy}
             onSpriteBroken={withdraw}
             onStart={startNight}
+            raised={raised}
             report={report}
             shop={shop}
             tonight={tonight}
@@ -794,6 +906,7 @@ export function Game() {
             onChooseHeir={chooseHeir}
             onSpriteBroken={withdraw}
             onStart={startNight}
+            raised={raised}
             report={report}
             shop={shop}
             tonight={tonight}
@@ -981,6 +1094,7 @@ function NightHud({
 function TitleScreen({
   legacy,
   tonight,
+  raised,
   gamepadConnected,
   textures,
   strike,
@@ -992,6 +1106,7 @@ function TitleScreen({
 }: {
   legacy: Legacy;
   tonight: Tonight;
+  raised: RaisedTonight;
   gamepadConnected: boolean;
   textures: TextureMap | null;
   strike: { sex: Sex; count: number } | null;
@@ -1023,7 +1138,7 @@ function TitleScreen({
             ))}
           </div>
         </div>
-        <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+        <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
         <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
         <div className="scroll-hero">
           <h2 className="scroll-heading" data-line={true}>
@@ -1090,6 +1205,7 @@ function HeirPanel({
   legacy,
   shop,
   tonight,
+  raised,
   onSpriteBroken,
   onChooseHeir,
   onStart,
@@ -1099,6 +1215,7 @@ function HeirPanel({
   legacy: Legacy;
   shop: ReactNode;
   tonight: Tonight;
+  raised: RaisedTonight;
   onSpriteBroken: (creatureId: string) => void;
   onChooseHeir: (heir: Heir) => void;
   onStart: () => void;
@@ -1135,7 +1252,7 @@ function HeirPanel({
         ))}
       </div>
       {shop}
-      <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+      <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
       <button
         className="btn big"
         disabled={!heirs.some((heir) => heir.name === legacy.heir.name)}
@@ -1156,6 +1273,7 @@ function DawnPanel({
   legacy,
   shop,
   tonight,
+  raised,
   onSpriteBroken,
   onStart,
 }: {
@@ -1163,6 +1281,7 @@ function DawnPanel({
   legacy: Legacy;
   shop: ReactNode;
   tonight: Tonight;
+  raised: RaisedTonight;
   onSpriteBroken: (creatureId: string) => void;
   onStart: () => void;
 }) {
@@ -1180,7 +1299,7 @@ function DawnPanel({
       </p>
       <SeaAnswer report={report} />
       {shop}
-      <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+      <SeaSends onSpriteBroken={onSpriteBroken} raised={raised} tonight={tonight} />
       <button className="btn big" onClick={onStart} type="button">
         Into night {legacy.night}
       </button>

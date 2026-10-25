@@ -119,5 +119,5 @@ export function hydra(k: Kit, P: { at?: number[]; facing?: number; heads?: numbe
     R.cap([hc[0] - 0.4, hc[1], hc[2] + 1.3], [hc[0] - 1.8, hc[1], hc[2] + 2.3], 0.3, 0.08, 'bone', { obj: oH });                      // horn
     R.key([hc[0], hc[1], hc[2] + 1.8], 0);
   }
-  R.emit(new Frame(P.at || [0, 0], P.facing === undefined ? 25 : P.facing, 0));
+  R.emit(new Frame(P.at || [0, 0], (P.facing === undefined ? 25 : P.facing) + TURN.degrees, 0));
 }

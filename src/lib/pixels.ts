@@ -2,7 +2,7 @@
 export const BYTES_PER_PIXEL = 4;
 export const ALPHA_BYTE = 3;
 /** The alpha above which a pixel counts as drawn, where a check needs it to be clearly so. */
-export const SOLIDLY_DRAWN = 200;
+const SOLIDLY_DRAWN = 200;
 
 /** How many pixels of an RGBA picture are solidly drawn. */
 export function solidPixels(rgba: Uint8Array): number {
@@ -13,4 +13,19 @@ export function solidPixels(rgba: Uint8Array): number {
     }
   }
   return count;
+}
+
+/** How many pixels differ between two RGBA pictures; every pixel of the larger one when their sizes differ. */
+export function differingPixels(first: Uint8Array, second: Uint8Array): number {
+  if (first.length !== second.length) {
+    return Math.max(first.length, second.length) / BYTES_PER_PIXEL;
+  }
+  let differing = 0;
+  for (let offset = 0; offset < first.length; offset += BYTES_PER_PIXEL) {
+    const channels = [0, 1, 2, ALPHA_BYTE].map((channel) => offset + channel);
+    if (channels.some((index) => first[index] !== second[index])) {
+      differing++;
+    }
+  }
+  return differing;
 }

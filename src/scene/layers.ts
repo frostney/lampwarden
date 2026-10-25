@@ -4,14 +4,17 @@
 
 import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
 
+import { buildingSpritePath, type RecordedBuilding } from "../game/building";
 import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
+  CREATURE_ALL_DIRECTIONS,
   CREATURE_FRAME_COUNTS,
   CREATURE_FRAME_SIZE,
   type CreatureFrames,
   creatureAtlasLayout,
   creatureAtlasPath,
   creaturePoseName,
+  STILL_DIRECTION,
 } from "../game/creature-frames";
 import {
   CENTRE_X,
@@ -37,13 +40,17 @@ import {
   type HeroAnimation,
   heroAtlasKey,
   heroFrames,
+  heroView,
   octantVector,
   SEXES,
   sceneryAssetList,
   sceneryKeyFor,
 } from "./assets";
-import { creatureFrameKey, creatureFrameOf } from "./creature-animation";
+import { creatureFrameOf, sheetFrameKey } from "./creature-animation";
+import type { LiveBuilding } from "./decor";
 import type { Point } from "./extent";
+import { monsterOctant } from "./monster-heading";
+import { isSheetKind, monsterAtlasKey, monsterAtlasPath, SHEET_FRAMES, SHEET_KINDS } from "./monster-sheets";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
 import { cutCharacterFrames, isCharacterKey, splitPaintedShadow, withoutPaintedShadow } from "./rim";
@@ -115,6 +122,16 @@ export function loadTextures(): Promise<TextureMap> {
     }
     await loadScenery(textures);
     cutHeroFrames(textures);
+    // the hand-made monsters' frames, from every direction, each its own texture cut out of one atlas a monster; one that
+    // will not load leaves the monster its single sprite
+    await Promise.all(
+      SHEET_KINDS.map(async (kind) =>
+        Object.assign(
+          textures,
+          await loadSheet(kind, monsterAtlasKey(kind), monsterAtlasPath(kind), [SHEET_FRAMES[kind]]),
+        ),
+      ),
+    );
     splitLampShadows(textures);
     // the vignette's pictures are painted now, not in the frame of the first blow
     for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) {
@@ -160,9 +177,11 @@ const creatureKey = (id: string) => `creature/${id}`;
 const CREATURE_SPRITE_SIZE = 128; // every sprite is a 128 px frame; the anchor is a fraction of it
 const creatureLoads = new Map<string, Promise<TextureMap | null>>();
 
-// The frame counts of the creatures whose atlas loaded, so the scene knows which creature animates and how many frames
-// each animation has.
-const animatedCreatures = new Map<string, CreatureFrames>();
+// The frames of the sheets whose atlas loaded (a creature's key, or a hand-made monster's kind), so the scene knows which
+// monster animates, how many frames each animation has and from which directions it is drawn.
+const animatedSheets = new Map<string, CreatureFrames>();
+// How far each frame that was slid along its cell is, by its texture key: across, down (src/game/creature-frames.ts).
+const slidFrames = new Map<string, readonly [number, number]>();
 
 // The creature's sprite and its white flash, by key; null when the sprite does not load or is not a 128 px frame, which
 // is how a night learns to go without it. A creature with `frames` (its record says it has an atlas) also gets one
@@ -173,62 +192,94 @@ const animatedCreatures = new Map<string, CreatureFrames>();
 export function loadCreatureTextures(id: string, frames?: CreatureFrames | null): Promise<TextureMap | null> {
   let load = creatureLoads.get(id);
   if (!load) {
-    load = (async () => {
-      try {
-        const key = creatureKey(id);
-        const loaded: Texture = await Assets.load({
-          alias: key,
-          src: creatureSpritePath(id),
-          data: { scaleMode: "nearest" },
-        });
-        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE) {
-          return null;
-        }
-        const texture = prepared(key, loaded);
-        const textures: TextureMap = { [key]: texture };
-        const white = silhouette(texture);
-        if (white) {
-          textures[flashKey(key)] = white;
-        }
-        if (frames !== null) {
-          Object.assign(textures, await loadCreatureFrames(id, frames ?? CREATURE_FRAME_COUNTS));
-        }
-        return textures;
-      } catch {
-        creatureLoads.delete(id); // a later night may try again
-        return null;
-      }
-    })();
+    load = loadCreature(id, frames);
     creatureLoads.set(id, load);
   }
   return load;
 }
 
-// One texture for each frame of a creature's animations, cut out of its atlas; empty when it has no usable atlas.
-async function loadCreatureFrames(id: string, frames: CreatureFrames): Promise<TextureMap> {
-  const layout = creatureAtlasLayout(frames);
-  let atlas: Texture;
+// A creature's sprite, its flash and its frames; null, and forgotten so that a later night may try again, when the sprite
+// will not load or is not the size a creature's sprite is.
+async function loadCreature(id: string, frames: CreatureFrames | null | undefined): Promise<TextureMap | null> {
   try {
-    atlas = await Assets.load({
-      alias: `creature-atlas/${id}`,
-      src: creatureAtlasPath(id),
+    const key = creatureKey(id);
+    const loaded: Texture = await Assets.load({
+      alias: key,
+      src: creatureSpritePath(id),
       data: { scaleMode: "nearest" },
     });
+    if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE) {
+      return null;
+    }
+    const texture = prepared(key, loaded);
+    const textures: TextureMap = { [key]: texture };
+    const white = silhouette(texture);
+    if (white) {
+      textures[flashKey(key)] = white;
+    }
+    if (frames !== null) {
+      Object.assign(
+        textures,
+        await loadSheet(key, `creature-atlas/${id}`, creatureAtlasPath(id), frames ? [frames] : REPLAY_LAYOUTS),
+      );
+    }
+    return textures;
   } catch {
+    creatureLoads.delete(id); // a later night may try again
+    return null;
+  }
+}
+
+// What a replay, which does not know the creature's record, looks for: an atlas of every direction, or one of a single row.
+const REPLAY_LAYOUTS: readonly CreatureFrames[] = [CREATURE_ALL_DIRECTIONS, CREATURE_FRAME_COUNTS];
+
+// One texture for each frame of a sheet's animations, cut out of its atlas, named by `sheetFrameKey`; empty when it has no
+// usable atlas. `layouts` are the frames the atlas may have (the record's, or the ones a replay tries): the atlas must be
+// the size of one of them.
+async function loadSheet(
+  sheet: string,
+  alias: string,
+  src: string,
+  layouts: readonly CreatureFrames[],
+): Promise<TextureMap> {
+  try {
+    return await cutSheet(sheet, alias, src, layouts);
+  } catch {
+    // an atlas that will not load or cannot be read leaves the monster its single sprite
     return {};
   }
-  if (atlas.source.pixelWidth !== layout.width || atlas.source.pixelHeight !== layout.height) {
+}
+
+async function cutSheet(
+  sheet: string,
+  alias: string,
+  src: string,
+  layouts: readonly CreatureFrames[],
+): Promise<TextureMap> {
+  const atlas: Texture = await Assets.load({ alias, src, data: { scaleMode: "nearest" } });
+  const frames = layouts.find((candidate) => {
+    const size = creatureAtlasLayout(candidate);
+    return atlas.source.pixelWidth === size.width && atlas.source.pixelHeight === size.height;
+  });
+  if (!frames) {
     return {};
   }
   atlas.source.scaleMode = "nearest";
+  const layout = creatureAtlasLayout(frames);
   const cells = layout.cells.map((cell) => ({
-    key: creatureFrameKey(id, cell.animation, cell.frame),
-    label: `/api/creatures/${id}/${creaturePoseName(cell.animation, cell.frame)}`,
+    key: sheetFrameKey(sheet, cell.direction, cell.animation, cell.frame),
+    label: `${src}#${cell.direction}/${creaturePoseName(cell.animation, cell.frame)}`,
     x: cell.x,
     y: cell.y,
   }));
   const cut = cutCharacterFrames(atlas, CREATURE_FRAME_SIZE, cells);
   const textures: TextureMap = {};
+  for (const [index, cell] of cells.entries()) {
+    const shift = layout.cells[index]?.shift;
+    if (shift && (shift[0] !== 0 || shift[1] !== 0)) {
+      slidFrames.set(cell.key, shift);
+    }
+  }
   for (const cell of cells) {
     textures[cell.key] =
       cut?.get(cell.key) ??
@@ -237,9 +288,52 @@ async function loadCreatureFrames(id: string, frames: CreatureFrames): Promise<T
         frame: new Rectangle(cell.x, cell.y, CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE),
       });
   }
-  animatedCreatures.set(id, frames);
+  animatedSheets.set(sheet, frames);
   return textures;
 }
+
+// --- the building raised on the plaza ---------------------------------------------------------------------------------
+// A live building's sprite is a PNG on the gallery's server, loaded when the night is about to start, like the creature's.
+// Its key starts with "building/", and where its base touches the ground is the anchor its record gave (the committed
+// sprites' are in assets.ts), kept here once its sprite has loaded.
+
+const buildingKey = (id: string) => `building/${id}`;
+const buildingLoads = new Map<string, Promise<TextureMap | null>>();
+const buildingAnchors = new Map<string, number>();
+
+// The building's sprite by key; null when it does not load or is not a 128 px frame, which is how a night learns to go
+// with the plaza it always had.
+export function loadBuildingTexture(building: Pick<RecordedBuilding, "id" | "anchorY">): Promise<TextureMap | null> {
+  let load = buildingLoads.get(building.id);
+  if (!load) {
+    load = (async () => {
+      try {
+        const key = buildingKey(building.id);
+        const loaded: Texture = await Assets.load({
+          alias: key,
+          src: buildingSpritePath(building.id),
+          data: { scaleMode: "nearest" },
+        });
+        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE) {
+          return null;
+        }
+        buildingAnchors.set(key, building.anchorY);
+        return { [key]: prepared(key, loaded) };
+      } catch {
+        buildingLoads.delete(building.id); // a later night may try again
+        return null;
+      }
+    })();
+    buildingLoads.set(building.id, load);
+  }
+  return load;
+}
+
+// The building as the placer takes it: the sprite's key, and where its pixels are.
+export const liveBuildingOf = (building: Pick<RecordedBuilding, "id" | "extent">): LiveBuilding => ({
+  key: buildingKey(building.id),
+  extents: building.extent,
+});
 
 // What a replay draws when a creature's sprite is gone: the hand-made monster that plays like its archetype.
 const STAND_IN: Record<Archetype, HandMadeKind> = { skulker: "satyr", brute: "cyclops", flyer: "harpy" };
@@ -268,32 +362,77 @@ export function monsterLook(state: Pick<State, "creature">, kind: MonsterKind): 
   return { key: handMade, anchorY: anchorYFor(handMade) };
 }
 
-// The texture key a monster is drawn with now: its one sprite, or, for a creature that has frames, the frame its
-// animation is at (src/scene/creature-animation.ts).
-export function monsterTextureKey(
+// The frames a monster has tonight: its sheet's key and what is in it, when its atlas loaded (a creature's, or a hand-made
+// monster's), else nothing and the monster keeps its one sprite.
+const creatureSheetKey = (state: Pick<State, "creature">) => (state.creature ? creatureKey(state.creature.id) : null);
+const sheetKindKey = (kind: MonsterKind) => (isSheetKind(kind) ? kind : null);
+function sheetOf(state: Pick<State, "creature">, kind: MonsterKind): { key: string; frames: CreatureFrames } | null {
+  const key = kind === "creature" ? creatureSheetKey(state) : sheetKindKey(kind);
+  const frames = key === null ? undefined : animatedSheets.get(key);
+  return key !== null && frames ? { key, frames } : null;
+}
+
+// What a monster is drawn with: a texture's key, whether it is drawn mirrored left to right, and how far from the monster's
+// own place the sprite is put, in screen pixels: a frame that was slid along its cell to keep its figure inside it is
+// drawn that far back, so the figure stands where the monster does and only a long weapon reaches past the cell.
+export interface MonsterPicture {
+  key: string;
+  mirrored: boolean;
+  offsetX: number;
+  offsetY: number;
+}
+
+function picture(key: string, mirrored: boolean): MonsterPicture {
+  const slid = slidFrames.get(key);
+  if (!slid) {
+    return { key, mirrored, offsetX: 0, offsetY: 0 };
+  }
+  // a mirrored sprite is flipped about its anchor, so the slide across turns round with it
+  return { key, mirrored, offsetX: mirrored ? slid[0] : -slid[0], offsetY: -slid[1] };
+}
+
+// The picture a monster is drawn with now: its one sprite, flipped on the right of the plaza so it faces the centre, or,
+// for a monster that has frames, the frame its animation is at (src/scene/creature-animation.ts) seen from the way it
+// faces (src/scene/monster-heading.ts), the three directions that are not drawn being mirrored as the warden's are. A sheet
+// of a single direction (a creature made before directions) is its one south-east side, flipped like the single sprite.
+export function monsterPicture(
   state: Pick<State, "creature" | "hero">,
   monster: Monster,
   textures: TextureMap,
-): string {
+): MonsterPicture {
   const look = monsterLook(state, monster.kind);
-  const frames = monster.kind === "creature" && state.creature ? animatedCreatures.get(state.creature.id) : undefined;
-  if (!state.creature || !frames) {
-    return look.key;
+  const facingCentre = monster.x > CENTRE_X;
+  const sheet = sheetOf(state, monster.kind);
+  if (!sheet) {
+    return picture(look.key, facingCentre);
   }
-  const { animation, frame } = creatureFrameOf(monster, state.hero, frames);
-  const key = creatureFrameKey(state.creature.id, animation, frame);
-  return textures[key] ? key : look.key;
+  const { animation, frame } = creatureFrameOf(monster, state.hero, sheet.frames);
+  const view = sheet.frames.directions
+    ? heroView(monsterOctant(monster, state.hero))
+    : { drawn: STILL_DIRECTION, mirrored: facingCentre };
+  const key = sheetFrameKey(sheet.key, view.drawn, animation, frame);
+  return textures[key] ? picture(key, view.mirrored) : picture(look.key, facingCentre);
 }
 
-// The key of the frame a creature hangs on when it is struck down: an idle frame, at the pace it idled.
-export function ghostTextureKey(state: Pick<State, "creature">, kind: MonsterKind, age: number): string {
-  const look = monsterLook(state, kind);
-  const frames = kind === "creature" && state.creature ? animatedCreatures.get(state.creature.id) : undefined;
-  if (!state.creature || !frames) {
-    return look.key;
+// The picture a monster hangs on when it is struck down: an idle frame, at the pace it idled, facing the blow that killed
+// it (a monster with one side and the single sprite are flipped by where it fell, as they are alive).
+export function ghostPicture(
+  state: Pick<State, "creature">,
+  ghost: { monster: MonsterKind; x: number; monsterAge: number },
+  facingOctant: number,
+  textures: TextureMap,
+): MonsterPicture {
+  const look = monsterLook(state, ghost.monster);
+  const facingCentre = ghost.x > CENTRE_X;
+  const sheet = sheetOf(state, ghost.monster);
+  if (!sheet) {
+    return picture(look.key, facingCentre);
   }
-  const held = { x: 0, y: 0, age, snuff: 0, attackCooldown: 0, stun: 1 };
-  return creatureFrameKey(state.creature.id, "idle", creatureFrameOf(held, { x: 0, y: 0 }, frames).frame);
+  const held = { x: 0, y: 0, age: ghost.monsterAge, snuff: 0, attackCooldown: 0, stun: 1 };
+  const { frame } = creatureFrameOf(held, { x: 0, y: 0 }, sheet.frames);
+  const view = sheet.frames.directions ? heroView(facingOctant) : { drawn: STILL_DIRECTION, mirrored: facingCentre };
+  const key = sheetFrameKey(sheet.key, view.drawn, "idle", frame);
+  return textures[key] ? picture(key, view.mirrored) : picture(look.key, facingCentre);
 }
 
 // The white silhouette of a monster's drawn sprite: the creature's frames get theirs made when a blow first shows them,
@@ -482,7 +621,7 @@ export function anchorAt(anchorY: number) {
   }
   return spriteAnchor;
 }
-export const anchor = (key: string) => anchorAt(anchorYFor(key));
+export const anchor = (key: string) => anchorAt(buildingAnchors.get(key) ?? anchorYFor(key));
 
 // how far a monster's sprite bobs off its ground position (flyers, like the harpy, hover higher and flap more)
 export const monsterBob = (state: Pick<State, "creature">, kind: MonsterKind, age: number) => {

@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { isAccepted } from "../../pipeline/loop";
 import { decodePng } from "../../tools/logo/png";
-import { anchorYFromBbox } from "../server/creatures/job";
+import { anchorYFromBbox } from "../server/creatures/job-shell";
 import { anchorYFor, assetList, sceneryAssetList, sceneryKeyFor } from "./assets";
 
 const SPRITES = join(import.meta.dir, "../../public/sprites");

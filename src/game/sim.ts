@@ -33,8 +33,8 @@ export const MONSTER: Record<HandMadeKind, CreatureStats> = {
 
 // The oil economy: a kill leaves its oil only OIL_CHANCE of the time (the seeded rand, so a night still replays), and
 // the dawn bonus is small, so a night earns about one level-1 upgrade. The Oil seeker upgrade raises the chance. It was
-// 0.3 when a night lasted 40 s and held 13 to 16 kills; a 16 s night holds about 5, so the chance is higher to keep a
-// night's oil, and the upgrades a run buys, where they were.
+// 0.3 when a night lasted 40 s and held 13 to 16 kills; a night 1 of 28 s holds about 8 (the human-paced bot's), so the
+// chance stays higher to keep a night's oil, and the upgrades a run buys, where they were.
 const OIL_CHANCE = 0.5;
 const OIL_CHANCE_PER_LEVEL = 0.1;
 
@@ -89,8 +89,9 @@ export const nightCreature = (
 // night, not a count of seconds, so the creature still meets the warden early enough to matter on a short night.
 const CREATURE_FROM_SHARE = 0.2;
 const CREATURE_CAP = 2;
-// The first monster rises this many seconds in, on every night (it was tuned on 40 s nights and kept on the shorter ones).
-const FIRST_SPAWN = 2.5;
+// The first monster rises this many seconds in, on every night, so a night opens with something to do (it was 2.5 s; the
+// human-paced bot holds night 1 as often with the first one at 0.5, 1, 1.5 or 2.5 s, so it is a matter of feel, not balance).
+const FIRST_SPAWN = 1;
 export const creatureFrom = (length: number) => length * CREATURE_FROM_SHARE;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
@@ -215,7 +216,7 @@ export interface State {
 
 // A night lasts NIGHT_BASE seconds, and NIGHT_STEP more for every night after the first, up to the night NIGHT_CAP_NIGHT
 // (the seventh); the nights after it are as long as that one.
-const NIGHT_BASE = 16;
+const NIGHT_BASE = 28;
 const NIGHT_STEP = 6;
 const NIGHT_CAP_NIGHT = 7;
 export const nightLength = (night: number) => NIGHT_BASE + NIGHT_STEP * Math.min(night - 1, NIGHT_CAP_NIGHT - 1);
@@ -333,9 +334,11 @@ function inPlaza(x: number, y: number, margin = 0.92) {
 export const ground = (fromX: number, fromY: number, toX: number, toY: number) =>
   Math.hypot(fromX - toX, (fromY - toY) * 2);
 
-// The seconds between spawns on night 1 at tide 1. It was 2.3 when night 1 lasted 40 s; on a shorter night a crowd has
-// far less time to build, so the sea comes quicker to keep a night about as hard to hold (tuned on the human-paced bot).
-const SPAWN_INTERVAL = 1.3;
+// The seconds between spawns on night 1 at tide 1. It was 2.3 when night 1 lasted 40 s and 1.3 at 16 s. At 28 s the
+// human-paced bot loses a tenth of its night 1s at 2.3 and still more at 1.3 (a warden who does little is clawed down
+// before dawn), and slowing the sea further stops helping near 3, so this is the pace that keeps nights 2 to 5 near
+// where they were while night 1 stays easy to hold (tuned on the human-paced bot).
+const SPAWN_INTERVAL = 2.6;
 // The sea quickens every night. The first nights are gentle, 12% quicker a night, because that is when a person is still
 // learning the plaza (people kept up with about two monsters at a time and lost night 2); from the fourth night it is
 // 30% quicker a night, which is the pace the perfect bot's ceiling was set on. Only the rate of spawns is gentled: the

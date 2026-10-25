@@ -14,11 +14,13 @@ const nextConfig: NextConfig = {
   // and server bundles (src/game/plays.ts, RUNNING_SIM). Every recorded play carries it; a replay only plays a night
   // recorded on the same one.
   env: { NEXT_PUBLIC_SIM_FINGERPRINT: simFingerprint(process.cwd()) },
-  // The creature job reads these at runtime (src/server/creatures/deps.ts): the model prompts, and the kit and runner
+  // The creature and building jobs read these at runtime (src/server/creatures/deps.ts): the model prompts, and the kit and runner
   // to compute the digest the sandbox snapshot must match. Nothing here is run in the function; the kit and runner
   // that render sprites live in the sandbox snapshot.
   outputFileTracingIncludes: {
     "/api/creatures/next": ["./pipeline/prompts/*.md", "./pipeline/kit/kit.ts", "./pipeline/render/*.ts"],
+    // the building job reads the same: its own prompt, and the runner's digest
+    "/api/buildings/next": ["./pipeline/prompts/*.md", "./pipeline/kit/kit.ts", "./pipeline/render/*.ts"],
     // the live director reads its system prompt (src/server/director/deps.ts)
     "/api/director": ["./pipeline/prompts/director.md"],
   },

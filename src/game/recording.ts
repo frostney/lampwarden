@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { MILLISECONDS_PER_SECOND } from "../lib/units";
+import type { RecordedBuilding } from "./building";
 import type { RecordedCreature } from "./creature";
 import type { Legacy } from "./legacy";
 import { type Input, litCount, type State } from "./sim";
@@ -30,6 +31,9 @@ export interface Play {
   };
   // the creature from the sea that joined the night, when one did; a play from before creatures has none
   creature?: RecordedCreature | undefined;
+  // the building the plaza was laid out with, when a live one was raised there (rendering only: the sim never reads it); a
+  // play from before buildings has none, and its plaza is the committed one
+  building?: RecordedBuilding | undefined;
   inputs: InputRow[];
   timeline: TimelineRow[];
   steps: number;
@@ -78,7 +82,14 @@ export class Recorder {
     this.hiddenSeconds += (performance.now() - this.hiddenSince) / MILLISECONDS_PER_SECOND;
     this.hiddenSince = null;
   }
-  constructor(legacy: Legacy, seed: number, build: string, creature: RecordedCreature | null = null, sim?: string) {
+  constructor(
+    legacy: Legacy,
+    seed: number,
+    build: string,
+    creature: RecordedCreature | null = null,
+    sim?: string,
+    building: RecordedBuilding | null = null,
+  ) {
     if (typeof document !== "undefined") {
       if (document.visibilityState === "hidden") {
         this.hiddenSince = performance.now();
@@ -96,6 +107,7 @@ export class Recorder {
       seed,
       legacy: structuredClone({ night, generation, tide, levels, heir, director }),
       ...(creature ? { creature: structuredClone(creature) } : {}),
+      ...(building ? { building: structuredClone(building) } : {}),
       inputs: [],
       timeline: [],
       steps: 0,

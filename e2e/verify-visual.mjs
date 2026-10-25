@@ -11,11 +11,17 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { chromium, devices, webkit } from "playwright";
 
 import { creatureSchema } from "../src/game/creature.ts";
-import { CREATURE_FRAME_COUNTS, CREATURE_FRAME_SIZE, creatureAtlasLayout } from "../src/game/creature-frames.ts";
+import {
+  CREATURE_ALL_DIRECTIONS,
+  CREATURE_FRAME_COUNTS,
+  CREATURE_FRAME_SIZE,
+  creatureAtlasLayout,
+} from "../src/game/creature-frames.ts";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
 import { anchorYFor, heroAtlasCell } from "../src/scene/assets.ts";
 import { decorFor } from "../src/scene/decor.ts";
-import { baseBandOf } from "../src/scene/extent.ts";
+import { baseBandOf, measureSprite } from "../src/scene/extent.ts";
+import { SHEET_FRAMES } from "../src/scene/monster-sheets.ts";
 import { onPlaza, plazaInset, shoreDistance as shoreDistanceOf } from "../src/scene/plaza.ts";
 import { PixelImage } from "../tools/logo/image.ts";
 import { decodePng, encodePng } from "../tools/logo/png.ts";
@@ -57,6 +63,7 @@ if (
   throw new Error("the sea fixture must hold the longest name and lore the creature contract allows");
 }
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
+const creaturePoseName = (cell) => `${cell.animation}${cell.frame + 1}`;
 // "sequence": three creatures made one after another. sea.made of them are finished; asking with `seen` answers with a
 // finished one not yet met, else starts the job that makes the next (job-seq-<index>, done once sea.made passes it).
 const SEQUENCE = ["tide-wraith", "kelp-widow", "salt-hound"].map((id, index) => ({
@@ -67,23 +74,25 @@ const SEQUENCE = ["tide-wraith", "kelp-widow", "salt-hound"].map((id, index) => 
 }));
 const sea = { mode: "none", steps: ["queued", "drawing", "rendering"], polls: 0, asked: [], jobsDone: false, made: 0 };
 
-// An animated creature, for sea.mode "animated": its record carries frame counts and the gallery serves an atlas. The
-// atlas is made in code from the committed hero atlas (the male warden seen from the south-east: idle, walk and the
-// melee swing as attack), never from an outside picture, and its sprite.png is the idle frame, as a real job stores.
+// An animated creature, for sea.mode "animated": its record carries frame counts and the five directions it is drawn
+// from, and the gallery serves an atlas. The atlas is made in code from the committed hero atlas (the male warden from
+// each of the five drawn directions: idle, walk and the melee swing as attack, which is the creatures' own layout),
+// never from an outside picture, and its sprite.png is the south-east idle frame, as a real job stores.
 const SEA_ANIMATED = {
   ...SEA_CREATURE,
   id: "tide-warden-fixture",
   name: "Drowned tide warden",
   anchorY: 0.82,
-  frames: { ...CREATURE_FRAME_COUNTS },
+  frames: { ...CREATURE_ALL_DIRECTIONS },
 };
-const ANIMATED_FIXTURE = (() => {
+// the atlas and the sprite of a creature with `frames`, cut from the hero atlas
+const animatedFixture = (frames) => {
   const hero = decodePng(readFileSync("public/sprites/hero/male.png"));
-  const layout = creatureAtlasLayout(CREATURE_FRAME_COUNTS);
+  const layout = creatureAtlasLayout(frames);
   const atlas = new PixelImage(layout.width, layout.height);
   const heroAnimation = { idle: "idle", walk: "walk", attack: "melee" };
   for (const cell of layout.cells) {
-    const from = heroAtlasCell(heroAnimation[cell.animation], cell.frame, "se");
+    const from = heroAtlasCell(heroAnimation[cell.animation], cell.frame, cell.direction);
     for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
       const start = ((from.y + row) * hero.width + from.x) * 4;
       atlas.data.set(
@@ -93,14 +102,31 @@ const ANIMATED_FIXTURE = (() => {
     }
   }
   const idle = new PixelImage(CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE);
+  const stillCell = layout.cells.find(
+    (cell) => cell.direction === "se" && cell.animation === "idle" && cell.frame === 0,
+  );
   for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
     idle.data.set(
-      atlas.data.subarray(row * atlas.width * 4, row * atlas.width * 4 + CREATURE_FRAME_SIZE * 4),
+      atlas.data.subarray(
+        ((stillCell.y + row) * atlas.width + stillCell.x) * 4,
+        ((stillCell.y + row) * atlas.width + stillCell.x) * 4 + CREATURE_FRAME_SIZE * 4,
+      ),
       row * CREATURE_FRAME_SIZE * 4,
     );
   }
   return { atlas: encodePng(atlas), sprite: encodePng(idle) };
-})();
+};
+const ANIMATED_FIXTURE = animatedFixture(CREATURE_ALL_DIRECTIONS);
+// "animated-legacy": a creature made before directions, whose record has no `directions`: one south-east side in a row of frames
+const SEA_LEGACY = {
+  ...SEA_ANIMATED,
+  id: "old-tide-warden-fixture",
+  name: "Old tide warden",
+  frames: { ...CREATURE_FRAME_COUNTS },
+};
+const LEGACY_FIXTURE = animatedFixture(CREATURE_FRAME_COUNTS);
+const animatedMode = () => sea.mode === "animated" || sea.mode === "animated-legacy";
+const fixtureOf = () => (sea.mode === "animated-legacy" ? LEGACY_FIXTURE : ANIMATED_FIXTURE);
 // the sea's answer to /next, by mode: what it has ready, is making, or that it has nothing
 function answerNext(route, seen) {
   sea.asked.push(seen);
@@ -116,6 +142,9 @@ function answerNext(route, seen) {
   }
   if (sea.mode === "animated") {
     return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
+  }
+  if (sea.mode === "animated-legacy") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_LEGACY } });
   }
   if (sea.mode === "ready" || sea.mode === "broken") {
     return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
@@ -147,12 +176,12 @@ async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   if (pathname.endsWith("/atlas.png")) {
-    return sea.mode === "animated"
-      ? route.fulfill({ status: 200, contentType: "image/png", body: ANIMATED_FIXTURE.atlas })
+    return animatedMode()
+      ? route.fulfill({ status: 200, contentType: "image/png", body: fixtureOf().atlas })
       : route.fulfill({ status: 404, json: { error: "not found" } });
   }
   if (pathname.endsWith("/sprite.png")) {
-    const body = sea.mode === "animated" ? ANIMATED_FIXTURE.sprite : SEA_SPRITE;
+    const body = animatedMode() ? fixtureOf().sprite : SEA_SPRITE;
     return sea.mode === "broken" ? route.abort() : route.fulfill({ status: 200, contentType: "image/png", body });
   }
   if (pathname.endsWith("/next")) {
@@ -163,7 +192,73 @@ async function serveSea(route) {
   }
   return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
 }
-const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
+
+// The building API is stubbed beside it (src/game/building.ts): the fixture building is a recoloured committed house (its
+// red and blue swapped), so the stand-in is a picture the committed plaza does not have, and its extents are measured from
+// that picture the way the server measures an accepted sprite. plaza.mode picks the answer to POST /api/buildings/next:
+// "none" (the default, so every older scenario plays as before), "ready", or "broken" (ready, but its sprite never arrives).
+// plaza.asked logs the `seen` lists.
+const PLAZA_ANCHOR_Y = anchorYFor("house");
+const PLAZA_PICTURE = (() => {
+  const house = decodePng(readFileSync("public/sprites/house.png"));
+  const swapped = new PixelImage(128, 128);
+  for (let index = 0; index < 128 * 128; index++) {
+    const offset = index * 4;
+    swapped.data[offset] = house.data[offset + 2];
+    swapped.data[offset + 1] = house.data[offset + 1];
+    swapped.data[offset + 2] = house.data[offset];
+    swapped.data[offset + 3] = house.data[offset + 3];
+  }
+  return swapped;
+})();
+const PLAZA_SPRITE = encodePng(PLAZA_PICTURE);
+const PLAZA_BUILDING = (() => {
+  let [left, top, right, bottom] = [128, 128, 0, 0];
+  for (let row = 0; row < 128; row++) {
+    for (let column = 0; column < 128; column++) {
+      if (PLAZA_PICTURE.data[(row * 128 + column) * 4 + 3] > 0) {
+        left = Math.min(left, column);
+        right = Math.max(right, column);
+        top = Math.min(top, row);
+        bottom = Math.max(bottom, row);
+      }
+    }
+  }
+  return {
+    id: "0000aaaa-fountain-house-verifier",
+    name: "Treasury of the Sea-Captains of Lychnos", // a name as long as the contract allows (40) and a real one would be
+    brief: "small stone fountain house with a tiled terracotta gable roof, the verifier's fixture",
+    anchorY: PLAZA_ANCHOR_Y,
+    bbox: [left, top, right, bottom],
+    extent: measureSprite(PLAZA_PICTURE.data, PLAZA_ANCHOR_Y),
+    score: 8,
+    createdAt: "2026-10-25T09:00:00.000Z",
+  };
+})();
+if (PLAZA_BUILDING.name.length < 38 || PLAZA_BUILDING.name.length > 40) {
+  throw new Error("the building fixture must hold a name as long as the building contract allows");
+}
+const plaza = { mode: "none", asked: [] };
+async function servePlaza(route) {
+  const request = route.request();
+  const { pathname } = new URL(request.url());
+  if (pathname.endsWith("/sprite.png")) {
+    return plaza.mode === "broken"
+      ? route.abort()
+      : route.fulfill({ status: 200, contentType: "image/png", body: PLAZA_SPRITE });
+  }
+  if (pathname.endsWith("/next")) {
+    plaza.asked.push(JSON.parse(request.postData() ?? "{}").seen);
+    return plaza.mode === "ready" || plaza.mode === "broken"
+      ? route.fulfill({ json: { kind: "ready", building: PLAZA_BUILDING } })
+      : route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+  }
+  return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
+}
+const stubSea = async (target) => {
+  await target.route("**/api/creatures/**", serveSea);
+  await target.route("**/api/buildings/**", servePlaza);
+};
 
 // The recording and director APIs are stubbed on every page and context too: no night is stored and the model is never
 // asked. /api/plays keeps the bodies it was sent (the nights a page uploaded). /api/director answers by mode:
@@ -244,10 +339,10 @@ const otherVersionPlay = (id, withSim) => ({
   seed: 7,
   legacy: { night: 3, generation: 2, tide: 1.1, levels: {}, heir: { ...newLegacy().heir, name: "Theodora" } },
   inputs: [],
-  timeline: Array.from({ length: 28 }, (_, second) => [second + 1, 0, 3, 5, 0, 0]), // night 3 lasts 28 s
-  steps: 1680,
+  timeline: Array.from({ length: 40 }, (_, second) => [second + 1, 0, 3, 5, 0, 0]), // night 3 lasts 40 s
+  steps: 2400,
   outcome: "dawn",
-  stats: { kills: 17, lampsLost: 1, hpLost: 2, time: 28, oilEarned: 30, hp: 3, maxHp: 5, lit: 3 },
+  stats: { kills: 17, lampsLost: 1, hpLost: 2, time: 40, oilEarned: 30, hp: 3, maxHp: 5, lit: 3 },
 });
 const REFUSED_PLAYS = [
   ["another sim version", otherVersionPlay("2026-10-20-21-00-00-othersim1", true), "08b-replay-refused"],
@@ -804,6 +899,50 @@ async function checkCreatureText(tag, screen, creature) {
     problems.join("; ") || `name ${shown.name.lines} line(s), lore ${shown.lore.lines} line(s)`,
   );
 }
+// A building's whole name is shown wherever the announcement appears, as a creature's is: the line reads in full, nothing
+// ellipsizes or line-clamps it, it holds no more than it shows, and it lies inside the screen's content (the scroll's body,
+// or the panel) and not clipped by it
+async function checkBuildingText(tag, screen, building) {
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  const shown = await page.evaluate(() => {
+    const line = document.querySelector('.raised[data-state="ready"]');
+    if (!line) {
+      return null;
+    }
+    const style = getComputedStyle(line);
+    const box = line.getBoundingClientRect();
+    const frame = (line.closest(".scroll-body") ?? line.closest(".panel") ?? document.body).getBoundingClientRect();
+    return {
+      text: line.textContent,
+      name: line.querySelector(".raised-name")?.textContent,
+      ellipsis: style.textOverflow === "ellipsis",
+      clamped: [style.getPropertyValue("-webkit-line-clamp"), style.getPropertyValue("line-clamp")].some(
+        (value) => value !== "" && value !== "none",
+      ),
+      holdsMore: line.scrollHeight > line.clientHeight + 1 || line.scrollWidth > line.clientWidth + 1,
+      clips: style.overflow !== "visible" && style.whiteSpace === "nowrap",
+      inside: box.left >= frame.left - 1 && box.right <= frame.right + 1,
+      lines: Math.round(box.height / Number.parseFloat(style.lineHeight)),
+    };
+  });
+  const problems = shown
+    ? [
+        [shown.text !== `Raised on the plaza tonight: ${building.name}`, `reads "${shown.text.slice(0, 40)}"`],
+        [shown.name !== building.name, "the name is not whole"],
+        [shown.ellipsis, "an ellipsis"],
+        [shown.clamped, "line-clamped"],
+        [shown.clips, "one line that clips"],
+        [shown.holdsMore, "holds more than it shows"],
+        [!shown.inside, "spills out of its frame"],
+      ].flatMap(([wrong, problem]) => (wrong ? [problem] : []))
+    : ["no line"];
+  check(
+    tag,
+    `${screen}: the building's whole name is shown`,
+    problems.length === 0,
+    problems.join("; ") || `${shown.lines} line(s), ${building.name.length} characters`,
+  );
+}
 // The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
 // glyphs (keys, mouse, pad buttons, touch buttons) in this order, with the weapon icons on the touch buttons, and saying
 // how to relight a lamp
@@ -939,7 +1078,9 @@ const drawnProps = () =>
       const found = [];
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`));
+        // a live building is drawn from the gallery's sprite
+        const liveId = /\/api\/buildings\/([a-z0-9-]+)\/sprite\.png$/.exec(label)?.[1];
+        const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`)) ?? (liveId && `building/${liveId}`);
         if (key && node.visible !== false) {
           found.push([key, Math.round(node.x), Math.round(node.y)]);
         }
@@ -955,8 +1096,11 @@ const drawnProps = () =>
     }, PROP_KEYS)
     .then((found) => found.sort(byKeyThenPlace));
 // the props a seed lays out, in the same form
-const laidOutProps = (seed) => {
-  const layout = decorFor(seed | 0);
+const laidOutProps = (seed, withBuilding = false) => {
+  const layout = decorFor(
+    seed | 0,
+    withBuilding ? { key: `building/${PLAZA_BUILDING.id}`, extents: PLAZA_BUILDING.extent } : null,
+  );
   return [...layout.props, ...layout.boats].map((placed) => [placed.key, placed.x, placed.y]).sort(byKeyThenPlace);
 };
 // whether the stage shows exactly these props (the trireme rocks on the water, so its y is only close)
@@ -969,21 +1113,28 @@ const sameProps = (drawn, expected) =>
 const propSprites = new Map();
 // A sprite's painted pixels in the rows of its base (src/scene/extent.ts), by their offset from the anchor, read from the
 // committed picture: the check below looks at pixels, not at the numbers the placer was given.
+// the painted pixels of a 128 px picture within `band` rows above its anchor row, by their offset from the anchor
+function paintedBase(image, anchorRow, band) {
+  const pixels = [];
+  for (let row = 0; row < 128; row++) {
+    if (row - anchorRow < -band) {
+      continue;
+    }
+    for (let column = 0; column < 128; column++) {
+      if (image.data[(row * 128 + column) * 4 + 3] > 0) {
+        pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
+      }
+    }
+  }
+  return pixels;
+}
 function basePixelsOf(key) {
   let pixels = propSprites.get(key);
   if (!pixels) {
-    const image = decodePng(readFileSync(`public/sprites/${key}.png`));
-    const anchorRow = anchorYFor(key) * 128;
-    pixels = [];
-    for (let row = 0; row < 128; row++) {
-      if (row - anchorRow >= -baseBandOf(key)) {
-        for (let column = 0; column < 128; column++) {
-          if (image.data[(row * 128 + column) * 4 + 3] > 0) {
-            pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
-          }
-        }
-      }
-    }
+    const live = key.startsWith("building/"); // the fixture building: its picture is made in code
+    const image = live ? PLAZA_PICTURE : decodePng(readFileSync(`public/sprites/${key}.png`));
+    const anchorRow = (live ? PLAZA_ANCHOR_Y : anchorYFor(key)) * 128;
+    pixels = paintedBase(image, anchorRow, live ? 28 : baseBandOf(key));
     propSprites.set(key, pixels);
   }
   return pixels;
@@ -1460,6 +1611,186 @@ check(
 // stray strokes: the sky band above the plaza should look the same as at night start
 const sky = await boxDiff(shot, nightStart, [0, 60, 960, 60]);
 check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).toFixed(2)}% of the sky changed`);
+
+// 3b the hand-made monsters are drawn from their frames: they walk while they travel, claw with the attack frames, idle when a
+// hit holds them, and face the way they travel, the three directions that are not drawn mirrored like the warden's
+{
+  const handMadeFrames = (kind) =>
+    page.evaluate((kind) => {
+      const found = [];
+      const visit = (node) => {
+        const label = node.texture?.source?.label ?? "";
+        if (label.startsWith(`/sprites/${kind}-frames.png#`) && node.visible && !node.destroyed) {
+          found.push({
+            direction: label.split("#")[1].split("/")[0],
+            pose: label.split("/").pop(),
+            flipped: node.scale.x < 0,
+            x: node.position.x,
+            y: node.position.y,
+          });
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
+      };
+      const app = window.lampwarden.app();
+      if (app) {
+        visit(app.stage);
+      }
+      return found;
+    }, kind);
+  const standMonster = (kind, patch) =>
+    page.evaluate(
+      ([kind, patch]) => {
+        const state = window.lampwarden.state();
+        window.lampwarden.scene().setPaused(true);
+        state.shots = [];
+        state.puffs = [];
+        state.monsters = [
+          {
+            id: state.nextId++,
+            kind,
+            x: 600,
+            y: 400,
+            health: 5,
+            age: 0,
+            wobble: 0,
+            snuff: 0,
+            attackCooldown: 0,
+            hurt: 0,
+            stun: 0,
+            knockX: 0,
+            knockY: 0,
+            ...patch,
+          },
+        ];
+        state.hero.x = 200;
+        state.hero.y = 200;
+      },
+      [kind, patch],
+    );
+  const handMadeBox = spriteBox(600, 400, false);
+  const view = async (kind, patch) => {
+    await standMonster(kind, patch);
+    await page.waitForTimeout(100); // the monster list reaches React on the next render
+    await settle();
+    return (await handMadeFrames(kind))[0];
+  };
+  const results = {};
+  for (const kind of ["satyr", "cyclops", "harpy"]) {
+    const walk1 = await view(kind, { age: 0 });
+    const walk4 = await view(kind, { age: 0.31 });
+    const claw = await view(kind, { snuff: 0.1 });
+    const strike = await view(kind, { attackCooldown: 0.95 });
+    const rest = await view(kind, { stun: 0.05 });
+    results[kind] = { walk1, walk4, claw, strike, rest };
+    // a frame that was slid along its cell is drawn that far back, so the monster stands where it does (the monster is at
+    // 600, 400 and its age is 0 in the claw and the strike: no bob)
+    const lift = kind === "harpy" ? 22 : 0; // the harpy hovers
+    const slidBack = (frame) => {
+      const cell = creatureAtlasLayout(SHEET_FRAMES[kind]).cells.find(
+        (candidate) => candidate.direction === frame?.direction && creaturePoseName(candidate) === frame?.pose,
+      );
+      const [across, down] = cell?.shift ?? [NaN, NaN];
+      return frame?.x === 600 + (frame?.flipped ? across : -across) && frame?.y === 400 - lift - down;
+    };
+    check(
+      "hand-made",
+      `a ${kind} frame slid along its cell is drawn back by the slide`,
+      [walk1, claw, strike, rest].every(slidBack),
+      [claw, strike].map((frame) => `${frame?.pose}@${frame?.x},${frame?.y}`).join(" "),
+    );
+    check(
+      "hand-made",
+      `the ${kind} walks, claws and idles in its own frames`,
+      walk1?.pose === "walk1" &&
+        walk4?.pose === "walk4" &&
+        claw?.pose.startsWith("attack") &&
+        strike?.pose.startsWith("attack") &&
+        rest?.pose.startsWith("idle"),
+      [walk1, walk4, claw, strike, rest].map((frame) => frame?.pose).join(" "),
+    );
+    check(
+      "hand-made",
+      `the ${kind} faces the middle of the plaza before it moves`,
+      walk1?.direction === "se" && walk1?.flipped === true,
+      `${walk1?.direction}${walk1?.flipped ? "'" : ""}`,
+    );
+  }
+  // the satyr travels each of the eight ways
+  const ways = [
+    ["e", [1, 0], "e", false],
+    ["se", [Math.SQRT1_2, Math.SQRT1_2], "se", false],
+    ["s", [0, 1], "s", false],
+    ["sw", [-Math.SQRT1_2, Math.SQRT1_2], "se", true],
+    ["w", [-1, 0], "e", true],
+    ["nw", [-Math.SQRT1_2, -Math.SQRT1_2], "ne", true],
+    ["n", [0, -1], "n", false],
+    ["ne", [Math.SQRT1_2, -Math.SQRT1_2], "ne", false],
+  ];
+  const seen = [];
+  let allWays = true;
+  const wayShots = {};
+  for (const [way, ground, drawn, mirrored] of ways) {
+    await standMonster("satyr", { age: 0.31 });
+    await page.waitForTimeout(100);
+    await settle();
+    await page.evaluate(([groundX, groundY]) => {
+      const [monster] = window.lampwarden.state().monsters;
+      monster.x += groundX * 14;
+      monster.y += (groundY * 14) / 2;
+    }, ground);
+    await settle();
+    const frame = (await handMadeFrames("satyr"))[0];
+    seen.push(`${way}:${frame?.direction}${frame?.flipped ? "'" : ""}`);
+    allWays = allWays && frame?.direction === drawn && frame?.flipped === mirrored && frame?.pose === "walk4";
+    if (["e", "sw", "n"].includes(way)) {
+      wayShots[way] = await shoot(`03b-satyr-walks-${way}`);
+    }
+  }
+  check("hand-made", "the satyr walks facing each of the eight ways", allWays, seen.join(" "));
+  const apart = await boxDiff(wayShots.e, wayShots.n, handMadeBox);
+  check(
+    "hand-made",
+    "the satyr looks different from the east and from the north",
+    apart > 0.05,
+    `${(apart * 100).toFixed(0)}%`,
+  );
+  // a blow flashes the frame it is on, white, the same shape
+  await standMonster("satyr", { age: 0.31 });
+  await page.waitForTimeout(100);
+  await settle();
+  const satyrPlain = await shoot("03b-satyr-walk");
+  await page.evaluate(() => {
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.25;
+    }
+  });
+  await settle();
+  const satyrFlash = await shoot("03b-satyr-flash");
+  const [satyrPlainLight, satyrFlashLight] = await Promise.all([
+    luminance(satyrPlain, [handMadeBox]),
+    luminance(satyrFlash, [handMadeBox]),
+  ]);
+  check(
+    "hand-made",
+    "a blow flashes the satyr's frame white",
+    satyrFlashLight[0] > satyrPlainLight[0] + 25,
+    `${satyrPlainLight[0].toFixed(0)} → ${satyrFlashLight[0].toFixed(0)}`,
+  );
+  await standMonster("satyr", { snuff: 0.1 });
+  await page.waitForTimeout(100);
+  await settle();
+  await shoot("03b-satyr-claws");
+  await standMonster("cyclops", { age: 0.31 });
+  await page.waitForTimeout(100);
+  await settle();
+  await shoot("03b-cyclops-walks");
+  await standMonster("harpy", { age: 0.31 });
+  await page.waitForTimeout(100);
+  await settle();
+  await shoot("03b-harpy-walks");
+}
 
 // 4 two dark lamps, one being relit; the lamp-light scenes up to 5 measure bare ground, so the props are put away
 await setPropsShown(false);
@@ -2047,7 +2378,11 @@ const placeClawer = (heroX, heroY) =>
   await placeClawer(woundX, woundY);
   await settle();
   await page.waitForTimeout(80);
-  const unhurt = (await page.locator(".stage").screenshot()).toString("base64");
+  // the claw's satyr is drawn from frames and changes picture as it strikes, so the pictures that measure the warden's flash
+  // are taken without it
+  await showLayers(["monster", "monster-rim"], false);
+  const unhurt = await stageShot();
+  await showLayers(["monster", "monster-rim"], true);
   const unhurtSprites = await woundedSprites();
   check(
     "hero-hit",
@@ -2064,7 +2399,10 @@ const placeClawer = (heroX, heroY) =>
     return { hits: hero.hits, hurt: hero.hurt, mercy: hero.mercy, health: hero.health, maxHealth: hero.maxHealth };
   });
   const flashing = await woundedSprites();
-  const flashShot = await shoot("04c-hero-hit-1-flash");
+  await shoot("04c-hero-hit-1-flash");
+  await showLayers(["monster", "monster-rim"], false);
+  const flashClean = await stageShot();
+  await showLayers(["monster", "monster-rim"], true);
   check("hero-hit", "a monster's claw wounds the warden once", struck.hits === 1 && struck.health < struck.maxHealth);
   check(
     "hero-hit",
@@ -2074,7 +2412,7 @@ const placeClawer = (heroX, heroY) =>
       /\/hero\/male_idle\d/.test(flashing.flash[0].label),
     JSON.stringify(flashing.flash),
   );
-  const white = await changedColour(flashShot, unhurt, [woundX - 22, woundY - 90, 44, 90]);
+  const white = await changedColour(flashClean, unhurt, [woundX - 22, woundY - 90, 44, 90]);
   check(
     "hero-hit",
     "the flash is white pixels on the warden",
@@ -2087,14 +2425,14 @@ const placeClawer = (heroX, heroY) =>
     flashing.vignette.length === 1 && flashing.vignette[0] === "vignette/3",
     flashing.vignette.join(" "),
   );
-  const edge = await changedColour(flashShot, unhurt, [0, 150, 40, 300]);
+  const edge = await changedColour(flashClean, unhurt, [0, 150, 40, 300]);
   check(
     "hero-hit",
     "the vignette reddens the screen's edge",
     edge.count > 300 && edge.colour[0] > edge.colour[2] * 1.4,
     `${edge.count} pixels, mean rgb ${edge.colour.map((level) => level.toFixed(0)).join(",")}`,
   );
-  const burst = await changedColour(flashShot, unhurt, [woundX - 24, woundY - 70, 60, 30]);
+  const burst = await changedColour(flashClean, unhurt, [woundX - 24, woundY - 70, 60, 30]);
   check("hero-hit", "an impact burst at the claw", burst.count > 60, `${burst.count} pixels changed at the chest`);
   check("hero-hit", "the health bar flashes and jolts", (await page.locator(".bar.struck").count()) === 1);
   check("hero-hit", "the screen jolts harder than a kill does", jolt >= 3, `${jolt}px`);
@@ -2508,7 +2846,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       "replay-refused",
       `${label}: the panel says it was an earlier version and shows the night's summary`,
       panel.includes("earlier version of Lampwarden and can't be replayed exactly") &&
-        panel.includes(`${play.legacy.heir.name}, night 3: dawn, 17 slain, 1 lamps snuffed, 28 s.`),
+        panel.includes(`${play.legacy.heir.name}, night 3: dawn, 17 slain, 1 lamps snuffed, 40 s.`),
       panel,
     );
     check(
@@ -3346,7 +3684,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       state.puffs = [];
     }, patch);
   // the frames the stage shows for the creature: the pose each sprite's texture came from, and how it is drawn
-  const creatureFrames = () =>
+  const creatureFramesOf = (id) =>
     page.evaluate((id) => {
       const found = [];
       const visit = (node) => {
@@ -3354,6 +3692,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
         if (label.startsWith(`/api/creatures/${id}/`) && node.visible && !node.destroyed) {
           found.push({
             pose: label.split("/").pop(),
+            direction: label.split("#")[1]?.split("/")[0],
             flipped: node.scale.x < 0,
             // the painted shadow is cut out and the pixels kept, which is what the lamps' rim light needs
             shadowless: node.texture.source.resource instanceof Uint8Array,
@@ -3368,7 +3707,8 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
         visit(app.stage);
       }
       return found;
-    }, SEA_ANIMATED.id);
+    }, id);
+  const creatureFrames = () => creatureFramesOf(SEA_ANIMATED.id);
   const poseNow = async () => (await creatureFrames()).map((frame) => frame.pose).join();
   const poseShot = async (name, patch) => {
     await stand(patch);
@@ -3415,6 +3755,85 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await settle();
   const leftSide = (await creatureFrames())[0]?.flipped;
   check("sea-animated", "it faces the middle of the plaza from either side", rightSide === true && leftSide === false);
+  // it faces the way it travels: each of the eight ways on the ground, seen from the drawn direction that looks that way
+  // (the five drawn ones as they are, the other three mirrored left to right, as the warden's are)
+  const WAYS = [
+    { way: "e", ground: [1, 0], drawn: "e", mirrored: false },
+    { way: "se", ground: [Math.SQRT1_2, Math.SQRT1_2], drawn: "se", mirrored: false },
+    { way: "s", ground: [0, 1], drawn: "s", mirrored: false },
+    { way: "sw", ground: [-Math.SQRT1_2, Math.SQRT1_2], drawn: "se", mirrored: true },
+    { way: "w", ground: [-1, 0], drawn: "e", mirrored: true },
+    { way: "nw", ground: [-Math.SQRT1_2, -Math.SQRT1_2], drawn: "ne", mirrored: true },
+    { way: "n", ground: [0, -1], drawn: "n", mirrored: false },
+    { way: "ne", ground: [Math.SQRT1_2, -Math.SQRT1_2], drawn: "ne", mirrored: false },
+  ];
+  const facing = {};
+  const wayShots = {};
+  for (const { way, ground } of WAYS) {
+    await stand({ age: 0.31 });
+    await settle();
+    // a stride of the walk: ground y is twice the screen's
+    await page.evaluate(([groundX, groundY]) => {
+      const [monster] = window.lampwarden.state().monsters;
+      monster.x += groundX * 14;
+      monster.y += (groundY * 14) / 2;
+    }, ground);
+    await settle();
+    facing[way] = (await creatureFrames())[0];
+    if (["e", "sw", "n"].includes(way)) {
+      wayShots[way] = await shoot(`28a-sea-animated-walks-${way}`);
+    }
+  }
+  check(
+    "sea-animated",
+    "it walks facing each of the eight ways: the matching direction's frames, mirrored for three",
+    WAYS.every(
+      ({ way, drawn, mirrored }) =>
+        facing[way]?.direction === drawn && facing[way]?.flipped === mirrored && facing[way]?.pose === "walk4",
+    ),
+    WAYS.map(({ way }) => `${way}:${facing[way]?.direction}${facing[way]?.flipped ? "'" : ""}`).join(" "),
+  );
+  const eastVersusNorth = await boxDiff(wayShots.e, wayShots.n, creatureBox);
+  const mirrorVersusAhead = await boxDiff(wayShots.sw, wayShots.e, creatureBox);
+  check(
+    "sea-animated",
+    "the pictures differ from one way to the next",
+    eastVersusNorth > 0.05 && mirrorVersusAhead > 0.05,
+    `${(eastVersusNorth * 100).toFixed(0)}% ${(mirrorVersusAhead * 100).toFixed(0)}%`,
+  );
+  // held by a blow it keeps the way it faced, and at the warden's side it faces him
+  await stand({ age: 0.31 });
+  await settle();
+  await page.evaluate(() => {
+    const [monster] = window.lampwarden.state().monsters;
+    monster.x -= 14;
+  });
+  await settle();
+  await page.evaluate(() => {
+    const [monster] = window.lampwarden.state().monsters;
+    monster.stun = 0.3;
+    monster.x += 40;
+    monster.y += 12;
+  });
+  await settle();
+  const held = (await creatureFrames())[0];
+  check(
+    "sea-animated",
+    "a monster thrown by a blow keeps facing the way it was going",
+    held?.direction === "e" && held?.flipped === true && held?.pose.startsWith("idle"),
+    `${held?.direction}${held?.flipped ? "'" : ""} ${held?.pose}`,
+  );
+  await stand({ age: 0.31, x: 290, y: 340 });
+  await settle();
+  const atSide = (await creatureFrames())[0];
+  check(
+    "sea-animated",
+    "at the warden's side it faces him",
+    atSide?.direction === "ne" && atSide?.flipped === false,
+    `${atSide?.direction}${atSide?.flipped ? "'" : ""} ${atSide?.pose}`,
+  );
+  await stand({ age: 0, x: 600, y: 400 });
+  await settle();
   // the flash and the red tint follow the frame
   await stand({ age: 0.31 });
   await freeze();
@@ -3464,8 +3883,338 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     animatedPanel.loaded && animatedPanel.source.includes(`/api/creatures/${SEA_ANIMATED.id}/sprite.png`),
   );
 
+  // 21c a creature made before directions: its record has no `directions`, so it has the one side it was drawn from, flipped
+  // by where it stands as the other monsters are, whichever way it travels
+  sea.mode = "animated-legacy";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await startFromTitle();
+  let legacySent = false;
+  for (let attempt = 0; attempt < 80 && !legacySent; attempt++) {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.monsters = state.monsters.filter((monster) => monster.kind === "creature");
+      state.spawnTimer = 0;
+      state.elapsed = Math.max(state.elapsed, 9);
+      state.hero.health = state.hero.maxHealth;
+      for (const lamp of state.lamps) {
+        lamp.lit = true;
+      }
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForTimeout(100);
+    legacySent = await page.evaluate(() =>
+      window.lampwarden.state().monsters.some((monster) => monster.kind === "creature"),
+    );
+  }
+  check("sea-animated", "the spawner sends the creature made before directions", legacySent);
+  const legacySeen = [];
+  for (const [way, ground] of [
+    ["e", [1, 0]],
+    ["n", [0, -1]],
+    ["w", [-1, 0]],
+  ]) {
+    await stand({ age: 0.31 });
+    await settle();
+    await page.evaluate(([groundX, groundY]) => {
+      const [monster] = window.lampwarden.state().monsters;
+      monster.x += groundX * 14;
+      monster.y += (groundY * 14) / 2;
+    }, ground);
+    await settle();
+    const [legacyFrame] = await creatureFramesOf(SEA_LEGACY.id);
+    legacySeen.push(`${way}:${legacyFrame?.direction}${legacyFrame?.flipped ? "'" : ""} ${legacyFrame?.pose}`);
+  }
+  check(
+    "sea-animated",
+    "a creature made before directions keeps its one side and its frames, whichever way it travels",
+    legacySeen.every((seen) => seen.includes(":se")) && legacySeen.every((seen) => seen.endsWith("walk4")),
+    legacySeen.join(", "),
+  );
+  await stand({ age: 0.31, x: 600 });
+  await settle();
+  const legacyRight = (await creatureFramesOf(SEA_LEGACY.id))[0]?.flipped;
+  await stand({ age: 0.31, x: 200 });
+  await settle();
+  const legacyLeft = (await creatureFramesOf(SEA_LEGACY.id))[0]?.flipped;
+  check(
+    "sea-animated",
+    "and it faces the middle of the plaza from either side",
+    legacyRight === true && legacyLeft === false,
+  );
+
   page = mainPage;
   await seaContext.close();
+  sea.mode = "none";
+}
+
+// 21c the building raised on the plaza (API stubbed, see above): the line where the creature is announced, the building
+// drawn in the layout's building slot and recorded with the night, shown again on replay, and the committed plaza when its
+// sprite will not load or the play is from before buildings
+{
+  const plazaContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(plazaContext);
+  await stubDirector(plazaContext);
+  const plazaPage = await plazaContext.newPage();
+  plazaPage.on("pageerror", (error) => errors.push(`plaza: ${error}`));
+  plazaPage.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
+      errors.push(`plaza: ${message.text()}`);
+    }
+  });
+  plazaPage.on("response", (response) => {
+    if (response.status() >= 400) {
+      errors.push(`plaza: HTTP ${response.status()} ${response.url()}`);
+    }
+  });
+  const mainPage = page;
+  page = plazaPage;
+  const openTitle = async () => {
+    await page.goto(`${BASE_URL}/?verify=1`);
+    await page.evaluate(() => localStorage.clear());
+    plaza.asked.length = 0;
+    await page.reload();
+    await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+    await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+    await settle();
+  };
+  const startFromTitle = async () => {
+    await page.getByRole("button", { name: "Light the lamps" }).click();
+    await page.waitForSelector('[data-phase="night"]');
+    await freeze();
+  };
+  const toDawn = async () => {
+    await page.evaluate(() => {
+      const state = window.lampwarden.state();
+      state.elapsed = state.length - 0.01;
+      state.oilEarned = 12;
+      window.lampwarden.scene().setPaused(false);
+    });
+    await page.waitForSelector('[data-phase="dawn"]', { timeout: 5000 });
+    await freeze();
+  };
+  const liveKey = `building/${PLAZA_BUILDING.id}`;
+  const liveSprites = (props) => props.filter(([key]) => key === liveKey);
+  const slotSprites = (props) => props.filter(([key]) => key === liveKey || key === "house" || key === "house-ochre");
+  const lastSeen = () => JSON.stringify(plaza.asked.at(-1));
+  const expectedPlaza = (seed, withBuilding) => laidOutProps(seed, withBuilding);
+
+  // nothing is coming: no line, the committed plaza
+  plaza.mode = "none";
+  await openTitle();
+  await page.waitForTimeout(300);
+  check("plaza-none", "the buildings gallery was asked, with nothing seen yet", lastSeen() === "[]", lastSeen());
+  check("plaza-none", "no building line on the title", (await page.locator(".raised").count()) === 0);
+  await startFromTitle();
+  const plainProps = await drawnProps();
+  check(
+    "plaza-none",
+    "the night's plaza has its committed building and no live one",
+    liveSprites(plainProps).length === 0 && slotSprites(plainProps).length === 1,
+    JSON.stringify(slotSprites(plainProps)),
+  );
+
+  // a building ready: the line on the title, with and without the creature
+  plaza.mode = "ready";
+  sea.mode = "none";
+  await openTitle();
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  const line = await page.evaluate(() => {
+    const element = document.querySelector(".raised");
+    return {
+      text: element?.textContent ?? "",
+      building: element?.getAttribute("data-building") ?? "",
+      size: Number.parseFloat(getComputedStyle(element).fontSize),
+      inked: element?.hasAttribute("data-line") ?? false,
+    };
+  });
+  check(
+    "plaza-title",
+    "the line says what was raised on the plaza, by name",
+    line.text === `Raised on the plaza tonight: ${PLAZA_BUILDING.name}` && line.building === PLAZA_BUILDING.id,
+    line.text,
+  );
+  check(
+    "plaza-title",
+    "the line is a line of the scroll, in text of 16 px or more",
+    line.inked && line.size >= 16,
+    `${line.size}px`,
+  );
+  check("plaza-title", "the gallery was asked with nothing seen", lastSeen() === "[]", lastSeen());
+  await checkBuildingText("plaza-title", "title", PLAZA_BUILDING);
+  await checkTitleScroll("plaza-title", 1000, 640);
+  await checkScrollFits("plaza-title");
+  await shoot("21c-plaza-title");
+  // and with a creature announced too: the scroll still holds both
+  sea.mode = "ready";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  check(
+    "plaza-title-both",
+    "the creature and the building are both announced",
+    (await page.locator(".sea").count()) === 1 && (await page.locator(".raised").count()) === 1,
+  );
+  await checkTitleScroll("plaza-title-both", 1000, 640);
+  await checkCreatureText("plaza-title-both", "title", SEA_CREATURE);
+  await checkBuildingText("plaza-title-both", "title", PLAZA_BUILDING);
+  await checkScrollFits("plaza-title-both");
+  await shoot("21c-plaza-title-both");
+  sea.mode = "none";
+
+  // the night: the building stands in the building slot, drawn from its sprite at the anchor its record gave. A night's seed
+  // is random, and a building that fits no spot of the seed's layout is skipped for that night and the committed one stays
+  // (src/scene/decor.ts), so a night where it was skipped is checked for that and the next is tried.
+  let nightProps = [];
+  let placed;
+  let skippedNights = 0;
+  for (let attempt = 0; attempt < 12 && !placed; attempt++) {
+    await openTitle();
+    await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+    await startFromTitle();
+    nightProps = await drawnProps();
+    placed = nightProps.find(([key]) => key === liveKey);
+    if (!placed) {
+      skippedNights++;
+      check(
+        "plaza-night",
+        "a night the building fits nowhere keeps the committed one, and no more than one",
+        slotSprites(nightProps).length === 1,
+        JSON.stringify(slotSprites(nightProps)),
+      );
+    }
+  }
+  console.log(`  the live building was skipped on ${skippedNights} night(s) before one placed it`);
+  const slot = slotSprites(nightProps);
+  check(
+    "plaza-night",
+    "the live building is drawn, once, instead of the committed one",
+    slot.length === 1 && Boolean(placed),
+    JSON.stringify(slot),
+  );
+  check("plaza-night", "no line in the night", (await page.locator(".raised").count()) === 0);
+  const anchored = await page.evaluate((id) => {
+    let anchorY = null;
+    const visit = (node) => {
+      if ((node.texture?.source?.label ?? "").includes(`/api/buildings/${id}/sprite.png`) && node.visible) {
+        anchorY = node.anchor?.y ?? null;
+      }
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
+    };
+    const app = window.lampwarden.app();
+    if (app) {
+      visit(app.stage);
+    }
+    return anchorY;
+  }, PLAZA_BUILDING.id);
+  check(
+    "plaza-night",
+    "it is drawn at the anchor its record gave",
+    anchored !== null && Math.abs(anchored - PLAZA_BUILDING.anchorY) < 1e-6,
+    String(anchored),
+  );
+  checkPropsOnPlaza("plaza-night", "the night's plaza", nightProps);
+  await shoot("21c-plaza-night");
+  check(
+    "plaza-night",
+    "the line has seen it: the next question carries its id",
+    lastSeen() === JSON.stringify([PLAZA_BUILDING.id]),
+    lastSeen(),
+  );
+  check(
+    "plaza-night",
+    "seeing it is saved",
+    (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === JSON.stringify([PLAZA_BUILDING.id]),
+  );
+  await toDawn();
+  await checkBuildingText("plaza-dawn", "dawn", PLAZA_BUILDING);
+  const played = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:lastPlay") ?? "null"));
+  check(
+    "plaza-night",
+    "the night is recorded with its building",
+    played?.building?.id === PLAZA_BUILDING.id && played.building.anchorY === PLAZA_BUILDING.anchorY,
+    JSON.stringify(played?.building?.id),
+  );
+  check(
+    "plaza-night",
+    "and its plaza is the one its seed lays out with that building",
+    sameProps(nightProps, expectedPlaza(played.seed, true)),
+    JSON.stringify(nightProps),
+  );
+
+  // replay: the same plaza, from the recording alone
+  await page.goto(`${BASE_URL}/?replay=last`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(800);
+  await freeze();
+  const replayedProps = await drawnProps();
+  check(
+    "plaza-replay",
+    "a replay shows the plaza with the building the night was played beside",
+    sameProps(replayedProps, nightProps) && liveSprites(replayedProps).length === 1,
+    JSON.stringify(replayedProps),
+  );
+  await shoot("21c-plaza-replay");
+
+  // a recording from before buildings has none: it replays on the committed plaza
+  const older = { ...played, id: "2026-10-25-09-00-00-nobuilding" };
+  delete older.building;
+  await page.route(`**/api/plays/${older.id}`, (route) => route.fulfill({ json: older }));
+  await page.goto(`${BASE_URL}/?replay=${older.id}`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(500);
+  await freeze();
+  const olderProps = await drawnProps();
+  check(
+    "plaza-replay",
+    "a recording with no building replays on the committed plaza",
+    liveSprites(olderProps).length === 0 && sameProps(olderProps, expectedPlaza(older.seed, false)),
+    JSON.stringify(olderProps),
+  );
+
+  // its sprite will not load: not announced, and the night is the committed plaza
+  plaza.mode = "broken";
+  await openTitle();
+  await page.waitForTimeout(1500);
+  check(
+    "plaza-broken",
+    "a building whose sprite will not load is not announced",
+    (await page.locator(".raised").count()) === 0,
+  );
+  await startFromTitle();
+  const brokenProps = await drawnProps();
+  check(
+    "plaza-broken",
+    "the night has the committed plaza",
+    liveSprites(brokenProps).length === 0 && slotSprites(brokenProps).length === 1,
+    JSON.stringify(slotSprites(brokenProps)),
+  );
+  check(
+    "plaza-broken",
+    "and the line has not seen it",
+    (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === null,
+  );
+  // the recording of the night that had the building, whose sprite is gone now, replays on the committed plaza
+  const gone = { ...played, id: "2026-10-25-09-00-01-bldgone" };
+  await page.route(`**/api/plays/${gone.id}`, (route) => route.fulfill({ json: gone }));
+  await page.goto(`${BASE_URL}/?replay=${gone.id}`);
+  await page.waitForSelector('[data-phase="replay"]', { timeout: 15000 });
+  await page.waitForTimeout(500);
+  await freeze();
+  const goneProps = await drawnProps();
+  check(
+    "plaza-broken",
+    "a replay whose building's sprite has gone shows the committed plaza, and does not crash",
+    liveSprites(goneProps).length === 0 && sameProps(goneProps, expectedPlaza(gone.seed, false)),
+    JSON.stringify(goneProps),
+  );
+
+  page = mainPage;
+  await plazaContext.close();
+  plaza.mode = "none";
   sea.mode = "none";
 }
 
@@ -3791,6 +4540,7 @@ const overlap = (first, second) =>
 const inView = (box, viewportWidth, viewportHeight) =>
   box.x >= -1 && box.y >= -1 && box.x + box.width <= viewportWidth + 1 && box.y + box.height <= viewportHeight + 1;
 sea.mode = "ready"; // the phone passes show the creature panel on the title and at dawn
+plaza.mode = "ready"; // and the line for the building raised on the plaza
 director.mode = "answer"; // and the sea's answer at dawn
 for (const [tag, device, sex] of [
   ["phone-land", devices["iPhone 14 landscape"], "male"],
@@ -3822,6 +4572,7 @@ for (const [tag, device, sex] of [
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
   await checkPhoneText(tag, "title");
   await checkCreatureText(tag, "title", SEA_CREATURE);
+  await checkBuildingText(tag, "title", PLAZA_BUILDING);
   await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
   const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
   check(
@@ -3991,6 +4742,7 @@ for (const [tag, device, sex] of [
   await checkWeaponShop(tag, sex);
   await checkPhoneText(tag, "dawn");
   await checkCreatureText(tag, "dawn", SEA_CREATURE);
+  await checkBuildingText(tag, "dawn", PLAZA_BUILDING);
   await shoot(`${tag}-3-dawn`, true);
   const seaDawn = page.locator(".panel .sea").first();
   await seaDawn.scrollIntoViewIfNeeded();

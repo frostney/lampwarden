@@ -1,37 +1,45 @@
-// The creature store on the project's private Vercel Blob store (BLOB_READ_WRITE_TOKEN, the one /api/plays uses).
+// The creature and building stores on the project's private Vercel Blob store (BLOB_READ_WRITE_TOKEN, the one /api/plays uses).
 //
 // Layout under a configurable prefix (default "creatures"; live tests use another so the real gallery stays clean):
 //   <prefix>/records/<id>.json        accepted creatures (ids start with their creation time, so a sort is newest-first)
 //   <prefix>/sprites/<id>.png|.ts     the sprite and the build code that drew it
 //   <prefix>/sprites/<id>.atlas.png   the animation atlas, for a creature whose record has `frames`
-//   <prefix>/jobs/<jobId>.json        job status, rewritten at every step
-//   <prefix>/state/running.json       the global "one job at a time" mark, claimed with a conditional write
-//   <prefix>/starts/...               one tiny blob per job start, counted for the rate limits
+//   <prefix>/jobs/<jobId>.json        job status, rewritten at every step; building jobs are here too (they say `kind`)
+//   <prefix>/state/running.json       the global "one job at a time" mark, claimed with a conditional write: one slot for
+//                                     creatures and buildings together
+//   <prefix>/state/creature-waiting.json  when a creature last had to wait for a building job's slot
+//   <prefix>/starts/...               one tiny blob per creature job start, counted for the rate limits
+// and the buildings, under a prefix of their own (default "buildings"), laid out the same way:
+//   <buildingPrefix>/records/<id>.json, sprites/<id>.png|.ts, starts/...
 
 import { BlobError, BlobPreconditionFailedError, get, list, put } from "@vercel/blob";
 import { z } from "zod";
 
-import { type CreatureJob, JOB_STEPS } from "@/game/creature";
+import { buildingSchema } from "@/game/building";
+import { JOB_STEPS } from "@/game/creature";
 import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { compareCodeUnits } from "@/lib/compare";
 import { HTTP_OK } from "@/lib/units";
 
-import type { CreatureStore, RunningLock } from "./store";
+import type { GalleryStore, RunningLock, StoredJob } from "./store";
 
 const RECORD_ID = /^[a-z0-9-]{8,80}$/;
 
 const jobSchema = z.object({
   jobId: z.string(),
   step: z.enum(JOB_STEPS),
+  kind: z.enum(["creature", "building"]).optional(),
   creature: creatureRecordSchema.optional(),
+  building: buildingSchema.optional(),
   error: z.string().optional(),
   updatedAt: z.string(),
 });
 const runningSchema = z.object({ jobId: z.string() });
+const waitingSchema = z.object({ at: z.string() });
 
 const dayOf = (date: Date) => date.toISOString().slice(0, 10);
 
-export function createBlobStore(prefix: string): CreatureStore {
+export function createBlobStore(prefix: string, buildingPrefix: string): GalleryStore {
   const path = {
     record: (id: string) => `${prefix}/records/${id}.json`,
     sprite: (id: string) => `${prefix}/sprites/${id}.png`,
@@ -39,8 +47,16 @@ export function createBlobStore(prefix: string): CreatureStore {
     code: (id: string) => `${prefix}/sprites/${id}.ts`,
     job: (jobId: string) => `${prefix}/jobs/${jobId}.json`,
     running: `${prefix}/state/running.json`,
+    creatureWaiting: `${prefix}/state/creature-waiting.json`,
     visitorStarts: (visitor: string, day: string) => `${prefix}/starts/visitor/${visitor}/${day}/`,
     dayStarts: (day: string) => `${prefix}/starts/day/${day}/`,
+  };
+  const buildingPath = {
+    record: (id: string) => `${buildingPrefix}/records/${id}.json`,
+    sprite: (id: string) => `${buildingPrefix}/sprites/${id}.png`,
+    code: (id: string) => `${buildingPrefix}/sprites/${id}.ts`,
+    visitorStarts: (visitor: string, day: string) => `${buildingPrefix}/starts/visitor/${visitor}/${day}/`,
+    dayStarts: (day: string) => `${buildingPrefix}/starts/day/${day}/`,
   };
 
   async function listPathnames(listPrefix: string): Promise<string[]> {
@@ -65,67 +81,104 @@ export function createBlobStore(prefix: string): CreatureStore {
     return { text: await new Response(blob.stream).text(), etag: blob.blob.etag };
   }
 
+  /** A stored JSON file as the schema reads it, or null when it is missing or does not validate. */
+  async function readRecord<Schema extends z.ZodType>(
+    pathname: string,
+    schema: Schema,
+  ): Promise<z.output<Schema> | null> {
+    const stored = await readText(pathname);
+    if (!stored) {
+      return null;
+    }
+    try {
+      const parsed = schema.safeParse(JSON.parse(stored.text));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function streamOf(pathname: string) {
+    const blob = await get(pathname, { access: "private" });
+    return blob?.statusCode === HTTP_OK ? blob.stream : null;
+  }
+
+  /** The ids of the records under a `records/` prefix, newest first. */
+  async function idsIn(recordsPrefix: string): Promise<string[]> {
+    const ids = (await listPathnames(recordsPrefix))
+      .filter((pathname) => pathname.endsWith(".json"))
+      .map((pathname) => pathname.slice(recordsPrefix.length, -".json".length))
+      .filter((id) => RECORD_ID.test(id));
+    return ids.sort(compareCodeUnits).reverse();
+  }
+
+  async function startsBetween(
+    visitorStarts: (visitor: string, day: string) => string,
+    visitor: string,
+    since: Date,
+    until: Date,
+  ): Promise<Date[]> {
+    const days = new Set([dayOf(since), dayOf(until)]);
+    const starts: Date[] = [];
+    for (const day of days) {
+      for (const pathname of await listPathnames(visitorStarts(visitor, day))) {
+        const startedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
+        if (startedAt >= since.getTime() && startedAt <= until.getTime()) {
+          starts.push(new Date(startedAt));
+        }
+      }
+    }
+    return starts.sort((first, second) => first.getTime() - second.getTime());
+  }
+
   const writeMark = (pathname: string) =>
     put(pathname, "{}", { access: "private", contentType: "application/json", addRandomSuffix: false });
+  const privateWrite = { access: "private", addRandomSuffix: false } as const;
 
   return {
-    async listCreatureIds() {
-      const recordsPrefix = `${prefix}/records/`;
-      const ids = (await listPathnames(recordsPrefix))
-        .filter((pathname) => pathname.endsWith(".json"))
-        .map((pathname) => pathname.slice(recordsPrefix.length, -".json".length))
-        .filter((id) => RECORD_ID.test(id));
-      return ids.sort(compareCodeUnits).reverse();
-    },
-
-    async getCreature(id) {
-      const stored = await readText(path.record(id));
-      if (!stored) {
-        return null;
-      }
-      try {
-        const parsed = creatureRecordSchema.safeParse(JSON.parse(stored.text));
-        return parsed.success ? parsed.data : null;
-      } catch {
-        return null;
-      }
-    },
-
-    async getSprite(id) {
-      const blob = await get(path.sprite(id), { access: "private" });
-      return blob?.statusCode === HTTP_OK ? blob.stream : null;
-    },
-
-    async getAtlas(id) {
-      const blob = await get(path.atlas(id), { access: "private" });
-      return blob?.statusCode === HTTP_OK ? blob.stream : null;
-    },
+    listCreatureIds: () => idsIn(`${prefix}/records/`),
+    getCreature: (id) => readRecord(path.record(id), creatureRecordSchema),
+    getSprite: (id) => streamOf(path.sprite(id)),
+    getAtlas: (id) => streamOf(path.atlas(id)),
 
     async putCreature(creature: CreatureRecord, png, code, atlas) {
-      const write = { access: "private", addRandomSuffix: false } as const;
-      await put(path.sprite(creature.id), Buffer.from(png), { ...write, contentType: "image/png" });
+      await put(path.sprite(creature.id), Buffer.from(png), { ...privateWrite, contentType: "image/png" });
       if (atlas) {
-        await put(path.atlas(creature.id), Buffer.from(atlas), { ...write, contentType: "image/png" });
+        await put(path.atlas(creature.id), Buffer.from(atlas), { ...privateWrite, contentType: "image/png" });
       }
-      await put(path.code(creature.id), code, { ...write, contentType: "text/plain" });
-      await put(path.record(creature.id), JSON.stringify(creature), { ...write, contentType: "application/json" });
+      await put(path.code(creature.id), code, { ...privateWrite, contentType: "text/plain" });
+      await put(path.record(creature.id), JSON.stringify(creature), {
+        ...privateWrite,
+        contentType: "application/json",
+      });
+    },
+
+    listBuildingIds: () => idsIn(`${buildingPrefix}/records/`),
+    getBuilding: (id) => readRecord(buildingPath.record(id), buildingSchema),
+    getBuildingSprite: (id) => streamOf(buildingPath.sprite(id)),
+
+    async putBuilding(building, png, code) {
+      await put(buildingPath.sprite(building.id), Buffer.from(png), { ...privateWrite, contentType: "image/png" });
+      await put(buildingPath.code(building.id), code, { ...privateWrite, contentType: "text/plain" });
+      await put(buildingPath.record(building.id), JSON.stringify(building), {
+        ...privateWrite,
+        contentType: "application/json",
+      });
     },
 
     async getJob(jobId) {
-      const stored = await readText(path.job(jobId));
-      if (!stored) {
+      const parsed = await readRecord(path.job(jobId), jobSchema);
+      if (!parsed) {
         return null;
       }
-      try {
-        const parsed = jobSchema.safeParse(JSON.parse(stored.text));
-        if (!parsed.success) {
-          return null;
-        }
-        const { creature, error, ...rest } = parsed.data;
-        return { ...rest, ...(creature ? { creature } : {}), ...(error ? { error } : {}) } satisfies CreatureJob;
-      } catch {
-        return null;
-      }
+      const { creature, building, error, kind, ...rest } = parsed;
+      return {
+        ...rest,
+        ...(kind ? { kind } : {}),
+        ...(creature ? { creature } : {}),
+        ...(building ? { building } : {}),
+        ...(error ? { error } : {}),
+      } satisfies StoredJob;
     },
 
     async putJob(job) {
@@ -177,28 +230,41 @@ export function createBlobStore(prefix: string): CreatureStore {
       }
     },
 
+    async noteCreatureWaiting(waitedAt) {
+      await put(path.creatureWaiting, JSON.stringify({ at: waitedAt.toISOString() }), {
+        access: "private",
+        contentType: "application/json",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        cacheControlMaxAge: 60,
+      });
+    },
+
+    async creatureWaitingSince() {
+      const waiting = await readRecord(path.creatureWaiting, waitingSchema);
+      const waitedAt = waiting ? Date.parse(waiting.at) : Number.NaN;
+      return Number.isFinite(waitedAt) ? new Date(waitedAt) : null;
+    },
+
     async recordStart(visitor, jobId, startedAt) {
       const day = dayOf(startedAt);
       await writeMark(`${path.visitorStarts(visitor, day)}${startedAt.getTime()}-${jobId}`);
       await writeMark(`${path.dayStarts(day)}${jobId}`);
     },
-
-    async visitorStartsBetween(visitor, since, until) {
-      const days = new Set([dayOf(since), dayOf(until)]);
-      const starts: Date[] = [];
-      for (const day of days) {
-        for (const pathname of await listPathnames(path.visitorStarts(visitor, day))) {
-          const startedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
-          if (startedAt >= since.getTime() && startedAt <= until.getTime()) {
-            starts.push(new Date(startedAt));
-          }
-        }
-      }
-      return starts.sort((first, second) => first.getTime() - second.getTime());
-    },
-
+    visitorStartsBetween: (visitor, since, until) => startsBetween(path.visitorStarts, visitor, since, until),
     async startsOnDay(day) {
       return (await listPathnames(path.dayStarts(day))).length;
+    },
+
+    async recordBuildingStart(visitor, jobId, startedAt) {
+      const day = dayOf(startedAt);
+      await writeMark(`${buildingPath.visitorStarts(visitor, day)}${startedAt.getTime()}-${jobId}`);
+      await writeMark(`${buildingPath.dayStarts(day)}${jobId}`);
+    },
+    buildingVisitorStartsBetween: (visitor, since, until) =>
+      startsBetween(buildingPath.visitorStarts, visitor, since, until),
+    async buildingStartsOnDay(day) {
+      return (await listPathnames(buildingPath.dayStarts(day))).length;
     },
   };
 }

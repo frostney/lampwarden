@@ -1,4 +1,4 @@
-// What the creature API reads from the environment, validated once. A missing secret turns generation off (the gallery
+// What the creature and building APIs read from the environment, validated once. A missing secret turns generation off (the gallery
 // still serves); a malformed limit falls back to its default.
 import { z } from "zod";
 
@@ -11,12 +11,16 @@ const JOB_MARGIN_SECONDS = 30;
 export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - JOB_MARGIN_SECONDS;
 
 // A normal session starts a job per night (the game asks for the next night's creature as a night begins). A night lasts
-// 16 to 52 s, so a quick player (no time at the dawn panel) starts a job every half minute or so: 12 an hour can be reached
-// within ten minutes, and the site's daily ceiling stays the cost control (one visitor can use at most 12 of its 40). Past it a
+// 28 to 64 s, so a quick player (no time at the dawn panel) starts a job every half minute to a minute: 12 an hour can be
+// reached in about ten minutes, and the site's daily ceiling stays the cost control (one visitor can use at most 12 of its 40). Past it a
 // visitor still meets what the gallery has.
 const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 12;
 const DEFAULT_STARTS_PER_DAY = 40;
 const DEFAULT_BLOB_PREFIX = "creatures";
+// Buildings are scenery, asked for as each night begins like creatures are: the same hourly allowance, and a daily cap of
+// their own (a smaller one, since the plaza needs one new building a night at most).
+const DEFAULT_BUILDING_STARTS_PER_DAY = 20;
+const DEFAULT_BUILDING_BLOB_PREFIX = "buildings";
 const DEFAULT_CANDIDATES = 3;
 const MAX_CANDIDATES = 5;
 export const MIN_SALT_LENGTH = 16;
@@ -29,6 +33,10 @@ export interface StartLimits {
 export interface CreatureConfig {
   limits: StartLimits;
   blobPrefix: string;
+  /** The buildings' own starts per visitor an hour and per day, counted apart from the creatures'. */
+  buildingLimits: StartLimits;
+  /** Where in the Blob store the building gallery and its limit marks live. */
+  buildingBlobPrefix: string;
   /** What generation needs; null where it is missing, which turns generation off. */
   mubitApiKey: string | null;
   snapshotId: string | null;
@@ -47,15 +55,30 @@ export const positiveInteger = (fallback: number) =>
     .pipe(z.number().int().min(1).max(LIMIT_MAX))
     .catch(fallback);
 
-const prefixSchema = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9/_-]{0,60}$/)
-  .catch(DEFAULT_BLOB_PREFIX);
+const prefixPattern = /^[a-z0-9][a-z0-9/_-]{0,60}$/;
+const BUILDING_PREFIX_KEPT = 50; // characters of a custom creature prefix the building prefix is made from
+const prefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BLOB_PREFIX);
+
+/**
+ * Where the building gallery lives. Unset, it follows the creatures': "buildings" beside "creatures", and a creature prefix
+ * set to keep a test run out of the real gallery ("creatures-dev") takes the buildings with it ("creatures-dev-buildings"),
+ * so one setting cannot leave a run writing to the real building gallery and spending its daily allowance. The two are never
+ * the same prefix: records of both kinds would mix.
+ */
+function buildingPrefixOf(creaturePrefix: string, explicit: string | null): string {
+  const derived =
+    creaturePrefix === DEFAULT_BLOB_PREFIX
+      ? DEFAULT_BUILDING_BLOB_PREFIX
+      : `${creaturePrefix.slice(0, BUILDING_PREFIX_KEPT)}-buildings`;
+  const chosen = explicit !== null && prefixPattern.test(explicit) ? explicit : derived;
+  return chosen === creaturePrefix ? derived : chosen;
+}
 
 export const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
 
 export function readCreatureConfig(env: Readonly<Record<string, string | undefined>>): CreatureConfig {
   const salt = present(env.CREATURE_RATE_SALT);
+  const blobPrefix = prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX);
   return {
     limits: {
       perVisitorPerHour: positiveInteger(DEFAULT_STARTS_PER_VISITOR_PER_HOUR).parse(
@@ -63,7 +86,14 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
       ),
       perDay: positiveInteger(DEFAULT_STARTS_PER_DAY).parse(env.CREATURE_MAX_STARTS_PER_DAY),
     },
-    blobPrefix: prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX),
+    blobPrefix,
+    buildingLimits: {
+      perVisitorPerHour: positiveInteger(DEFAULT_STARTS_PER_VISITOR_PER_HOUR).parse(
+        env.BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR,
+      ),
+      perDay: positiveInteger(DEFAULT_BUILDING_STARTS_PER_DAY).parse(env.BUILDING_MAX_STARTS_PER_DAY),
+    },
+    buildingBlobPrefix: buildingPrefixOf(blobPrefix, present(env.BUILDING_BLOB_PREFIX)),
     mubitApiKey: present(env.MUBIT_API_KEY),
     snapshotId: present(env.VERCEL_SANDBOX_SNAPSHOT_ID),
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,

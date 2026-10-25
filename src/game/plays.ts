@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { SECONDS_PER_DAY } from "../lib/units";
 import { SEXES } from "../scene/assets";
+import { recordedBuildingSchema } from "./building";
 import { recordedCreatureSchema } from "./creature";
 import { TIDE_MAX, TIDE_MIN } from "./director-decision";
 import { TRAITS, type TraitId } from "./legacy";
@@ -77,6 +78,7 @@ export const playSchema = z.object({
     director: z.unknown().optional(),
   }),
   creature: recordedCreatureSchema.optional(), // the creature from the sea the night met; plays from before have none
+  building: recordedBuildingSchema.optional(), // the building the plaza was laid out with; plays from before have none
   inputs: z.array(z.tuple([count, z.number(), z.number(), count, count, z.number(), z.number()])).max(MAX_STEPS),
   timeline: z.array(z.tuple([count, count, count, z.number(), count, count])).max(MAX_TIMELINE_ROWS),
   steps: count.max(MAX_STEPS),

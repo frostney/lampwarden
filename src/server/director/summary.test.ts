@@ -22,7 +22,7 @@ describe("the summary of a lost night 2", () => {
   test("has the night, the outcome, the pace and the upgrades", () => {
     expect(summary).toMatchObject({
       night: 2,
-      plannedSeconds: 22,
+      plannedSeconds: 34,
       playedSeconds: 18.4,
       tidePlayed: 1.1,
       warden: { trait: "swift", generation: 1, maxHealth: 100 },
@@ -79,7 +79,7 @@ describe("the summary of other nights", () => {
     const summary = summarise(parse(play), null);
     expect(summary.outcome).toBe("dawn");
     expect(summary.lamps).toMatchObject({ lostCount: 1, relightedCount: 1, litAtEnd: 5, lampSecondsDark: 1 });
-    expect(summary.plannedSeconds).toBe(16);
+    expect(summary.plannedSeconds).toBe(28);
     expect(summary.killsPerMinute).toBe(15);
     expect(summary.ifTheRulesDecided.tideForNextNight).toBe(1.06); // night 1: a clean dawn raises the tide by 6% while the warden is learning
   });

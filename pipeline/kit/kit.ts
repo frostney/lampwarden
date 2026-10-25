@@ -329,6 +329,10 @@ export const S = {
 };
 
 // ---------------- frames ----------------
+// The turn a renderer gives every figure, in degrees (the runner sets it from its facing argument, as it sets POSE; 0 when it
+// gives none). Every builder that takes `facing` adds it to the facing the code wrote, so one piece of code draws a figure
+// from every side: with a turn of 0 a figure is drawn exactly as its code says.
+export const TURN = { degrees: 0 };
 // A character's own frame: f = forward, l = its left, z = up. facing 0 = +u (screen down-right): the viewer sees its front and
 // its left side (a true 3/4 view). facing 90 = +v (down-left).
 export class Frame {
@@ -347,7 +351,7 @@ export type Rendered = {
 };
 export class Kit {
   sanitized = false; parts: Part[] = []; nobj = 0; shadow = true; ground: string | null = null; ox = OX; oy = OY; fit: string = ''; dropped = 0; snapped = 0;
-  mono: string | null = null; noScale = false; scaled = 0; scaleF = 1; inBody = false; guarded = 0; fireKept = 0;
+  mono: string | null = null; noScale = false; scaled = 0; scaleF = 1; fixedScale: number | null = null; maxSlides = 5; inBody = false; guarded = 0; fireKept = 0;
   obj(): number { return ++this.nobj; }
   // add any raw shape with a material. tex(p) may return a shade shift (int) or [material, shift] for decals.
   solid(s: Shape, m: string, o: Opts = {}): number {
@@ -434,10 +438,10 @@ export class Kit {
   render(): Rendered {
     if (!this.sanitized) { this.sanitized = true; this.sanitize(); }
     let rendered: Rendered | null = null;
-    if (!this.scaled && !this.noScale) rendered = this.autoscale();
+    if (!this.scaled && (!this.noScale || this.fixedScale !== null)) rendered = this.autoscale();
     if (!rendered) rendered = this.render1(false);
     let tries = 0;
-    while (tries < 5) {
+    while (tries < this.maxSlides) {
       let x0 = W, x1 = -1, y0 = H, y1 = -1;
       for (let i = 0; i < W * H; i++) if (rendered.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       let dx = 0, dy = 0;
@@ -455,17 +459,22 @@ export class Kit {
   // Returns the probe pass when the scene was left as it is (the caller reuses it), null when there was no probe or the scene was rescaled.
   autoscale(): Rendered | null {
     this.scaled = 1; if (!this.parts.length) return null;
+    if (this.fixedScale !== null) { if (this.fixedScale !== 1) this.rescale(this.fixedScale); return null; }   // a frame of a set: the scale its still was given
     const r = this.render1(false); let x0 = W, x1 = -1, y0 = H, y1 = -1;
     for (let i = 0; i < W * H; i++) if (r.part[i] >= 0) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
     if (x1 < 0) return r; const ex = Math.max((y1 - y0 + 1), (x1 - x0 + 1) * 0.85);
     if (ex >= 62) return r; const f = Math.min(78 / ex, 2.2); if (f < 1.08) return r;
+    this.rescale(f);
+    return null;
+  }
+  // scales the whole scene about the ground origin by f
+  rescale(f: number): void {
     this.scaleF = f;
     this.parts = this.parts.map((P) => {
       const s0 = P.s; const t0 = P.tex;
       const ns: Shape = { f: (x, y, z) => s0.f(x / f, y / f, z / f) * f, lo: mul(s0.lo, f), hi: mul(s0.hi, f), lip: s0.lip };
       return { ...P, s: ns, tex: t0 ? ((p: V) => t0([p[0] / f, p[1] / f, p[2] / f])) : null, c: mul(P.c, f), R: P.R * f };
     });
-    return null;
   }
   pj(q: V): [number, number] { return [this.ox + 2 * (q[0] - q[1]), this.oy + q[0] + q[1] - ZK * q[2]]; }
   render1(withShadow: boolean): Rendered {
@@ -1003,7 +1012,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
   // ---- head
   const neckZ = 7.2; const hr = (build === 'giant' ? 2.05 : 1.85) * h * (htype === 'cyclops' ? 1.08 : 1); const Hc = U(0.15, 0, anat && build === 'giant' ? 9.3 : 8.85);
   const hz = g(po.head);
-  const hF0 = norm(LD([cosd(-hz), 0, sind(-hz)])); const fA = P.facing === undefined ? 0 : P.facing;
+  const hF0 = norm(LD([cosd(-hz), 0, sind(-hz)])); const fA = (P.facing === undefined ? 0 : P.facing) + TURN.degrees;
   const yh0 = htype === 'cyclops' ? 45 + clamp((fA - 45) * 0.25, -10, 10) - fA : 0.35 * (45 - fA);
   const yh = P.rig ? 0 : clamp(yh0, htype === 'cyclops' ? -75 : -25, htype === 'cyclops' ? 75 : 25);   // heads turn towards the camera; the cyclops eye must face it
   const hF = norm(add(mul(hF0, cosd(yh)), mul(aL, sind(yh)))); const hL = norm(add(mul(aL, cosd(yh)), mul(hF0, -sind(yh)))); const hZ = norm(cross(hF, hL));
@@ -1200,7 +1209,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
   const wm = P.weaponMat ? mat(P.weaponMat) : '';
   const HR: V = (g(po.rel) > 0 && wcl === 'throw') ? add(HR0, mul(wd, g(po.rel) * h)) : HR0;
   const weaponD = (g(po.rel) < 0 && wcl === 'throw') ? 'none' : weapon;
-  const camA = 45 - (P.facing === undefined ? -35 : P.facing); const wcam: V = norm(add(mul(aF, -sind(camA)), mul(aL, cosd(camA))));
+  const camA = 45 - ((P.facing === undefined ? -35 : P.facing) + TURN.degrees); const wcam: V = norm(add(mul(aF, -sind(camA)), mul(aL, cosd(camA))));
   const wpc: V = norm(sub(wcam, mul(wd, dot(wcam, wd))));   // blade width axis, turned to face the camera so blades never go edge-on
   const ptsC = (b: V, list: number[][]): V[] => list.map((q) => add(b, add(mul(wd, q[0] * h), mul(wpc, q[1] * h))));
   const along = (b: V, t: number): V => add(b, mul(wd, t * h));
@@ -1435,7 +1444,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
       }
     }
   }
-  if (!P.rig) R.emit(new Frame(P.at || [0, 0], P.facing || 0, (P.at && P.at[2]) || 0), g(po.fall));
+  if (!P.rig) R.emit(new Frame(P.at || [0, 0], (P.facing || 0) + TURN.degrees, (P.at && P.at[2]) || 0), g(po.fall));
   return { top: add(Hc, mul(hZ, hr)) };
 }
 export function winged(k: Kit, P: HumanoidP & { span?: number } = {}): { top: V } {
@@ -1648,7 +1657,7 @@ export function quadruped(k: Kit, P: QuadP = {}): void {
       for (let i = 0; i < 11; i++) { const x = bl * 0.85 - i * (bl * 1.75) / 10; const zt2 = by + (3.3 - 0.9 * (i / 10)) * s + (i < 3 ? 0.3 * s : 0); R.cap([x, 0, zt2 - 0.6 * s], [x - 0.9 * s, 0, zt2 + 1.6 * s], 0.62 * s, 0.08 * s, mm, { obj: ob, shift: i % 2 ? 0 : -1 }); }
     }
   }
-  R.emit(new Frame(P.at || [0, 0], fc, (P.at && P.at[2]) || 0));
+  R.emit(new Frame(P.at || [0, 0], fc + TURN.degrees, (P.at && P.at[2]) || 0));
 }
 export function centaur(k: Kit, P: { at?: number[]; facing?: number; colour?: string; pose?: string; upper?: HumanoidP } = {}): void {
   quadruped(k, { at: P.at, facing: P.facing, kind: 'horse', colour: P.colour || 'fur', pose: P.pose, rider: { ...(P.upper || {}), pose: P.pose } });
@@ -2482,7 +2491,7 @@ export function hydra(k: Kit, P: { at?: number[]; facing?: number; heads?: numbe
     R.cap([hc[0] - 0.4, hc[1], hc[2] + 1.3], [hc[0] - 1.8, hc[1], hc[2] + 2.3], 0.3, 0.08, 'bone', { obj: oH });                      // horn
     R.key([hc[0], hc[1], hc[2] + 1.8], 0);
   }
-  R.emit(new Frame(P.at || [0, 0], P.facing === undefined ? 25 : P.facing, 0));
+  R.emit(new Frame(P.at || [0, 0], (P.facing === undefined ? 25 : P.facing) + TURN.degrees, 0));
 }
 
 // ---------------- v6: themes ('settings'), hero (male/female, melee + ranged), trireme ----------------
@@ -2590,5 +2599,5 @@ export function ship(k: Kit, P: { at?: number[]; facing?: number; kind?: string;
   }
   R.key(P3(0, 0, 0.5), 0);
   const fc = P.facing === undefined ? 5 : P.facing;
-  R.emit(new Frame(P.at || [0, 0], fc, 0));
+  R.emit(new Frame(P.at || [0, 0], fc + TURN.degrees, 0));
 }

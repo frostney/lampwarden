@@ -30,6 +30,7 @@ import {
   RENDER_ABORTED,
   type RenderRequest,
   type RenderResult,
+  viewArgument,
   withDeadline,
 } from "./render-types";
 import {
@@ -164,7 +165,12 @@ export async function renderBatchInSandbox(
     await verifySnapshot(sandbox, options.snapshotId, options.expectedBundleSha, signal);
     const manifest: BatchManifest = {
       itemDeadlineMilliseconds: itemDeadline,
-      items: runnable.map(({ request }) => ({ name: request.name, pose: request.pose })),
+      items: runnable.map(({ request }) => ({
+        name: request.name,
+        pose: request.pose,
+        ...(request.facing === undefined ? {} : { facing: request.facing }),
+        ...(request.view === undefined ? {} : { view: viewArgument(request.view) }),
+      })),
     };
     await sandbox.writeFiles(
       [

@@ -38,7 +38,7 @@ function nightOf(seconds: number, movingSteps: number, actions: number, override
   return night(movingSteps, actions, { steps: seconds * 60, ...overrides });
 }
 
-describe("the engagement of a night of 16 s, the shortest", () => {
+describe("the engagement of a short night of 16 s (the rule is read on a few seconds of play)", () => {
   test("a warden who moves and acts is engaged", () => {
     const engagement = engagementOf(nightOf(16, 480, 6));
     expect(engagement.kind).toBe("engaged");
@@ -65,6 +65,17 @@ describe("the engagement of a night of 16 s, the shortest", () => {
     expect(away.kind).toBe("paused");
     expect(away.wallSeconds).toBe(33);
     expect(engagementOf({ ...played, hiddenSeconds: 9 }).kind).toBe("engaged");
+  });
+});
+
+describe("the engagement of night 1, 28 s", () => {
+  test("a warden who moves and fights is engaged, one who stands by is idle, and one away for over 28 s is paused", () => {
+    expect(engagementOf(nightOf(28, 840, 12)).kind).toBe("engaged");
+    expect(engagementOf(nightOf(28, 0, 1)).kind).toBe("idle"); // 2.1 a minute
+    expect(engagementOf(nightOf(28, 0, 4)).kind).toBe("engaged"); // 8.6 a minute: he stands his ground
+    const played = nightOf(28, 840, 12);
+    expect(engagementOf({ ...played, hiddenSeconds: 28 }).kind).toBe("engaged"); // exactly half
+    expect(engagementOf({ ...played, hiddenSeconds: 29 }).kind).toBe("paused");
   });
 });
 

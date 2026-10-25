@@ -191,7 +191,7 @@ export const Scene = memo(function Scene({
           // fixed 60 Hz sim step, so a recorded night replays exactly
           progress.accumulated += elapsedSeconds * settings.speed;
           pollGamepadForPlay(controls, state, gamepadMemory.current);
-          let input = liveInput(controls);
+          let input = liveInput(controls, state.hero);
           while (progress.accumulated >= STEP && !state.outcome) {
             step(state, STEP, night.driver ? night.driver(progress.stepIndex, input, state) : input);
             progress.stepIndex++;

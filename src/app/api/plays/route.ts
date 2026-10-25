@@ -1,7 +1,7 @@
 // Stores one recorded night (inputs + timeline, no personal data) as a private blob, for testing and balancing.
 import { put } from "@vercel/blob";
 import { ENV } from "varlock/env";
-import { incomingPlay } from "@/game/plays";
+import { playSchema } from "@/game/plays";
 
 const MAX_BODY_LENGTH = 400_000;
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
-  const parsed = incomingPlay.safeParse(parsedJson);
+  const parsed = playSchema.safeParse(parsedJson);
   if (!parsed.success) return Response.json({ error: "not a play" }, { status: 400 });
   const play = parsed.data;
   const stored = JSON.stringify({

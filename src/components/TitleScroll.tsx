@@ -1,9 +1,9 @@
 "use client";
 // The title screen's scroll: a parchment between two rollers, painted from code (src/scene/scroll.ts) at 1x and shown at
 // a whole multiple. It starts rolled up; the bottom roller travels down, turning, to reveal the parchment, then every
-// [data-line] element of the contents is inked in, one after another. A click or tap, Enter or Space, or a gamepad
-// press (actOnMenu clicks the scroll) completes it at once and does nothing else. With ?verify=1 (the visual verifier)
-// or prefers-reduced-motion it is unrolled from the start.
+// [data-line] element of the contents is inked in, one after another. A click or tap, Enter or Space (not a held key's
+// repeats), or a gamepad press (actOnMenu clicks the scroll) completes it at once and does nothing else. With ?verify=1
+// (the visual verifier) or prefers-reduced-motion it is unrolled from the start.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { paintParchment, paintRoller, ROLLER_HEIGHT, ROLLER_OVERHANG, ROLLER_SHADOW } from "@/scene/scroll";
 
@@ -152,7 +152,8 @@ export function TitleScroll({ children }: { children: ReactNode }) {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      finish();
+      // a key still held from the opening scene's Skip repeats: it reaches nothing, and does not complete the unroll
+      if (!event.repeat) finish();
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });

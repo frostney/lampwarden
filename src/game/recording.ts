@@ -249,7 +249,7 @@ function localStorageOrNull(): PlayStorage | null {
 }
 
 // the visual verifier's nights are not real plays, so they are never uploaded or queued (a stubbed server answers them)
-const isVerifying = () => new URLSearchParams(location.search).has("verify");
+export const isVerifying = () => new URLSearchParams(location.search).has("verify");
 
 async function fetchPlay(body: string, keepalive: boolean): Promise<UploadResult> {
   const response = await fetch("/api/plays", {

@@ -54,6 +54,8 @@ h2.logo:focus {
   -webkit-user-select: none;
 }
 .stage[data-phase="night"],
+.stage[data-phase="practice"],
+.stage[data-phase="opening"],
 .stage[data-phase="replay"] {
   touch-action: none;
 }
@@ -203,6 +205,138 @@ h2.logo:focus {
   align-items: center;
   pointer-events: auto;
   color: #ffcf6a;
+}
+
+/* The practice night's lesson (PracticeCard.tsx), at the top in place of the night bar */
+.practice {
+  top: calc(10 * var(--hu));
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(460 * var(--hu));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 8px;
+  background: rgba(6, 10, 24, 0.82);
+  border: 2px solid #f2c14e;
+  box-shadow: 0 2px 0 #2e1305;
+  pointer-events: auto;
+  text-align: left;
+}
+.practice p {
+  margin: 0;
+}
+.practice-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ffcf6a;
+}
+.practice-skip {
+  margin-left: auto;
+}
+.practice-heading {
+  margin: 0;
+  font-family: var(--font-title), serif;
+  font-weight: normal;
+  font-size: 32px;
+  line-height: 1;
+  color: #f2c14e;
+}
+.practice-control,
+.practice-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.9;
+}
+/* each lesson's words ink in as it begins */
+.practice-words {
+  display: inline-block;
+  animation: ink-in 320ms steps(6, end) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .practice-words {
+    animation: none;
+  }
+}
+
+/* The opening scene's frame (Opening.tsx): bars above and below the plaza, the line being told inked into the lower one */
+.hud > .opening {
+  inset: 0;
+}
+/* the bars close in from the edges: their height grows, not a transform, which left a stale band of the canvas showing
+   under a composited bar */
+.letterbox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  background: #05070d;
+  animation: letterbox-in 600ms steps(6, end) both;
+}
+.letterbox.top {
+  top: 0;
+  height: 8%;
+}
+.letterbox.bottom {
+  bottom: 0;
+  height: 15%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@keyframes letterbox-in {
+  from {
+    height: 0;
+  }
+}
+.opening-line {
+  margin: 0;
+  padding: 0 16px;
+  text-align: center;
+  font-family: var(--font-title), serif;
+  font-size: 32px;
+  line-height: 1;
+  color: #f4ecd8;
+}
+.opening-line > span {
+  display: inline-block;
+  animation: ink-in 900ms steps(12, end) both;
+}
+.opening-skip {
+  position: absolute;
+  top: 1%;
+  right: calc(14 * var(--hu));
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .letterbox,
+  .opening-line > span {
+    animation: none;
+  }
+}
+
+/* a button that reads as a word in a line of text: the title's "Watch the opening" and "Practise first" */
+.link {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.link:focus-visible,
+[data-input="gamepad"] .link:focus {
+  outline: 3px solid var(--ink, #f2c14e);
+  outline-offset: 2px;
 }
 
 /* menus */
@@ -1050,6 +1184,53 @@ h2.logo:focus {
 @media (prefers-reduced-motion: reduce) {
   .scroll[data-stage="writing"] [data-line] {
     animation: none;
+  }
+}
+/* small screens: the opening's line in the 16 px size, the lesson card wider and without its hint */
+@media (max-width: 760px), (max-height: 520px) {
+  .opening-line {
+    font-size: 16px;
+  }
+  .practice {
+    width: calc(560 * var(--hu));
+    padding: 4px 8px 6px;
+  }
+  .practice-heading {
+    font-size: 16px;
+  }
+  .practice-control > span:last-child {
+    display: none;
+  }
+}
+/* landscape phones: the lesson card keeps to the room between the warden's stats and the lamps, above the back lamp,
+   with its words alone: the touch controls it would draw are on screen beside it */
+@media (orientation: landscape) and (pointer: coarse) {
+  .practice {
+    left: calc(204 * var(--hu)); /* past the stats' 180 hu health bar */
+    transform: none;
+    width: 340px;
+  }
+  .practice-control,
+  .practice-note {
+    display: none;
+  }
+}
+/* portrait phones: the lesson card sits under the canvas, where the "turn your phone" hint would be */
+@media (orientation: portrait) and (pointer: coarse) {
+  .hud > .practice {
+    position: fixed;
+    top: calc(100vw * 495 / 780 + max(12px, env(safe-area-inset-top)) + 12px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+    transform: none;
+  }
+  .stage[data-phase="practice"] .hud > .rotate {
+    display: none;
+  }
+  /* there is room under the canvas for the hint the small-screen card leaves out */
+  .practice-control > span:last-child {
+    display: inline;
   }
 }
 @media (max-width: 760px), (max-height: 520px) {

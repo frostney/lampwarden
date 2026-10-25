@@ -35,6 +35,8 @@ Night Shift's brief: build a product that routes its LLM calls through Mubit and
 ## Play
 
 Next.js 16 (App Router), React 19 and Pixi 8 through `@pixi/react`, run with Bun. The numbers below are read from `src/game/`.
+
+A new player sees a short opening scene before the title (the sea puts a lamp out, the warden fights its creatures off), and their first "Light the lamps" opens a practice night that teaches the watch one lesson at a time and waits for each: walk, strike a satyr, shoot a harpy, relight a lamp, hold the plaza against a small wave. It cannot be lost, is not recorded and keeps no oil. Both can be skipped (a pad's Start skips the practice), and the title plays them again ("Watch the opening", "Practise first").
 1. **The night.** Five lamps ring the plaza. Night 1 lasts 28 s and each later night 6 s more, up to 64 s from night 7. Satyrs and harpies come out of the sea, cyclops from night 2, and each night monsters move 5% faster. They go for the nearest lit lamp and claw it out; lit lamps slow them to 70% of their speed. A monster that gets within reach of the warden turns on him.
 2. **Hits.** The warden has 100 health. A monster's blow wounds him, throws him back, flashes him white then red, pulses a red vignette and shakes the screen; he cannot be wounded again for 0.5 s. His own strike reaches the 120 degrees in front of him and stuns and throws back every monster it hits (a shot does less); a cyclops, being heavy, is thrown less far than a harpy. He faces one of eight directions, and the strike and any keyboard shot follow it.
 3. **Relighting.** Stand beside a dark lamp for a second to relight it. A night is lost when every lamp is dark or the warden falls.

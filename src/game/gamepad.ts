@@ -1,7 +1,8 @@
 // Gamepad support through the browser Gamepad API, standard mapping (Xbox / PlayStation / Switch Pro layouts).
 // During a night the pad drives the warden: left stick or d-pad moves (8-way, like the touch stick, so recordings stay
 // small), A strikes, B / X / right trigger shoot (along the right stick when it is held, else at the nearest monster),
-// and getting hurt rumbles. In the menus the d-pad or left stick moves focus between buttons and A / Start presses.
+// and getting hurt rumbles; Start skips the practice night. In the menus the d-pad or left stick moves focus between
+// buttons and A / Start presses.
 import { type Controls, press } from "./controls";
 import type { State } from "./sim";
 
@@ -105,12 +106,14 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
 
 // Notes what the pad holds without acting on it, while a poll is not acting (a paused night, or the menus during a
 // night): a button already down when it acts again is not a new press.
-export function holdGamepad(memory: GamepadMemory) {
+// Returns whether Start went down since the last poll (the warden has no use for it: the practice night skips on it).
+export function holdGamepad(memory: GamepadMemory): boolean {
   const gamepad = activeGamepad();
-  if (!gamepad) return;
-  newlyPressed(gamepad, memory);
+  if (!gamepad) return false;
+  const fresh = newlyPressed(gamepad, memory);
   // a direction held the same way moves the menu focus only once it is let go and pushed again
   memory.menuRepeatAt = menuDirection(gamepad) ? Number.POSITIVE_INFINITY : 0;
+  return fresh.has(BUTTON.start);
 }
 
 // the way the d-pad or left stick moves the menu focus: 1 on, -1 back, 0 not at all

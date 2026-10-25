@@ -9,7 +9,7 @@ import { Icon, PALETTE } from "@/components/Icon";
 import { ARMS, type ShootIcon, type StrikeIcon } from "@/game/weapons";
 import type { Sex } from "@/scene/assets";
 
-type ControlsKind = "keyboard" | "gamepad" | "touch";
+export type ControlsKind = "keyboard" | "gamepad" | "touch";
 
 type Grid = string[][]; // rows of palette symbols, '.' is transparent
 
@@ -203,8 +203,9 @@ function TouchButton({ backdrop, weapon }: { backdrop: GlyphName; weapon: Strike
 }
 
 // what a control is shown with: glyphs, and "or" between alternatives
+type ControlId = "move" | "strike" | "shoot";
 interface Control {
-  id: string;
+  id: ControlId;
   label: string;
   pieces: (GlyphName | "or")[];
 }
@@ -217,7 +218,7 @@ const subscribeToPointer = (notify: () => void) => {
 const hasCoarsePointer = () => matchMedia("(pointer: coarse)").matches;
 
 // the input the player is likely using: a connected gamepad, else the touch screen, else the keyboard and mouse
-function useControlsKind(gamepadConnected: boolean): ControlsKind {
+export function useControlsKind(gamepadConnected: boolean): ControlsKind {
   const coarse = useSyncExternalStore(subscribeToPointer, hasCoarsePointer, () => false);
   if (gamepadConnected) return "gamepad";
   return coarse ? "touch" : "keyboard";
@@ -249,31 +250,53 @@ const TOUCH: { controls: Control[]; hint: string } = {
 };
 const GUIDES = { keyboard: KEYBOARD, gamepad: GAMEPAD, touch: TOUCH };
 
-export function HowToPlay({ gamepadConnected, sex }: { gamepadConnected: boolean; sex: Sex }) {
+// One control's glyphs for the input in use, the touch buttons with the warden's own weapons on them (the practice night's
+// lessons show them too).
+export function ControlGlyphs({ control, kind, sex }: { control: ControlId; kind: ControlsKind; sex: Sex }) {
+  const pieces = GUIDES[kind].controls.find((candidate) => candidate.id === control)?.pieces ?? [];
+  const arms = ARMS[sex];
+  return (
+    <span className="glyphs">
+      {pieces.map((piece) => {
+        if (piece === "or") return <span key={piece}>or</span>;
+        if (piece === "touch-strike") return <TouchButton key={piece} backdrop={piece} weapon={arms.strikeIcon} />;
+        if (piece === "touch-shoot") return <TouchButton key={piece} backdrop={piece} weapon={arms.shootIcon} />;
+        return <Glyph key={piece} name={piece} />;
+      })}
+    </span>
+  );
+}
+
+export function HowToPlay({
+  gamepadConnected,
+  sex,
+  practiseDisabled,
+  onPractise,
+}: {
+  gamepadConnected: boolean;
+  sex: Sex;
+  practiseDisabled: boolean;
+  onPractise: () => void;
+}) {
   const kind = useControlsKind(gamepadConnected);
   const guide = GUIDES[kind];
-  const arms = ARMS[sex];
   return (
     <section className="controls" data-line data-controls={kind} aria-label="How to play">
       <h2 className="controls-heading">How to play</h2>
       <div className="controls-row">
         {guide.controls.map((control) => (
           <div key={control.id} className="control">
-            <span className="glyphs">
-              {control.pieces.map((piece) => {
-                if (piece === "or") return <span key={piece}>or</span>;
-                if (piece === "touch-strike")
-                  return <TouchButton key={piece} backdrop={piece} weapon={arms.strikeIcon} />;
-                if (piece === "touch-shoot")
-                  return <TouchButton key={piece} backdrop={piece} weapon={arms.shootIcon} />;
-                return <Glyph key={piece} name={piece} />;
-              })}
-            </span>
+            <ControlGlyphs control={control.id} kind={kind} sex={sex} />
             <span>{control.label}</span>
           </div>
         ))}
       </div>
-      <p>{guide.hint}</p>
+      <p>
+        {guide.hint}{" "}
+        <button type="button" className="link" disabled={practiseDisabled} onClick={onPractise}>
+          Practise first
+        </button>
+      </p>
     </section>
   );
 }

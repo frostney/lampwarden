@@ -88,7 +88,7 @@ export interface FrameSetFailure {
   reason: string;
 }
 
-export interface FrameSet {
+interface FrameSet {
   frames: CreatureFrames;
   /** The atlas as PNG bytes. */
   atlas: Uint8Array;
@@ -98,7 +98,7 @@ export interface FrameSet {
   batches: number;
 }
 
-export type FrameSetResult = ({ ok: true } & FrameSet) | FrameSetFailure;
+type FrameSetResult = ({ ok: true } & FrameSet) | FrameSetFailure;
 
 /** What `renderFrameSet` says of a try: the set, or why not, and how many batches it took either way. */
 export type FrameSetOutcome = FrameSetResult & {

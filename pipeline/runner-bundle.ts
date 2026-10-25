@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 /** The files of the runner bundle, relative to the pipeline directory. Their order is part of the bundle's digest. */
-export const RUNNER_FILES = ["kit/kit.ts", "render/runner.ts", "render/batch.ts", "render/png.ts"];
+const RUNNER_FILES = ["kit/kit.ts", "render/runner.ts", "render/batch.ts", "render/png.ts"];
 
 /** Where the bundle lives in a render sandbox. */
 export const SANDBOX_PIPELINE_DIRECTORY = "/vercel/sandbox/pipeline";

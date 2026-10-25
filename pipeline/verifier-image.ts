@@ -9,7 +9,7 @@ const OPAQUE = 255;
 const BACKDROP = [BACKDROP_RGB.red, BACKDROP_RGB.green, BACKDROP_RGB.blue, OPAQUE] as const;
 const MAGNIFICATION = 4;
 
-export function verifierImageBytes(spritePng: Uint8Array): Uint8Array {
+function verifierImageBytes(spritePng: Uint8Array): Uint8Array {
   const sprite = decodePng(Buffer.from(spritePng));
   const backdrop = new PixelImage(sprite.width * MAGNIFICATION, sprite.height * MAGNIFICATION, BACKDROP);
   return encodePng(backdrop.draw(sprite, 0, 0, MAGNIFICATION));

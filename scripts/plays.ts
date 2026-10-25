@@ -64,6 +64,9 @@ const percent = (count: number, total: number) => `${total ? Math.round((PERCENT
 const average = (values: number[]) =>
   values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 const seconds = (play: Play) => play.steps / 60;
+// kills per real minute of the night, as rulesTide reads them (no floor of a minute: every night before the seventh is
+// shorter than one, and a floor would read a night's kills)
+const killsPerMinute = (play: Play) => play.stats.kills / Math.max(1 / 60, seconds(play) / 60);
 
 console.log(
   `${plays.length} nights from ${new Set(plays.map((play) => play.session)).size} players, ${(plays.reduce((total, play) => total + seconds(play), 0) / 60).toFixed(1)} min played`,
@@ -92,9 +95,7 @@ for (const night of nights) {
       percent(ending("fallen"), nightPlays.length).padEnd(COLUMN.fallen),
       percent(ending(null), nightPlays.length).padEnd(COLUMN.count),
       `${average(nightPlays.map(seconds)).toFixed(0)} s`.padEnd(COLUMN.length),
-      average(nightPlays.map((play) => play.stats.kills / Math.max(1, seconds(play) / 60)))
-        .toFixed(1)
-        .padEnd(COLUMN.rate),
+      average(nightPlays.map(killsPerMinute)).toFixed(1).padEnd(COLUMN.rate),
       average(nightPlays.map((play) => play.stats.lampsLost))
         .toFixed(1)
         .padEnd(COLUMN.lamps),
@@ -134,9 +135,7 @@ if (metCreatures.size) {
         percent(ending("dark"), creaturePlays.length).padEnd(COLUMN.count),
         percent(ending("fallen"), creaturePlays.length).padEnd(COLUMN.fallen),
         percent(ending(null), creaturePlays.length).padEnd(COLUMN.count),
-        average(creaturePlays.map((play) => play.stats.kills / Math.max(1, seconds(play) / 60)))
-          .toFixed(1)
-          .padEnd(COLUMN.rate),
+        average(creaturePlays.map(killsPerMinute)).toFixed(1).padEnd(COLUMN.rate),
         average(creaturePlays.map((play) => play.stats.lampsLost))
           .toFixed(1)
           .padEnd(COLUMN.lamps),

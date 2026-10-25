@@ -129,7 +129,7 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     }
 
     const creature = buildCreature(id, written.brief, animated.candidate, animated.frames, deps.now());
-    await deps.store.putCreature(creature, animated.candidate.png, animated.candidate.code, animated.atlas);
+    await deps.store.putCreature(creature, animated.candidate.png, animated.candidate.code, animated.atlas, job.signal);
     await job.conclude({ creature });
   });
 }

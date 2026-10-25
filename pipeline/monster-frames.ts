@@ -14,14 +14,16 @@ import { parseArgs } from "node:util";
 
 import { MILLISECONDS_PER_SECOND } from "../src/lib/units";
 import { SHEET_KINDS } from "../src/scene/monster-sheets";
+import { countOption } from "./cli-options";
 import { canvasOfStill, renderFrameSet } from "./creature-frames";
 import { MONSTER_FRAMES_FILE, monsterAtlasFile, monsterCodePath } from "./monster-source";
 import { renderBatchFromCheckout } from "./render-checkout";
 
 const SCALE_DIGITS = 3; // the canvas scale, as the report prints it
+const DEFAULT_VCPUS = 8;
 
-const { values } = parseArgs({ options: { vcpus: { type: "string", default: "8" } } });
-const vcpus = Number(values.vcpus);
+const { values } = parseArgs({ options: { vcpus: { type: "string" } } });
+const vcpus = countOption("vcpus", values.vcpus, DEFAULT_VCPUS);
 
 const codes = SHEET_KINDS.map((kind) => ({ kind, code: readFileSync(monsterCodePath(kind), "utf8") }));
 

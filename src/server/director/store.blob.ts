@@ -6,11 +6,8 @@
 //   <prefix>/calls/day/<day>/<ms>-<id>-<random>                (src/server/blob.ts)
 //   <prefix>/claims/<key>                                      empty; the first put wins, so one of several calls takes a play
 // The prefix is "director" in production; a live test uses another ("director-dev") so the real record stays clean.
-import { get, put } from "@vercel/blob";
-
-import { HTTP_OK } from "@/lib/units";
-
-import { createBlobLedger, putIfAbsent } from "../blob";
+import { createBlobLedger, putIfAbsent, readWithVersion } from "../blob";
+import { blobPut } from "../blob-client";
 import { type DecisionLog, decisionLogSchema } from "./log";
 import type { DirectorStore } from "./store";
 
@@ -23,12 +20,12 @@ export function createBlobStore(prefix: string, playsPrefix: string): DirectorSt
   const calls = createBlobLedger(`${prefix}/calls`);
 
   async function readJson(pathname: string): Promise<unknown> {
-    const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== HTTP_OK) {
+    const stored = await readWithVersion(pathname);
+    if (!stored) {
       return null;
     }
     try {
-      return JSON.parse(await new Response(blob.stream).text());
+      return JSON.parse(stored.text);
     } catch {
       return null;
     }
@@ -43,7 +40,7 @@ export function createBlobStore(prefix: string, playsPrefix: string): DirectorSt
     },
 
     async putDecision(log: DecisionLog) {
-      await put(path.decision(log.playId), JSON.stringify(log), {
+      await blobPut(path.decision(log.playId), JSON.stringify(log), {
         access: "private",
         contentType: "application/json",
         addRandomSuffix: false,

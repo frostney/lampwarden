@@ -9,7 +9,7 @@ import type { CallRecord, ModelCall, MubitClient } from "./mubit";
 const BRIEF_MAX_TOKENS = 1500;
 const MAX_ATTEMPTS = 2;
 
-export const normalizedName = (name: string) =>
+const normalizedName = (name: string) =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")

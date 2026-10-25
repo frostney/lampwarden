@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 
 import { ignore } from "../src/lib/ignore";
+import { countOption } from "./cli-options";
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
 import { createMubitClient } from "./mubit";
@@ -28,10 +29,13 @@ const manifestSchema = z.object({ sprites: z.record(z.string(), z.object({ brief
 const { values } = parseArgs({
   options: {
     out: { type: "string" },
-    repeat: { type: "string", default: "1" },
-    concurrency: { type: "string", default: "4" },
+    repeat: { type: "string" },
+    concurrency: { type: "string" },
   },
 });
+const repeats = countOption("repeat", values.repeat, 1);
+const DEFAULT_CONCURRENCY = 4; // sprites rendered and judged at once
+const concurrency = countOption("concurrency", values.concurrency, DEFAULT_CONCURRENCY);
 const apiKey = process.env.MUBIT_API_KEY;
 if (!apiKey) {
   throw new Error("MUBIT_API_KEY is not set");
@@ -89,7 +93,7 @@ const worker = async () => {
       continue;
     }
     const scores = await Promise.all(
-      Array.from({ length: Number(values.repeat) }, async (_unused, repeat) => {
+      Array.from({ length: repeats }, async (_unused, repeat) => {
         const { verdict } = await verify(
           loop,
           rendered.png,
@@ -106,7 +110,7 @@ const worker = async () => {
     console.log(item.name.padEnd(COLUMN.name), scores.join(" ").padEnd(COLUMN.scores), rendered.stats.flags);
   }
 };
-await Promise.all(Array.from({ length: Number(values.concurrency) }, worker));
+await Promise.all(Array.from({ length: concurrency }, worker));
 
 const all = results.flatMap((result) => result.scores).filter((score): score is number => score !== null);
 all.sort((first, second) => first - second);

@@ -222,7 +222,7 @@ const NIGHT_CAP_NIGHT = 7;
 export const nightLength = (night: number) => NIGHT_BASE + NIGHT_STEP * Math.min(night - 1, NIGHT_CAP_NIGHT - 1);
 
 // What the rules start from, and what a level of an upgrade (or a trait) does to them.
-const WARDEN = {
+export const WARDEN = {
   speed: 150, // ground px/s
   swiftSpeed: 1.25, // the swift trait's
   strideSpeed: 0.08, // a level of stride's, of the speed
@@ -447,7 +447,7 @@ const SHOT = { loosedOnFrame: 3, height: 40, speed: 420, spread: 0.16, hitRadius
 const PUFF_TIME = 0.5; // seconds a puff lasts
 const SCREEN_PER_GROUND_Y = 0.5; // the plaza is foreshortened 2:1: a ground step down is half as far down the screen
 const RELIGHT_REACH = 40; // how near a dark lamp the warden stands to relight it
-const LANTERN_HEIGHT = 40; // where a lamp's puff shows, above its foot
+export const LANTERN_HEIGHT = 40; // where a lamp's puff shows, above its foot
 const KILL_PUFF_HEIGHT = 30; // where a kill's puff shows, above the monster's feet
 // A monster claws the warden from `wardenReach` away, once every `cooldown` seconds.
 const CLAW = { wardenReach: 26, cooldown: 1.1 };

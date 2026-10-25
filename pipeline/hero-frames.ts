@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { SEXES } from "../src/scene/assets";
+import { countOption } from "./cli-options";
 import { assembleHeroAtlas } from "./hero-model";
 import { HERO_DIRECTORY, heroBuildsFor } from "./hero-source";
 import { renderBatchFromCheckout } from "./render-checkout";
@@ -19,9 +20,11 @@ import { renderBatchFromCheckout } from "./render-checkout";
 const { values } = parseArgs({
   options: {
     out: { type: "string", default: HERO_DIRECTORY },
-    vcpus: { type: "string", default: "4" },
+    vcpus: { type: "string" },
   },
 });
+const DEFAULT_VCPUS = 4;
+const vcpus = countOption("vcpus", values.vcpus, DEFAULT_VCPUS);
 const outputDirectory = resolve(values.out);
 mkdirSync(outputDirectory, { recursive: true });
 
@@ -30,7 +33,7 @@ const atlases = await Promise.all(
     const { source, builds } = heroBuildsFor(sex);
     const results = await renderBatchFromCheckout(
       builds.map((build) => ({ code: build.code, name: build.name, pose: build.pose })),
-      { vcpus: Number(values.vcpus) },
+      { vcpus },
     );
     const assembled = assembleHeroAtlas(sex, builds, results);
     if (!assembled.ok) {

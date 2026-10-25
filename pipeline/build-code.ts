@@ -4,7 +4,7 @@
 // (an allowlisted environment locally, a sandbox elsewhere); this rejects the obvious attempts early and cheaply.
 const BANNED_IDENTIFIERS = /\b(import|require|process|Bun|fetch|eval|Function|globalThis|XMLHttpRequest|Deno)\b/;
 
-export function bannedIdentifierIn(code: string): string | null {
+function bannedIdentifierIn(code: string): string | null {
   return BANNED_IDENTIFIERS.exec(code)?.[0] ?? null;
 }
 

@@ -10,7 +10,7 @@ import { SHEET_CANVASES, SHEET_FRAMES, type SheetKind } from "../src/scene/monst
 import { frameRequests } from "./creature-frames";
 import type { RenderRequest } from "./render-types";
 
-export const MONSTER_DIRECTORY = join(import.meta.dir, "..", "public", "sprites");
+const MONSTER_DIRECTORY = join(import.meta.dir, "..", "public", "sprites");
 export const monsterCodePath = (kind: SheetKind) => join(MONSTER_DIRECTORY, `${kind}.ts`);
 export const monsterAtlasFile = (kind: SheetKind) => join(MONSTER_DIRECTORY, `${kind}-frames.png`);
 export const MONSTER_FRAMES_FILE = join(import.meta.dir, "..", "src", "scene", "monster-frames.json");

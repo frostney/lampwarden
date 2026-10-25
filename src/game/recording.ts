@@ -276,7 +276,7 @@ function localStorageOrNull(): PlayStorage | null {
 }
 
 // the visual verifier's nights are not real plays, so they are never uploaded or queued (a stubbed server answers them)
-const isVerifying = () => new URLSearchParams(location.search).has("verify");
+export const isVerifying = () => new URLSearchParams(location.search).has("verify");
 
 // statuses worth sending the night again for: a timeout, too early, too many requests, and any fault of the server's
 const RETRY_STATUSES = { timeout: 408, tooEarly: 425, tooMany: 429 };

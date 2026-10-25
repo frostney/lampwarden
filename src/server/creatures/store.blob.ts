@@ -11,8 +11,7 @@
 //   <prefix>/starts/...               one tiny blob per creature job start, counted for the rate limits
 // and the buildings, under a prefix of their own (default "buildings"), laid out the same way:
 //   <buildingPrefix>/records/<id>.json, sprites/<id>.png|.ts, starts/...
-
-import { BlobError, BlobPreconditionFailedError, get, list, put } from "@vercel/blob";
+import { BlobError, BlobPreconditionFailedError } from "@vercel/blob";
 import { z } from "zod";
 
 import { buildingSchema } from "@/game/building";
@@ -21,6 +20,8 @@ import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frame
 import { compareCodeUnits } from "@/lib/compare";
 import { HTTP_OK } from "@/lib/units";
 
+import { listPathnames, readWithVersion } from "../blob";
+import { blobGet, blobPut } from "../blob-client";
 import type { GalleryStore, RunningLock, StoredJob } from "./store";
 
 const RECORD_ID = /^[a-z0-9-]{8,80}$/;
@@ -59,26 +60,10 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     dayStarts: (day: string) => `${buildingPrefix}/starts/day/${day}/`,
   };
 
-  async function listPathnames(listPrefix: string): Promise<string[]> {
-    const pathnames: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await list({ prefix: listPrefix, ...(cursor ? { cursor } : {}) });
-      for (const blob of page.blobs) {
-        pathnames.push(blob.pathname);
-      }
-      cursor = page.hasMore ? page.cursor : undefined;
-    } while (cursor);
-    return pathnames;
-  }
-
+  // mutable blobs are read from origin (readWithVersion): a CDN copy could be a step behind
   async function readText(pathname: string): Promise<{ text: string; etag: string } | null> {
-    // mutable blobs are read from origin: a CDN copy could be a step behind
-    const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== HTTP_OK) {
-      return null;
-    }
-    return { text: await new Response(blob.stream).text(), etag: blob.blob.etag };
+    const found = await readWithVersion(pathname);
+    return found && { text: found.text, etag: found.version };
   }
 
   /** A stored JSON file as the schema reads it, or null when it is missing or does not validate. */
@@ -99,7 +84,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
   }
 
   async function streamOf(pathname: string) {
-    const blob = await get(pathname, { access: "private" });
+    const blob = await blobGet(pathname, { access: "private" });
     return blob?.statusCode === HTTP_OK ? blob.stream : null;
   }
 
@@ -132,7 +117,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
   }
 
   const writeMark = (pathname: string) =>
-    put(pathname, "{}", { access: "private", contentType: "application/json", addRandomSuffix: false });
+    blobPut(pathname, "{}", { access: "private", contentType: "application/json", addRandomSuffix: false });
   const privateWrite = { access: "private", addRandomSuffix: false } as const;
 
   return {
@@ -141,29 +126,33 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     getSprite: (id) => streamOf(path.sprite(id)),
     getAtlas: (id) => streamOf(path.atlas(id)),
 
-    async putCreature(creature: CreatureRecord, png, code, atlas) {
-      await put(path.sprite(creature.id), Buffer.from(png), { ...privateWrite, contentType: "image/png" });
-      if (atlas) {
-        await put(path.atlas(creature.id), Buffer.from(atlas), { ...privateWrite, contentType: "image/png" });
-      }
-      await put(path.code(creature.id), code, { ...privateWrite, contentType: "text/plain" });
-      await put(path.record(creature.id), JSON.stringify(creature), {
-        ...privateWrite,
-        contentType: "application/json",
-      });
+    // the record goes last, so a creature is in the gallery only once its sprite, atlas and code are; once its job has
+    // ended (timed out, say) the writes stop, and the record is not started
+    async putCreature(creature: CreatureRecord, png, code, atlas, signal) {
+      const write = (pathname: string, body: Buffer | string, contentType: string) =>
+        blobPut(pathname, body, { ...privateWrite, contentType }, signal);
+      await Promise.all([
+        write(path.sprite(creature.id), Buffer.from(png), "image/png"),
+        atlas && write(path.atlas(creature.id), Buffer.from(atlas), "image/png"),
+        write(path.code(creature.id), code, "text/plain"),
+      ]);
+      signal?.throwIfAborted();
+      await write(path.record(creature.id), JSON.stringify(creature), "application/json");
     },
 
     listBuildingIds: () => idsIn(`${buildingPrefix}/records/`),
     getBuilding: (id) => readRecord(buildingPath.record(id), buildingSchema),
     getBuildingSprite: (id) => streamOf(buildingPath.sprite(id)),
 
-    async putBuilding(building, png, code) {
-      await put(buildingPath.sprite(building.id), Buffer.from(png), { ...privateWrite, contentType: "image/png" });
-      await put(buildingPath.code(building.id), code, { ...privateWrite, contentType: "text/plain" });
-      await put(buildingPath.record(building.id), JSON.stringify(building), {
-        ...privateWrite,
-        contentType: "application/json",
-      });
+    async putBuilding(building, png, code, signal) {
+      const write = (pathname: string, body: Buffer | string, contentType: string) =>
+        blobPut(pathname, body, { ...privateWrite, contentType }, signal);
+      await Promise.all([
+        write(buildingPath.sprite(building.id), Buffer.from(png), "image/png"),
+        write(buildingPath.code(building.id), code, "text/plain"),
+      ]);
+      signal?.throwIfAborted();
+      await write(buildingPath.record(building.id), JSON.stringify(building), "application/json");
     },
 
     async getJob(jobId) {
@@ -182,7 +171,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     },
 
     async putJob(job) {
-      await put(path.job(job.jobId), JSON.stringify(job), {
+      await blobPut(path.job(job.jobId), JSON.stringify(job), {
         access: "private",
         contentType: "application/json",
         addRandomSuffix: false,
@@ -213,7 +202,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
       } as const;
       try {
         // first claim: the write fails if the mark exists; later: only if its version is still the one that was read
-        await put(
+        await blobPut(
           path.running,
           body,
           previous === null ? options : { ...options, allowOverwrite: true, ifMatch: previous.version },
@@ -231,7 +220,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     },
 
     async noteCreatureWaiting(waitedAt) {
-      await put(path.creatureWaiting, JSON.stringify({ at: waitedAt.toISOString() }), {
+      await blobPut(path.creatureWaiting, JSON.stringify({ at: waitedAt.toISOString() }), {
         access: "private",
         contentType: "application/json",
         addRandomSuffix: false,

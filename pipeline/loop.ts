@@ -489,7 +489,7 @@ const candidateMessages = (brief: Brief, index: number): ModelMessage[] => [
 ];
 
 /** One rendered candidate or fix, kept for diagnostics (the contact sheets of a live run). */
-export interface CandidateRecord {
+interface CandidateRecord {
   name: string;
   code: string;
   png: Uint8Array | null;

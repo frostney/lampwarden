@@ -55,9 +55,15 @@ interface CreatureGallery {
   getAtlas(id: string): Promise<ReadableStream<Uint8Array> | null>;
   /**
    * Writes the sprite, its code and the atlas (when the record has `frames`), then the record: a creature is in the
-   * gallery only once its record exists.
+   * gallery only once its record exists. Once `signal` aborts (its job has ended) nothing more is written.
    */
-  putCreature(creature: CreatureRecord, png: Uint8Array, code: string, atlas?: Uint8Array): Promise<void>;
+  putCreature(
+    creature: CreatureRecord,
+    png: Uint8Array,
+    code: string,
+    atlas?: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 /** The marks of past job starts, which the rate limits count. */
@@ -78,8 +84,11 @@ interface BuildingGallery {
   /** A gallery record, or null when it is missing or does not validate. */
   getBuilding(id: string): Promise<Building | null>;
   getBuildingSprite(id: string): Promise<ReadableStream<Uint8Array> | null>;
-  /** Writes the sprite and its code, then the record: a building is in the gallery only once its record exists. */
-  putBuilding(building: Building, png: Uint8Array, code: string): Promise<void>;
+  /**
+   * Writes the sprite and its code, then the record: a building is in the gallery only once its record exists. Once
+   * `signal` aborts (its job has ended) nothing more is written.
+   */
+  putBuilding(building: Building, png: Uint8Array, code: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The buildings' own marks, apart from the creatures', so each kind has its own daily cap. */

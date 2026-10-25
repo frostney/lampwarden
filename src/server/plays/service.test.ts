@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { type PlayUploadDeps, savePlay } from "./service";
+import { MAX_WRITES_PER_PLAY, type PlayUploadDeps, savePlay } from "./service";
 import { createMemoryPlayStore } from "./store.memory";
 
 const SALT = "a-long-enough-test-salt-0123456789";
@@ -28,12 +28,19 @@ describe("an uploaded play", () => {
       ...playWithId(0),
       build: "abc1234",
       receivedAt: NOW.toISOString(),
+      writes: 1,
     });
   });
 
   describe("under an id already stored", () => {
     const address = "203.0.113.7";
-    const night = (steps: number, outcome: string | null, seed = 1) => ({ id: playWithId(0).id, seed, steps, outcome });
+    const night = (steps: number, outcome: string | null, session = "tab-a") => ({
+      id: playWithId(0).id,
+      seed: 1,
+      session,
+      steps,
+      outcome,
+    });
     const storedSteps = (store: { plays: Map<string, string> }) =>
       JSON.parse(store.plays.get(playWithId(0).id) ?? "null")?.steps;
 
@@ -111,6 +118,44 @@ describe("an uploaded play", () => {
       expect(await savePlay(deps, { play: night(900, "dawn"), ip: address })).toEqual({ kind: "replaced" });
       expect(storedSteps(store)).toBe(900);
       expect((await savePlay(deps, { play: night(1000, "dawn"), ip: address })).kind).toBe("limited");
+    });
+
+    test("a finished night is final", async () => {
+      const { store, deps } = setup();
+      await savePlay(deps, { play: night(900, "dawn"), ip: address });
+      expect(await savePlay(deps, { play: night(1200, "dark"), ip: address })).toEqual({ kind: "exists" });
+      expect(storedSteps(store)).toBe(900);
+    });
+
+    test("only the browser that recorded the night (its session) replaces it", async () => {
+      const { store, deps } = setup();
+      await savePlay(deps, { play: night(300, null), ip: address });
+      expect(await savePlay(deps, { play: night(600, null, "tab-b"), ip: address })).toEqual({ kind: "exists" });
+      expect(await savePlay(deps, { play: night(900, "dawn", "tab-b"), ip: address })).toEqual({ kind: "exists" });
+      expect(storedSteps(store)).toBe(300);
+    });
+
+    test("a snapshot stored before sessions gives way to its finished night", async () => {
+      const { store, deps } = setup();
+      const { session: _session, ...withoutSession } = night(300, null);
+      await savePlay(deps, { play: withoutSession, ip: address });
+      expect(await savePlay(deps, { play: night(900, "dawn"), ip: address })).toEqual({ kind: "replaced" });
+      expect(storedSteps(store)).toBe(900);
+    });
+
+    test("takes a bounded number of snapshots, and the finished night after them", async () => {
+      const { store, deps } = setup();
+      for (let write = 1; write <= MAX_WRITES_PER_PLAY; write++) {
+        expect((await savePlay(deps, { play: night(100 * write, null), ip: address })).kind).toBe(
+          write === 1 ? "stored" : "replaced",
+        );
+      }
+      expect(await savePlay(deps, { play: night(100 * (MAX_WRITES_PER_PLAY + 1), null), ip: address })).toEqual({
+        kind: "exists",
+      });
+      expect(storedSteps(store)).toBe(100 * MAX_WRITES_PER_PLAY);
+      expect(await savePlay(deps, { play: night(5000, "dawn"), ip: address })).toEqual({ kind: "replaced" });
+      expect(JSON.parse(store.plays.get(playWithId(0).id) ?? "null").writes).toBe(MAX_WRITES_PER_PLAY + 1);
     });
 
     test("only the first write counts against the visitor", async () => {

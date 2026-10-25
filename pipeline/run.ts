@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
+import { countOption } from "./cli-options";
 import { slugify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
 import { checkoutSandboxOptions, renderFromCheckout } from "./render-checkout";
@@ -59,6 +60,8 @@ const { values, positionals } = parseArgs({
     "no-prompt-caching": { type: "boolean", default: false },
   },
 });
+const concurrency = countOption("concurrency", values.concurrency, DEFAULT_CONCURRENCY);
+const candidateCount = countOption("candidates", values.candidates, 1, MAXIMUM_CANDIDATES);
 checkoutSandboxOptions(); // fail now, not at the first render, when the snapshot id is missing
 const briefs: Brief[] = values.file
   ? Object.entries(briefsFileSchema.parse(JSON.parse(readFileSync(values.file, "utf8")))).map(
@@ -92,10 +95,6 @@ console.log({
   verifier_prompt_sha: shortSha(verifierPrompt),
   render: RENDERED_WITH,
 });
-const candidateCount = values.candidates === undefined ? 1 : Number(values.candidates);
-if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > MAXIMUM_CANDIDATES) {
-  throw new Error(`--candidates takes a whole number from 1 to ${MAXIMUM_CANDIDATES}`);
-}
 
 /** One brief with several candidates. Prints the summary line the sprite tables are made from. */
 async function processWithCandidates(brief: Brief) {
@@ -128,7 +127,7 @@ async function processWithCandidates(brief: Brief) {
   }
 }
 
-const failures = await runPool(briefs, Number(values.concurrency ?? DEFAULT_CONCURRENCY), (brief) =>
+const failures = await runPool(briefs, concurrency, (brief) =>
   candidateCount > 1 ? processWithCandidates(brief) : processBrief(context, brief),
 );
 console.log("ALL DONE");

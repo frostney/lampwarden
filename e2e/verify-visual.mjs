@@ -349,6 +349,14 @@ const REFUSED_PLAYS = [
   ["no recorded sim", otherVersionPlay("2026-10-20-21-00-00-nosimrec1", false), "08c-replay-unknown-sim"],
 ];
 const serveFixturePlay = (play) => (route) => route.fulfill({ json: play });
+// A new player sees the opening scene and their first "Light the lamps" opens the practice night; ?verify=1 skips both.
+// A context that loads the game without ?verify=1 for something else is a player who has seen them already.
+const WELCOME_KEY = "lampwarden:welcome:v1";
+const welcomed = (context) =>
+  context.addInitScript(
+    (key) => localStorage.setItem(key, JSON.stringify({ opening: true, practice: true })),
+    WELCOME_KEY,
+  );
 
 const browser = await chromium.launch({ headless: HEADLESS, args: ["--window-size=1040,760"] });
 let page = await browser.newPage({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
@@ -1292,6 +1300,7 @@ async function openHeroPage(reducedMotion) {
     reducedMotion: reducedMotion ? "reduce" : "no-preference",
   });
   await stubSea(context);
+  await welcomed(context);
   const heroPage = await context.newPage();
   await heroPage.clock.install();
   await heroPage.goto(BASE_URL);
@@ -1306,8 +1315,19 @@ async function openHeroPage(reducedMotion) {
       polling: 100,
     },
   );
-  // from here the page's clock moves only when it is stepped
-  await heroPage.clock.pauseAt((await heroPage.evaluate(() => Date.now())) + 100);
+  // from here the page's clock moves only when it is stepped. The clock keeps running between reading it and pausing it,
+  // so on a busy machine (software WebGL) the pause can land in the past: try again a little further ahead, as
+  // e2e/walkthrough.ts does.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await heroPage.clock.pauseAt((await heroPage.evaluate(() => Date.now())) + 100 * attempt);
+      break;
+    } catch (error) {
+      if (attempt >= 5 || !String(error).includes("to the past")) {
+        throw error;
+      }
+    }
+  }
   return { context, heroPage };
 }
 async function sampleHero(heroPage, milliseconds) {
@@ -3044,6 +3064,25 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     await freeze();
     await shoot("10-gamepad-dawn");
   }
+  // the practice night: the card names Start as the pad's way out, and Start leaves it for the real night
+  await page.goto(`${BASE_URL}/?verify=1`);
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.evaluate(() => window.dispatchEvent(new Event("gamepadconnected"))); // as after the reload's first press
+  await page.getByRole("button", { name: "Practise first" }).click();
+  await page.waitForSelector('[data-phase="practice"]', { timeout: 5000 });
+  const padSkip = await page.evaluate(() => document.querySelector(".practice-skip")?.textContent);
+  await page.waitForTimeout(200);
+  await tapButton(9);
+  const afterStart = await page
+    .waitForSelector('[data-phase="night"]', { timeout: 5000 })
+    .then(() => "night")
+    .catch(() => page.evaluate(() => document.querySelector(".stage")?.dataset.phase));
+  check(
+    "gamepad",
+    "Start skips the practice night, as its card says",
+    padSkip === "Start: skip practice" && afterStart === "night",
+    `"${padSkip}", then ${afterStart}`,
+  );
   page = mainPage;
   await padPage.close();
 }
@@ -3164,6 +3203,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     navigator.getGamepads = () => [pad, null, null, null];
     localStorage.clear();
   });
+  await welcomed(unrollContext);
   await stubSea(unrollContext);
   await stubDirector(unrollContext);
   const unrollPage = await unrollContext.newPage();
@@ -3235,6 +3275,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   });
   await stubSea(reducedContext);
   await stubDirector(reducedContext);
+  await welcomed(reducedContext);
   const reducedPage = await reducedContext.newPage();
   await reducedPage.goto(BASE_URL);
   await reducedPage.waitForSelector(".scroll:not([hidden])");
@@ -4245,6 +4286,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   });
   await stubSea(directorContext);
   await stubDirector(directorContext);
+  await welcomed(directorContext);
   const directorPage = await directorContext.newPage();
   directorPage.on("pageerror", (error) => errors.push(`director: ${error}`));
   directorPage.on("console", (message) => {
@@ -4534,6 +4576,327 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   page = mainPage;
   await directorContext.close();
   director.mode = "off";
+}
+
+// 29 the welcome: a new player (no ?verify=1, nothing stored) sees the opening scene before the title, and their first
+// "Light the lamps" opens the practice night, each lesson waiting for the player; neither comes back unasked once seen
+{
+  const welcomeContext = await browser.newContext({ viewport: { width: 1000, height: 640 }, deviceScaleFactor: 1 });
+  await stubSea(welcomeContext);
+  await stubDirector(welcomeContext);
+  // notes whether the title scroll is ever put on the page before the opening scene
+  await welcomeContext.addInitScript(() => {
+    window.titleBeforeOpening = false;
+    new MutationObserver(() => {
+      if (document.querySelector(".scroll") && !document.querySelector(".opening")) {
+        window.titleBeforeOpening = true;
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  const welcomePage = await welcomeContext.newPage();
+  welcomePage.on("pageerror", (error) => errors.push(`welcome: ${error}`));
+  welcomePage.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
+      errors.push(`welcome: ${message.text()}`);
+    }
+  });
+  const mainPage = page;
+  page = welcomePage;
+  const phaseNow = () => page.evaluate(() => document.querySelector(".stage")?.dataset.phase);
+  const lessonNow = () => page.evaluate(() => document.querySelector("[data-lesson]")?.dataset.lesson ?? null);
+  const welcome = () => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), WELCOME_KEY);
+  const run = () => page.evaluate(() => window.lampwarden.scene().setPaused(false));
+  const waitForLesson = (lesson, timeout = 5000) =>
+    page.waitForSelector(`[data-lesson="${lesson}"], [data-phase="practiced"]`, { timeout }).then(
+      () => true,
+      () => false,
+    );
+
+  // the opening scene, before the title
+  await page.goto(BASE_URL);
+  const opened = await page.waitForSelector('[data-phase="opening"]', { timeout: 30000 }).then(
+    () => true,
+    () => false,
+  );
+  check("welcome-opening", "a new player sees the opening scene before the title", opened, await phaseNow());
+  const titleFirst = await page.evaluate(() => window.titleBeforeOpening);
+  check(
+    "welcome-opening",
+    "the title is not drawn, even for a moment, before the opening",
+    titleFirst === false,
+    String(titleFirst),
+  );
+  await page.waitForTimeout(1200); // the first line inks in
+  await freeze();
+  const frame = await page.evaluate(() => {
+    const box = (selector) => {
+      const bounds = document.querySelector(selector)?.getBoundingClientRect();
+      return bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+    };
+    return {
+      stage: box(".stage"),
+      top: box(".letterbox.top"),
+      bottom: box(".letterbox.bottom"),
+      line: box(".opening-line > span"),
+      skip: box(".opening-skip"),
+      text: document.querySelector(".opening-line")?.textContent,
+      title: document.querySelector(".scroll") !== null,
+    };
+  });
+  const inside = (inner, outer) =>
+    inner &&
+    outer &&
+    inner.x >= outer.x - 1 &&
+    inner.y >= outer.y - 1 &&
+    inner.x + inner.width <= outer.x + outer.width + 1 &&
+    inner.y + inner.height <= outer.y + outer.height + 1;
+  check(
+    "welcome-opening",
+    "the opening frames the plaza in bars, its first line in the lower one, Skip on screen, no title behind it",
+    inside(frame.top, frame.stage) &&
+      inside(frame.bottom, frame.stage) &&
+      inside(frame.line, frame.bottom) &&
+      inside(frame.skip, frame.stage) &&
+      frame.text === "Lychnos is a harbour of lamps." &&
+      !frame.title,
+    JSON.stringify(frame.text),
+  );
+  await shoot("29-opening-first-line");
+  // on at four times the speed; the fight's line, then every line in order, then the title by itself
+  await page.evaluate(() => {
+    window.lampwarden.scene().setSpeed(4);
+    window.lampwarden.scene().freezeClock(null);
+  });
+  await run();
+  await page.waitForSelector('[data-opening="2"]', { timeout: 15000 });
+  await page.waitForTimeout(700);
+  await freeze();
+  const fight = await page.evaluate(() => ({
+    monsters: window.lampwarden.state().monsters.length,
+    dark: window.lampwarden.state().lamps.filter((lamp) => !lamp.lit).length,
+  }));
+  check(
+    "welcome-opening",
+    "the fight's line comes with a lamp put out by the sea's creatures",
+    fight.dark > 0 || fight.monsters > 0,
+    `${fight.monsters} monsters, ${fight.dark} dark lamps`,
+  );
+  await shoot("29-opening-fight");
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(null));
+  await run();
+  const linesSeen = [0, 1, 2];
+  for (let poll = 0; poll < 300 && (await phaseNow()) === "opening"; poll++) {
+    const line = await page.evaluate(() => Number(document.querySelector("[data-opening]")?.dataset.opening ?? -1));
+    if (line >= 0 && linesSeen.at(-1) !== line) {
+      linesSeen.push(line);
+    }
+    await page.waitForTimeout(100);
+  }
+  const afterOpening = await phaseNow();
+  check(
+    "welcome-opening",
+    "its lines come in order and it ends by itself on the title",
+    linesSeen.join(",") === "0,1,2,3" && afterOpening === "title",
+    `lines ${linesSeen.join(",")}, then ${afterOpening}`,
+  );
+  await page.evaluate(() => window.lampwarden.scene().setSpeed(1));
+  check(
+    "welcome-opening",
+    "seen through, it is noted",
+    (await welcome())?.opening === true,
+    JSON.stringify(await welcome()),
+  );
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.waitForTimeout(500);
+  check(
+    "welcome-opening",
+    "once seen, a reload goes straight to the title",
+    (await phaseNow()) === "title",
+    await phaseNow(),
+  );
+  // the title plays it again on asking, and Escape ends it
+  await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
+  await page.getByRole("button", { name: "Watch the opening" }).click();
+  const again = await page.waitForSelector('[data-phase="opening"]', { timeout: 3000 }).then(
+    () => true,
+    () => false,
+  );
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[data-phase="title"]', { timeout: 3000 }).catch(() => undefined);
+  check(
+    "welcome-opening",
+    "Watch the opening plays it again, and Escape skips it",
+    again && (await phaseNow()) === "title",
+    await phaseNow(),
+  );
+
+  // the practice night: the first "Light the lamps" of a line that has never played opens it
+  await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
+  const uploadsBefore = director.uploads.length;
+  await page.getByRole("button", { name: "Light the lamps" }).click();
+  const practising = await page.waitForSelector('[data-phase="practice"]', { timeout: 5000 }).then(
+    () => true,
+    () => false,
+  );
+  check(
+    "welcome-practice",
+    "a new line's first Light the lamps opens the practice night",
+    practising,
+    await phaseNow(),
+  );
+  await page.waitForTimeout(400);
+  await freeze();
+  const practiceHud = await page.evaluate(() => ({
+    lesson: document.querySelector("[data-lesson]")?.dataset.lesson,
+    dawnBar: document.querySelector(".dawnbar") !== null,
+    oil: document.querySelector(".hud .oilline")?.getAttribute("aria-label"),
+    glyphs: [...document.querySelectorAll(".practice [data-glyph]")].map((glyph) => glyph.dataset.glyph),
+  }));
+  check(
+    "welcome-practice",
+    "the first lesson is walking, with the keys that walk; no dawn bar and no oil counted",
+    practiceHud.lesson === "move" &&
+      !practiceHud.dawnBar &&
+      practiceHud.oil === "0 slain" &&
+      ["W", "A", "S", "D"].every((key) => practiceHud.glyphs.includes(key)),
+    JSON.stringify(practiceHud),
+  );
+  await shoot("29-practice-move");
+  await run();
+  await page.waitForTimeout(1500);
+  check("welcome-practice", "a lesson waits for the player", (await lessonNow()) === "move", await lessonNow());
+  await page.keyboard.down("d");
+  const walked = await waitForLesson("strike", 4000);
+  await page.keyboard.up("d");
+  check("welcome-practice", "walking learns the first lesson", walked, await lessonNow());
+  await page.waitForFunction(() => window.lampwarden.state().monsters.length === 1, undefined, { timeout: 4000 });
+  await page.waitForTimeout(500);
+  await freeze();
+  await shoot("29-practice-strike");
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    const [satyr] = state.monsters;
+    satyr.x = state.hero.x + 30;
+    satyr.y = state.hero.y;
+    state.hero.octant = 0;
+  });
+  await run();
+  await page.keyboard.press("j");
+  check(
+    "welcome-practice",
+    "a strike on the satyr learns the second lesson",
+    await waitForLesson("shoot"),
+    await lessonNow(),
+  );
+  await page.waitForFunction(() => window.lampwarden.state().monsters.length === 1, undefined, { timeout: 4000 });
+  await page.waitForTimeout(700);
+  await freeze();
+  await shoot("29-practice-shoot");
+  await run();
+  for (let tries = 0; tries < 12 && (await lessonNow()) === "shoot"; tries++) {
+    await page.evaluate(() => window.lampwarden.scene().press("ranged"));
+    await page.waitForTimeout(450);
+  }
+  check(
+    "welcome-practice",
+    "shooting the harpy learns the third lesson",
+    await waitForLesson("relight"),
+    await lessonNow(),
+  );
+  await page.waitForFunction(() => window.lampwarden.state().lamps.some((lamp) => !lamp.lit), undefined, {
+    timeout: 3000,
+  });
+  await page.waitForTimeout(300);
+  await freeze();
+  await shoot("29-practice-relight");
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    const lamp = state.lamps.find((candidate) => !candidate.lit);
+    state.hero.x = lamp.x;
+    state.hero.y = lamp.y + 6;
+  });
+  await run();
+  check(
+    "welcome-practice",
+    "standing by the dark lamp learns the fourth lesson",
+    await waitForLesson("hold"),
+    await lessonNow(),
+  );
+  await page.waitForFunction(() => window.lampwarden.state().monsters.length >= 2, undefined, { timeout: 6000 });
+  await freeze();
+  await shoot("29-practice-hold");
+  await run();
+  for (let tries = 0; tries < 60 && (await phaseNow()) === "practice"; tries++) {
+    await page.evaluate(() => window.lampwarden.scene().press("ranged"));
+    await page.waitForTimeout(350);
+  }
+  const practiced = await page.waitForSelector('[data-panel="practiced"]', { timeout: 3000 }).then(
+    () => true,
+    () => false,
+  );
+  check("welcome-practice", "holding the plaza against the wave ends the practice", practiced, await phaseNow());
+  const kept = await page.evaluate(() => ({
+    oil: window.lampwarden.legacy().oil,
+    night: window.lampwarden.legacy().night,
+  }));
+  check(
+    "welcome-practice",
+    "the practice is not recorded and keeps no oil; the line is still on night 1",
+    director.uploads.length === uploadsBefore && kept.oil === 0 && kept.night === 1,
+    `${director.uploads.length - uploadsBefore} uploads, ${kept.oil} oil, night ${kept.night}`,
+  );
+  check(
+    "welcome-practice",
+    "learned, it is noted",
+    (await welcome())?.practice === true,
+    JSON.stringify(await welcome()),
+  );
+  await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
+  await settle();
+  await shoot("29-practiced");
+  await page.getByRole("button", { name: "Into night 1" }).click();
+  check(
+    "welcome-practice",
+    "the panel leads into the real night 1",
+    await page.waitForSelector('[data-phase="night"]', { timeout: 5000 }).then(
+      () => true,
+      () => false,
+    ),
+    await phaseNow(),
+  );
+  // once learned, Light the lamps goes straight to the night; Practise first still opens it, and Skip leaves it for the night
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
+  await page.getByRole("button", { name: "Light the lamps" }).click();
+  await page.waitForSelector('[data-phase="night"], [data-phase="practice"]', { timeout: 5000 });
+  check(
+    "welcome-practice",
+    "once learned, Light the lamps starts the night",
+    (await phaseNow()) === "night",
+    await phaseNow(),
+  );
+  await page.reload();
+  await page.waitForSelector('[data-ready="1"]', { timeout: 30000 });
+  await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
+  await page.getByRole("button", { name: "Practise first" }).click();
+  const askedFor = await page.waitForSelector('[data-phase="practice"]', { timeout: 5000 }).then(
+    () => true,
+    () => false,
+  );
+  await page.getByRole("button", { name: "Skip practice" }).click();
+  await page.waitForSelector('[data-phase="night"]', { timeout: 5000 }).catch(() => undefined);
+  check(
+    "welcome-practice",
+    "Practise first opens the practice, and Skip practice leaves it for the night",
+    askedFor && (await phaseNow()) === "night",
+    await phaseNow(),
+  );
+
+  page = mainPage;
+  await welcomeContext.close();
 }
 
 check("all", "no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
@@ -4837,6 +5200,60 @@ for (const [tag, device, sex] of [
       `button ${backBounds && `${Math.round(backBounds.width)}x${Math.round(backBounds.height)}`}, overflow ${overflow}`,
     );
   }
+  // the welcome on the phone: the opening's line and Skip on screen, and the practice's lesson card on screen, clear of
+  // the touch controls and the HUD, in 16 px text
+  await page.evaluate((key) => {
+    localStorage.clear();
+    localStorage.setItem(key, JSON.stringify({ opening: false, practice: true }));
+  }, WELCOME_KEY);
+  await page.goto(BASE_URL);
+  await page.waitForSelector('[data-phase="opening"]', { timeout: 30000 });
+  await page.waitForTimeout(1200);
+  await freeze();
+  const [openingLine] = await boxes(".opening-line > span");
+  const [openingSkip] = await boxes(".opening-skip");
+  check(
+    tag,
+    "the opening's line and Skip are on screen",
+    openingLine &&
+      openingSkip &&
+      inView(openingLine, viewportWidth, viewportHeight) &&
+      inView(openingSkip, viewportWidth, viewportHeight),
+    openingLine && `line ${Math.round(openingLine.width)}x${Math.round(openingLine.height)}`,
+  );
+  await shoot(`${tag}-6-opening`, true);
+  await page.locator(".opening-skip").tap();
+  await page.waitForSelector('[data-phase="title"]', { timeout: 5000 });
+  // a tap while the title scroll unrolls only completes it
+  await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
+  if (sex === "female") {
+    await page.locator('.hero-card[data-sex="female"]').tap();
+  }
+  const practise = page.getByRole("button", { name: "Practise first" });
+  await practise.scrollIntoViewIfNeeded();
+  await practise.tap();
+  await page.waitForSelector('[data-phase="practice"]', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  await freeze();
+  const [card] = await boxes(".practice");
+  const practiceControls = await boxes(".stick, .tbtn");
+  const practiceHud = await boxes(".hud .stats, .hud .lamps");
+  const cardClash = [...practiceControls, ...practiceHud]
+    .filter((box) => card && overlap(card, box))
+    .map((box) => box.className);
+  check(
+    tag,
+    "the lesson card is on screen, clear of the touch controls and the HUD",
+    card && inView(card, viewportWidth, viewportHeight) && cardClash.length === 0,
+    card &&
+      `${Math.round(card.width)}x${Math.round(card.height)} at ${Math.round(card.x)},${Math.round(card.y)}; ${cardClash.join(" ")}`,
+  );
+  const cardGlyphs = await page.evaluate(() =>
+    [...document.querySelectorAll(".practice [data-glyph]")].map((glyph) => glyph.dataset.glyph),
+  );
+  check(tag, "the first lesson shows the touch stick", cardGlyphs.includes("touch-stick"), cardGlyphs.join(" "));
+  await checkPhoneText(tag, "practice");
+  await shoot(`${tag}-7-practice`, true);
   await context.close();
 }
 await webkitBrowser.close();

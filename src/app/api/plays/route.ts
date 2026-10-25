@@ -24,7 +24,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "not a play" }, { status: 400 });
   }
   const play = parsed.data;
-  const saved = await savePlay(createPlayUploadDeps(), { play, ip: clientAddress(request.headers) });
+  let saved: Awaited<ReturnType<typeof savePlay>>;
+  try {
+    saved = await savePlay(createPlayUploadDeps(), { play, ip: clientAddress(request.headers) });
+  } catch (error) {
+    // the store did not answer (src/server/blob-client.ts): the game keeps the night queued and sends it again later
+    console.error(
+      JSON.stringify({ event: "play-upload-failed", kind: error instanceof Error ? error.name : "unknown" }),
+    );
+    return Response.json({ error: "unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });
+  }
   if (saved.kind === "limited") {
     return Response.json(
       { error: "too many uploads" },

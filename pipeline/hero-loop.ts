@@ -33,7 +33,7 @@ import { RENDERED_WITH, type RenderResult } from "./render-types";
 const HERO_HINTS = ["", CANDIDATE_HINTS[3] ?? "", CANDIDATE_HINTS[4] ?? ""] as const; // a candidate each, never repeated
 
 /** One representative frame, rendered and judged. */
-export interface JudgedFrame {
+interface JudgedFrame {
   pose: string;
   direction: RepresentativeFrame["direction"];
   score: number | null;

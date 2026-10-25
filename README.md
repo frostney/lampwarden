@@ -118,7 +118,7 @@ Creatures are drawn from frames rendered in the sandbox and shipped as an image.
 | `bun install`                          | Installs from `bun.lock` and the Lefthook hooks.                                                                                                               |
 | `bun run dev`                          | Dev server on port 3000.                                                                                                                                       |
 | `bun run build`, `bun run start`       | Production build and server.                                                                                                                                   |
-| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, `next build`.                                                                                                   |
+| `bun run check`                        | The gate: Biome, TypeScript, `bun test`, Knip, the Varlock secret scan, the generated-file checks and `next build`.                                            |
 | `bun run balance`                      | Plays nights headlessly with an idle warden, a perfect bot and a human-paced bot (200 runs, seeded); `-- --director` plays them under stub director decisions. |
 | `bun run verify:visual -- --url <url>` | Headed visual verifier against a production build; read `verify-out/sheet.png`.                                                                                |
 | `bun run walkthrough -- <script.ts>`   | Records a narrated, subtitled walkthrough (needs ffmpeg and macOS `say` or `espeak-ng`); example: `e2e/walkthroughs/title.ts`.                                 |

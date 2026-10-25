@@ -262,9 +262,6 @@ h2.logo:focus {
     animation: none;
   }
 }
-.tiny {
-  font-size: 8px;
-}
 /* Every button stands on a hard 2 px edge (--edge, in the colour --edge-colour). While pressed (see the end of this file)
    it sinks onto it: the button moves down by the edge, the edge shrinks to nothing and the face darkens one step. */
 .btn {
@@ -626,11 +623,6 @@ h2.logo:focus {
     opacity: 0.6;
   }
 }
-@media (max-width: 760px), (max-height: 520px) {
-  .tiny {
-    font-size: 12px;
-  }
-}
 /* landscape phones: controls live in the side gutters beside the canvas */
 @media (orientation: landscape) and (pointer: coarse) {
   .stick {
@@ -657,18 +649,10 @@ h2.logo:focus {
     bottom: calc(max(16px, env(safe-area-inset-bottom)) + 76px);
   }
 }
-/* the logo is 68x45 pixel art, shown at whole multiples */
+/* the logo is 68x37 pixel art, shown at the scroll's whole multiple (.scroll .brand img) */
 .brand img {
   display: block;
-  width: 272px;
-  height: 180px;
   image-rendering: pixelated;
-}
-@media (max-width: 760px), (max-height: 520px) {
-  .brand img {
-    width: 204px;
-    height: 135px;
-  }
 }
 .btn:focus-visible {
   outline: 3px solid #f2c14e;
@@ -1081,10 +1065,6 @@ h2.logo:focus {
   }
   .panel.title > :last-child {
     margin-bottom: 0;
-  }
-  .scroll .brand img {
-    width: calc(68px * var(--scale));
-    height: calc(37px * var(--scale));
   }
   .hero-title,
   .scroll-heading {

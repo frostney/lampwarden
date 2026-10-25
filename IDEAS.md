@@ -48,8 +48,6 @@ the context can be picked up again. Nothing here is committed to; it is a list t
 
 - **Re-calibrate the human-paced bot on real plays.** It was calibrated on nine plays recorded on older builds (#55).
   Play-testing on the current build is the real check.
-- **`killRate` on short nights.** For a night under a minute, `seconds / 60` is floored at 1, so "kills a minute" is
-  kills per night (#55).
 - **Trust in the director's input.** The director judges the recording the client sends, so a client that fabricates
   its inputs is judged on them (#52).
 

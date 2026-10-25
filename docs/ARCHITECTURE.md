@@ -6,7 +6,7 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
+                     :id/sprite.png, :id/atlas.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
                      one POST per finished night)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
@@ -19,6 +19,8 @@ src/
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
+    HeroPortrait.tsx the warden on a title card, drawn from the hero frames, swinging once each time the card is chosen
+    FailurePanel.tsx the panel shown in place of a title that can never load (no graphics, or the pictures did not load)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
                      of the job still making one, and under it the line "Raised on the plaza tonight: …" when a live building
                      is ready; on the title and the dawn and heir panels
@@ -97,6 +99,11 @@ src/
                      (salted-hash visitors, hourly and daily starts), store (the interface) with store.blob (private Vercel Blob)
                      and store.memory (tests), config (env), deps (the only module that reads env and files and wires Mubit, the
                      sandbox and Blob)
+  server/blob.ts     what the Blob stores share: a write only the first caller wins, a read with its version, a conditional
+                     replace, and the ledger of marks the rate limits count; server/blob-client.ts is every Blob call with its
+                     deadline
+  server/plays/      what POST /api/plays does: keep the most complete recording of an id, bounded rewrites, the upload limits;
+                     store (the interface) with store.blob and store.memory, deps
   server/buildings/  one building job (job: the creature job without frames) and the measuring of an accepted sprite (placement:
                      anchor, bbox, the hulls and box of its pixels, from the PNG, in the form decor-extents.ts has)
   server/director/   what the director route does, with store, clock, model and log injected: service (the play, the limits,
@@ -159,16 +166,20 @@ src/
                      in three strengths, painted once
     scroll.ts        the title scroll's parchment and rollers as pixel art, painted into RGBA buffers (DOM canvases)
 e2e/verify-visual.mjs  headed visual verifier (Playwright; see docs/tooling.md)
+e2e/walkthrough.ts   the narrated walkthrough recorder a pull request's video is made with (e2e/walkthroughs/title.ts is its example)
 scripts/balance.ts   headless balance check (idle, perfect-bot and human-paced wardens, oil income per night, a campaign that spends it in the shop, and nights with a creature of each archetype), run with bun; `--director` plays the same nights under stub director decisions (eased, pushed, each half)
 scripts/human-bot.ts the human-paced warden the difficulty curve is tuned on: reaction delay, aim error, turning before a strike, imperfect target choice and relighting, its own seeded generator; it works a Controls object like live play
 scripts/plays.ts     balance report from recorded plays in Blob storage, with a row per creature from the sea
 scripts/measure-pixel-scaling.mjs  headed-browser measurement of where the pixel scaling is done and what it costs (see Pixel scaling)
 tools/logo/          logo generator: pixel grids, palette, layout, PNG/ICO/SVG encoders (see Logo below)
 tools/sim-fingerprint/  the sim fingerprint: a hash of the sources that decide a night (see Sim fingerprint)
+tools/decor-extents/  `bun run decor`: writes src/scene/decor-extents.ts from the sprites the placer uses
+tools/lint/          short-names.grit, the Biome plugin that holds the naming rule (no abbreviated names)
 public/sprites/      PNGs the game loads, <id>.ts (the builder code that made each), hero/ frames, <kind>-frames.png (the satyr's,
                      cyclops's and harpy's atlases), manifest.json
 pipeline/            offline asset pipeline (see pipeline/README.md)
-  run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites
+  run.ts             CLI: brief → generator → render → verifier → fix → best-of → public/sprites; cli-options.ts checks the
+                     count options the scripts share (--concurrency, --candidates, --vcpus)
   loop.ts            the loop for one brief (no filesystem: model, renderer and store injected); sprite-loop.ts is the command line's
                      file-backed wrapper (file-store.ts); mubit.ts is the only code that calls Mubit; verifier-image.ts the verifier's view
   creature-frames.ts the frame set of a creature: its code rendered in every pose from five directions in one batch (75 frames), checked
@@ -184,8 +195,9 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
   hero-model.ts, hero-loop.ts, hero-generate.ts, hero-source.ts   the warden as Mubit-written code (public/sprites/hero/<sex>.ts): brief, frame scripts, checks and the candidate loop; the frames are drawn from it
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
-  prompts/           generator.md (kit API doc), verifier.md
-  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/
+  prompts/           generator.md (kit API doc), verifier.md, creature.md and building.md (the live brief writers), director.md
+                     (the live director's)
+  kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; examples/
   render/            what a sandbox VM runs: batch.ts (the batch driver), runner.ts (one sprite: its pose as POSE, its facing as the kit's
                      turn, and, for a frame of a set, the canvas its still was drawn on) and png.ts (the PNG encoder)
 docs/ARCHITECTURE.md this file

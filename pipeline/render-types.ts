@@ -4,7 +4,7 @@
 import { z } from "zod";
 
 /** The stats `render/runner.ts` prints for one sprite: the kit's `post()` stats plus fit. */
-export const renderStatsSchema = z.object({
+const renderStatsSchema = z.object({
   name: z.string(),
   /** Render time inside the runner. */
   ms: z.number().optional(),
@@ -68,7 +68,7 @@ const validView = (view: FrameView) =>
   Math.abs(view.dx) <= MAX_VIEW_SHIFT &&
   Math.abs(view.dy) <= MAX_VIEW_SHIFT;
 
-export interface RenderedSprite {
+interface RenderedSprite {
   stats: RenderStats;
   /** The 128 px sprite as PNG bytes. */
   png: Uint8Array;
@@ -96,7 +96,7 @@ export function bindRenderSignal(render: Renderer, signal: AbortSignal): Rendere
 const SAFE_RENDER_ARGUMENT = /^[A-Za-z0-9_-]*$/;
 
 /** Names and poses end up in file paths and a command line; only these characters may. */
-export function isSafeRenderArgument(value: string): boolean {
+function isSafeRenderArgument(value: string): boolean {
   return SAFE_RENDER_ARGUMENT.test(value);
 }
 
@@ -111,7 +111,7 @@ export function invalidRequestReason(request: RenderRequest): string | null {
 }
 
 /** Reads the stats from the last JSON-object line of a runner's standard output. */
-export function parseStatsLine(standardOutput: string): RenderStats {
+function parseStatsLine(standardOutput: string): RenderStats {
   const statsLine = standardOutput
     .trim()
     .split("\n")
@@ -120,7 +120,7 @@ export function parseStatsLine(standardOutput: string): RenderStats {
 }
 
 /** The one-line reason for a failed runner: the last `error:` / `SomeError:` line, not bun's trailing version banner. */
-export function lastErrorLine(standardError: string): string {
+function lastErrorLine(standardError: string): string {
   const lines = standardError
     .split("\n")
     .map((line) => line.trim())

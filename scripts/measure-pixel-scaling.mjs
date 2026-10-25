@@ -161,6 +161,7 @@ const playBot = ({ milliseconds, syncGpu }) =>
           lastSteer = now;
           const hero = state.hero;
           hero.health = hero.maxHealth; // keep the night going; this is a frame-time test, not a balance test
+          state.elapsed = Math.min(state.elapsed, state.length - 1); // a night is short: it must not reach dawn mid-run
           const dark = state.lamps.filter((lamp) => !lamp.lit);
           const targets = dark.length ? dark : state.monsters.length ? state.monsters : [{ x: 480, y: 330 }];
           let best = targets[0];

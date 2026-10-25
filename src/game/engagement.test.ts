@@ -36,6 +36,41 @@ function night(movingSteps: number, actions: number, overrides: Partial<Recorded
   return { inputs: rows, steps, outcome: "dark", ...overrides };
 }
 
+/** A night of `seconds` seconds, as `night` but any length. */
+function nightOf(seconds: number, movingSteps: number, actions: number, overrides: Partial<RecordedEngagement> = {}) {
+  return night(movingSteps, actions, { steps: seconds * 60, ...overrides });
+}
+
+describe("the engagement of a night of 16 s, the shortest", () => {
+  test("a warden who moves and acts is engaged", () => {
+    const engagement = engagementOf(nightOf(16, 480, 6));
+    expect(engagement.kind).toBe("engaged");
+    expect(engagement.movingShare).toBe(0.5);
+    expect(engagement.actionsPerMinute).toBe(22.5);
+  });
+
+  test("one who stands still and does nothing, or a stroke or two, is idle", () => {
+    expect(engagementOf(nightOf(16, 0, 0)).kind).toBe("idle");
+    expect(engagementOf(nightOf(16, 0, 1)).kind).toBe("idle"); // 3.8 a minute
+    expect(engagementOf(nightOf(16, 100, 1)).kind).toBe("idle"); // 10% moving, 3.8 a minute
+  });
+
+  test("one who stands his ground and fights is engaged: two blows in 16 s is 7.5 a minute", () => {
+    expect(engagementOf(nightOf(16, 0, 2)).kind).toBe("engaged");
+    expect(engagementOf(nightOf(16, 150, 0)).kind).toBe("engaged"); // 15.6% moving: moving is enough
+  });
+
+  test("is paused only when more than half of the real time was away, and at least 10 s of it", () => {
+    const played = nightOf(16, 480, 6);
+    expect(engagementOf({ ...played, hiddenSeconds: 10 }).kind).toBe("engaged"); // 10 s away, 38% of the real time
+    expect(engagementOf({ ...played, hiddenSeconds: 16 }).kind).toBe("engaged"); // exactly half: not more than half
+    const away = engagementOf({ ...played, hiddenSeconds: 17 });
+    expect(away.kind).toBe("paused");
+    expect(away.wallSeconds).toBe(33);
+    expect(engagementOf({ ...played, hiddenSeconds: 9 }).kind).toBe("engaged");
+  });
+});
+
 describe("the engagement of a night", () => {
   test("a warden who moves and acts is engaged", () => {
     const engagement = engagementOf(night(1200, 20));

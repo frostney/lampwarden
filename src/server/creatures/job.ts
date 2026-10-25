@@ -9,10 +9,16 @@ import type { CreatureJob } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
-import { type CandidateOutcome, type LoopStage, type LoopWinner, runCandidateLoop } from "../../../pipeline/loop";
+import {
+  type CandidateOutcome,
+  isAccepted,
+  type LoopStage,
+  type LoopWinner,
+  runCandidateLoop,
+} from "../../../pipeline/loop";
 import type { MubitClient } from "../../../pipeline/mubit";
 import type { Renderer } from "../../../pipeline/render-types";
-import { anchorYFromBbox, galleryId, isAccepted, runJobShell } from "./job-shell";
+import { anchorYFromBbox, galleryId, runJobShell } from "./job-shell";
 import type { CreatureStore } from "./store";
 
 const NAME_HISTORY = 60;

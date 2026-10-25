@@ -1,9 +1,9 @@
 // The runner a render sandbox executes for one sprite (batch.ts starts one per item):
-//   bun --preload ./shim_plugin.ts runner.ts <build.ts> <name> [pose]   (KIT_OUT = output dir, default ./out)
+//   bun runner.ts <build.ts> <name> [pose]   (KIT_OUT = output directory, default ./out; writes <KIT_OUT>/<name>.png)
 // It runs model-written code, so model code reaches it only inside the Vercel Sandbox VM, never on a host.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createCanvas } from "./shim_canvas";
+import { writePng } from "./png";
 
 // The kit (../kit/kit.ts) is excluded from type-checking: it is the model-facing API, written for its prompts rather
 // than for strict TypeScript, and a static import would pull all of it into the checker. It is loaded by path instead,
@@ -48,7 +48,7 @@ const kit = new kitExports.Kit();
 build(kit);
 const rendered = kitExports.post(kit.render());
 const milliseconds = Math.round(performance.now() - started);
-createCanvas(128, 128, { pixels: rendered.rgba }).save(`/out/${name}.png`);
+writePng(join(process.env.KIT_OUT || "./out", `${name}.png`), 128, 128, rendered.rgba);
 console.log(
   JSON.stringify({
     name,

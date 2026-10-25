@@ -7,26 +7,13 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { JobStep } from "@/game/creature";
-import type { LoopWinner } from "../../../pipeline/loop";
 import { bindMubitSignal, type CallRecord, type MubitClient } from "../../../pipeline/mubit";
 import { bindRenderSignal, type Renderer, withDeadline } from "../../../pipeline/render-types";
 import type { JobKind, JobStore, StoredJob } from "./store";
 
-/** The lowest verifier score that is accepted without a verifier pass, and only with a clean engine report. */
-const MINIMUM_UNPASSED_SCORE = 6;
 /** The lowest pixel under the feet that the shadow adds: the anchor sits this far above the bottom of the bbox. */
 const SHADOW_ROWS = 4;
 const FRAME = 128;
-
-/** Accept a verifier pass, or a score of at least 6 with no engine flags. Anything else fails and stores nothing. */
-export function isAccepted(winner: {
-  verdict: Pick<LoopWinner["verdict"], "pass" | "score">;
-  stats: LoopWinner["stats"];
-}): boolean {
-  if (winner.verdict.pass) return true;
-  const score = winner.verdict.score;
-  return winner.stats.flags === "ok" && score !== null && score >= MINIMUM_UNPASSED_SCORE;
-}
 
 /** Where its feet touch the ground, as a fraction of the frame: the lowest opaque row of the bbox, less the shadow. */
 export function anchorYFromBbox(bbox: string): number {

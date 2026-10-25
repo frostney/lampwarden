@@ -526,10 +526,27 @@ export function lampFoot(lampTexture: Texture): LightPiece {
 
 export const lampFlicker = (light: LampLight, clock: number) => flickerIndex(clock, light.seed);
 
-// The warden's own small light: the same bands and dither, three levels, built lazily for each dither phase.
+// The warden's own small light: the same bands and dither, three levels, built lazily for each dither phase. It lies on the
+// ground in an ellipse round his feet, and lighting.ts lights what stands in that ellipse, so what the eye sees on the
+// ground is what warms a monster or a prop.
+export const HERO_LIGHT = { radiusX: 60, radiusY: 30, falloff: 1.2, rise: 4 } as const;
+const HERO_FLICKER_SEED = 11;
+// how many pixels the flicker has moved the edge of the warden's light in or out at this moment
+export const heroFlickerStep = (clock: number) =>
+  FLICKER_VARIANTS[flickerIndex(clock, HERO_FLICKER_SEED)]?.radiusStep ?? 0;
+// the warden's light for a warden standing at (x, y): centred a little above his feet, as it is drawn
+export function heroLightEllipse(x: number, y: number, step = 0) {
+  return {
+    centerX: Math.round(x),
+    centerY: Math.round(y) - HERO_LIGHT.rise,
+    radiusX: HERO_LIGHT.radiusX + step,
+    radiusY: HERO_LIGHT.radiusY + step / 2,
+  };
+}
+
 const heroLights = new Map<string, LightPiece>();
 export function heroLight(centerX: number, centerY: number, clock: number): LightPiece {
-  const variantIndex = flickerIndex(clock, 11);
+  const variantIndex = flickerIndex(clock, HERO_FLICKER_SEED);
   const key = `${centerX & 3},${centerY & 3},${variantIndex}`;
   let piece = heroLights.get(key);
   if (!piece) {
@@ -538,10 +555,10 @@ export function heroLight(centerX: number, centerY: number, clock: number): Ligh
       {
         centerX: (centerX & 3) + 64,
         centerY: (centerY & 3) + 32,
-        radiusX: 60,
-        radiusY: 30,
+        radiusX: HERO_LIGHT.radiusX,
+        radiusY: HERO_LIGHT.radiusY,
         palette: HERO_PALETTE,
-        falloff: 1.2,
+        falloff: HERO_LIGHT.falloff,
         groundOnly: false,
       },
       FLICKER_VARIANTS[variantIndex] ?? CALM,

@@ -12,9 +12,10 @@ import {
   spritePng,
   verdictJson,
 } from "../../../pipeline/fakes";
+import { isAccepted } from "../../../pipeline/loop";
 import { decodePng } from "../../../tools/logo/png";
 import { creatureId, type JobDeps, runCreatureJob } from "./job";
-import { anchorYFromBbox, isAccepted } from "./job-shell";
+import { anchorYFromBbox } from "./job-shell";
 import { createMemoryStore } from "./store.memory";
 
 const verdict = (score: number | null, pass: boolean) => ({ pass, score, issues: [], fix: "", lesson: "" });

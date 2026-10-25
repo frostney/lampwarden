@@ -45,7 +45,7 @@ import type { LiveBuilding } from "./decor";
 import type { Point } from "./extent";
 import { bufferTexture } from "./paint";
 import { PLAZA_WALL } from "./plaza";
-import { cutCharacterFrames, isCharacterKey, withoutPaintedShadow } from "./rim";
+import { cutCharacterFrames, isCharacterKey, splitPaintedShadow, withoutPaintedShadow } from "./rim";
 import { VIGNETTE_STRENGTHS, vignetteTexture } from "./vignette";
 import { SEA_COLOUR } from "./water";
 
@@ -88,6 +88,14 @@ export function loadTextures(): Promise<TextureMap> {
           cut?.get(cell.key) ??
           new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
     }
+    // a lamp's painted shadow lies on the ground, so it is a texture of its own, drawn under every sprite (Scene.tsx)
+    for (const key of LAMP_KEYS) {
+      const lamp = textures[key];
+      const split = lamp && splitPaintedShadow(lamp);
+      if (!split) continue;
+      textures[key] = split.body;
+      textures[paintedShadowKey(key)] = split.shadow;
+    }
     // the vignette's pictures are painted now, not in the frame of the first blow
     for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) vignetteTexture(strength);
     for (const kind of Object.keys(MONSTER)) {
@@ -102,6 +110,10 @@ export function loadTextures(): Promise<TextureMap> {
   });
   return textureCache;
 }
+
+// the lamps, whose sprites carry a shadow painted on the ground beside them; `shadow/<key>` is that shadow alone
+const LAMP_KEYS = ["lamp-lit", "lamp-unlit"];
+export const paintedShadowKey = (key: string) => `shadow/${key}`;
 
 // The key whose texture draws a prop: its own, or when a building's sprite did not load, its hand-written one
 export const sceneryTextureKey = (textures: TextureMap, key: string) =>
@@ -432,6 +444,22 @@ export const nightProgress = (state: State) => Math.min(1, state.elapsed / state
 // the lights fade out over the last 15% of the night
 export const lightsAlpha = (progress: number) => (progress < 0.85 ? 1 : 1 - (progress - 0.85) / 0.15);
 
+// The props small enough for one warm tint to light, by the lamps and by the warden's light on the ground at their base
+// (lighting.ts lightProp), named by the key a prop is placed under, not the sprite drawn for it: the statue, the stall,
+// the olive trees and the decorations (the young olive, the broken column, the votive altar, the amphora stack). The
+// temple, the house (and its ochre one) and the wall are buildings, and the galley at its dock and the trireme are boats:
+// a single tint across a sprite that large would light its whole face at once, so they keep the night's tint.
+const LIT_PROPS: ReadonlySet<string> = new Set([
+  "zeus-statue",
+  "stall",
+  "olive",
+  "olive-young",
+  "broken-column",
+  "votive-altar",
+  "amphora-stack",
+]);
+export const isLitProp = (key: string) => LIT_PROPS.has(key);
+
 // where a sprite's base touches the ground, as a Pixi anchor (one object per height, so React props stay equal)
 const anchors = new Map<number, { x: number; y: number }>();
 export function anchorAt(anchorY: number) {
@@ -466,7 +494,8 @@ function progressRing(graphics: Graphics, x: number, y: number, radius: number, 
     .stroke({ width: 3, color });
 }
 
-// below the night tint: the melee sweep, the wedge in front of the warden that a blow can land in
+// on the ground, under every sprite and the night tint: the melee sweep, the wedge in front of the warden that a blow can
+// land in
 export function drawSweep(graphics: Graphics, state: State) {
   const hero = state.hero;
   if (hero.animation !== "melee") return;
@@ -538,9 +567,19 @@ function drawImpact(graphics: Graphics, puff: Puff) {
   }
 }
 
-// above the night tint, so they stay readable: shot trails, puffs, dark-lamp markers, relight and snuff progress,
-// health pips
-export function drawMarks(graphics: Graphics, state: State, clock: number) {
+// On the ground, under every sprite and above the night tint so it stays readable: the ring round each dark lamp, pulsing
+// to say it can be relit. The lamp stands in front of it, as it does in front of the stone it is set in.
+export function drawGroundMarks(graphics: Graphics, state: State, clock: number) {
+  const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
+  for (const lamp of state.lamps) {
+    if (lamp.lit) continue;
+    graphics.ellipse(lamp.x, lamp.y, 26, 13).stroke({ width: 2, color: 0xffd27a, alpha: 0.35 + 0.4 * pulse });
+  }
+}
+
+// Over everything, above the night tint so they stay readable: what hangs in the air or reads as a gauge. Shot trails,
+// the puffs of a blow, a lamp's relight progress and a monster's snuff progress over their heads, and health pips.
+export function drawMarks(graphics: Graphics, state: State) {
   const rules = state.rules;
   for (const shot of state.shots) {
     // a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
@@ -559,13 +598,9 @@ export function drawMarks(graphics: Graphics, state: State, clock: number) {
       .circle(Math.round(puff.x), Math.round(puff.y), radius)
       .stroke({ width: 3, color: PUFF_COLOURS[puff.kind], alpha: 1 - puff.age / 0.5 });
   }
-  for (const lamp of state.lamps) {
-    if (lamp.lit) continue;
-    // dark lamp: pulsing marker and relight progress
-    const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
-    graphics.ellipse(lamp.x, lamp.y, 26, 13).stroke({ width: 2, color: 0xffd27a, alpha: 0.35 + 0.4 * pulse });
-    if (lamp.relight > 0) progressRing(graphics, lamp.x, lamp.y - 70, 9, lamp.relight / rules.relight, 0xffe6a0);
-  }
+  for (const lamp of state.lamps)
+    if (!lamp.lit && lamp.relight > 0)
+      progressRing(graphics, lamp.x, lamp.y - 70, 9, lamp.relight / rules.relight, 0xffe6a0);
   for (const monster of state.monsters) {
     // clawing a lamp: red progress over it
     if (monster.snuff <= 0) continue;

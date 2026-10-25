@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { newLegacy } from "../game/legacy";
 import { type Lamp, newNight, type State } from "../game/sim";
-import { nightTint } from "./layers";
-import { illuminate, lampFootTint, lampTint, lightCharacter, mirroredOctant, SHADOW_ANGLES } from "./lighting";
+import { sceneryAssetList } from "./assets";
+import { DECOR, decorFor } from "./decor";
+import { isLitProp, nightTint } from "./layers";
+import {
+  illuminate,
+  lampFootTint,
+  lampTint,
+  lightCharacter,
+  lightProp,
+  mirroredOctant,
+  SHADOW_ANGLES,
+} from "./lighting";
 
 const lamp = (overrides: Partial<Lamp> = {}): Lamp => ({
   x: 480,
@@ -138,5 +148,170 @@ describe("lightCharacter", () => {
     const walker = lightCharacter(lampAlone(), 80, 560, false, CALM_CLOCK).shadows[0];
     const flier = lightCharacter(lampAlone(), 80, 560, true, CALM_CLOCK).shadows[0];
     expect(walker && flier && flier.alpha < walker.alpha).toBe(true);
+  });
+});
+
+describe("the warden's light", () => {
+  // no lamps lit, the warden at (480, 380): his light is the night's only one
+  function wardenAlone(progress = 0): State {
+    const state = night(progress);
+    state.lamps = [];
+    state.hero.x = 480;
+    state.hero.y = 380;
+    return state;
+  }
+  const green = (tint: number) => (tint >> 8) & 255;
+  const red = (tint: number) => (tint >> 16) & 255;
+  const dark = lampTint(0x46559a, 0);
+  const monsterAt = (state: State, x: number, y: number) => lightCharacter(state, x, y, false, CALM_CLOCK);
+
+  test("warms a monster near him more than one further off, and not at all beyond his pool", () => {
+    const state = wardenAlone();
+    const near = monsterAt(state, 500, 380).tint;
+    const far = monsterAt(state, 530, 380).tint;
+    expect(green(near)).toBeGreaterThan(green(far));
+    expect(green(far)).toBeGreaterThan(green(dark));
+    expect(monsterAt(state, 480 + 62, 380).tint).toBe(dark);
+    expect(monsterAt(state, 480, 380 + 32).tint).toBe(dark);
+  });
+
+  test("is a weak light: next to him a monster is lit far less than in a lamp's pool", () => {
+    const withWarden = wardenAlone();
+    const withLamp = wardenAlone();
+    withLamp.lamps = [lamp({ x: 480, y: 380 })];
+    withLamp.hero.x = 80;
+    withLamp.hero.y = 560;
+    const warm = (state: State) => red(monsterAt(state, 484, 380).tint) - red(dark);
+    expect(warm(withWarden)).toBeGreaterThan(0);
+    expect(warm(withWarden)).toBeLessThan(warm(withLamp) * 0.7);
+  });
+
+  test("moves in whole steps, like the lamps' light", () => {
+    const state = wardenAlone();
+    const steps = new Set<number>();
+    for (let x = 480; x < 545; x += 1) steps.add(monsterAt(state, x, 380).tint);
+    expect(steps.size).toBeGreaterThan(2);
+    expect(steps.size).toBeLessThanOrEqual(5);
+  });
+
+  test("puts a rim on the side of a monster that faces him, and casts no shadow", () => {
+    const state = wardenAlone();
+    const east = monsterAt(state, 510, 380); // east of him: the rim is on its west side
+    const north = monsterAt(state, 480, 364); // north of him: the rim is on its south side
+    expect(east.rim?.direction).toBe(4);
+    expect(north.rim?.direction).toBe(2);
+    expect(east.shadows).toHaveLength(1); // the moon's, as in the dark
+    expect(monsterAt(state, 80, 560).rim).toBeNull();
+    expect(east.shadows[0]?.alpha).toBe(monsterAt(state, 80, 560).shadows[0]?.alpha);
+  });
+
+  test("gives the warden himself a slight warm tint, one step, and no rim or shadow of his own light", () => {
+    const state = wardenAlone();
+    const own = lightCharacter(state, state.hero.x, state.hero.y, false, CALM_CLOCK, "self");
+    expect(own.tint).toBe(lampTint(0x46559a, 1 / 6));
+    expect(green(own.tint)).toBeGreaterThan(green(dark));
+    expect(own.rim).toBeNull();
+    expect(own.shadows).toHaveLength(1);
+  });
+
+  test("adds to a lamp's light on whoever stands in both", () => {
+    const state = night();
+    state.lamps = [lamp({ x: 480, y: 380 })];
+    state.hero.x = 550;
+    state.hero.y = 380;
+    // at the lamp's pool edge, where it lights the monster least, and by the warden's side
+    const lampOnly = lightCharacter(state, 560, 380, false, CALM_CLOCK, { x: 80, y: 560 }).tint;
+    const both = lightCharacter(state, 560, 380, false, CALM_CLOCK).tint;
+    expect(green(lampOnly)).toBeGreaterThan(green(dark));
+    expect(green(both)).toBeGreaterThan(green(lampOnly));
+  });
+
+  test("fades with the dawn, as the lamps' light does", () => {
+    const state = wardenAlone(1);
+    expect(monsterAt(state, 500, 380).tint).toBe(nightTint(1));
+    expect(monsterAt(state, 500, 380).rim).toBeNull();
+    const own = lightCharacter(state, 480, 380, false, CALM_CLOCK, "self");
+    expect(own.tint).toBe(nightTint(1));
+    const late = wardenAlone(0.93);
+    expect(green(monsterAt(late, 500, 380).tint)).toBeGreaterThan(green(nightTint(0.93)));
+  });
+});
+
+describe("lightProp", () => {
+  const green = (tint: number) => (tint >> 8) & 255;
+  function darkNight(progress = 0): State {
+    const state = night(progress);
+    state.lamps = [];
+    state.hero.x = 80;
+    state.hero.y = 560;
+    return state;
+  }
+
+  test("a prop is the night's tint with no light on it", () => {
+    expect(lightProp(darkNight(), 480, 334, CALM_CLOCK)).toBe(nightTint(0));
+  });
+
+  test("the warden's light warms the prop he stands beside, more the nearer he is", () => {
+    const state = darkNight();
+    const tintWith = (x: number) => {
+      state.hero.x = x;
+      state.hero.y = 340;
+      return lightProp(state, 480, 334, CALM_CLOCK);
+    };
+    expect(green(tintWith(500))).toBeGreaterThan(green(tintWith(530)));
+    expect(green(tintWith(530))).toBeGreaterThan(green(nightTint(0)));
+    expect(tintWith(80)).toBe(nightTint(0));
+  });
+
+  test("a lit lamp's pool warms the prop at its base, and a dark lamp's does not", () => {
+    const state = darkNight();
+    state.lamps = [lamp({ x: 480, y: 300 })];
+    const lit = lightProp(state, 500, 304, CALM_CLOCK);
+    expect(green(lit)).toBeGreaterThan(green(nightTint(0)));
+    state.lamps = [lamp({ x: 480, y: 300, lit: false })];
+    expect(lightProp(state, 500, 304, CALM_CLOCK)).toBe(nightTint(0));
+  });
+
+  test("a lamp's own pool does not light its post", () => {
+    const state = darkNight();
+    const post = lamp({ x: 480, y: 300 });
+    state.lamps = [post, lamp({ x: 900, y: 300 })];
+    expect(lightProp(state, post.x, post.y, CALM_CLOCK, post)).toBe(nightTint(0));
+    expect(lightProp(state, post.x, post.y, CALM_CLOCK)).not.toBe(nightTint(0));
+    // another lamp's pool does
+    state.lamps = [post, lamp({ x: 540, y: 300 })];
+    expect(lightProp(state, post.x, post.y, CALM_CLOCK, post)).not.toBe(nightTint(0));
+  });
+
+  test("the dawn takes the light off it", () => {
+    const state = darkNight(1);
+    state.lamps = [lamp({ x: 480, y: 300 })];
+    state.hero.x = 500;
+    state.hero.y = 304;
+    expect(lightProp(state, 490, 304, CALM_CLOCK)).toBe(nightTint(1));
+  });
+});
+
+describe("which props are lit", () => {
+  // the buildings and boats, which keep the night's tint; everything else the scene draws as a prop is small and is lit
+  const BUILDINGS_AND_BOATS = ["temple", "house", "house-ochre", "wall", "galley-dock", "trireme"];
+  const SMALL = ["zeus-statue", "stall", "olive", "olive-young", "broken-column", "votive-altar", "amphora-stack"];
+
+  test("the statue, the stall, the trees and the decorations are; the buildings and the boats keep the night's tint", () => {
+    for (const key of SMALL) expect(isLitProp(key)).toBe(true);
+    for (const key of BUILDINGS_AND_BOATS) expect(isLitProp(key)).toBe(false);
+  });
+
+  test("every prop a night's layout can place, and every scenery sprite, is one or the other", () => {
+    const known = new Set([...SMALL, ...BUILDINGS_AND_BOATS]);
+    for (const kind of DECOR) {
+      expect(known.has(kind.key)).toBe(true);
+      if (kind.replacedBy) expect(known.has(kind.replacedBy.key)).toBe(true);
+    }
+    for (const asset of sceneryAssetList()) expect(known.has(asset.alias)).toBe(true);
+    for (let seed = 1; seed <= 40; seed++) {
+      const layout = decorFor(seed);
+      for (const placed of [...layout.props, ...layout.boats]) expect(known.has(placed.key)).toBe(true);
+    }
   });
 });

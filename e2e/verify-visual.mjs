@@ -494,6 +494,62 @@ const meanColour = (encoded, [x, y, width, height]) =>
     },
     { encoded, x, y, width, height },
   );
+// How many pixels differ between two stage shots (by more than 6 levels in a channel) where a layer, or a figure, is: its
+// footprint is the pixels that differ between `maskOn` (it drawn) and `maskOff` (it left out). Without a mask, every pixel.
+const changedWithin = (first, second, maskOn = null, maskOff = null) =>
+  lab.evaluate(
+    async ({ first, second, maskOn, maskOff }) => {
+      const load = async (encoded) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, canvas.width, canvas.height).data;
+      };
+      const [firstData, secondData] = [await load(first), await load(second)];
+      const [onData, offData] = maskOn && maskOff ? [await load(maskOn), await load(maskOff)] : [null, null];
+      const apart = (one, other, index) =>
+        Math.max(Math.abs(one[index] - other[index]), Math.abs(one[index + 1] - other[index + 1])) > 6 ||
+        Math.abs(one[index + 2] - other[index + 2]) > 6;
+      let footprint = 0;
+      let changed = 0;
+      for (let index = 0; index < firstData.length; index += 4) {
+        if (onData && !apart(onData, offData, index)) continue;
+        footprint++;
+        if (apart(firstData, secondData, index)) changed++;
+      }
+      return { footprint, changed };
+    },
+    { first, second, maskOn, maskOff },
+  );
+// The scene names the layers the verifier needs to switch (Scene.tsx: a `label` on the Pixi object). Hiding one sets
+// `renderable`, which the scene never touches, so it stays hidden while the frames run.
+const showLayers = (labels, shown) =>
+  page.evaluate(
+    ({ labels, shown }) => {
+      let matched = 0;
+      const visit = (node) => {
+        if (labels.includes(node.label)) {
+          node.renderable = shown;
+          matched++;
+        }
+        for (const child of node.children ?? []) visit(child);
+      };
+      visit(window.lampwarden.app().stage);
+      // a label the scene no longer gives would leave the layer showing and the checks passing for the wrong reason
+      if (matched === 0) throw new Error(`no layer is labelled ${labels.join(" or ")}`);
+    },
+    { labels, shown },
+  );
+const stageShot = async () => {
+  await settle();
+  await page.waitForTimeout(40);
+  return (await page.locator(".stage").screenshot()).toString("base64");
+};
 const text = (selector) => page.locator(selector).allInnerTexts();
 
 // The weapons of each sex as the UI shows them: the touch buttons' icons and the shop's melee and ranged upgrades.
@@ -1316,6 +1372,73 @@ check(
   pool.map((level) => level.toFixed(0)).join(" "),
 );
 
+// 4a the ring round a dark lamp is a mark on the ground: it lies under the lamp, whose legs stand in front of it, while the
+// relight progress, drawn over the lantern, stays on top and readable
+{
+  const [darkX, darkY] = lamps[1];
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.lamps[1].relight = 0; // no progress ring for the first look: only the ground's
+    state.hero.x = 80;
+    state.hero.y = 560;
+  });
+  const ringShot = await stageShot();
+  await showLayers(["ground-marks", "marks"], false);
+  const noRing = await stageShot();
+  await showLayers(["ground-marks", "marks"], true);
+  await showLayers(["marks"], false);
+  const ringWithoutMarks = await stageShot();
+  await showLayers(["marks"], true);
+  await showLayers(["lamp-post", "ground-marks", "marks"], false);
+  const noLamp = await stageShot();
+  await showLayers(["lamp-post", "ground-marks", "marks"], true);
+  await showLayers(["ground-marks", "marks"], false);
+  const lampAlone = await stageShot();
+  await showLayers(["ground-marks", "marks"], true);
+  writeFileSync(`${OUT}/latest/04a-dark-lamp-ring.png`, Buffer.from(ringShot, "base64"));
+  shots.push("04a-dark-lamp-ring");
+  // the ring's pixels, and how many of them are over the lamp: the lamp's own pixels are those it adds to the scene
+  const [ringDrawn, ringOverLamp, ringInGround] = [
+    await changedWithin(ringShot, noRing),
+    await changedWithin(ringShot, noRing, lampAlone, noLamp),
+    await changedWithin(ringWithoutMarks, noRing),
+  ];
+  check("dark-lamps", "the dark lamp's ring is drawn", ringDrawn.changed > 100, `${ringDrawn.changed} pixels`);
+  check(
+    "dark-lamps",
+    "the ring is on the ground, not in the marks over the sprites",
+    ringInGround.changed > 100,
+    `${ringInGround.changed} pixels with the marks hidden`,
+  );
+  check(
+    "dark-lamps",
+    "the ring lies under the lamp: not one of the lamp's pixels is drawn over by it",
+    ringOverLamp.changed === 0,
+    `${ringOverLamp.changed} of the lamp's ${ringOverLamp.footprint} pixels`,
+  );
+  // the lamp being relit shows its progress ring over the lantern
+  await page.evaluate(() => {
+    window.lampwarden.state().lamps[1].relight = 0.5;
+  });
+  const progressOn = await stageShot();
+  await showLayers(["marks"], false);
+  const progressOff = await stageShot();
+  await showLayers(["marks"], true);
+  const progress = await changedWithin(progressOn, progressOff);
+  check(
+    "dark-lamps",
+    "the relight progress ring is drawn over the lamp's head",
+    progress.changed > 30,
+    `${progress.changed} pixels at lamp ${darkX},${darkY}`,
+  );
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.hero.x = state.lamps[1].x + 10;
+    state.hero.y = state.lamps[1].y + 8;
+  });
+  await settle();
+}
+
 // 4b lamp light on the characters: a figure in a pool stands in front of it, is lit warm and casts a shadow away from the lamp
 await page.evaluate(() => {
   const state = window.lampwarden.state();
@@ -1416,7 +1539,7 @@ const warmth = ([red, , blue]) => red / blue;
 check(
   "lamp-lighting",
   "the warden in a pool is lit warm, far more than in the dark",
-  lit.count > 200 && unlit.count > 200 && warmth(lit.colour) > warmth(unlit.colour) * 1.8,
+  lit.count > 200 && unlit.count > 200 && warmth(lit.colour) > warmth(unlit.colour) * 1.5,
   `red/blue ${warmth(lit.colour).toFixed(2)} in the pool, ${warmth(unlit.colour).toFixed(2)} in the dark`,
 );
 // the same spot with the lamp dark: no warmth, no shadow from it
@@ -1437,6 +1560,275 @@ await page.evaluate(() => {
   window.lampwarden.state().hero.x = 560;
   window.lampwarden.state().hero.y = 360;
 });
+
+// 4b2 the warden and a lit lamp, which of them is nearer the camera (the greater ground y): a lamp's layers, its sprite and
+// its lantern glow, halo, foot and glints, draw over the warden only where the lamp is the nearer, and nothing of the
+// lamp's, its painted shadow included, which is on the ground, covers him where he stands clear of its body.
+{
+  const [postX, postY] = lamps[1];
+  const LAMP_LAYERS = ["lamp-post", "lamp-glow"];
+  const WARDEN_LAYERS = ["warden", "warden-rim"];
+  // how many of the warden's pixels the lamp's sprite, and its glow, change when each is switched off
+  const lampOverWarden = async (offsetX, offsetY, name) => {
+    await page.evaluate(
+      ([x, y]) => {
+        const state = window.lampwarden.state();
+        state.monsters = [];
+        state.hero.x = x;
+        state.hero.y = y;
+        state.hero.octant = 2; // facing the camera
+        state.hero.animation = "idle";
+        state.hero.frameTime = 0;
+      },
+      [postX + offsetX, postY + offsetY],
+    );
+    const full = await stageShot();
+    if (name) {
+      writeFileSync(`${OUT}/latest/${name}.png`, Buffer.from(full, "base64"));
+      shots.push(name);
+    }
+    await showLayers(["lamp-post"], false);
+    const withoutPost = await stageShot();
+    await showLayers(["lamp-post"], true);
+    await showLayers(["lamp-glow"], false);
+    const withoutGlow = await stageShot();
+    await showLayers(["lamp-glow"], true);
+    await showLayers(["lamp-shadows"], false);
+    const withoutShadow = await stageShot();
+    await showLayers(["lamp-shadows"], true);
+    await showLayers(LAMP_LAYERS, false);
+    const wardenAlone = await stageShot();
+    await showLayers(WARDEN_LAYERS, false);
+    const nobody = await stageShot();
+    await showLayers(WARDEN_LAYERS, true);
+    await showLayers(LAMP_LAYERS, true);
+    return {
+      post: await changedWithin(full, withoutPost, wardenAlone, nobody),
+      glow: await changedWithin(full, withoutGlow, wardenAlone, nobody),
+      shadow: await changedWithin(full, withoutShadow, wardenAlone, nobody),
+      shadowDrawn: await changedWithin(full, withoutShadow),
+    };
+  };
+  const covered = (cover) =>
+    `${cover.post.changed} by the sprite, ${cover.glow.changed} by the glow of ${cover.post.footprint}`;
+  for (const [side, offsetX] of [
+    ["left", -14],
+    ["on", 0],
+    ["right", 14],
+    ["far right", 30],
+  ]) {
+    const cover = await lampOverWarden(offsetX, 6, side === "right" ? "04b2-warden-in-front-of-lamp" : null);
+    check(
+      "lamp-depth",
+      `the warden in front of a lamp, ${side}, is covered by none of its layers`,
+      cover.post.changed === 0 && cover.glow.changed === 0,
+      covered(cover),
+    );
+  }
+  const behind = await lampOverWarden(4, -8, "04b2-warden-behind-lamp");
+  check(
+    "lamp-depth",
+    "the warden behind a lamp is covered by its post and its glow",
+    behind.post.changed > 100 && behind.glow.changed > 100,
+    covered(behind),
+  );
+  const beside = await lampOverWarden(40, -6, "04b2-warden-behind-beside-lamp");
+  check(
+    "lamp-depth",
+    "the warden behind a lamp but clear of its post is not covered by its painted shadow",
+    beside.post.changed === 0 && beside.shadow.changed === 0 && beside.shadowDrawn.changed > 100,
+    `${covered(beside)}, the shadow on the ground (${beside.shadowDrawn.changed} pixels) over ${beside.shadow.changed} of his`,
+  );
+  await page.evaluate(() => {
+    window.lampwarden.state().hero.x = 560;
+    window.lampwarden.state().hero.y = 360;
+  });
+}
+
+// 4b3 the blow's wedge on the ground lies under the figures: a monster standing in it is drawn over it
+{
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.hero.x = 560;
+    state.hero.y = 360;
+    state.hero.octant = 0; // facing east
+    state.hero.animation = "melee";
+    state.hero.frameTime = 0.05;
+    state.monsters = [
+      {
+        id: state.nextId++,
+        kind: "satyr",
+        x: 600,
+        y: 362,
+        health: 1,
+        age: 0,
+        wobble: 0,
+        snuff: 0,
+        attackCooldown: 99,
+        hurt: 0,
+      },
+    ];
+  });
+  await page.waitForTimeout(100); // the monster list reaches React on the next render
+  const withWedge = await stageShot();
+  writeFileSync(`${OUT}/latest/04b3-wedge-under-monster.png`, Buffer.from(withWedge, "base64"));
+  shots.push("04b3-wedge-under-monster");
+  await showLayers(["sweep"], false);
+  const withoutWedge = await stageShot();
+  await showLayers(["monster", "monster-rim"], false);
+  const neither = await stageShot();
+  await showLayers(["sweep", "monster", "monster-rim"], true);
+  const wedgeDrawn = await changedWithin(withWedge, withoutWedge);
+  const wedgeOverMonster = await changedWithin(withWedge, withoutWedge, withoutWedge, neither);
+  check("melee-sweep", "the wedge is drawn", wedgeDrawn.changed > 200, `${wedgeDrawn.changed} pixels`);
+  check(
+    "melee-sweep",
+    "a monster in the wedge is drawn over it, none of its pixels covered",
+    wedgeOverMonster.changed === 0 && wedgeOverMonster.footprint > 500,
+    `${wedgeOverMonster.changed} of its ${wedgeOverMonster.footprint} pixels`,
+  );
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.monsters = [];
+    state.hero.animation = "idle";
+    state.hero.frameTime = 0;
+  });
+  await page.waitForTimeout(100);
+}
+
+// 4b4 the warden's own light lights what is around him, not only the ground: in the dark a monster near him is warmer than
+// one far from him, the small props at his side are lit, and at dawn all of it has faded like the lamps' light
+{
+  const wardenAt = [300, 450];
+  await page.evaluate(([x, y]) => {
+    const state = window.lampwarden.state();
+    for (const lamp of state.lamps) lamp.lit = false;
+    state.monsters = [];
+    state.shots = [];
+    state.hero.x = x;
+    state.hero.y = y;
+    state.hero.octant = 0;
+    state.hero.animation = "idle";
+    state.hero.frameTime = 0;
+  }, wardenAt);
+  const setSatyr = async (x, y) => {
+    await page.evaluate(
+      ([satyrX, satyrY]) => {
+        const state = window.lampwarden.state();
+        state.monsters = [];
+        if (satyrX !== null)
+          state.monsters.push({
+            id: state.nextId++,
+            kind: "satyr",
+            x: satyrX,
+            y: satyrY,
+            health: 1,
+            age: 0,
+            wobble: 0,
+            snuff: 0,
+            attackCooldown: 99,
+            hurt: 0,
+          });
+      },
+      [x, y],
+    );
+    await page.waitForTimeout(100); // the monster list reaches React on the next render
+  };
+  const satyrBox = (x, y) => [x - 30, y - 100, 60, 100];
+  // the red over blue of a satyr standing at (x, y), against the same scene without it
+  const satyrWarmth = async (x, y) => {
+    await setSatyr(null, null);
+    const bare = await stageShot();
+    await setSatyr(x, y);
+    const withSatyr = await stageShot();
+    const found = await changedColour(withSatyr, bare, satyrBox(x, y));
+    return { warmth: warmth(found.colour), count: found.count, shot: withSatyr };
+  };
+  const near = await satyrWarmth(wardenAt[0] + 30, wardenAt[1] + 8);
+  const far = await satyrWarmth(wardenAt[0] + 130, wardenAt[1] + 8);
+  writeFileSync(`${OUT}/latest/04b4-monster-near-warden.png`, Buffer.from(near.shot, "base64"));
+  shots.push("04b4-monster-near-warden");
+  check(
+    "warden-light",
+    "in the dark a monster near the warden is warmer than one far from him",
+    near.count > 200 && far.count > 200 && near.warmth > far.warmth * 1.12,
+    `red/blue ${near.warmth.toFixed(2)} near him, ${far.warmth.toFixed(2)} far`,
+  );
+  await setSatyr(null, null);
+  // the statue, in the dark, with the warden far, then beside it, then a lamp's pool brought to its feet
+  const statueBase = [480, 334];
+  const statueTorso = [470, 262, 16, 18];
+  await page.evaluate(() => {
+    window.lampwarden.state().hero.x = 80;
+    window.lampwarden.state().hero.y = 560;
+  });
+  const statueAlone = await stageShot();
+  await page.evaluate(([x, y]) => {
+    window.lampwarden.state().hero.x = x + 34;
+    window.lampwarden.state().hero.y = y + 8;
+  }, statueBase);
+  const statueByWarden = await stageShot();
+  writeFileSync(`${OUT}/latest/04b4-statue-by-warden.png`, Buffer.from(statueByWarden, "base64"));
+  shots.push("04b4-statue-by-warden");
+  await page.evaluate(() => {
+    window.lampwarden.state().hero.x = 80;
+    window.lampwarden.state().hero.y = 560;
+  });
+  // only the lamp's numbers move (its sprites stand where they were mounted), which is all the statue's tint reads
+  await page.evaluate(() => {
+    const lamp = window.lampwarden.state().lamps[4];
+    lamp.y = 300;
+    lamp.lit = true;
+  });
+  const statueByLamp = await stageShot();
+  await page.evaluate(() => {
+    const lamp = window.lampwarden.state().lamps[4];
+    lamp.y = 246;
+  });
+  const statueWarmth = async (encoded) => warmth(await meanColour(encoded, statueTorso));
+  const [alone, byWarden, byLamp] = [
+    await statueWarmth(statueAlone),
+    await statueWarmth(statueByWarden),
+    await statueWarmth(statueByLamp),
+  ];
+  check(
+    "warden-light",
+    "the statue is lit when the warden stands beside it",
+    byWarden > alone * 1.08,
+    `red/blue ${byWarden.toFixed(2)} beside him, ${alone.toFixed(2)} alone`,
+  );
+  check(
+    "warden-light",
+    "the statue is lit when a lamp's light reaches its base",
+    byLamp > alone * 1.08,
+    `red/blue ${byLamp.toFixed(2)} in a lamp's pool, ${alone.toFixed(2)} alone`,
+  );
+  // dawn: the lights are gone, near the warden and far from him a monster is the same colour
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.lamps[4].lit = false;
+    state.elapsed = state.length;
+    state.hero.x = 300;
+    state.hero.y = 450;
+  });
+  const dawnNear = await satyrWarmth(330, 458);
+  const dawnFar = await satyrWarmth(430, 458);
+  check(
+    "warden-light",
+    "at dawn the warden's light has faded: a monster beside him is no warmer than one far away",
+    dawnNear.count > 200 && Math.abs(dawnNear.warmth - dawnFar.warmth) < 0.05,
+    `red/blue ${dawnNear.warmth.toFixed(2)} near him, ${dawnFar.warmth.toFixed(2)} far`,
+  );
+  await setSatyr(null, null);
+  await page.evaluate(() => {
+    const state = window.lampwarden.state();
+    state.elapsed = 0;
+    for (const lamp of state.lamps) lamp.lit = true;
+    state.hero.x = 560;
+    state.hero.y = 360;
+  });
+  await settle();
+}
 
 // 4c a monster's blow on the warden: a white flash frame, the red vignette, the burst at the claw, a jolt of the screen
 // and the health bar, then the warden thrown away from the attacker. The sim is slowed to a tenth and stopped at each

@@ -5,10 +5,10 @@
 // the renderer (a Vercel Sandbox in production).
 import type { Building, BuildingBrief, BuildingJob } from "@/game/building";
 import { writeBuildingBrief } from "../../../pipeline/building-brief";
-import { type CandidateOutcome, type LoopStage, runCandidateLoop } from "../../../pipeline/loop";
+import { type CandidateOutcome, isAccepted, type LoopStage, runCandidateLoop } from "../../../pipeline/loop";
 import type { MubitClient } from "../../../pipeline/mubit";
 import type { Renderer } from "../../../pipeline/render-types";
-import { galleryId, isAccepted, runJobShell } from "../creatures/job-shell";
+import { galleryId, runJobShell } from "../creatures/job-shell";
 import type { BuildingStore } from "../creatures/store";
 import { measurePlacement } from "./placement";
 

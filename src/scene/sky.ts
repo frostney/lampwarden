@@ -178,13 +178,15 @@ export const LIGHTHOUSE_LAMP = { x: LIGHTHOUSE.x, y: lighthouseBase() - LIGHTHOU
 
 // --- painting a stage ------------------------------------------------------------------------------------------
 
+type Plot = (x: number, y: number, colour: Rgb) => void;
+
 function paintSky(stage: number): Texture {
   const width = STAGE_WIDTH;
   const height = HORIZON_Y;
   const pixels = new Uint8Array(width * height * 4);
   const bands = bandsFor(stage);
   const horizonBand = bands.at(-1) ?? [0, 0, 0];
-  const plot = (x: number, y: number, colour: Rgb) => {
+  const plot: Plot = (x, y, colour) => {
     if (x >= 0 && x < width && y >= 0 && y < height) {
       putPixel(pixels, width, x, y, colour);
     }
@@ -194,8 +196,14 @@ function paintSky(stage: number): Texture {
       plot(x, y, bands[bandAt(x, y)] ?? horizonBand);
     }
   }
+  paintStars(plot, stage);
+  const amount = dawnAmount(stage);
+  paintMoon(plot, bands[bandAt(MOON.x, MOON.y)] ?? horizonBand, amount);
+  paintLand(plot, horizonBand, amount);
+  return bufferTexture(pixels, width, height);
+}
 
-  // stars
+function paintStars(plot: Plot, stage: number) {
   for (const star of STARS) {
     const level = starLevelAt(star, stage);
     const colour = STAR_LEVELS[level - 1];
@@ -211,10 +219,10 @@ function paintSky(stage: number): Texture {
       plot(star.x, star.y + 1, dim);
     }
   }
+}
 
-  // the moon: a crescent lit from the right, its dark side a shade over the sky, and a dithered halo
-  const amount = dawnAmount(stage);
-  const skyAtMoon = bands[bandAt(MOON.x, MOON.y)] ?? horizonBand;
+// the moon: a crescent lit from the right, its dark side a shade over the sky, and a dithered halo
+function paintMoon(plot: Plot, skyAtMoon: Rgb, amount: number) {
   const lit = mix(MOON_LIT, skyAtMoon, amount * 0.6);
   const edge = mix(MOON_EDGE, skyAtMoon, amount * 0.6);
   const earthshine = mix(skyAtMoon, MOON_EDGE, 0.12);
@@ -222,26 +230,33 @@ function paintSky(stage: number): Texture {
   const reach = MOON.radius + 4;
   for (let y = MOON.y - reach; y <= MOON.y + reach; y++) {
     for (let x = MOON.x - reach; x <= MOON.x + reach; x++) {
-      const distance = Math.hypot(x + 0.5 - MOON.x, y + 0.5 - MOON.y);
-      if (distance > MOON.radius) {
-        if (distance <= MOON.radius + 3 && bayerThreshold(x, y) < (MOON.radius + 3.5 - distance) / 4) {
-          plot(x, y, halo);
-        }
-        continue;
-      }
-      const shadowed = Math.hypot(x + 0.5 - (MOON.x - MOON.shadowShift), y + 0.5 - (MOON.y - 1)) <= MOON.radius;
-      if (shadowed) {
-        plot(x, y, earthshine);
-      } else {
-        plot(x, y, distance > MOON.radius - 1.2 ? edge : lit);
+      const colour = moonPixel(x, y, { lit, edge, earthshine, halo });
+      if (colour) {
+        plot(x, y, colour);
       }
     }
   }
+}
 
-  // the land: the headland nearer and darker, the far island and the rocks hazier
+// what the moon paints at (x, y): its lit face and edge, the earthshine on its dark side, a dithered halo, or nothing
+function moonPixel(x: number, y: number, inks: { lit: Rgb; edge: Rgb; earthshine: Rgb; halo: Rgb }): Rgb | null {
+  const distance = Math.hypot(x + 0.5 - MOON.x, y + 0.5 - MOON.y);
+  if (distance > MOON.radius) {
+    const inHalo = distance <= MOON.radius + 3 && bayerThreshold(x, y) < (MOON.radius + 3.5 - distance) / 4;
+    return inHalo ? inks.halo : null;
+  }
+  const shadowed = Math.hypot(x + 0.5 - (MOON.x - MOON.shadowShift), y + 0.5 - (MOON.y - 1)) <= MOON.radius;
+  if (shadowed) {
+    return inks.earthshine;
+  }
+  return distance > MOON.radius - 1.2 ? inks.edge : inks.lit;
+}
+
+// the land: the headland nearer and darker, the far island and the rocks hazier, with the lighthouse and the temple
+function paintLand(plot: Plot, horizonBand: Rgb, amount: number) {
   const near = mix(horizonBand, hexRgb(0x02040c), 0.72 - 0.22 * amount);
   const far = mix(horizonBand, hexRgb(0x02040c), 0.45 - 0.15 * amount);
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < STAGE_WIDTH; x++) {
     const headland = heightAlong(HEADLAND, x);
     const rocks = heightAlong(RIGHT_ROCKS, x);
     const island = Math.max(...FAR_ISLANDS.map((points) => heightAlong(points, x)));
@@ -266,7 +281,6 @@ function paintSky(stage: number): Texture {
       }
     });
   });
-  return bufferTexture(pixels, width, height);
 }
 
 const skies = new Map<number, Texture>();
@@ -395,23 +409,25 @@ const GLITTER_HEIGHT = 34;
 export const MOON_GLITTER = { x: MOON.x - (GLITTER_WIDTH - 1) / 2, y: HORIZON_Y + 1 };
 const GLITTER_DIM = hexRgb(0x1c2032);
 const GLITTER_BRIGHT = hexRgb(0x4a5068);
+// one streak of a glitter row: its length and where it is centred come from the row, the streak and the frame
+function paintGlitterStreak(pixels: Uint8Array, row: number, streak: number, frame: number, halfWidth: number) {
+  const length = 2 + Math.floor(hashUnit(row, frame * 3 + streak) * (2 + row / 6));
+  const centre = Math.round((GLITTER_WIDTH - 1) / 2 + (hashUnit(row + streak * 31, frame * 5) * 2 - 1) * halfWidth);
+  for (let step = 0; step < length; step++) {
+    const x = centre - Math.floor(length / 2) + step;
+    if (x >= 0 && x < GLITTER_WIDTH) {
+      putPixel(pixels, GLITTER_WIDTH, x, row, step === 0 || step === length - 1 ? GLITTER_DIM : GLITTER_BRIGHT);
+    }
+  }
+}
+
 function paintGlitter(frame: number): Texture {
   const pixels = new Uint8Array(GLITTER_WIDTH * GLITTER_HEIGHT * 4);
   for (let row = 1; row < GLITTER_HEIGHT; row += 2) {
     const halfWidth = 3 + (row / GLITTER_HEIGHT) * 17;
     for (let streak = 0; streak < 2; streak++) {
-      const roll = hashUnit(row * 7 + streak, frame);
-      if (roll < 0.25) {
-        continue;
-      }
-      const length = 2 + Math.floor(hashUnit(row, frame * 3 + streak) * (2 + row / 6));
-      const centre = Math.round((GLITTER_WIDTH - 1) / 2 + (hashUnit(row + streak * 31, frame * 5) * 2 - 1) * halfWidth);
-      for (let step = 0; step < length; step++) {
-        const x = centre - Math.floor(length / 2) + step;
-        if (x < 0 || x >= GLITTER_WIDTH) {
-          continue;
-        }
-        putPixel(pixels, GLITTER_WIDTH, x, row, step === 0 || step === length - 1 ? GLITTER_DIM : GLITTER_BRIGHT);
+      if (hashUnit(row * 7 + streak, frame) >= 0.25) {
+        paintGlitterStreak(pixels, row, streak, frame, halfWidth);
       }
     }
   }

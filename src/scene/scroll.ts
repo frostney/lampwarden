@@ -130,19 +130,7 @@ export function paintParchment(pixels: Uint8ClampedArray, width: number, height:
         tones[y * width + x] = 5;
         continue;
       }
-      // mottling, darkening towards the edge, stains with a darker tide-mark ring
-      let tone = 1.15 + (noise2(x / 21, y / 14, 5) - 0.5) * 1.3 + (noise2(x / 6, y / 5, 9) - 0.5) * 0.45;
-      tone += Math.max(0, 1 - (fromEdge - 1) / 7) * 2.6;
-      for (const stain of stains) {
-        const wobble = (noise(Math.atan2(y - stain.y, x - stain.x) * 2.2 + stain.x, 41) - 0.5) * 0.3;
-        const reach = Math.hypot((x - stain.x) / stain.radiusX, (y - stain.y) / stain.radiusY) + wobble;
-        if (reach < 0.85) {
-          tone += 0.55;
-        } else if (reach < 1.05) {
-          tone += 1.25;
-        }
-      }
-      tones[y * width + x] = Math.min(4, Math.max(0, Math.floor(tone + threshold(x, y) - 0.5)));
+      tones[y * width + x] = parchmentTone(x, y, fromEdge, stains);
     }
   }
   for (let index = 0; index < tones.length; index++) {
@@ -152,22 +140,48 @@ export function paintParchment(pixels: Uint8ClampedArray, width: number, height:
       put(pixels, width, index % width, Math.floor(index / width), colour);
     }
   }
-  // fibres: short strokes laid along the sheet, on its plain middle only
+  layFibres(pixels, width, height, tones);
+}
+
+// One pixel's tone inside the edge: mottling, darkening towards the edge, stains with a darker tide-mark ring.
+function parchmentTone(x: number, y: number, fromEdge: number, stains: readonly Stain[]): number {
+  let tone = 1.15 + (noise2(x / 21, y / 14, 5) - 0.5) * 1.3 + (noise2(x / 6, y / 5, 9) - 0.5) * 0.45;
+  tone += Math.max(0, 1 - (fromEdge - 1) / 7) * 2.6;
+  for (const stain of stains) {
+    const wobble = (noise(Math.atan2(y - stain.y, x - stain.x) * 2.2 + stain.x, 41) - 0.5) * 0.3;
+    const reach = Math.hypot((x - stain.x) / stain.radiusX, (y - stain.y) / stain.radiusY) + wobble;
+    if (reach < 0.85) {
+      tone += 0.55;
+    } else if (reach < 1.05) {
+      tone += 1.25;
+    }
+  }
+  return Math.min(4, Math.max(0, Math.floor(tone + threshold(x, y) - 0.5)));
+}
+
+// fibres: short strokes laid along the sheet, on its plain middle only (tone 1)
+function layFibres(pixels: Uint8ClampedArray, width: number, height: number, tones: readonly number[]) {
   const fibreCount = Math.round((width * height) / 450);
   for (let index = 0; index < fibreCount; index++) {
-    let x = Math.floor(hash(index, 5, 77) * width);
-    let y = Math.floor(hash(index, 6, 77) * height);
-    const length = 3 + Math.floor(hash(index, 7, 77) * 6);
-    const colour = hash(index, 8, 77) < 0.65 ? FIBRE_DARK : FIBRE_LIGHT;
-    const slope = hash(index, 9, 77) < 0.5 ? 1 : -1;
-    for (let step = 0; step < length; step++) {
-      if (x >= 0 && x < width && y >= 0 && y < height && (tones[y * width + x] ?? -1) === 1) {
-        put(pixels, width, x, y, colour);
-      }
-      x++;
-      if (hash(index, step, 78) < 0.25) {
-        y += slope;
-      }
+    layFibre(pixels, width, height, tones, index);
+  }
+}
+
+// the fibre numbered `index`: where it starts, how long it is, its shade and which way it drifts all come from its hash
+function layFibre(pixels: Uint8ClampedArray, width: number, height: number, tones: readonly number[], index: number) {
+  let x = Math.floor(hash(index, 5, 77) * width);
+  let y = Math.floor(hash(index, 6, 77) * height);
+  const length = 3 + Math.floor(hash(index, 7, 77) * 6);
+  const colour = hash(index, 8, 77) < 0.65 ? FIBRE_DARK : FIBRE_LIGHT;
+  const slope = hash(index, 9, 77) < 0.5 ? 1 : -1;
+  for (let step = 0; step < length; step++) {
+    const inside = x >= 0 && x < width && y >= 0 && y < height;
+    if (inside && (tones[y * width + x] ?? -1) === 1) {
+      put(pixels, width, x, y, colour);
+    }
+    x++;
+    if (hash(index, step, 78) < 0.25) {
+      y += slope;
     }
   }
 }
@@ -179,15 +193,7 @@ export function paintRoller(pixels: Uint8ClampedArray, width: number, turn: numb
   pixels.fill(0);
   const top = shadowBelow ? 0 : ROLLER_SHADOW;
   const shadowTop = shadowBelow ? ROLLER_HEIGHT : 0;
-  // the shadow on the parchment: a dark, dithered fade away from the roller
-  for (let row = 0; row < ROLLER_SHADOW; row++) {
-    const nearness = shadowBelow ? row : ROLLER_SHADOW - 1 - row;
-    for (let x = ROLLER_OVERHANG + 3; x < width - ROLLER_OVERHANG - 3; x++) {
-      if (nearness === 0 || threshold(x, row) < 0.5) {
-        put(pixels, width, x, shadowTop + row, OUTLINE, 70);
-      }
-    }
-  }
+  paintRollerShadow(pixels, width, shadowTop, shadowBelow);
   // the rod: outline, six rows of shaded wood, outline; grain streaks travel down the face as it turns
   const rodLeft = KNOB_WIDTH;
   const rodRight = width - 1 - KNOB_WIDTH;
@@ -202,15 +208,30 @@ export function paintRoller(pixels: Uint8ClampedArray, width: number, turn: numb
       put(pixels, width, x, top + 3 + face, WOOD[shade] ?? OUTLINE);
     }
   }
-  // the knobs, the right one mirrored
+  paintKnobs(pixels, width, top);
+}
+
+// the shadow on the parchment: a dark, dithered fade away from the roller
+function paintRollerShadow(pixels: Uint8ClampedArray, width: number, shadowTop: number, shadowBelow: boolean) {
+  for (let row = 0; row < ROLLER_SHADOW; row++) {
+    const nearness = shadowBelow ? row : ROLLER_SHADOW - 1 - row;
+    for (let x = ROLLER_OVERHANG + 3; x < width - ROLLER_OVERHANG - 3; x++) {
+      if (nearness === 0 || threshold(x, row) < 0.5) {
+        put(pixels, width, x, shadowTop + row, OUTLINE, 70);
+      }
+    }
+  }
+}
+
+// the knobs, the right one mirrored
+function paintKnobs(pixels: Uint8ClampedArray, width: number, top: number) {
   for (const [row, line] of KNOB.entries()) {
     for (const [column, symbol] of [...line].entries()) {
       const colour = BRONZE[symbol];
-      if (!colour) {
-        continue;
+      if (colour) {
+        put(pixels, width, column, top + row, colour);
+        put(pixels, width, width - 1 - column, top + row, colour);
       }
-      put(pixels, width, column, top + row, colour);
-      put(pixels, width, width - 1 - column, top + row, colour);
     }
   }
 }

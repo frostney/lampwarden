@@ -358,96 +358,126 @@ export function lampLight(x: number, y: number, radius: number): LampLight {
 // Sparse points on the lit stone that catch the light in turn: tile corners flare into small stars, tile edges and
 // the plaza's rim into short bright dashes, and specks in the stone into single pixels. Brighter bands get more.
 function groundGlints(pool: LightShape, random: () => number): Glint[] {
-  const area = pool.radiusX * pool.radiusY;
-  const glints: Glint[] = [];
-  const free = (x: number, y: number) => glints.every((glint) => Math.abs(glint.x - x) + Math.abs(glint.y - y) > 8);
-  const levelAt = (x: number, y: number) => lightLevel(pool, x, y, CALM);
-  const period = () => 10 + Math.floor(random() * 8);
-  const add = (x: number, y: number, shapes: readonly GlintShape[]) => {
-    const length = period();
-    glints.push({ x, y, phase: Math.floor(random() * length), frames: twinkle(shapes, length) });
-  };
-  const randomPoint = () => ({
-    x: Math.round(pool.centerX + (random() * 2 - 1) * pool.radiusX),
-    y: Math.round(pool.centerY + (random() * 2 - 1) * pool.radiusY),
-  });
-  const nearLampBase = (x: number, y: number) => Math.abs(x - pool.centerX) < 10 && Math.abs(y - pool.centerY) < 8;
+  const field = new GlintField(pool, random);
+  field.addCorners();
+  field.addEdges();
+  field.addSpecks();
+  field.addRim();
+  return field.glints;
+}
+
+// The glints of one pool as they are placed, kept apart from each other, each with its own period and phase.
+class GlintField {
+  readonly glints: Glint[] = [];
+  private readonly pool: LightShape;
+  private readonly random: () => number;
+  private readonly area: number;
+  constructor(pool: LightShape, random: () => number) {
+    this.pool = pool;
+    this.random = random;
+    this.area = pool.radiusX * pool.radiusY;
+  }
+
+  private free(x: number, y: number) {
+    return this.glints.every((glint) => Math.abs(glint.x - x) + Math.abs(glint.y - y) > 8);
+  }
+  private levelAt(x: number, y: number) {
+    return lightLevel(this.pool, x, y, CALM);
+  }
+  private add(x: number, y: number, shapes: readonly GlintShape[]) {
+    const length = 10 + Math.floor(this.random() * 8);
+    this.glints.push({ x, y, phase: Math.floor(this.random() * length), frames: twinkle(shapes, length) });
+  }
+  private randomPoint() {
+    return {
+      x: Math.round(this.pool.centerX + (this.random() * 2 - 1) * this.pool.radiusX),
+      y: Math.round(this.pool.centerY + (this.random() * 2 - 1) * this.pool.radiusY),
+    };
+  }
+  private nearLampBase(x: number, y: number) {
+    return Math.abs(x - this.pool.centerX) < 10 && Math.abs(y - this.pool.centerY) < 8;
+  }
 
   // tile corners in the two brightest bands
-  const corners: { x: number; y: number }[] = [];
-  for (let tileColumn = 1; tileColumn < 12; tileColumn++) {
-    for (let tileRow = 1; tileRow < 12; tileRow++) {
-      const point = plazaPoint(tileColumn, tileRow);
-      if (levelAt(point.x, point.y) >= pool.palette.length - 1 && !nearLampBase(point.x, point.y)) {
-        corners.push(point);
+  addCorners() {
+    const corners: { x: number; y: number }[] = [];
+    for (let tileColumn = 1; tileColumn < 12; tileColumn++) {
+      for (let tileRow = 1; tileRow < 12; tileRow++) {
+        const point = plazaPoint(tileColumn, tileRow);
+        if (this.levelAt(point.x, point.y) >= this.pool.palette.length - 1 && !this.nearLampBase(point.x, point.y)) {
+          corners.push(point);
+        }
       }
     }
-  }
-  shuffle(corners, random);
-  for (const corner of corners.slice(0, Math.round(area / 1300))) {
-    add(corner.x, corner.y, ["speck", "plus", "star", "star", "plus", "speck"]);
+    shuffle(corners, this.random);
+    for (const corner of corners.slice(0, Math.round(this.area / 1300))) {
+      this.add(corner.x, corner.y, ["speck", "plus", "star", "star", "plus", "speck"]);
+    }
   }
 
   // tile edges: a random point snapped onto the nearest grid line
-  for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(area / 450); attempt++) {
-    const point = randomPoint();
-    let tileColumn = plazaU(point.x, point.y);
-    let tileRow = plazaV(point.x, point.y);
-    // a whole tileColumn is a line running down-left ("slash"), a whole tileRow one running down-right ("backslash")
-    const slash = distanceToWhole(tileColumn) < distanceToWhole(tileRow);
-    if (slash) {
-      tileColumn = Math.round(tileColumn);
-    } else {
-      tileRow = Math.round(tileRow);
+  addEdges() {
+    for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(this.area / 450); attempt++) {
+      const point = this.randomPoint();
+      let tileColumn = plazaU(point.x, point.y);
+      let tileRow = plazaV(point.x, point.y);
+      // a whole tileColumn is a line running down-left ("slash"), a whole tileRow one running down-right ("backslash")
+      const slash = distanceToWhole(tileColumn) < distanceToWhole(tileRow);
+      if (slash) {
+        tileColumn = Math.round(tileColumn);
+      } else {
+        tileRow = Math.round(tileRow);
+      }
+      const snapped = plazaPoint(tileColumn, tileRow);
+      const level = this.levelAt(snapped.x, snapped.y);
+      if (
+        level < 2 ||
+        this.random() * this.pool.palette.length > level ||
+        !this.free(snapped.x, snapped.y) ||
+        this.nearLampBase(snapped.x, snapped.y)
+      ) {
+        continue;
+      }
+      this.add(snapped.x, snapped.y, (level >= 3 ? LONG_STROKES : SHORT_STROKES)[slash ? "slash" : "backslash"]);
+      placed++;
     }
-    const snapped = plazaPoint(tileColumn, tileRow);
-    const level = levelAt(snapped.x, snapped.y);
-    if (
-      level < 2 ||
-      random() * pool.palette.length > level ||
-      !free(snapped.x, snapped.y) ||
-      nearLampBase(snapped.x, snapped.y)
-    ) {
-      continue;
-    }
-    add(snapped.x, snapped.y, (level >= 3 ? LONG_STROKES : SHORT_STROKES)[slash ? "slash" : "backslash"]);
-    placed++;
   }
 
   // specks inside the tiles, away from the grid lines
-  for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(area / 500); attempt++) {
-    const point = randomPoint();
-    const level = levelAt(point.x, point.y);
-    const awayFromLines =
-      distanceToWhole(plazaU(point.x, point.y)) > 0.18 && distanceToWhole(plazaV(point.x, point.y)) > 0.18;
-    if (level < 2 || !awayFromLines || !free(point.x, point.y) || nearLampBase(point.x, point.y)) {
-      continue;
+  addSpecks() {
+    for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(this.area / 500); attempt++) {
+      const point = this.randomPoint();
+      const level = this.levelAt(point.x, point.y);
+      const awayFromLines =
+        distanceToWhole(plazaU(point.x, point.y)) > 0.18 && distanceToWhole(plazaV(point.x, point.y)) > 0.18;
+      if (level < 2 || !awayFromLines || !this.free(point.x, point.y) || this.nearLampBase(point.x, point.y)) {
+        continue;
+      }
+      this.add(point.x, point.y, level >= 3 ? LONG_SPECK : SHORT_SPECK);
+      placed++;
     }
-    add(
-      point.x,
-      point.y,
-      level >= 3
-        ? ["speckDim", "speck", "speckBright", "plus", "speckBright", "speck"]
-        : ["speckDim", "speck", "speckBright", "speck"],
-    );
-    placed++;
   }
 
   // the rim, where it is lit
-  const rim: { x: number; y: number }[] = [];
-  for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y++) {
-    for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2) {
-      if (onPlazaRim(x, y) && levelAt(x, y) >= 2) {
-        rim.push({ x, y });
+  addRim() {
+    const { centerX, centerY, radiusX, radiusY } = this.pool;
+    const rim: { x: number; y: number }[] = [];
+    for (let y = Math.floor(centerY - radiusY); y <= centerY + radiusY; y++) {
+      for (let x = Math.floor(centerX - radiusX); x <= centerX + radiusX; x += 2) {
+        if (onPlazaRim(x, y) && this.levelAt(x, y) >= 2) {
+          rim.push({ x, y });
+        }
       }
     }
+    shuffle(rim, this.random);
+    for (const point of rim.filter((candidate) => this.free(candidate.x, candidate.y)).slice(0, 3)) {
+      this.add(point.x, point.y, ["rimDim", "rim", "rimBright", "rimBright", "rim", "rimDim"]);
+    }
   }
-  shuffle(rim, random);
-  for (const point of rim.filter((candidate) => free(candidate.x, candidate.y)).slice(0, 3)) {
-    add(point.x, point.y, ["rimDim", "rim", "rimBright", "rimBright", "rim", "rimDim"]);
-  }
-  return glints;
 }
+
+const LONG_SPECK: readonly GlintShape[] = ["speckDim", "speck", "speckBright", "plus", "speckBright", "speck"];
+const SHORT_SPECK: readonly GlintShape[] = ["speckDim", "speck", "speckBright", "speck"];
 
 const FINIAL_PULSE: readonly GlintShape[] = [
   "speck",
@@ -479,8 +509,18 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
   const glints: Glint[] = [];
   const add = (x: number, y: number, length: number, bright: boolean) =>
     glints.push({ x, y, phase: Math.floor(random() * 8), frames: shimmer(length, bright) });
+  const chord = litChord(pool);
+  if (chord) {
+    wallStreaks(chord, lampX, random, add);
+  }
+  openSeaStreaks(pool, random, add);
+  return glints;
+}
 
-  // front rim: the lit chord of the rim above the wall
+type AddStreak = (x: number, y: number, length: number, bright: boolean) => void;
+
+// front rim: the lit chord of the rim above the wall, or null when the pool does not reach it
+function litChord(pool: LightShape): { left: number; right: number } | null {
   let chordLeft = Infinity;
   let chordRight = -Infinity;
   for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x++) {
@@ -492,28 +532,32 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
       }
     }
   }
-  if (chordLeft <= chordRight) {
-    const center = Math.min(chordRight, Math.max(chordLeft, lampX));
-    // a column under the lamp, narrowing with depth
-    const halfWidth = Math.min(16, Math.max(6, (chordRight - chordLeft) / 2));
-    for (let row = 0; row < 8; row++) {
-      const streaks = band(
-        row,
-        [
-          [2, 3],
-          [4, 2],
-        ],
-        1,
-      );
-      for (let streak = 0; streak < streaks; streak++) {
-        const x = Math.round(center + (random() * 2 - 1) * halfWidth * (1 - row * 0.1));
-        const y = Math.floor(frontRimY(x)) + PLAZA_WALL + 3 + row * 4 + Math.floor(random() * 2);
-        add(x, y, Math.max(2, 9 - row + Math.floor(random() * 3) - 1), row < 3);
-      }
+  return chordLeft <= chordRight ? { left: chordLeft, right: chordRight } : null;
+}
+
+// a column of streaks under the lamp below the wall, narrowing with depth
+function wallStreaks(chord: { left: number; right: number }, lampX: number, random: () => number, add: AddStreak) {
+  const center = Math.min(chord.right, Math.max(chord.left, lampX));
+  const halfWidth = Math.min(16, Math.max(6, (chord.right - chord.left) / 2));
+  for (let row = 0; row < 8; row++) {
+    const streaks = band(
+      row,
+      [
+        [2, 3],
+        [4, 2],
+      ],
+      1,
+    );
+    for (let streak = 0; streak < streaks; streak++) {
+      const x = Math.round(center + (random() * 2 - 1) * halfWidth * (1 - row * 0.1));
+      const y = Math.floor(frontRimY(x)) + PLAZA_WALL + 3 + row * 4 + Math.floor(random() * 2);
+      add(x, y, Math.max(2, 9 - row + Math.floor(random() * 3) - 1), row < 3);
     }
   }
+}
 
-  // open sea inside the pool
+// open sea inside the pool
+function openSeaStreaks(pool: LightShape, random: () => number, add: AddStreak) {
   const seaPixels: { x: number; y: number }[] = [];
   for (let y = Math.floor(pool.centerY - pool.radiusY); y <= pool.centerY + pool.radiusY; y += 3) {
     for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x += 2) {
@@ -526,7 +570,6 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
   for (const point of seaPixels.slice(0, Math.min(10, Math.round(seaPixels.length / 25)))) {
     add(point.x, point.y, 2 + Math.floor(random() * 4), bandLevel(pool, point.x, point.y, CALM) >= 2);
   }
-  return glints;
 }
 
 // The lantern cut out of the lit lamp sprite (lamp-lit.png, read off by eye) and added over the night, so its panes

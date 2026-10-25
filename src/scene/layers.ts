@@ -54,6 +54,52 @@ export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
 export const textureFor = (textures: TextureMap, key: string): Texture => textures[key] ?? Texture.EMPTY;
 
+// The scenery loads sprite by sprite: one that will not load is missing, and sceneryTextureKey draws the building's
+// hand-written sprite in its place.
+async function loadScenery(textures: TextureMap) {
+  await Promise.all(
+    sceneryAssetList().map(async (asset) => {
+      try {
+        textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
+      } catch {
+        // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
+        console.warn(`scenery sprite ${asset.alias} did not load`);
+      }
+    }),
+  );
+}
+
+// The wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been.
+function cutHeroFrames(textures: TextureMap) {
+  for (const sex of SEXES) {
+    const atlas = textures[heroAtlasKey(sex)];
+    if (!atlas) {
+      continue;
+    }
+    const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
+    const cut = cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells);
+    // a browser that will not give up the atlas's pixels still draws the frames, with their painted shadow and no rim
+    for (const cell of cells) {
+      textures[cell.key] =
+        cut?.get(cell.key) ??
+        new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
+    }
+  }
+}
+
+// A lamp's painted shadow lies on the ground, so it is a texture of its own, drawn under every sprite (Scene.tsx).
+function splitLampShadows(textures: TextureMap) {
+  for (const key of LAMP_KEYS) {
+    const lamp = textures[key];
+    const split = lamp && splitPaintedShadow(lamp);
+    if (!split) {
+      continue;
+    }
+    textures[key] = split.body;
+    textures[paintedShadowKey(key)] = split.shadow;
+  }
+}
+
 let textureCache: Promise<TextureMap> | null = null;
 export function loadTextures(): Promise<TextureMap> {
   textureCache ??= (async () => {
@@ -67,43 +113,9 @@ export function loadTextures(): Promise<TextureMap> {
       }
       textures[asset.alias] = prepared(asset.alias, texture);
     }
-    // the scenery loads sprite by sprite: one that will not load is missing, and sceneryTextureKey draws the building's
-    // hand-written sprite in its place
-    await Promise.all(
-      sceneryAssetList().map(async (asset) => {
-        try {
-          textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
-        } catch {
-          // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
-          console.warn(`scenery sprite ${asset.alias} did not load`);
-        }
-      }),
-    );
-    // the wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been
-    for (const sex of SEXES) {
-      const atlas = textures[heroAtlasKey(sex)];
-      if (!atlas) {
-        continue;
-      }
-      const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
-      const cut = cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells);
-      // a browser that will not give up the atlas's pixels still draws the frames, with their painted shadow and no rim
-      for (const cell of cells) {
-        textures[cell.key] =
-          cut?.get(cell.key) ??
-          new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
-      }
-    }
-    // a lamp's painted shadow lies on the ground, so it is a texture of its own, drawn under every sprite (Scene.tsx)
-    for (const key of LAMP_KEYS) {
-      const lamp = textures[key];
-      const split = lamp && splitPaintedShadow(lamp);
-      if (!split) {
-        continue;
-      }
-      textures[key] = split.body;
-      textures[paintedShadowKey(key)] = split.shadow;
-    }
+    await loadScenery(textures);
+    cutHeroFrames(textures);
+    splitLampShadows(textures);
     // the vignette's pictures are painted now, not in the frame of the first blow
     for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) {
       vignetteTexture(strength);
@@ -595,14 +607,7 @@ export function drawGroundMarks(graphics: Graphics, state: State, clock: number)
 // the puffs of a blow, a lamp's relight progress and a monster's snuff progress over their heads, and health pips.
 export function drawMarks(graphics: Graphics, state: State) {
   const rules = state.rules;
-  for (const shot of state.shots) {
-    // a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
-    for (const [behind, alpha] of TRAIL) {
-      graphics
-        .rect(Math.round(shot.x - shot.velocityX * behind), Math.round(shot.y - shot.velocityY * behind), 1, 1)
-        .fill({ color: 0xfff2c0, alpha });
-    }
-  }
+  drawTrails(graphics, state);
   for (const puff of state.puffs) {
     if (puff.kind === "hit" || puff.kind === "hurt") {
       drawImpact(graphics, puff);
@@ -626,6 +631,22 @@ export function drawMarks(graphics: Graphics, state: State) {
     const done = monster.snuff / (monsterStats(state, monster.kind).snuff * rules.snuffMultiplier);
     progressRing(graphics, monster.x, monster.y - 74, 8, done, 0xff5a4a);
   }
+  drawHealthPips(graphics, state);
+}
+
+// a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
+function drawTrails(graphics: Graphics, state: State) {
+  for (const shot of state.shots) {
+    for (const [behind, alpha] of TRAIL) {
+      graphics
+        .rect(Math.round(shot.x - shot.velocityX * behind), Math.round(shot.y - shot.velocityY * behind), 1, 1)
+        .fill({ color: 0xfff2c0, alpha });
+    }
+  }
+}
+
+// a pip for each blow a monster can still take, over the ones that take more than one
+function drawHealthPips(graphics: Graphics, state: State) {
   for (const monster of state.monsters) {
     if (monsterStats(state, monster.kind).health <= 1) {
       continue;

@@ -202,6 +202,26 @@ export const swellDrift = (clock: number) => ({ x: Math.floor(clock * 4), y: Mat
 const SURF_REACH = 9; // iso steps from the stone that the surf can reach
 const SURF_WAVELENGTH = 96; // pixels along the shore between two lapping crests
 
+// the front shore, under the side walls: in and out by a pixel or two around a two-pixel band, dithered at its edge,
+// and a line of swash beyond it
+function frontSurfPixel(x: number, y: number, distance: number, turn: number, lap: number): Rgb | null {
+  const reach = 3.2 + 1.6 * lap;
+  if (distance < reach - 1) {
+    return FOAM;
+  }
+  if (distance < reach) {
+    return bayerThreshold(x, y) < 0.55 ? FOAM : CREST;
+  }
+  if (distance < reach + 1) {
+    return bayerThreshold(x, y) < 0.2 ? CREST : null;
+  }
+  const swash = reach + 2.6 + Math.sin(turn + Math.PI + (2 * Math.PI * x) / 61);
+  if (Math.abs(distance - swash) < 0.5 && hashUnit(x >> 2, 7) > 0.2) {
+    return lap > 0.4 ? FOAM : CREST;
+  }
+  return null;
+}
+
 function surfPixel(x: number, y: number, frame: number): Rgb | null {
   const distance = shoreDistance(x + 0.5, y + 0.5);
   if (distance < -1 || distance > SURF_REACH) {
@@ -210,23 +230,7 @@ function surfPixel(x: number, y: number, frame: number): Rgb | null {
   const turn = (2 * Math.PI * frame) / WATER_FRAMES;
   const lap = Math.sin(turn - (2 * Math.PI * x) / SURF_WAVELENGTH);
   if (y >= CENTRE_Y) {
-    // the front shore, under the side walls
-    // in and out by a pixel or two around a two-pixel band, dithered at its edge
-    const reach = 3.2 + 1.6 * lap;
-    if (distance < reach - 1) {
-      return FOAM;
-    }
-    if (distance < reach) {
-      return bayerThreshold(x, y) < 0.55 ? FOAM : CREST;
-    }
-    if (distance < reach + 1) {
-      return bayerThreshold(x, y) < 0.2 ? CREST : null;
-    }
-    const swash = reach + 2.6 + Math.sin(turn + Math.PI + (2 * Math.PI * x) / 61);
-    if (Math.abs(distance - swash) < 0.5 && hashUnit(x >> 2, 7) > 0.2) {
-      return lap > 0.4 ? FOAM : CREST;
-    }
-    return null;
+    return frontSurfPixel(x, y, distance, turn, lap);
   }
   // the back edges: a thin line, broken and rejoining as the water laps
   if (distance < 1.6) {
@@ -263,22 +267,29 @@ function paintRipples(ripples: readonly Ripple[], plot: (x: number, y: number, c
         ],
         SHALLOW,
       );
-      const samples = Math.ceil(radiusX * 8);
-      for (let sample = 0; sample < samples; sample++) {
-        const turn = sample / samples;
-        const angle = 2 * Math.PI * turn;
-        if (Math.sin(angle) < -0.3) {
-          continue; // the back of the ring, under the hull
-        }
-        if (Math.floor(turn * ripple.dashes * 2 + age / 4) % 2 === 1) {
-          continue;
-        }
-        plot(
-          Math.round(ripple.x + Math.cos(angle) * radiusX),
-          Math.round(ripple.y + Math.sin(angle) * radiusY),
-          colour,
-        );
-      }
+      paintRing(ripple, plot, { radiusX, radiusY, age, colour });
+    }
+  }
+}
+
+// one ring of a ripple, in dashes, without its back (under the hull)
+function paintRing(
+  ripple: Ripple,
+  plot: (x: number, y: number, colour: Rgb) => void,
+  ring: { radiusX: number; radiusY: number; age: number; colour: Rgb },
+) {
+  const samples = Math.ceil(ring.radiusX * 8);
+  for (let sample = 0; sample < samples; sample++) {
+    const turn = sample / samples;
+    const angle = 2 * Math.PI * turn;
+    const back = Math.sin(angle) < -0.3;
+    const gap = Math.floor(turn * ripple.dashes * 2 + ring.age / 4) % 2 === 1;
+    if (!(back || gap)) {
+      plot(
+        Math.round(ripple.x + Math.cos(angle) * ring.radiusX),
+        Math.round(ripple.y + Math.sin(angle) * ring.radiusY),
+        ring.colour,
+      );
     }
   }
 }

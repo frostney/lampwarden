@@ -127,6 +127,32 @@ function wardenSource(
   };
 }
 
+// A lit lamp's light on the point (x, y): how strong, how near the pool's edge, and from which way; null when the point
+// is outside its pool or too faintly lit to count.
+function lampSource(lamp: Lamp, radius: number, x: number, y: number, clock: number, fade: number): LightSource | null {
+  const pool = poolEllipse(lamp.x, lamp.y, radius, lampFlickerStep(lamp.x, lamp.y, clock));
+  const closeness = Math.hypot((x - pool.centerX) / pool.radiusX, (y - pool.centerY) / pool.radiusY);
+  if (closeness >= 1) {
+    return null;
+  }
+  const strength = (1 - closeness ** POOL_FALLOFF) * fade;
+  if (strength < MIN_SOURCE) {
+    return null;
+  }
+  const acrossGround = x - lamp.x;
+  const downGround = (y - lamp.y) * 2;
+  const length = Math.hypot(acrossGround, downGround);
+  return {
+    strength,
+    closeness,
+    directionX: length < 2 ? 0 : acrossGround / length,
+    directionY: length < 2 ? 0 : downGround / length,
+    lampX: lamp.x,
+    lampY: lamp.y,
+    height: LANTERN_HEIGHT,
+  };
+}
+
 // Which lights light a point on the ground and how much: the lit lamps, by the pool's own shape and falloff, so a character
 // is as lit as the ground under its feet, flickering with the lamp, and the warden's weaker light (`warden`). `fade` is the
 // dawn taking the lights away. `skip` is a lamp that does not light the point, a lamp's own post.
@@ -143,31 +169,11 @@ export function illuminate(
   const sources: LightSource[] = [];
   let unlit = 1;
   for (const lamp of lamps) {
-    if (!lamp.lit || lamp === skip) {
-      continue;
+    const source = lamp.lit && lamp !== skip ? lampSource(lamp, radius, x, y, clock, fade) : null;
+    if (source) {
+      unlit *= 1 - Math.min(1, source.strength * TINT_GAIN);
+      sources.push(source);
     }
-    const pool = poolEllipse(lamp.x, lamp.y, radius, lampFlickerStep(lamp.x, lamp.y, clock));
-    const closeness = Math.hypot((x - pool.centerX) / pool.radiusX, (y - pool.centerY) / pool.radiusY);
-    if (closeness >= 1) {
-      continue;
-    }
-    const strength = (1 - closeness ** POOL_FALLOFF) * fade;
-    if (strength < MIN_SOURCE) {
-      continue;
-    }
-    unlit *= 1 - Math.min(1, strength * TINT_GAIN);
-    const acrossGround = x - lamp.x;
-    const downGround = (y - lamp.y) * 2;
-    const length = Math.hypot(acrossGround, downGround);
-    sources.push({
-      strength,
-      closeness,
-      directionX: length < 2 ? 0 : acrossGround / length,
-      directionY: length < 2 ? 0 : downGround / length,
-      lampX: lamp.x,
-      lampY: lamp.y,
-      height: LANTERN_HEIGHT,
-    });
   }
   sources.sort((first, second) => second.strength - first.strength);
   const lampAmount = stepped(1 - unlit, LIGHT_STEPS);

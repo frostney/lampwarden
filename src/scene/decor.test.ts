@@ -9,7 +9,7 @@ import { type Play, Recorder } from "../game/recording";
 import { creatureOf, legacyOf, STEP } from "../game/replay";
 import { CENTRE_X, CENTRE_Y, LAMP_SPOTS, NO_INPUT, newNight, step } from "../game/sim";
 import { anchorYFor } from "./assets";
-import { DECOR, decorFor, PLACED_SPRITES, type Placed, SPAWN_POINTS } from "./decor";
+import { DECOR, decorFor, type Layout, PLACED_SPRITES, type Placed, SPAWN_POINTS } from "./decor";
 import { SPRITE_EXTENTS } from "./decor-extents";
 import { baseBandOf, SOLID_ALPHA, SPRITE_SIZE } from "./extent";
 import { onPlaza, onSea, plazaInset, shoreDistance } from "./plaza";
@@ -58,6 +58,60 @@ const marginOf = (key: string) => DECOR.find((kind) => kind.key === key)?.margin
 // what stands on the plaza, as against the statue at its middle and the dock on the sea
 const land = (layout: { props: Placed[] }) =>
   layout.props.filter((placed) => placed.key !== "zeus-statue" && placed.key !== "galley-dock");
+
+// every pixel of the props `select` picks in each of `nights`, with the seed of the night it is on
+function* pixelsAcross(
+  nights: readonly { seed: number; layout: Layout }[],
+  select: (layout: Layout) => readonly Placed[],
+  onlyBase: boolean,
+  minimumAlpha = 1,
+) {
+  for (const { seed, layout } of nights) {
+    for (const placed of select(layout)) {
+      for (const pixel of pixelsOf(placed, onlyBase, minimumAlpha)) {
+        yield { seed, placed, pixel };
+      }
+    }
+  }
+}
+
+// Every board is on the sea, and the bridge leaves the dock for the stone: the distance to the stone only falls, in a
+// straight line (two across for every one up, the way that is shortest from the tip to the rim), and no board is
+// farther from the stone than the pier's tip, the first.
+function expectBoardsToBridge(seed: number, boards: Layout["planks"]) {
+  const tipDistance = shoreDistance(boards[0]?.[0] ?? 0, boards[0]?.[1] ?? 0);
+  for (const [index, board] of boards.entries()) {
+    if (!onSea(Math.floor(board[0]), Math.floor(board[1]))) {
+      throw new Error(`seed ${seed}: a board is off the sea`);
+    }
+    const next = boards[index + 1];
+    if (next && shoreDistance(next[0], next[1]) >= shoreDistance(board[0], board[1])) {
+      throw new Error(`seed ${seed}: the bridge turns away from the stone`);
+    }
+    if (next && Math.abs((board[0] - next[0]) / 2 - (board[1] - next[1])) > 1) {
+      throw new Error(`seed ${seed}: the bridge is not straight`);
+    }
+    expect(shoreDistance(board[0], board[1])).toBeLessThanOrEqual(tipDistance);
+  }
+}
+
+// where monsters come ashore on a night of the line, as the sim has them come, at a high tide over a minute
+function spawnsOfNight(night: number, seed: number) {
+  const legacy = newLegacy();
+  legacy.night = night;
+  legacy.tide = 1.4;
+  const state = newNight(legacy, seed);
+  const spawns: { x: number; y: number }[] = [];
+  const known = new Set<number>();
+  for (let stepIndex = 0; stepIndex < 60 * 60 && !state.outcome; stepIndex++) {
+    step(state, STEP, NO_INPUT);
+    for (const monster of state.monsters.filter((each) => !known.has(each.id))) {
+      known.add(monster.id);
+      spawns.push({ x: monster.x, y: monster.y });
+    }
+  }
+  return spawns;
+}
 
 describe("the table of sprite extents", () => {
   // that the rows are what the sprites measure is `bun run check:generated`'s (tools/decor-extents/build.ts --check)
@@ -161,44 +215,33 @@ describe("a night's decorations", () => {
   });
 
   test("stand inside the plaza: every pixel of a land prop's base is on the stone, with its margin", () => {
-    for (const { seed, layout } of layouts) {
-      for (const placed of land(layout)) {
-        for (const pixel of pixelsOf(placed, true)) {
-          const message = `seed ${seed}: ${placed.key} at ${placed.x},${placed.y}, pixel ${pixel.x},${pixel.y}`;
-          if (!onPlaza(Math.floor(pixel.x), Math.floor(pixel.y))) {
-            throw new Error(`${message} is off the plaza`);
-          }
-          // placed at whole pixels with the anchor a little off a whole one: a pixel of slack
-          if (plazaInset(pixel.x, pixel.y) < marginOf(placed.key) - 1) {
-            throw new Error(`${message} is too near the rim`);
-          }
-        }
+    for (const { seed, placed, pixel } of pixelsAcross(layouts, land, true)) {
+      const message = `seed ${seed}: ${placed.key} at ${placed.x},${placed.y}, pixel ${pixel.x},${pixel.y}`;
+      if (!onPlaza(Math.floor(pixel.x), Math.floor(pixel.y))) {
+        throw new Error(`${message} is off the plaza`);
+      }
+      // placed at whole pixels with the anchor a little off a whole one: a pixel of slack
+      if (plazaInset(pixel.x, pixel.y) < marginOf(placed.key) - 1) {
+        throw new Error(`${message} is too near the rim`);
       }
     }
   });
 
   test("keep their boats on the sea, off the stone and its walls, and on the canvas", () => {
-    for (const { seed, layout } of layouts) {
-      for (const boat of [...layout.boats, ...layout.props.filter((placed) => placed.key === "galley-dock")]) {
-        for (const pixel of pixelsOf(boat, false)) {
-          const message = `seed ${seed}: ${boat.key} at ${boat.x},${boat.y}, pixel ${pixel.x},${pixel.y}`;
-          if (pixel.x < 0 || pixel.x > 960 || pixel.y > 600) {
-            throw new Error(`${message} is off the canvas`);
-          }
-          // only its base is on the water: its body may rise over the plaza's far side, never over the stone it floats by
-          if (onPlaza(Math.floor(pixel.x), Math.floor(pixel.y))) {
-            throw new Error(`${message} is on the plaza`);
-          }
-        }
+    const boats = (layout: Layout) => [...layout.boats, ...layout.props.filter((placed) => placed.key === "galley-dock")];
+    for (const { seed, placed: boat, pixel } of pixelsAcross(layouts, boats, false)) {
+      const message = `seed ${seed}: ${boat.key} at ${boat.x},${boat.y}, pixel ${pixel.x},${pixel.y}`;
+      if (pixel.x < 0 || pixel.x > 960 || pixel.y > 600) {
+        throw new Error(`${message} is off the canvas`);
+      }
+      // only its base is on the water: its body may rise over the plaza's far side, never over the stone it floats by
+      if (onPlaza(Math.floor(pixel.x), Math.floor(pixel.y))) {
+        throw new Error(`${message} is on the plaza`);
       }
     }
-    for (const { layout } of layouts) {
-      for (const boat of [...layout.boats, ...layout.props.filter((placed) => placed.key === "galley-dock")]) {
-        for (const pixel of pixelsOf(boat, true)) {
-          if (!onSea(Math.floor(pixel.x), Math.floor(pixel.y))) {
-            throw new Error(`${boat.key}'s base is not on the sea`);
-          }
-        }
+    for (const { placed: boat, pixel } of pixelsAcross(layouts, boats, true)) {
+      if (!onSea(Math.floor(pixel.x), Math.floor(pixel.y))) {
+        throw new Error(`${boat.key}'s base is not on the sea`);
       }
     }
   });
@@ -221,98 +264,49 @@ describe("a night's decorations", () => {
       // it ends against the rim's wall: on the sea, a few iso steps off the stone
       expect(shoreDistance(last[0], last[1])).toBeGreaterThan(0);
       expect(shoreDistance(last[0], last[1])).toBeLessThanOrEqual(4);
-      for (const [index, board] of boards.entries()) {
-        // every board is on the sea and the bridge leaves the dock for the stone: the distance to the stone only falls
-        if (!onSea(Math.floor(board[0]), Math.floor(board[1]))) {
-          throw new Error(`seed ${seed}: a board is off the sea`);
-        }
-        const next = boards[index + 1];
-        if (next && shoreDistance(next[0], next[1]) >= shoreDistance(board[0], board[1])) {
-          throw new Error(`seed ${seed}: the bridge turns away from the stone`);
-        }
-        // and straight: two across for every one up, the way that is shortest from the tip to the rim
-        if (next && Math.abs((board[0] - next[0]) / 2 - (board[1] - next[1])) > 1) {
-          throw new Error(`seed ${seed}: the bridge is not straight`);
-        }
-        // between the dock and the rim: no board is farther from the stone than the pier's tip
-        expect(shoreDistance(board[0], board[1])).toBeLessThanOrEqual(shoreDistance(first[0], first[1]));
-      }
+      expectBoardsToBridge(seed, boards);
     }
   });
 
   test("leave every lamp a ring to be relit from, its lantern in view, and the statue and the warden's start clear", () => {
     const lanterns = LAMP_SPOTS.map(([x, y]) => ({ left: x - 15, right: x + 15, top: y - 100, bottom: y - 62 }));
-    for (const { seed, layout } of layouts) {
-      for (const placed of land(layout)) {
-        const solid = pixelsOf(placed, false, SOLID_ALPHA);
-        const base = pixelsOf(placed, true, SOLID_ALPHA);
-        for (const [lampX, lampY] of LAMP_SPOTS) {
-          for (const pixel of base) {
-            if (ground(pixel.x, pixel.y, lampX, lampY) < 40) {
-              throw new Error(
-                `seed ${seed}: ${placed.key} at ${placed.x},${placed.y} is within the relight reach of a lamp`,
-              );
-            }
-          }
-        }
-        for (const lantern of lanterns) {
-          for (const pixel of solid) {
-            if (
-              pixel.x > lantern.left &&
-              pixel.x < lantern.right &&
-              pixel.y > lantern.top &&
-              pixel.y < lantern.bottom
-            ) {
-              throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} is drawn behind a lantern`);
-            }
-          }
-        }
-        if (placed.y > CENTRE_Y + 62) {
-          for (const pixel of solid) {
-            if (Math.abs(pixel.x - CENTRE_X) < 24 && pixel.y > CENTRE_Y + 62 - 72 && pixel.y < CENTRE_Y + 62) {
-              throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} hides the warden at his start`);
-            }
-          }
-        }
+    for (const { seed, placed, pixel } of pixelsAcross(layouts, land, true, SOLID_ALPHA)) {
+      if (LAMP_SPOTS.some(([lampX, lampY]) => ground(pixel.x, pixel.y, lampX, lampY) < 40)) {
+        throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} is within the relight reach of a lamp`);
+      }
+    }
+    for (const { seed, placed, pixel } of pixelsAcross(layouts, land, false, SOLID_ALPHA)) {
+      const behindLantern = lanterns.some(
+        (lantern) =>
+          pixel.x > lantern.left && pixel.x < lantern.right && pixel.y > lantern.top && pixel.y < lantern.bottom,
+      );
+      if (behindLantern) {
+        throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} is drawn behind a lantern`);
+      }
+      const overWarden = Math.abs(pixel.x - CENTRE_X) < 24 && pixel.y > CENTRE_Y + 62 - 72 && pixel.y < CENTRE_Y + 62;
+      if (placed.y > CENTRE_Y + 62 && overWarden) {
+        throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} hides the warden at his start`);
       }
     }
   });
 
   test("keep their bases clear of each other", () => {
-    for (const { seed, layout } of layouts) {
+    for (const night of layouts) {
       const taken = new Map<string, string>();
-      for (const placed of layout.props) {
-        for (const pixel of pixelsOf(placed, true, SOLID_ALPHA)) {
-          const cell = `${Math.floor(pixel.x)},${Math.floor(pixel.y)}`;
-          const other = taken.get(cell);
-          // the pieces of a wall stand end to end
-          if (other && !(other === "wall" && placed.key === "wall")) {
-            throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} stands on ${other}`);
-          }
-          taken.set(cell, placed.key);
+      for (const { seed, placed, pixel } of pixelsAcross([night], (layout) => layout.props, true, SOLID_ALPHA)) {
+        const cell = `${Math.floor(pixel.x)},${Math.floor(pixel.y)}`;
+        const other = taken.get(cell);
+        // the pieces of a wall stand end to end
+        if (other && !(other === "wall" && placed.key === "wall")) {
+          throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} stands on ${other}`);
         }
+        taken.set(cell, placed.key);
       }
     }
   });
 
   test("keep clear of where monsters come ashore, as the sim has them come", () => {
-    const spawns: { x: number; y: number }[] = [];
-    for (let index = 0; index < 12; index++) {
-      const legacy = newLegacy();
-      legacy.night = 1 + (index % 4);
-      legacy.tide = 1.4;
-      const state = newNight(legacy, seedOf(index));
-      const known = new Set<number>();
-      for (let stepIndex = 0; stepIndex < 60 * 60 && !state.outcome; stepIndex++) {
-        step(state, STEP, NO_INPUT);
-        for (const monster of state.monsters) {
-          if (!known.has(monster.id)) {
-            known.add(monster.id);
-            spawns.push({ x: monster.x, y: monster.y });
-          }
-        }
-      }
-    }
+    const spawns = Array.from({ length: 12 }, (_, index) => spawnsOfNight(1 + (index % 4), seedOf(index))).flat();
     expect(spawns.length).toBeGreaterThan(100);
     for (const spawn of spawns) {
       // on the ellipse the placer keeps clear of, give or take the step the monster has already taken
@@ -320,16 +314,11 @@ describe("a night's decorations", () => {
       expect(Math.abs(ellipse - 1)).toBeLessThan(0.03);
     }
     expect(SPAWN_POINTS.length).toBeGreaterThanOrEqual(96);
-    for (const { seed, layout } of layouts.slice(0, 100)) {
-      for (const placed of land(layout)) {
-        // the placer samples the ellipse every 23 ground px, so a spawn is within 12 of a sample and 26 clear of it means 23 clear of the spawn
-        for (const pixel of pixelsOf(placed, true, SOLID_ALPHA)) {
-          for (const spawn of spawns.filter((_, index) => index % 4 === 0)) {
-            if (ground(pixel.x, pixel.y, spawn.x, spawn.y) < 20) {
-              throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} stands where a monster lands`);
-            }
-          }
-        }
+    // the placer samples the ellipse every 23 ground px, so a spawn is within 12 of a sample and 26 clear of it means 23 clear of the spawn
+    const sampled = spawns.filter((_, index) => index % 4 === 0);
+    for (const { seed, placed, pixel } of pixelsAcross(layouts.slice(0, 100), land, true, SOLID_ALPHA)) {
+      if (sampled.some((spawn) => ground(pixel.x, pixel.y, spawn.x, spawn.y) < 20)) {
+        throw new Error(`seed ${seed}: ${placed.key} at ${placed.x},${placed.y} stands where a monster lands`);
       }
     }
   });

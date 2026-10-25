@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { measureCommittedSprites, repositoryRoot } from "../../tools/decor-extents/measure";
+import { repositoryRoot } from "../../tools/decor-extents/measure";
 import { decodePng } from "../../tools/logo/png";
 import { newLegacy } from "../game/legacy";
 import { type Play, Recorder } from "../game/recording";
 import { creatureOf, legacyOf, STEP } from "../game/replay";
 import { CENTRE_X, CENTRE_Y, LAMP_SPOTS, NO_INPUT, newNight, step } from "../game/sim";
 import { anchorYFor } from "./assets";
-import { DECOR, decorFor, type Placed, SPAWN_POINTS } from "./decor";
+import { DECOR, decorFor, PLACED_SPRITES, type Placed, SPAWN_POINTS } from "./decor";
 import { SPRITE_EXTENTS } from "./decor-extents";
 import { baseBandOf, SOLID_ALPHA, SPRITE_SIZE } from "./extent";
 import { onPlaza, onSea, plazaInset, shoreDistance } from "./plaza";
@@ -53,8 +53,18 @@ const land = (layout: { props: Placed[] }) =>
   layout.props.filter((placed) => placed.key !== "zeus-statue" && placed.key !== "galley-dock");
 
 describe("the table of sprite extents", () => {
-  test("is what the committed sprites measure (bun run decor writes it)", () => {
-    expect(SPRITE_EXTENTS).toEqual(measureCommittedSprites());
+  // that the rows are what the sprites measure is `bun run check:generated`'s (tools/decor-extents/build.ts --check)
+  test("has a row for every sprite the placer can place, so a new decoration needs bun run decor", () => {
+    for (const key of PLACED_SPRITES)
+      expect(SPRITE_EXTENTS[key], `${key} has no row in decor-extents.ts: run bun run decor`).toBeDefined();
+  });
+
+  test("covers every key a night puts on the plaza or the sea", () => {
+    for (let index = 0; index < 100; index++) {
+      const layout = decorFor(seedOf(index));
+      for (const placed of [...layout.props, ...layout.boats])
+        expect(PLACED_SPRITES, `seed ${seedOf(index)}`).toContain(placed.key);
+    }
   });
 });
 

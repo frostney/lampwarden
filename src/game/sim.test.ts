@@ -10,6 +10,7 @@ import {
   NO_INPUT,
   newNight,
   nextTide,
+  nightLength,
   PLAZA_HALF_HEIGHT,
   PLAZA_HALF_WIDTH,
   type State,
@@ -354,11 +355,11 @@ describe("the upgrades", () => {
       return state.oilEarned / state.stats.kills;
     };
     const base = oilFromSlain(withLevels({}));
-    expect(base).toBeGreaterThan(0.2);
-    expect(base).toBeLessThan(0.4);
+    expect(base).toBeGreaterThan(0.4);
+    expect(base).toBeLessThan(0.6);
     const seeker = oilFromSlain(withLevels({ seeker: MAX_LEVEL }));
-    expect(seeker).toBeGreaterThan(0.5);
-    expect(seeker).toBeLessThan(0.7);
+    expect(seeker).toBeGreaterThan(0.7);
+    expect(seeker).toBeLessThan(0.9);
   });
 
   test("a night's oil comes from its seed alone", () => {
@@ -429,6 +430,33 @@ describe("the upgrades", () => {
   });
 });
 
+describe("the length of a night", () => {
+  test("is 16 s on night 1 and 6 s longer each night, up to 52 s from night 7", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(nightLength)).toEqual([16, 22, 28, 34, 40, 46, 52]);
+    expect(nightLength(8)).toBe(52);
+    expect(nightLength(50)).toBe(52);
+    expect(nightLength(Number.POSITIVE_INFINITY)).toBe(52);
+  });
+
+  test("a night starts with that length, and dawn comes when it has passed", () => {
+    for (const night of [1, 4, 9]) {
+      const legacy = newLegacy(1);
+      legacy.night = night;
+      const state = newNight(legacy, 1);
+      expect(state.length).toBe(nightLength(night));
+      state.hero.health = Number.POSITIVE_INFINITY;
+      for (const lamp of state.lamps) lamp.lit = true;
+      while (!state.outcome) {
+        step(state, STEP, NO_INPUT);
+        for (const lamp of state.lamps) lamp.lit = true; // lamps never fall, so the night runs its length
+      }
+      expect(state.outcome).toBe("dawn");
+      expect(state.elapsed).toBeGreaterThanOrEqual(nightLength(night));
+      expect(state.elapsed).toBeLessThan(nightLength(night) + 0.1);
+    }
+  });
+});
+
 describe("the pace of the sea", () => {
   // The seconds between the first spawns of a night, from a warden who cannot be hurt and stands still.
   function spawnGaps(night: number, tide = 1): number[] {
@@ -492,6 +520,16 @@ describe("the tide after a night", () => {
       expect(nextTide(1, cleanDawn(2, kills))).toBeGreaterThan(1);
       expect(nextTide(1, cleanDawn(2, kills))).toBeLessThan(nextTide(1, cleanDawn(3, kills)));
     }
+  });
+
+  test("the kill rate is kills a minute however short the night: 6 kills in 16 s is fast, 4 is not", () => {
+    const shortDawn = (kills: number) => {
+      const state = cleanDawn(1, kills);
+      state.stats.time = 16;
+      return state;
+    };
+    expect(nextTide(1, shortDawn(6))).toBeGreaterThan(nextTide(1, shortDawn(4))); // 22.5 a minute against 15
+    expect(nextTide(1, shortDawn(4))).toBeGreaterThan(1);
   });
 
   test("a night lost eases it off, whatever the night", () => {

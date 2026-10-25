@@ -20,7 +20,7 @@ export const UPGRADES: Record<UpgradeId, { label: string; text: string; wardenOn
   heart: { label: "Warden's heart", text: "+20 health for this warden and every one after." },
   hide: { label: "Thick hide", text: "+30 health for this warden only. Lost when they fall.", wardenOnly: true },
   knockback: { label: "Heavy blows", text: "Blows and shots throw monsters back 40% further." },
-  seeker: { label: "Oil seeker", text: "The slain leave oil 10% more often (30% to start)." },
+  seeker: { label: "Oil seeker", text: "The slain leave oil 10% more often (50% to start)." },
   tinder: { label: "Quick tinder", text: "Lamps relight 20% faster, on top of Lamplighter." },
   stride: { label: "Light sandals", text: "Walk 8% faster, on top of Swift." },
 };

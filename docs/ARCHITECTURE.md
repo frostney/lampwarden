@@ -6,7 +6,8 @@
 src/
   app/               Next App Router only: layout.tsx, page.tsx (renders <GameClient/>), globals.css, fonts/, icons,
                      api/plays (store and serve recorded plays), api/creatures (the live creature routes: next, jobs/:jobId,
-                     :id/sprite.png), api/director (the live director: one POST per finished night)
+                     :id/sprite.png), api/buildings (the same for the plaza's buildings), api/director (the live director:
+                     one POST per finished night)
   components/        flat: one file per component
     Icon.tsx         16x16 pixel icons (upgrades, the heirs' five traits, oil, kills, touch buttons, the sword and
                      arrow beside the daughter's spear, sling and pouch), drawn as SVG rects; each carries `data-icon`
@@ -19,7 +20,9 @@ src/
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
     SeaSends.tsx     "Tonight the sea sends…": the creature that joins the coming night (sprite, name, lore), or the step
-                     of the job still making one; on the title and the dawn and heir panels
+                     of the job still making one, and under it the line "Raised on the plaza tonight: …" when a live building
+                     is ready; on the title and the dawn and heir panels
+    useRaised.ts     asks the buildings gallery which building goes up tonight (the same never-blocking asking as useTonight)
     useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
                      begins, for the next night's creature, and keeps a job that is still running through the night);
                      never blocks play (none, a network error and "still generating" all mean the night starts without it)
@@ -40,7 +43,7 @@ src/
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide the rules pick (rulesTide) and the live director's mix and creature share; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
                      a monster's blow on the warden (his hit-stop, knockback and mercy frames); the night's creature from
-                     the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from 8 s in,
+                     the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from a fifth of the night in (creatureFrom),
                      drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Replayer and headless verification of recorded plays (replay.test.ts:
                      determinism); covered by the sim fingerprint (see Sim fingerprint)
@@ -76,15 +79,26 @@ src/
                      creature.ts so the sim fingerprint does not move (frames are drawn, never played)
     creature-api.ts  the game's side of that API: asking for tonight's creature and following a job, answers parsed
                      with Zod; any failure is null
+    building.ts      the contract with the live building generator (not in the sim fingerprint: a building is only drawn): the
+                     Building record with the anchor, bbox and base extents the placer needs, what a recording keeps of it,
+                     the API paths and shapes
+    building-api.ts, building-sea.ts  the game's side of that API and the asking for tonight's building; gallery-api.ts and
+                     gallery-sea.ts are what it shares with the creatures' (reading answers, following a job, the question
+                     per set of ids met, a busy slot asked again after its delay); sea.ts is the creatures' asking
+    raised.ts        the ids of the buildings the line has seen go up (localStorage), sent as `seen`, apart from the legacy
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
                      the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
                      recorder (the creature a night met and the sim fingerprint it was played on are optional fields), the
                      running build's fingerprint (RUNNING_SIM) and replaysExactlyOn
-  server/creatures/  what the creature routes do, with storage, clock and the job starter injected: service (next, job reads, the
-                     stale rule), job (one generation job and its acceptance), limits (salted-hash visitors, hourly and daily
-                     starts), store (the interface) with store.blob (private Vercel Blob) and store.memory (tests), config (env), deps
-                     (the only module that reads env and files and wires Mubit, the sandbox and Blob)
+  server/creatures/  what the creature and building routes do, with storage, clock and the job starter injected: service (next for
+                     each, job reads, the stale rule, the one slot they share and the creatures' priority), job-shell (what every
+                     job does: steps, deadline, fixed failure reasons, the acceptance rule, ids), job (one creature job), limits
+                     (salted-hash visitors, hourly and daily starts), store (the interface) with store.blob (private Vercel Blob)
+                     and store.memory (tests), config (env), deps (the only module that reads env and files and wires Mubit, the
+                     sandbox and Blob)
+  server/buildings/  one building job (job: the creature job without frames) and the measuring of an accepted sprite (placement:
+                     anchor, bbox, the hulls and box of its pixels, from the PNG, in the form decor-extents.ts has)
   server/director/   what the director route does, with store, clock, model and log injected: service (the play, the limits,
                      the model call, the fallbacks, the log), summary (the night as the model is told it, from the stored play),
                      log (the decision record), config (env, limits), store (the interface) with store.blob and store.memory,
@@ -109,9 +123,13 @@ src/
                      islands; twinkling stars, the lighthouse's lamp and the moon's path on the sea from the clock
     light.ts         the light as pixel art, painted once into cached textures: stepped and dithered lamp pools, lantern
                      halos, twinkling glints on the stone and brass, reflections on the sea, the warden's own light
-    lighting.ts      how the lamps light a character, as numbers (pure, render-only): how lit it is (the pool's own shape,
-                     flicker and dawn fade, in whole steps), the warm tint for its sprite, which way its shadows fall and
-                     which side its rim is on
+    lighting.ts      how the lamps, and the warden's own weaker light, light what stands in them, as numbers (pure,
+                     render-only): how lit it is (the pool's own shape, flicker and dawn fade, in whole steps), the warm
+                     tint for its sprite, which way its shadows fall and which side its rim is on. The warden's light
+                     (the ellipse he lights the ground with) tints him a step, and tints and rims the monsters in it
+                     scaled by distance, without a shadow of its own. The small props (the statue, the stall, the olive
+                     trees, the decorations, the lamps' posts) are lit by both where their bases stand; the buildings (temple, house, wall)
+                     and the boats are not, as one tint across so large a sprite would light its whole face at once
     shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
                      length, painted on first use
     rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm
@@ -129,8 +147,9 @@ src/
                      keeps one only where the prop's base lies inside the plaza with a margin and clear of the lamps, the
                      statue, the warden's start, where monsters come ashore and the props already placed; the boats and the
                      dock are placed on the sea by the same placer and bring their ripples and planks
-    decor-extents.ts where each sprite's pixels are (generated by `bun run decor`, tools/decor-extents): its base hull and
-                     whole-sprite box, measured by extent.ts
+    decor-extents.ts where the pixels of each sprite the placer uses are (`PLACED_SPRITES` in decor.ts; generated by `bun run decor`,
+                     tools/decor-extents, and held fresh by `check:generated`): its base hull and whole-sprite box, measured
+                     by extent.ts
     extent.ts        measures a sprite's painted pixels: the convex hull of its base (shadow included, and the opaque pixels
                      alone) and the box of its opaque pixels, in pixels from its anchor
     footprint.ts     shapes on the ground (the plaza at 2:1): how near a prop's base is to a point or to another base, and
@@ -156,6 +175,8 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
                      (every frame renders, the walk moves, the sides differ, the figure fits its cell) and packed into the atlas;
                      monster-frames.ts and monster-source.ts draw the hand-made monsters' the same way (`bun run assets:monsters`)
   creature-brief.ts  the brief writer for live creatures (prompts/creature.md), validated with the contract in src/game/creature.ts
+  building-brief.ts  the brief writer for live buildings (prompts/building.md, its own Mubit task), validated with src/game/building.ts;
+                     brief-writer.ts is what the two share
   runner-bundle.ts, sandbox-snapshot.ts   the kit + runner + pinned Bun that a render sandbox holds, and the script that snapshots them
   render-types.ts    the renderer's contract (RenderStats, RenderResult) and the validation of what a sandbox sends back
   render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
@@ -178,7 +199,7 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
    `bun --no-env-file pipeline/render-file.ts pipeline/kit/examples/ex_x.ts x public/sprites` (both need Vercel auth: `docs/tooling.md`; this is how the sprites `lamp-lit`, `lamp-unlit` and the fallbacks `temple-handwritten`, `house-handwritten`, `wall-handwritten` and `stall-handwritten` were made from `ex_lamp_lit.ts`, `ex_lamp_unlit.ts`, `ex_temple.ts`, `ex_house.ts`, `ex_wall.ts` and `ex_stall.ts`; re-running it reproduces the committed PNGs, checked for `house-handwritten.png` and `lamp-lit.png`). Add the `.ts` and a manifest row by hand. Scenery (buildings and decorations) goes through Mubit instead: `bun run assets -- --candidates 3 --file briefs.json` (pipeline/README.md), then the key goes in `SCENERY` in `src/scene/assets.ts`, which loads it sprite by sprite, with its `ANCHOR_Y` from the manifest's `anchor_y`; a building keeps a `<name>-handwritten` sprite that is drawn when the Mubit one does not load.
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
-4. Run `bun run decor` (it measures the sprite's pixels into `src/scene/decor-extents.ts`; `src/scene/decor.test.ts` fails when the table is stale) and add a line to `DECOR` in `src/scene/decor.ts`: the key, where it may stand (`back`, `front`, `edge`, `anywhere`, or the sea), how many and how they group. The placer lays it out afresh each night (static and depth-sorted by ground y; `src/components/Scene.tsx` renders them); a slim base (a wall, a trunk) takes a row count in `SLIM_BASES` in `src/scene/extent.ts`. A monster instead goes in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`). Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+4. Add a line to `DECOR` in `src/scene/decor.ts`: the key, where it may stand (`back`, `front`, `edge`, `anywhere`, or the sea), how many and how they group, then run `bun run decor`, which measures the pixels of every sprite `DECOR` places into `src/scene/decor-extents.ts` (`bun run check:generated` fails when the table is stale, and `src/scene/decor.test.ts` when a placed sprite has no row; a monster is not measured). The placer lays it out afresh each night (static and depth-sorted by ground y; `src/components/Scene.tsx` renders them); a slim base (a wall, a trunk) takes a row count in `SLIM_BASES` in `src/scene/extent.ts`. A monster instead goes in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`). Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
 
 ## Decorations
 
@@ -212,6 +233,13 @@ The rules, in `decor.ts`:
 - **A live building**: `decorFor(seed, live)` takes an optional `{ key, extents }` (the extents from `measureSprite`) that
   stands in the building slot (`slot: "building"`, the house) instead of the committed house; the scene draws that key's
   texture at that key's anchor, so a night can have one building from a live gallery with nothing in the committed table.
+  The extents are the ones the server measured when it accepted the sprite and kept in the record (`src/game/building.ts`,
+  `src/server/buildings/placement.ts`); the client never measures a picture. The live building is held to the rules above like
+  any prop, tried in the slot before the committed house, and when it fits nowhere that night the committed house stands
+  (`live-building.test.ts` checks 500 seeds). `Game.tsx` loads its sprite before the night (`loadBuildingTexture`, which also
+  keeps its anchor for the scene) and goes without it, with the plaza it always had, when the sprite will not load. The night's
+  recording carries the building (`building`: id, name, anchor, extent), so a replay lays out the same plaza from the recording
+  alone, and a play without one replays on the committed layout. The sim, the replay and the sim fingerprint never read it.
 
 
 ## Sim fingerprint

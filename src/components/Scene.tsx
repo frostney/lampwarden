@@ -62,6 +62,7 @@ import {
   ghostPicture,
   heroFlashTexture,
   heroFrame,
+  isLitProp,
   lightsAlpha,
   type MonsterPicture,
   monsterBob,
@@ -75,12 +76,22 @@ import {
   type TextureMap,
   textureFor,
 } from "@/scene/layers";
-import { glintFrame, heroLight, type LightPiece, lampFlicker, lampFoot, lampLight, lanternGlow } from "@/scene/light";
+import {
+  glintFrame,
+  HERO_LIGHT,
+  heroLight,
+  type LightPiece,
+  lampFlicker,
+  lampFoot,
+  lampLight,
+  lanternGlow,
+} from "@/scene/light";
 import {
   type CharacterLight,
   DARK_CHARACTER,
   lampFootTint,
   lightCharacter,
+  lightProp,
   mirroredOctant,
   type RimSpec,
 } from "@/scene/lighting";
@@ -111,6 +122,7 @@ export interface Night {
   sex: Sex;
   driver: Driver | null;
   creatureTextures: TextureMap | null; // the night's creature from the sea: its sprite and flash, loaded before the night
+  buildingTextures: TextureMap | null; // the building raised on the plaza tonight: its sprite, loaded before the night
   decor: Layout; // where the night's props stand, from its seed (src/scene/decor.ts)
 }
 
@@ -160,7 +172,10 @@ export const Scene = memo(function Scene({
   onReady,
 }: SceneProps) {
   const clock = useRef(0);
-  const sceneTextures = useMemo(() => ({ ...textures, ...night.creatureTextures }), [textures, night.creatureTextures]);
+  const sceneTextures = useMemo(
+    () => ({ ...textures, ...night.creatureTextures, ...night.buildingTextures }),
+    [textures, night.creatureTextures, night.buildingTextures],
+  );
   const lighting = useMemo<Lighting>(() => new Map(), []);
   const shared = useMemo(() => ({ textures: sceneTextures, clock, lighting }), [sceneTextures, lighting]);
 
@@ -397,15 +412,20 @@ function Water({ ripples }: { ripples: Layout["ripples"] }) {
 const tintOf = (state: State) => nightTint(nightProgress(state));
 
 // the static props, depth-sorted with everything that moves; each is tinted by the night on its own, as the sprites
-// share a container with the lights that must not be
+// share a container with the lights that must not be. The props are the night's own layout (decor.ts), whatever it
+// placed. The small ones are brought up by the lamps and the warden's light where they stand, in whole steps; the
+// buildings keep the night's tint (src/scene/lighting.ts)
 function Props({ state, props }: { state: State; props: readonly Placed[] }) {
-  const { textures } = useScene();
+  const { textures, clock } = useScene();
   const sprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
-      const tint = tintOf(state);
-      for (const sprite of sprites.current) if (sprite) sprite.tint = tint;
-    }, [state]),
+      const night = tintOf(state);
+      props.forEach(({ key, x, y }, index) => {
+        const sprite = sprites.current[index];
+        if (sprite) sprite.tint = isLitProp(key) ? lightProp(state, x, y, clock.current) : night;
+      });
+    }, [state, props, clock]),
   );
   return props.map(({ key, x, y }, index) => {
     // a building whose Mubit sprite did not load is drawn from its hand-written one, with that sprite's own anchor
@@ -539,15 +559,16 @@ function LampShadows({ state }: { state: State }) {
 }
 
 const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: Lamp }) {
-  const { textures } = useScene();
+  const { textures, clock } = useScene();
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
       const texture = textures[lamp.lit ? "lamp-lit" : "lamp-unlit"];
       if (!ref.current) return;
       if (texture) ref.current.texture = texture;
-      ref.current.tint = tintOf(state);
-    }, [textures, state, lamp]),
+      // lit by the other lamps' pools and the warden's light; its own pool is what its warm foot is for (LampGlow)
+      ref.current.tint = lightProp(state, lamp.x, lamp.y, clock.current, lamp);
+    }, [textures, state, lamp, clock]),
   );
   return (
     <pixiSprite
@@ -615,11 +636,11 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
   );
 });
 
-// How the lamps light each character, worked out once a frame after the sim has stepped: its warm tint, its shadows and its
-// rim (src/scene/lighting.ts). Everything that draws a character reads it from here.
+// How the lamps and the warden's light light each character, worked out once a frame after the sim has stepped: its warm
+// tint, its shadows and its rim (src/scene/lighting.ts). Everything that draws a character reads it from here.
 function lightCharacters(state: State, lighting: Lighting, clock: number) {
   lighting.clear();
-  lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock));
+  lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock, "self"));
   for (const monster of state.monsters)
     lighting.set(monster, lightCharacter(state, monster.x, monster.y, monsterStats(state, monster.kind).fly, clock));
 }
@@ -702,7 +723,7 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
       const sprite = ref.current;
       if (!sprite) return;
       const centerX = Math.round(hero.x),
-        centerY = Math.round(hero.y) - 4;
+        centerY = Math.round(hero.y) - HERO_LIGHT.rise;
       place(sprite, heroLight(centerX, centerY, clock.current), centerX, centerY);
     }, [hero, clock]),
   );

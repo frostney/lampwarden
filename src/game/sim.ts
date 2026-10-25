@@ -32,8 +32,10 @@ export const MONSTER: Record<HandMadeKind, CreatureStats> = {
 };
 
 // The oil economy: a kill leaves its oil only OIL_CHANCE of the time (the seeded rand, so a night still replays), and
-// the dawn bonus is small, so a night earns about one level-1 upgrade. The Oil seeker upgrade raises the chance.
-const OIL_CHANCE = 0.3;
+// the dawn bonus is small, so a night earns about one level-1 upgrade. The Oil seeker upgrade raises the chance. It was
+// 0.3 when a night lasted 40 s and held 13 to 16 kills; a 16 s night holds about 5, so the chance is higher to keep a
+// night's oil, and the upgrades a run buys, where they were.
+const OIL_CHANCE = 0.5;
 const OIL_CHANCE_PER_LEVEL = 0.1;
 
 // A swing reaches only the 120 degrees in front of the warden (measured on the ground, where the plaza is foreshortened
@@ -76,11 +78,15 @@ export interface NightCreature {
 export const nightCreature = (
   creature: Pick<Creature, "id" | "archetype" | "modifiers" | "anchorY">,
 ): NightCreature => ({ id: creature.id, anchorY: creature.anchorY, stats: statsOf(creature) });
-// From CREATURE_FROM seconds in, about State.creatureShare of the spawns (the director's; DEFAULT_CREATURE_SHARE, a
-// quarter, without one) are the creature, with at most CREATURE_CAP alive. The draw for it is made only when it can
-// come, so a night without a creature draws exactly what it always did.
-const CREATURE_FROM = 8;
+// From CREATURE_FROM_SHARE of the night in, about State.creatureShare of the spawns (the director's;
+// DEFAULT_CREATURE_SHARE, a quarter, without one) are the creature, with at most CREATURE_CAP alive. The draw for it is
+// made only when it can come, so a night without a creature draws exactly what it always did. It is a share of the
+// night, not a count of seconds, so the creature still meets the warden early enough to matter on a short night.
+const CREATURE_FROM_SHARE = 0.2;
 const CREATURE_CAP = 2;
+// The first monster rises this many seconds in, on every night (it was tuned on 40 s nights and kept on the shorter ones).
+const FIRST_SPAWN = 2.5;
+export const creatureFrom = (length: number) => length * CREATURE_FROM_SHARE;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
 export const LAMP_SPOTS: [number, number][] = [
@@ -202,7 +208,12 @@ export interface State {
   outcome: Outcome | null;
 }
 
-export const nightLength = (night: number) => 40 + 6 * Math.min(night - 1, 6);
+// A night lasts NIGHT_BASE seconds, and NIGHT_STEP more for every night after the first, up to the night NIGHT_CAP_NIGHT
+// (the seventh); the nights after it are as long as that one.
+const NIGHT_BASE = 16;
+const NIGHT_STEP = 6;
+const NIGHT_CAP_NIGHT = 7;
+export const nightLength = (night: number) => NIGHT_BASE + NIGHT_STEP * Math.min(night - 1, NIGHT_CAP_NIGHT - 1);
 
 function rulesFor(legacy: Pick<Legacy, "levels">, trait: TraitId): Rules {
   const { wick, blade, quiver, knockback, seeker, tinder, stride } = legacy.levels;
@@ -262,7 +273,7 @@ export function newNight(legacy: Legacy, seed = newSeed(), creature: NightCreatu
     night: legacy.night,
     length: nightLength(legacy.night),
     elapsed: 0,
-    spawnTimer: 2.5,
+    spawnTimer: FIRST_SPAWN,
     nextId: 1,
     tide: legacy.tide,
     mix: { ...legacy.director.mix },
@@ -286,6 +297,9 @@ function inPlaza(x: number, y: number, margin = 0.92) {
 export const ground = (fromX: number, fromY: number, toX: number, toY: number) =>
   Math.hypot(fromX - toX, (fromY - toY) * 2);
 
+// The seconds between spawns on night 1 at tide 1. It was 2.3 when night 1 lasted 40 s; on a shorter night a crowd has
+// far less time to build, so the sea comes quicker to keep a night about as hard to hold (tuned on the human-paced bot).
+const SPAWN_INTERVAL = 1.3;
 // The sea quickens every night. The first nights are gentle, 12% quicker a night, because that is when a person is still
 // learning the plaza (people kept up with about two monsters at a time and lost night 2); from the fourth night it is
 // 30% quicker a night, which is the pace the perfect bot's ceiling was set on. Only the rate of spawns is gentled: the
@@ -295,7 +309,7 @@ const GENTLE_QUICKENING = 0.12;
 const QUICKENING = 0.3;
 const quickening = (night: number) =>
   GENTLE_QUICKENING * (Math.min(night, GENTLE_NIGHTS) - 1) + QUICKENING * Math.max(0, night - GENTLE_NIGHTS);
-const spawnInterval = (state: State) => 2.3 / (state.tide * (1 + quickening(state.night)));
+const spawnInterval = (state: State) => SPAWN_INTERVAL / (state.tide * (1 + quickening(state.night)));
 const maxAlive = (state: State) => Math.round((3 + 1.6 * state.night) * state.tide);
 const haste = (state: State) => 1 + 0.05 * (state.night - 1); // the sea's creatures get bolder every night
 
@@ -325,7 +339,7 @@ function spawn(state: State) {
   let kind = pickKind(state, rand(state));
   if (
     state.creature &&
-    state.elapsed >= CREATURE_FROM &&
+    state.elapsed >= creatureFrom(state.length) &&
     creaturesAlive(state) < CREATURE_CAP &&
     rand(state) < state.creatureShare
   )
@@ -756,7 +770,7 @@ export interface NightResult {
 // The rules-based director: read the night as implicit feedback and set the next tide.
 // Clean dawn with most lamps and health kept → the sea pushes harder; a lost night → it eases off.
 export function rulesTide(tide: number, night: NightResult): number {
-  const killRate = night.kills / Math.max(1, night.seconds / 60); // kills per minute
+  const killRate = night.kills / Math.max(1 / 60, night.seconds / 60); // kills per minute, however short the night
   let next = tide;
   if (night.outcome === "dawn") {
     const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;

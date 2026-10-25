@@ -362,7 +362,8 @@ h2.logo:focus {
   vertical-align: middle;
 }
 /* "Tonight the sea sends…" (SeaSends.tsx): the creature that joins the coming night, above the button that starts it;
-   on the title it is inked on the scroll */
+   on the title it is inked on the scroll. Its name and lore are always shown whole, never clamped (the contract allows
+   a 40 character name and 160 characters of lore), so the panel grows downwards instead. */
 .sea {
   display: flex;
   align-items: center;
@@ -406,20 +407,39 @@ h2.logo:focus {
   border-color: var(--ink-faded);
   background: #e6cd99;
 }
-/* the scroll's column is narrow: a smaller name, and the lore held to two lines (the dawn panel shows all of it) */
+/* the scroll's column is narrow: a smaller name (Ithaca sits on a 16 px grid) and lines set a little closer */
 .scroll .sea-name {
-  font-size: 22px;
+  font-size: 16px;
 }
-.scroll .sea-lore:not(.dim) {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
+.scroll .sea-lore {
+  line-height: 1.2;
 }
 .scroll .sea-label,
 .scroll .sea-lore.dim {
   color: var(--ink-faded);
+}
+/* the scroll's column is narrow, so the portrait floats at the left and the label, the name and the lore wrap around
+   it: a long lore runs on under the portrait at the panel's full width, not in the narrow column beside it */
+.scroll .sea[data-state="ready"] {
+  display: flow-root;
+}
+.scroll .sea[data-state="ready"] .sea-text {
+  display: contents;
+}
+.scroll .sea[data-state="ready"] .sea-sprite {
+  float: left;
+  margin-right: 12px;
+}
+.scroll .sea[data-state="ready"] .sea-label,
+.scroll .sea[data-state="ready"] .sea-name,
+.scroll .sea[data-state="ready"] .sea-lore {
+  display: block;
+}
+.scroll .sea[data-state="ready"] .sea-name {
+  margin-top: 2px;
+}
+.scroll .sea[data-state="ready"] .sea-lore {
+  margin-top: 4px;
 }
 .icon {
   image-rendering: pixelated;
@@ -660,8 +680,8 @@ h2.logo:focus {
    contents are inked onto it. It never grows past the panel: when they don't fit, the parchment scrolls between the
    rollers. */
 .panel.title {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 4px;
+  padding-bottom: 4px;
   font-size: 16px;
   background: rgba(6, 10, 24, 0.5);
 }
@@ -787,12 +807,36 @@ h2.logo:focus {
 .scroll-hero {
   gap: 6px;
 }
+/* On the wide scroll the introduction's lines run on as one paragraph: set one to a line they take six lines and leave
+   too little height for a creature with long lore. */
+.scroll-prose {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 @container (min-width: 560px) {
+  .scroll-prose {
+    display: block;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .scroll-prose p {
+    display: inline;
+    line-height: inherit;
+  }
+  .scroll-prose p + p::before {
+    content: " ";
+  }
   .scroll-layout {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     grid-template-rows: auto auto auto 1fr;
     column-gap: calc(8px * var(--scale));
-    row-gap: 8px; /* the empty row of a night without an announced creature still takes a gap */
+    row-gap: 0; /* the rows left empty when no creature is announced must not take a gap: the items space themselves */
+  }
+  .scroll-layout > .sea,
+  .scroll-layout > .controls {
+    margin-top: 8px;
   }
   .scroll-hero {
     grid-column: 2;

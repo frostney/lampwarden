@@ -837,11 +837,13 @@ export default function Game() {
                     loading="eager"
                   />
                 </h1>
-                {INTRODUCTION.map((line) => (
-                  <p key={line} data-line>
-                    {line}
-                  </p>
-                ))}
+                <div className="scroll-prose">
+                  {INTRODUCTION.map((line) => (
+                    <p key={line} data-line>
+                      {line}
+                    </p>
+                  ))}
+                </div>
               </div>
               <SeaSends tonight={tonight} onSpriteBroken={withdraw} />
               <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />

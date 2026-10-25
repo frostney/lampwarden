@@ -33,8 +33,7 @@ raising the tide by 0.1 adds about a tenth to both. Between kinds, the spawner p
 # What real people do
 
 Do not judge by a perfect player. Real people recorded on the earlier, longer nights killed about 8 monsters a night on
-night 1 and about 4 on night 2 (a scripted bot kills 24 to 31 a minute on those nights and 23 to 30 on nights 1 to 3 now; the human-paced bot 19 to 24
-a minute on nights 1 to 3 now). New players lose night 2 often: monsters pile up (five to seven alive by 15 seconds), the
+night 1 and about 4 on night 2 (a scripted bot kills 24 to 31 a minute on those nights and 23 to 30 on nights 1 to 3 now). New players lose night 2 often: monsters pile up (five to seven alive by 15 seconds), the
 warden is a hundred or two hundred pixels from a lamp when it goes dark, and health collapses when several monsters reach
 him at once. Kills per minute, on the current nights: the human-paced bot, which holds about six in ten of night 3, kills 19 to 28 a minute on
 nights 1 to 4, so below about 15 a minute means the player is struggling with the crowd, not idle, and above about 28 on

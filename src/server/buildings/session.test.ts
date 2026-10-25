@@ -191,6 +191,9 @@ describe("an evening of short nights with a creature and a building to make", ()
     for (let number = 1; number <= 14; number++) nights.push(await world.night(number));
     // nothing is ready for the first night: a night begins at 0 s, 28 + 25 s, ... and the first job takes 50 s
     expect(nights.slice(0, 1).every((joined) => joined.creature === null && joined.building === null)).toBe(true);
+    // the creature's job was ready by night 2 (it began at 53 s), the building's by night 3
+    expect(nights[1]?.creature).not.toBeNull();
+    expect(nights[2]?.building).not.toBeNull();
     expect(world.started[0]?.kind).toBe("creature");
     expect(world.started[1]?.kind).toBe("building");
     // a night without its creature still began with the question for it open (the job carries on through the night)

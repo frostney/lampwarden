@@ -228,6 +228,6 @@ describe("a creature in the night", () => {
       expect(first).toBeGreaterThanOrEqual(creatureFrom(34));
       expect(first).toBeLessThan(34 * 0.6);
     }
-    expect(nights).toBeGreaterThanOrEqual(8);
+    expect(nights).toBeGreaterThanOrEqual(9);
   });
 });

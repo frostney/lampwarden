@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { STAGE_HEIGHT, STAGE_WIDTH } from "../game/sim";
+import { compareNumbers } from "../lib/compare";
 import { VIGNETTE_STRENGTHS, vignettePixels, vignetteStrength } from "./vignette";
 
 const covered = (pixels: Uint8Array) => {
@@ -31,7 +32,7 @@ describe("the wound vignette", () => {
     for (let index = 3; index < pixels.length; index += 4) {
       alphas.add(pixels[index] ?? 0);
     }
-    expect([...alphas].sort()).toEqual([0, 130]);
+    expect([...alphas].sort(compareNumbers)).toEqual([0, 130]);
     // along a row from the left edge: solid at the edge, thinning out through the band, nothing beyond it
     const row = STAGE_HEIGHT / 2;
     const alongRow = (from: number, count: number) =>

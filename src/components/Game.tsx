@@ -29,7 +29,6 @@ import {
   heirChoices,
   type Legacy,
   loadLegacy,
-  MAX_LEVEL,
   meet,
   newLegacy,
   openShop,
@@ -39,9 +38,9 @@ import {
   TRAITS,
   type TraitId,
   tideLabel,
-  type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
+import { MAX_LEVEL, type UpgradeId } from "@/game/levels";
 import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
@@ -156,7 +155,7 @@ const sameHud = (first: Hud, second: Hud) =>
   first.oil === second.oil &&
   Math.abs(first.dawn - second.dawn) < 0.01;
 
-export default function Game() {
+export function Game() {
   const appRef = useRef<PixiApp | null>(null);
   const stateRef = useRef<State | null>(null); // the night on screen, also read outside React (debug hook, pagehide)
   const [textures, setTextures] = useState<TextureMap | null>(null);
@@ -211,7 +210,7 @@ export default function Game() {
   const sendSnapshot = useCallback((state: State | null) => {
     const play = phaseRef.current === "night" && state ? recorderRef.current?.snapshot(state) : null;
     if (play) {
-      void upload(play, true);
+      upload(play, true).catch(reportError);
     }
   }, []);
 
@@ -222,21 +221,23 @@ export default function Game() {
     directorAsk.current?.abort();
     const asking = new AbortController();
     directorAsk.current = asking;
-    void sent.uploaded.then(async (uploaded) => {
-      if (!uploaded || asking.signal.aborted) {
-        return;
-      }
-      const answer = await askDirector(sent.id, asking.signal);
-      if (!answer || asking.signal.aborted) {
-        return;
-      }
-      const legacy = legacyRef.current;
-      if (!applyDirector(legacy, answer.decision)) {
-        return;
-      }
-      saveLegacy(legacy);
-      setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
-    });
+    sent.uploaded
+      .then(async (uploaded) => {
+        if (!uploaded || asking.signal.aborted) {
+          return;
+        }
+        const answer = await askDirector(sent.id, asking.signal);
+        if (!answer || asking.signal.aborted) {
+          return;
+        }
+        const legacy = legacyRef.current;
+        if (!applyDirector(legacy, answer.decision)) {
+          return;
+        }
+        saveLegacy(legacy);
+        setReport((current) => current && { ...current, tideAfter: legacy.tide, line: legacy.director.line });
+      })
+      .catch(reportError);
   }, []);
 
   // pausing also lets go of held keys and the stick
@@ -505,7 +506,7 @@ export default function Game() {
     legacyRef.current = loadLegacy();
     refresh();
     let dead = false;
-    void loadTextures().then(
+    loadTextures().then(
       (loaded) => {
         if (dead) {
           return;
@@ -515,7 +516,7 @@ export default function Game() {
         show(newNight(legacyRef.current), legacyRef.current.heir.sex);
         const id = new URLSearchParams(location.search).get("replay");
         if (id) {
-          void startReplay(id);
+          startReplay(id).catch(reportError);
         } else {
           ask(legacyRef.current.bestiary); // before night 1: what does the sea send?
         }
@@ -549,7 +550,7 @@ export default function Game() {
     };
     window.addEventListener("pagehide", leave);
     document.addEventListener("visibilitychange", hide);
-    void resendQueuedPlays(); // nights an earlier page could not send
+    resendQueuedPlays().catch(reportError); // nights an earlier page could not send
     return () => {
       dead = true;
       window.removeEventListener("pagehide", leave);
@@ -564,14 +565,17 @@ export default function Game() {
     if (!announced) {
       return;
     }
-    void loadCreatureTextures(announced, announcedFrames ?? null).then((loaded) => {
-      if (!loaded) {
-        withdraw(announced);
-      }
-    });
+    loadCreatureTextures(announced, announcedFrames ?? null)
+      .then((loaded) => {
+        if (!loaded) {
+          withdraw(announced);
+        }
+      })
+      .catch(reportError);
   }, [announced, announcedFrames, withdraw]);
 
   const startNight = async () => {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: a ref that startNight sets below, read again on the next call
     if (starting.current) {
       return;
     }
@@ -708,7 +712,7 @@ export default function Game() {
     >
       <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
-          {textures && night && (
+          {textures && night ? (
             <Scene
               controls={controls}
               frozenClock={frozenClock}
@@ -719,7 +723,7 @@ export default function Game() {
               speed={speed}
               textures={textures}
             />
-          )}
+          ) : null}
         </Application>
       </div>
       <div className="hud">
@@ -821,7 +825,9 @@ export default function Game() {
             </p>
             <button
               className="btn big"
-              onClick={() => void startReplay(new URLSearchParams(location.search).get("replay") || "last")}
+              onClick={() => {
+                startReplay(new URLSearchParams(location.search).get("replay") || "last").catch(reportError);
+              }}
               type="button"
             >
               Watch again
@@ -867,7 +873,7 @@ export default function Game() {
             title="THE LAMPS WON'T LIGHT"
           />
         )}
-        {replayError && (
+        {replayError ? (
           <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-error" role="dialog">
             <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
               NO REPLAY
@@ -877,26 +883,26 @@ export default function Game() {
               Back to the title
             </button>
           </div>
-        )}
+        ) : null}
 
         {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
         {phase === "title" && !loadFailure && !replayError && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">
-                <h1 className="brand" data-line>
+                <h1 className="brand" data-line={true}>
                   <Image
                     alt="Lampwarden"
                     height={37}
                     loading="eager"
                     src="/logo/logo-noglow.png"
-                    unoptimized
+                    unoptimized={true}
                     width={68}
                   />
                 </h1>
                 <div className="scroll-prose">
                   {INTRODUCTION.map((line) => (
-                    <p data-line key={line}>
+                    <p data-line={true} key={line}>
                       {line}
                     </p>
                   ))}
@@ -905,10 +911,10 @@ export default function Game() {
               <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
               <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
               <div className="scroll-hero">
-                <h2 className="scroll-heading" data-line>
+                <h2 className="scroll-heading" data-line={true}>
                   Who takes up the lamp?
                 </h2>
-                <div className="hero-cards" data-line>
+                <div className="hero-cards" data-line={true}>
                   {SEXES.map((sex) => {
                     const chosen = legacy.heir.sex === sex;
                     return (
@@ -942,22 +948,22 @@ export default function Game() {
                     );
                   })}
                 </div>
-                <p className="warden" data-line>
+                <p className="warden" data-line={true}>
                   {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
                 </p>
-                <p className="dim" data-line>
+                <p className="dim" data-line={true}>
                   Night {legacy.night}
                   {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
                 </p>
-                <button className="btn big" data-line disabled={!ready} onClick={startNight} type="button">
+                <button className="btn big" data-line={true} disabled={!ready} onClick={startNight} type="button">
                   {ready ? "Light the lamps" : "Lighting the lamps…"}
                 </button>
                 {legacy.generation > 1 && (
-                  <button className="btn small" data-line onClick={newLine} type="button">
+                  <button className="btn small" data-line={true} onClick={newLine} type="button">
                     Start a new bloodline
                   </button>
                 )}
-                <p className="privacy dim" data-line>
+                <p className="privacy dim" data-line={true}>
                   Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the
                   game.
                 </p>
@@ -1063,7 +1069,7 @@ function SeaAnswer({ report }: { report: Report }) {
   return (
     <div aria-live="polite">
       {report.line ? (
-        <p className="sea-answer" data-director-line>
+        <p className="sea-answer" data-director-line={true}>
           {report.line}
         </p>
       ) : (

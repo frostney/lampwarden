@@ -1,8 +1,4 @@
 "use client";
-// The Pixi scene as @pixi/react components, rendered inside Game's <Application>. The tree mirrors the scene graph and
-// re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
-// written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
-// 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
   Container,
@@ -50,6 +46,11 @@ import {
   type State,
   step,
 } from "@/game/sim";
+// The Pixi scene as @pixi/react components, rendered inside Game's <Application>. The tree mirrors the scene graph and
+// re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
+// written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
+// 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
+import { ignore } from "@/lib/ignore";
 import { heroKey, heroView, type Sex } from "@/scene/assets";
 import type { Layout, Placed } from "@/scene/decor";
 import {
@@ -160,7 +161,7 @@ function useFrame(update: () => void) {
   useTick(update);
 }
 
-const noDraw = () => {}; // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
+const noDraw = ignore; // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
 
 export const Scene = memo(function Scene({
   night,
@@ -261,7 +262,7 @@ export const Scene = memo(function Scene({
         </World>
         <Strokes draw={groundMarks} label="ground-marks" />
         <Shadows state={state} />
-        <pixiContainer sortableChildren>
+        <pixiContainer sortableChildren={true}>
           <Props props={decor.props} state={state} />
           {decor.boats.map((boat) => (
             <Boat boat={boat} key={`${boat.key}@${boat.x},${boat.y}`} state={state} />
@@ -767,8 +768,8 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
       if (!sprite) {
         return;
       }
-      const centerX = Math.round(hero.x),
-        centerY = Math.round(hero.y) - HERO_LIGHT.rise;
+      const centerX = Math.round(hero.x);
+      const centerY = Math.round(hero.y) - HERO_LIGHT.rise;
       place(sprite, heroLight(centerX, centerY, clock.current), centerX, centerY);
     }, [hero, clock]),
   );
@@ -780,13 +781,13 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
 const LampPool = memo(function LampPool({ lamp, radius }: { lamp: Lamp; radius: number }) {
   const { clock } = useScene();
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
-  const group = useRef<Container>(null),
-    pool = useRef<Sprite>(null);
+  const group = useRef<Container>(null);
+  const pool = useRef<Sprite>(null);
   const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
-      const groupContainer = group.current,
-        poolSprite = pool.current;
+      const groupContainer = group.current;
+      const poolSprite = pool.current;
       if (!groupContainer || !poolSprite) {
         return;
       }
@@ -835,14 +836,14 @@ const LampGlow = memo(function LampGlow({ state, lamp, radius }: { state: State;
   const lantern = lanternGlow(textureFor(textures, "lamp-lit"));
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
   const foot = lampFoot(textureFor(textures, "lamp-lit"));
-  const group = useRef<Container>(null),
-    halo = useRef<Sprite>(null),
-    footSprite = useRef<Sprite>(null);
+  const group = useRef<Container>(null);
+  const halo = useRef<Sprite>(null);
+  const footSprite = useRef<Sprite>(null);
   const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
-      const groupContainer = group.current,
-        haloSprite = halo.current;
+      const groupContainer = group.current;
+      const haloSprite = halo.current;
       if (!groupContainer || !haloSprite) {
         return;
       }

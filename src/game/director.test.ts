@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { checkedDecision, clampProposal, cleanLine, type Proposal, parseProposal, tideRange } from "./director";
 import {
   CREATURE_SHARE_MAX,
   CREATURE_SHARE_MIN,
-  checkedDecision,
-  clampProposal,
-  cleanLine,
   DEFAULT_CREATURE_SHARE,
   type Director,
   directorFrom,
@@ -14,12 +12,9 @@ import {
   LINE_MAX,
   MIX_MAX,
   MIX_MIN,
-  type Proposal,
-  parseProposal,
   rulesDirector,
   TIDE_SPAN,
-  tideRange,
-} from "./director";
+} from "./director-decision";
 
 const PLAY_ID = "2026-10-24-16-11-46-juith2u0";
 

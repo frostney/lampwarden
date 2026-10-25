@@ -1,5 +1,6 @@
 // GET /api/creatures/jobs/:jobId: where a generation job is. A job that has not moved for longer than the routes'
 // maxDuration reads as failed (src/server/creatures/service.ts).
+import { ignore } from "@/lib/ignore";
 import { createServiceDeps } from "@/server/creatures/deps";
 import { readJob } from "@/server/creatures/service";
 
@@ -11,10 +12,7 @@ export async function GET(_request: Request, context: { params: Promise<{ jobId:
     return Response.json({ error: "bad id" }, { status: 400 });
   }
   try {
-    const job = await readJob(
-      createServiceDeps(() => {}),
-      jobId,
-    );
+    const job = await readJob(createServiceDeps(ignore), jobId);
     if (!job) {
       return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
     }

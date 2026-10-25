@@ -3,7 +3,8 @@
 // and the model's own words.
 import { z } from "zod";
 
-import { directorSchema, FALLBACK_REASONS } from "@/game/director";
+import { FALLBACK_REASONS } from "@/game/director";
+import { directorSchema } from "@/game/director-decision";
 import { PLAY_ID } from "@/game/plays";
 
 const mubitCallSchema = z.object({

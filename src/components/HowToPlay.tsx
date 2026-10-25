@@ -282,7 +282,7 @@ export function HowToPlay({ gamepadConnected, sex }: { gamepadConnected: boolean
   const guide = GUIDES[kind];
   const arms = ARMS[sex];
   return (
-    <section aria-label="How to play" className="controls" data-controls={kind} data-line>
+    <section aria-label="How to play" className="controls" data-controls={kind} data-line={true}>
       <h2 className="controls-heading">How to play</h2>
       <div className="controls-row">
         {guide.controls.map((control) => (

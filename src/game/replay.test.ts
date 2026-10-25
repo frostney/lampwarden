@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { type RecordedCreature, recordedCreatureSchema } from "./creature";
-import { emptyLevels, newLegacy } from "./legacy";
+import { newLegacy } from "./legacy";
+import { emptyLevels } from "./levels";
 import { type Play, Recorder } from "./recording";
 import { legacyOf, quantise, STEP, verifyPlay } from "./replay";
 import { bodyHeight, ground, type Input, NO_INPUT, newNight, nightCreature, type State, step } from "./sim";

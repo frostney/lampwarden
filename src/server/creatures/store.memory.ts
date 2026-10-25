@@ -1,6 +1,8 @@
 // An in-memory CreatureStore with the same semantics as the Blob one (newest first, atomic claim), for tests.
+
 import type { CreatureJob } from "@/game/creature";
 import type { CreatureRecord } from "@/game/creature-frames";
+import { compareCodeUnits } from "@/lib/compare";
 
 import type { CreatureStore, RunningLock } from "./store";
 
@@ -25,7 +27,7 @@ export function createMemoryStore(): MemoryCreatureStore {
     atlases,
     codes,
     async listCreatureIds() {
-      return [...creatures.keys()].sort().reverse();
+      return [...creatures.keys()].sort(compareCodeUnits).reverse();
     },
     async getCreature(id) {
       return creatures.get(id) ?? null;

@@ -1,6 +1,6 @@
 // A stored play shaped like the nights real people lost on night 2 (the crowd piles up, the lamps go dark one by one, health
 // collapses at the end), for the director's tests. Numbers are made up to that shape; no recorded play is committed.
-import type { Director } from "@/game/director";
+import type { Director } from "@/game/director-decision";
 
 export const FIXTURE_PLAY_ID = "2026-10-24-16-11-46-juith2u0";
 

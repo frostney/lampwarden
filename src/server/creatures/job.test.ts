@@ -14,8 +14,9 @@ import {
   spritePng,
   verdictJson,
 } from "../../../pipeline/fakes";
+import { isAccepted } from "../../../pipeline/loop";
 import { decodePng } from "../../../tools/logo/png";
-import { anchorYFromBbox, creatureId, isAccepted, type JobDeps, runCreatureJob } from "./job";
+import { anchorYFromBbox, creatureId, type JobDeps, runCreatureJob } from "./job";
 import { createMemoryStore } from "./store.memory";
 
 const verdict = (score: number | null, pass: boolean) => ({ pass, score, issues: [], fix: "", lesson: "" });
@@ -73,7 +74,7 @@ function jobWith(
   const renderer = options.render ?? fakeRenderer();
   const frameBatch = options.renderBatch ?? fakeFrameBatch();
   const steps: string[] = [];
-  const events: Array<Record<string, unknown>> = [];
+  const events: Record<string, unknown>[] = [];
   const originalPut = store.putJob;
   store.putJob = async (job) => {
     steps.push(job.step);

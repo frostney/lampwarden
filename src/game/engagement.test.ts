@@ -1,16 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 
-import {
-  clampProposal,
-  directorSchema,
-  type EngagementKind,
-  EVEN_MIX,
-  mayEase,
-  type Proposal,
-  rulesDirector,
-  tideRange,
-} from "./director";
+import { clampProposal, type Proposal, tideRange } from "./director";
+import { directorSchema, type EngagementKind, EVEN_MIX, mayEase, rulesDirector } from "./director-decision";
 import { engagementOf, heldTide, type RecordedEngagement } from "./engagement";
 import { applyDirector, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
 import { rulesTide } from "./sim";

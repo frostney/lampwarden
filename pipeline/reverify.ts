@@ -24,9 +24,8 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 
 import { ANCHOR_Y } from "../src/scene/assets";
-import { isAccepted } from "../src/server/creatures/job";
 import { createFileStore } from "./file-store";
-import { type LoopCore, type LoopWinner, runCandidateLoop, verify } from "./loop";
+import { isAccepted, type LoopCore, type LoopWinner, runCandidateLoop, verify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
 import { renderBatchFromCheckout, renderFromCheckout } from "./render-checkout";
 import type { RenderStats } from "./render-types";

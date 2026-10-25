@@ -315,7 +315,7 @@ const haste = (state: State) => 1 + 0.05 * (state.night - 1); // the sea's creat
 
 function pickKind(state: State, roll: number): MonsterKind {
   const weights: [MonsterKind, number][] = [
-    ["satyr", 1 * state.mix.satyr],
+    ["satyr", Number(state.mix.satyr)],
     ["harpy", (0.4 + 0.1 * state.night) * state.mix.harpy],
     ["cyclops", state.night >= 2 ? (0.15 + 0.1 * state.night) * state.mix.cyclops : 0],
   ];

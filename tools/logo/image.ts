@@ -89,10 +89,10 @@ export class PixelImage {
 
   /** Crops to the bounding box of the pixels with non-zero alpha. */
   trim(): PixelImage {
-    let left = Infinity,
-      top = Infinity,
-      right = -1,
-      bottom = -1;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -1;
+    let bottom = -1;
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         if (!this.alpha(x, y)) {

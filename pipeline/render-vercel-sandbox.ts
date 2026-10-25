@@ -18,8 +18,10 @@
 // and the linked project (.vercel/project.json from `vercel link`); SDK 3.9.0 reads no VERCEL_TOKEN from the environment.
 // None of it enters the VM, is printed or logged. The pipeline scripts run as `varlock run ... -- bun --no-env-file`
 // (package.json): bun loads no .env file, and varlock hands the script only the variables it needs from .env.schema.
+
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox";
 
+import { ignore } from "../src/lib/ignore";
 import type { BatchManifest } from "./render/batch";
 import {
   batchResultsSchema,
@@ -150,7 +152,7 @@ export async function renderBatchInSandbox(
   });
   // an abort stops the VM at once, whatever the batch is doing in it (a command is killed with it)
   const stopOnAbort = () => {
-    sandbox.stop().catch(() => {});
+    sandbox.stop().catch(ignore);
   };
   signal?.addEventListener("abort", stopOnAbort, { once: true });
   try {
@@ -202,7 +204,7 @@ export async function renderBatchInSandbox(
     return results;
   } finally {
     signal?.removeEventListener("abort", stopOnAbort);
-    await sandbox.stop().catch(() => {});
+    await sandbox.stop().catch(ignore);
   }
 }
 

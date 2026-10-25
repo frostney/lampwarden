@@ -13,11 +13,13 @@
 //
 // It prints the snapshot id: set it as VERCEL_SANDBOX_SNAPSHOT_ID on the deployment. Rebuild it (and set the new id)
 // whenever pipeline/kit/kit.ts or pipeline/render/ changes, or when the pinned Bun moves.
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { Sandbox } from "@vercel/sandbox";
 
+import { ignore } from "../src/lib/ignore";
 import { batchResultsSchema, interpretOutcome } from "./render-types";
 import {
   kitSha,
@@ -124,7 +126,7 @@ try {
   console.log(`\nVERCEL_SANDBOX_SNAPSHOT_ID=${snapshot.snapshotId}`);
   console.log(JSON.stringify(manifest, null, 2));
 } catch (error) {
-  await sandbox.stop().catch(() => {});
+  await sandbox.stop().catch(ignore);
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }

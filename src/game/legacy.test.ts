@@ -1,31 +1,32 @@
 import { describe, expect, test } from "bun:test";
 
+import { compareCodeUnits } from "../lib/compare";
 import { nextCreatureRequestSchema } from "./creature";
 import {
   applyDirector,
   buy,
   drawOffers,
-  emptyLevels,
   endWarden,
   heirAs,
   heirChoices,
   LEVEL_COSTS,
-  MAX_LEVEL,
   meet,
   newLegacy,
   OFFER_COUNT,
   openShop,
   parseLegacy,
   setRulesDirector,
-  UPGRADE_IDS,
-  type UpgradeId,
 } from "./legacy";
+import { emptyLevels, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
 
 describe("heir choices", () => {
   // a seeded stand-in for Math.random, so every draw of names and traits is covered over many lines
-  const seeded = (seed: number) => () => {
-    seed = (seed * 1664525 + 1013904223) % 4294967296;
-    return seed / 4294967296;
+  const seeded = (seed: number) => {
+    let state = seed;
+    return () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
   };
 
   test("never offer the fallen warden's own name, so no heir counts as chosen before the player picks", () => {
@@ -113,7 +114,7 @@ describe("the shop's offers", () => {
     }
     levels.stride = 1;
     levels.tinder = 2;
-    expect(drawOffers(7, levels).toSorted()).toEqual(["stride", "tinder"]);
+    expect(drawOffers(7, levels).toSorted(compareCodeUnits)).toEqual(["stride", "tinder"]);
     levels.stride = MAX_LEVEL;
     levels.tinder = MAX_LEVEL;
     expect(drawOffers(7, levels)).toEqual([]);

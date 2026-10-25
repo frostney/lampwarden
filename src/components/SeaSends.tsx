@@ -31,7 +31,7 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
         aria-label="The creature coming tonight"
         className="sea"
         data-creature={creature.id}
-        data-line
+        data-line={true}
         data-state="ready"
       >
         <CreaturePortrait creatureId={creature.id} onBroken={onSpriteBroken} />
@@ -45,7 +45,7 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
   }
   if (tonight.kind === "generating") {
     return (
-      <section aria-live="polite" className="sea" data-line data-state="generating" data-step={tonight.step}>
+      <section aria-live="polite" className="sea" data-line={true} data-state="generating" data-step={tonight.step}>
         <div className="sea-text">
           <span className="sea-label">The sea is shaping something…</span>
           <span className="sea-lore">{STEP_TEXT[tonight.step]}</span>
@@ -117,5 +117,6 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
       current = false;
     };
   }, [creatureId, onBroken]);
-  return <canvas aria-hidden className="sea-sprite" data-src={creatureSpritePath(creatureId)} ref={canvasRef} />;
+  // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without a tabIndex is not focusable; the portrait is decoration
+  return <canvas aria-hidden={true} className="sea-sprite" data-src={creatureSpritePath(creatureId)} ref={canvasRef} />;
 }

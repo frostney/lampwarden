@@ -173,7 +173,7 @@ function paintSky(stage: number): Texture {
   const height = HORIZON_Y;
   const pixels = new Uint8Array(width * height * 4);
   const bands = bandsFor(stage);
-  const horizonBand = bands[bands.length - 1] ?? [0, 0, 0];
+  const horizonBand = bands.at(-1) ?? [0, 0, 0];
   const plot = (x: number, y: number, colour: Rgb) => {
     if (x >= 0 && x < width && y >= 0 && y < height) {
       putPixel(pixels, width, x, y, colour);

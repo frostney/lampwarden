@@ -3,13 +3,13 @@
 import { z } from "zod";
 
 import { SEXES, type Sex } from "../scene/assets";
-import { checkedDecision, type Director, directorFrom, type EngagementKind, rulesDirector } from "./director";
+import { checkedDecision } from "./director";
+import { type Director, directorFrom, type EngagementKind, rulesDirector } from "./director-decision";
 import { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
 import { nextRandom } from "./random";
 
-// The levels live in levels.ts, which the sim fingerprint covers; this file holds the shop's wording and the line's
-// storage, which it does not, so a copy edit here does not retire recorded nights.
-export { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
+// The levels live in levels.ts, which the sim fingerprint covers (import them from there); this file holds the shop's
+// wording and the line's storage, which it does not, so a copy edit here does not retire recorded nights.
 
 // text: what a level does, with the numbers (the rules themselves are in rulesFor in sim.ts). wardenOnly: lost when the
 // warden falls, because it was only ever theirs. The blade and quiver read here as the son's sword and bow; the shop

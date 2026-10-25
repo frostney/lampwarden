@@ -7,6 +7,7 @@
 // again about the same question (the same ids met) keeps the running one: a job that is still being made when a night
 // begins is not dropped, it carries on through the night. It never blocks play: while it is asking, when nothing is
 // coming and when the network fails, the answer is "none" and the night simply has no new creature.
+import { compareCodeUnits } from "../lib/compare";
 import type { JobStep } from "./creature";
 import { askForCreature, waitForJob } from "./creature-api";
 import type { CreatureRecord } from "./creature-frames";
@@ -49,7 +50,7 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
    * still alive (in flight, being made, or ready) changes nothing; otherwise what it answers replaces what was shown.
    */
   const ask = (seen: readonly string[]) => {
-    const key = [...seen].sort().join(",");
+    const key = [...seen].sort(compareCodeUnits).join(",");
     if (current?.key === key && current.alive) {
       return;
     }

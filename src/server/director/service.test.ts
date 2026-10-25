@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { directorSchema, type FallbackReason, LINE_MAX, rulesDirector } from "@/game/director";
+import type { FallbackReason } from "@/game/director";
+import { directorSchema, LINE_MAX, rulesDirector } from "@/game/director-decision";
 
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "../../../pipeline/mubit";
 import { visitorKey } from "../creatures/limits";
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
 import { decisionLogSchema } from "./log";
-import { CALL_WINDOW_MILLISECONDS, type DirectorDeps, decide } from "./service";
+import { CALL_WINDOW_MILLISECONDS, type DirectorDeps, type DirectorResult, decide } from "./service";
 import { createMemoryStore, type MemoryDirectorStore } from "./store.memory";
 
 const SALT = "a-long-enough-test-salt-0123456789";
@@ -266,7 +267,7 @@ describe("the rules answer when the model cannot", () => {
       const id = `2026-10-24-16-11-4${count}-aaaaaaa${count}`;
       world.store.plays.set(id, lostNightTwo({ id }));
     }
-    const results = [];
+    const results: DirectorResult[] = [];
     for (let count = 0; count < 3; count++) {
       results.push(
         await decide(world.deps, { playId: `2026-10-24-16-11-4${count}-aaaaaaa${count}`, ip: "203.0.113.7" }),
@@ -290,7 +291,7 @@ describe("the rules answer when the model cannot", () => {
       const id = `2026-10-24-16-11-4${count}-bbbbbbb${count}`;
       world.store.plays.set(id, lostNightTwo({ id }));
     }
-    const answers = [];
+    const answers: DirectorResult[] = [];
     for (let count = 0; count < 3; count++) {
       answers.push(
         await decide(world.deps, { playId: `2026-10-24-16-11-4${count}-bbbbbbb${count}`, ip: `192.0.2.${count}` }),

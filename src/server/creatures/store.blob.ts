@@ -7,11 +7,13 @@
 //   <prefix>/jobs/<jobId>.json        job status, rewritten at every step
 //   <prefix>/state/running.json       the global "one job at a time" mark, claimed with a conditional write
 //   <prefix>/starts/...               one tiny blob per job start, counted for the rate limits
+
 import { BlobError, BlobPreconditionFailedError, get, list, put } from "@vercel/blob";
 import { z } from "zod";
 
 import { type CreatureJob, JOB_STEPS } from "@/game/creature";
 import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+import { compareCodeUnits } from "@/lib/compare";
 
 import type { CreatureStore, RunningLock } from "./store";
 
@@ -72,7 +74,7 @@ export function createBlobStore(prefix: string): CreatureStore {
         .filter((pathname) => pathname.endsWith(".json"))
         .map((pathname) => pathname.slice(recordsPrefix.length, -".json".length))
         .filter((id) => RECORD_ID.test(id));
-      return ids.sort().reverse();
+      return ids.sort(compareCodeUnits).reverse();
     },
 
     async getCreature(id) {

@@ -131,7 +131,7 @@ describe("the brief writer's Mubit call", () => {
 
   test("reports each call's record without its text", async () => {
     const model = fakeModel([briefJson()]);
-    const records: Array<Record<string, unknown>> = [];
+    const records: Record<string, unknown>[] = [];
     await writeCreatureBrief({ model: model.client, prompt: "P", onCall: (record) => records.push(record) }, [], "s");
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ task: "brief", status: 200 });

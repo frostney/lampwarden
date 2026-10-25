@@ -73,7 +73,8 @@ function eightWay(horizontal: number, vertical: number): [number, number] {
 export function pollGamepadForPlay(controls: Controls, state: State, memory: GamepadMemory) {
   const gamepad = activeGamepad();
   if (!gamepad) {
-    controls.gamepadX = controls.gamepadY = 0;
+    controls.gamepadX = 0;
+    controls.gamepadY = 0;
     return;
   }
   const padHorizontal = (isPressed(gamepad, BUTTON.right) ? 1 : 0) - (isPressed(gamepad, BUTTON.left) ? 1 : 0);
@@ -92,8 +93,8 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
     fresh.has(BUTTON.rightTrigger) ||
     fresh.has(BUTTON.rightBumper)
   ) {
-    const aimHorizontal = gamepad.axes[2] ?? 0,
-      aimVertical = gamepad.axes[3] ?? 0;
+    const aimHorizontal = gamepad.axes[2] ?? 0;
+    const aimVertical = gamepad.axes[3] ?? 0;
     if (Math.hypot(aimHorizontal, aimVertical) > AIM_DEADZONE) {
       // aim along the right stick: a point ahead of the warden in that direction (the ground is foreshortened 2:1)
       const length = Math.hypot(aimHorizontal, aimVertical);
@@ -109,11 +110,13 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
 
   const hurt = state.hero.hurt > 0;
   if (hurt && !memory.wasHurt) {
-    void gamepad.vibrationActuator?.playEffect("dual-rumble", {
-      duration: 140,
-      strongMagnitude: 0.7,
-      weakMagnitude: 0.4,
-    });
+    gamepad.vibrationActuator
+      ?.playEffect("dual-rumble", {
+        duration: 140,
+        strongMagnitude: 0.7,
+        weakMagnitude: 0.4,
+      })
+      .catch(reportError);
   }
   memory.wasHurt = hurt;
 }

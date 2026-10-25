@@ -1,11 +1,12 @@
 // The command line's sprite loop: the loop in loop.ts (model and renderer injected) with its records written to files,
 // public/sprites for the winner and pipeline/runs for every attempt and every model call. A Vercel function uses loop.ts
 // directly with a store of its own, since it has no filesystem to write to.
-import { anchorYFromBbox, isAccepted } from "../src/server/creatures/job";
+import { anchorYFromBbox } from "../src/server/creatures/job";
 import { createFileStore, writeSpriteOutputs } from "./file-store";
 import {
   type Brief,
   type CandidateOutcome,
+  isAccepted,
   type LoopCore,
   type LoopOutcome,
   runCandidateLoop,
@@ -15,7 +16,6 @@ import {
 } from "./loop";
 
 export type { Brief } from "./loop";
-export { correctionMessage, engineFlagIssues, formatFixed, parseVerdict, slugify } from "./loop";
 
 /** The command line's context: the loop's context with directories in place of a store. */
 export interface LoopContext extends Omit<LoopCore, "store"> {

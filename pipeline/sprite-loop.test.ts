@@ -5,17 +5,10 @@ import { join } from "node:path";
 
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
+import { correctionMessage, engineFlagIssues, formatFixed, parseVerdict, slugify } from "./loop";
 import { createMubitClient, type FetchImplementation } from "./mubit";
 import type { RenderRequest, RenderResult, RenderStats } from "./render-types";
-import {
-  correctionMessage,
-  engineFlagIssues,
-  formatFixed,
-  type LoopContext,
-  parseVerdict,
-  processBrief,
-  slugify,
-} from "./sprite-loop";
+import { type LoopContext, processBrief } from "./sprite-loop";
 
 const GENERATOR_PROMPT = "GENERATOR PROMPT";
 const VERIFIER_PROMPT = "VERIFIER PROMPT";

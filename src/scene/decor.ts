@@ -267,10 +267,9 @@ class Placement {
   private readonly random: () => number;
   private groups = 0;
   private readonly drawn = new Map<string, number>(); // groups laid out so far, by pool
-  constructor(
-    seed: number,
-    private readonly live: LiveBuilding | null,
-  ) {
+  private readonly live: LiveBuilding | null;
+  constructor(seed: number, live: LiveBuilding | null) {
+    this.live = live;
     this.random = decorStream(seed);
   }
 

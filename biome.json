@@ -28,7 +28,8 @@
       "quoteStyle": "double",
       "semicolons": "always",
       "trailingCommas": "all"
-    }
+    },
+    "globals": ["Bun"]
   },
   "assist": {
     "actions": {
@@ -241,7 +242,7 @@
   "plugins": ["./tools/lint/short-names.grit"],
   "overrides": [
     {
-      "includes": ["src/app/**", "next.config.ts"],
+      "includes": ["src/app/**", "next.config.ts", "e2e/walkthroughs/**"],
       "linter": {
         "rules": {
           "style": {

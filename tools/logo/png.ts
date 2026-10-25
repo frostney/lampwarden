@@ -51,8 +51,8 @@ export function encodePng(image: PixelImage): Buffer {
 
 /** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
 export function decodePng(bytes: Buffer): PixelImage {
-  let width = 0,
-    height = 0;
+  let width = 0;
+  let height = 0;
   const compressed: Buffer[] = [];
   for (let position = 8; position < bytes.length; ) {
     const length = bytes.readUInt32BE(position);
@@ -90,9 +90,9 @@ export function decodePng(bytes: Buffer): PixelImage {
         predictor = (left + above) >> 1;
       } else if (filter === 4) {
         const estimate = left + above - aboveLeft;
-        const distanceLeft = Math.abs(estimate - left),
-          distanceAbove = Math.abs(estimate - above),
-          distanceAboveLeft = Math.abs(estimate - aboveLeft);
+        const distanceLeft = Math.abs(estimate - left);
+        const distanceAbove = Math.abs(estimate - above);
+        const distanceAboveLeft = Math.abs(estimate - aboveLeft);
         predictor =
           distanceLeft <= distanceAbove && distanceLeft <= distanceAboveLeft
             ? left

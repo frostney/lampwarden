@@ -38,11 +38,11 @@ export interface FrameSet {
  * Why a frame set was refused. `kind` is a fixed word, safe to log; `reason` is for a person and may quote the sandbox's
  * error, which can carry model text, so it is never stored or logged by the job.
  */
-export type FrameSetFailure = {
+export interface FrameSetFailure {
   ok: false;
   kind: "incomplete" | "render" | "picture" | "blank" | "static";
   reason: string;
-};
+}
 
 export type FrameSetResult = ({ ok: true } & FrameSet) | FrameSetFailure;
 

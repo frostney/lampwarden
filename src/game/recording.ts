@@ -75,13 +75,7 @@ export class Recorder {
     this.hiddenSeconds += (performance.now() - this.hiddenSince) / 1000;
     this.hiddenSince = null;
   }
-  constructor(
-    legacy: Legacy,
-    seed: number,
-    build: string,
-    creature: RecordedCreature | null = null,
-    sim: string | undefined = undefined,
-  ) {
+  constructor(legacy: Legacy, seed: number, build: string, creature: RecordedCreature | null = null, sim?: string) {
     if (typeof document !== "undefined") {
       if (document.visibilityState === "hidden") {
         this.hiddenSince = performance.now();
@@ -342,7 +336,7 @@ export async function upload(play: Play, leaving = false): Promise<boolean> {
       }
     }
     if (result === "sent") {
-      void flushQueue(storage, (waiting) => post(waiting, false), inFlight); // the caller does not wait
+      flushQueue(storage, (waiting) => post(waiting, false), inFlight).catch(reportError); // the caller does not wait
     }
   }
   return result === "sent";

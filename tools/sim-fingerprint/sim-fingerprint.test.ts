@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { SIM_FINGERPRINT } from "../../src/game/plays";
+import { compareCodeUnits } from "../../src/lib/compare";
 import { SIM_SOURCES, simFingerprint } from "./sim-fingerprint";
 
 const repository = resolve(import.meta.dir, "../..");
@@ -106,7 +107,7 @@ describe("the sim fingerprint", () => {
     };
     visit("src/game/sim.ts");
     visit("src/game/replay.ts");
-    expect([...closure].sort()).toEqual([...SIM_SOURCES].sort());
+    expect([...closure].sort(compareCodeUnits)).toEqual([...SIM_SOURCES].sort(compareCodeUnits));
   });
 
   // Wording and the server's reading of a model reply are not in the closure, so editing them keeps recorded nights.

@@ -6,9 +6,10 @@
 import { z } from "zod";
 
 import { recordedCreatureSchema } from "@/game/creature";
-import { directorFrom, type EngagementKind, mayEase, tideRange } from "@/game/director";
+import { tideRange } from "@/game/director";
+import { directorFrom, type EngagementKind, mayEase } from "@/game/director-decision";
 import { type Engagement, engagementOf, heldTide } from "@/game/engagement";
-import { levelsOf, UPGRADE_IDS } from "@/game/legacy";
+import { levelsOf, UPGRADE_IDS } from "@/game/levels";
 import { PLAY_ID } from "@/game/plays";
 import { LAMP_SPOTS, nightLength, rulesTide } from "@/game/sim";
 

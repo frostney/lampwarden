@@ -26,7 +26,7 @@ export function createFileStore(paths: { workDirectory: string; logPath: string 
 }
 
 const manifestSchema = z.record(z.string(), z.unknown());
-const spritesSchema = z.record(z.string(), z.unknown());
+const spritesSchema = z.record(z.string(), z.unknown()).default({});
 
 function writeManifestRow(outputDirectory: string, spriteName: string, entry: Record<string, unknown>): void {
   const manifestPath = join(outputDirectory, "manifest.json");
@@ -34,7 +34,7 @@ function writeManifestRow(outputDirectory: string, spriteName: string, entry: Re
   const manifest = existsSync(manifestPath)
     ? manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
     : { sprites: {} };
-  manifest.sprites = { ...spritesSchema.parse(manifest.sprites ?? {}), [spriteName]: entry };
+  manifest.sprites = { ...spritesSchema.parse(manifest.sprites), [spriteName]: entry };
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
 }
 

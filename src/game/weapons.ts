@@ -2,7 +2,8 @@
 // shots are in scene/projectiles.ts, the hero frames in pipeline/hero-animation.ts). Presentation only: the upgrades'
 // ids, costs and effects are the same for both, and the sim never reads this.
 import type { Sex } from "../scene/assets";
-import { type Legacy, UPGRADES, type UpgradeId } from "./legacy";
+import { type Legacy, UPGRADES } from "./legacy";
+import type { UpgradeId } from "./levels";
 
 export type StrikeIcon = "blade" | "spear";
 export type ShootIcon = "shoot" | "sling";

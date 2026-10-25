@@ -38,8 +38,8 @@ export function convexHull(points: readonly Point[]): Point[] {
     const half: Point[] = [];
     for (const point of ordered) {
       while (half.length >= 2) {
-        const before = half[half.length - 2];
-        const last = half[half.length - 1];
+        const before = half.at(-2);
+        const last = half.at(-1);
         if (!before || !last || cross(before, last, point) > 0) {
           break;
         }

@@ -95,8 +95,8 @@ function facesLight(shape: LightShape, x: number, y: number): boolean {
 
 // the band a pixel falls in, 0 (unlit) to palette.length, before the plaza is taken into account
 function bandLevel(shape: LightShape, x: number, y: number, variant: FlickerVariant): number {
-  const radiusX = shape.radiusX + variant.radiusStep,
-    radiusY = shape.radiusY + variant.radiusStep / 2;
+  const radiusX = shape.radiusX + variant.radiusStep;
+  const radiusY = shape.radiusY + variant.radiusStep / 2;
   const distance = Math.hypot((x - shape.centerX) / radiusX, (y - shape.centerY) / radiusY);
   if (distance >= 1) {
     return 0;
@@ -121,10 +121,10 @@ function lightLevel(shape: LightShape, x: number, y: number, variant: FlickerVar
 }
 
 function paintLight(shape: LightShape, variant: FlickerVariant): LightPiece {
-  const extentX = Math.ceil(shape.radiusX) + 2,
-    extentY = Math.ceil(shape.radiusY) + 2;
-  const width = extentX * 2 + 1,
-    height = extentY * 2 + 1;
+  const extentX = Math.ceil(shape.radiusX) + 2;
+  const extentY = Math.ceil(shape.radiusY) + 2;
+  const width = extentX * 2 + 1;
+  const height = extentY * 2 + 1;
   const pixels = new Uint8Array(width * height * 4);
   for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
@@ -209,8 +209,8 @@ const GLINT_PATTERNS = {
 type GlintShape = keyof typeof GLINT_PATTERNS;
 
 function patternPiece(rows: readonly string[]): LightPiece {
-  const height = rows.length,
-    width = Math.max(...rows.map((row) => row.length));
+  const height = rows.length;
+  const width = Math.max(...rows.map((row) => row.length));
   const pixels = new Uint8Array(width * height * 4);
   rows.forEach((row, rowIndex) => {
     [...row].forEach((character, column) => {
@@ -375,8 +375,8 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
   // tile edges: a random point snapped onto the nearest grid line
   for (let attempt = 0, placed = 0; attempt < 400 && placed < Math.round(area / 450); attempt++) {
     const point = randomPoint();
-    let tileColumn = plazaU(point.x, point.y),
-      tileRow = plazaV(point.x, point.y);
+    let tileColumn = plazaU(point.x, point.y);
+    let tileRow = plazaV(point.x, point.y);
     // a whole tileColumn is a line running down-left ("slash"), a whole tileRow one running down-right ("backslash")
     const slash = distanceToWhole(tileColumn) < distanceToWhole(tileRow);
     if (slash) {
@@ -475,8 +475,8 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
     glints.push({ x, y, phase: Math.floor(random() * 8), frames: shimmer(length, bright) });
 
   // front rim: the lit chord of the rim above the wall
-  let chordLeft = Infinity,
-    chordRight = -Infinity;
+  let chordLeft = Infinity;
+  let chordRight = -Infinity;
   for (let x = Math.floor(pool.centerX - pool.radiusX); x <= pool.centerX + pool.radiusX; x++) {
     const rimY = Math.floor(frontRimY(x));
     for (let y = rimY - 1; y <= rimY; y++) {

@@ -89,7 +89,9 @@ function releaseScreenLock() {
     if (Number(readFileSync(LOCK, "utf8").trim()) === process.pid) {
       rmSync(LOCK);
     }
-  } catch {}
+  } catch {
+    // another process holds the lock, or it is already gone
+  }
 }
 process.on("exit", releaseScreenLock);
 for (const signal of ["SIGINT", "SIGTERM"]) {

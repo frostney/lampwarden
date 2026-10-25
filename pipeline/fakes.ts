@@ -82,7 +82,7 @@ export function fakeModel(script: Array<string | null> | ((request: SentRequest)
     fetchImplementation: async (url, init) => {
       urls.push(url);
       sent.push(JSON.parse(String(init.body)));
-      const body = sent[sent.length - 1];
+      const body = sent.at(-1);
       const systemBlocks = Array.isArray(body?.system) ? body.system : [];
       const system = systemBlocks.map((block: { text?: string }) => block.text ?? "").join("");
       if (!Array.isArray(script)) {

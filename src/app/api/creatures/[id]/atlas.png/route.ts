@@ -1,6 +1,7 @@
 // GET /api/creatures/:id/atlas.png: the animation atlas of a gallery creature that has frames, from the private Blob
 // store (the layout is in src/game/creature-frames.ts). Ids are unique and an atlas never changes, so the response is
 // cached for good. A creature without an atlas answers 404.
+import { ignore } from "@/lib/ignore";
 import { createServiceDeps } from "@/server/creatures/deps";
 
 const CREATURE_ID = /^[a-z0-9-]{8,80}$/;
@@ -11,7 +12,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return Response.json({ error: "bad id" }, { status: 400 });
   }
   try {
-    const atlas = await createServiceDeps(() => {}).store.getAtlas(id);
+    const atlas = await createServiceDeps(ignore).store.getAtlas(id);
     if (!atlas) {
       return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
     }

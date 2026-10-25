@@ -1,7 +1,8 @@
 // What a director's decision does to a night, and that the night still replays exactly from a recording that carries it.
 import { describe, expect, test } from "bun:test";
 
-import { clampProposal, type Director, EVEN_MIX } from "./director";
+import { clampProposal } from "./director";
+import { type Director, EVEN_MIX } from "./director-decision";
 import { applyDirector, type Legacy, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
 import { type Play, Recorder } from "./recording";
 import { legacyOf, quantise, STEP, verifyPlay } from "./replay";

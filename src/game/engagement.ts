@@ -12,7 +12,7 @@
 //
 // The recording is the client's, so this holds for an honest client: one that hides what it does, or leaves the field out,
 // is judged on what it sent.
-import { type EngagementKind, mayEase } from "./director";
+import { type EngagementKind, mayEase } from "./director-decision";
 
 /** Moving for less of the night than this, and acting less often than ACTIONS_PER_MINUTE, is idle. */
 const IDLE_MOVING_SHARE = 0.15;

@@ -5,12 +5,14 @@
 //
 // The job reports to the store at every step, and every failure ends as a short fixed reason; no model output and no
 // stack trace is ever stored, returned or logged.
+
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
 import type { CreatureJob, JobStep } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+import { ignore } from "@/lib/ignore";
 
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
@@ -43,7 +45,6 @@ type JobFailure =
 
 // A verifier pass, or a score of at least 6 with no engine flags, is accepted; anything else fails and stores nothing.
 // The rule is `isAccepted` in pipeline/loop.ts, which the warden's generator (pipeline/hero-loop.ts) uses as well.
-export { isAccepted };
 
 /** Where its feet touch the ground, as a fraction of the frame: the lowest opaque row of the bbox, less the shadow. */
 export function anchorYFromBbox(bbox: string): number {
@@ -174,8 +175,8 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
         pose: "",
         generatorPrompt: deps.prompts.generator,
         verifierPrompt: deps.prompts.verifier,
-        store: { logCall: onCall, saveAttemptCode: () => {}, saveAttemptPng: () => {} },
-        print: () => {},
+        store: { logCall: onCall, saveAttemptCode: ignore, saveAttemptPng: ignore },
+        print: ignore,
         onStage: (stage: LoopStage) => report(stage),
       },
       { id, category: "creature", text: written.brief.brief },
@@ -240,7 +241,7 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     log({ event: "creature-job-failed", jobId, kind: error instanceof Error ? error.name : "unknown" });
     if (!concluded) {
       const timedOut = error instanceof Error && error.message === "timed out";
-      await fail(timedOut ? "timed out" : "something went wrong").catch(() => {});
+      await fail(timedOut ? "timed out" : "something went wrong").catch(ignore);
     }
   }
   ended = true;

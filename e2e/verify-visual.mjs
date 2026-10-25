@@ -149,6 +149,7 @@ async function serveSea(route) {
     if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced)) {
       return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
     }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: the scenarios set sea.jobsDone between requests
     if (sea.jobsDone) {
       return route.fulfill({
         json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
@@ -261,7 +262,7 @@ page.on("response", (response) => {
 
 const shots = [];
 const checks = [];
-const check = (scene, name, passed, detail) => checks.push({ scene, name, ok: !!passed, detail });
+const check = (scene, name, passed, detail) => checks.push({ scene, name, ok: Boolean(passed), detail });
 
 // --- helpers ------------------------------------------------------------------------------------------------
 const settle = () =>
@@ -711,7 +712,9 @@ async function checkPress(tag, name, locator, disabled = false) {
 async function checkCodePress(tag, name, press, pressedElement, release) {
   await press();
   const during = await page.evaluate(pressedElement);
-  await (release ?? (() => {}))();
+  if (release) {
+    await release();
+  }
   await page.waitForTimeout(250);
   const after = await page.evaluate(pressedElement);
   check(tag, name, during === true && after === false, `while pressed ${during}, after ${after}`);
@@ -998,7 +1001,7 @@ function propsOffPlaza(props) {
         near++;
       }
     }
-    if (off || near) {
+    if (off > 0 || near > 0) {
       problems.push(`${key}@${x},${y}: ${off} pixels off the plaza, ${near} within the margin`);
     }
   }
@@ -3131,7 +3134,11 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       loaded: portrait?.getAttribute("data-loaded") === "1",
       scale: Number(portrait?.getAttribute("data-scale") ?? 0),
       // drawn at a whole multiple of the cropped figure, and big enough to read
-      whole: !!portrait && !!box && box.width === portrait.width * Number(portrait.dataset.scale) && box.height >= 48,
+      whole:
+        Boolean(portrait) &&
+        Boolean(box) &&
+        box.width === portrait.width * Number(portrait.dataset.scale) &&
+        box.height >= 48,
       height: box?.height ?? 0,
     };
   });
@@ -3669,7 +3676,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 
   // 25 an answer that comes after the next night began is ignored
   director.mode = "late";
-  let release = () => {};
+  let release = () => {
+    // replaced by the hold promise below
+  };
   director.hold = new Promise((resolve) => {
     release = resolve;
   });

@@ -68,8 +68,8 @@ export const manifestIcon = (size: 192 | 512, maskable: boolean): PixelImage =>
 
 /** 1200 x 630 social card: the logo at the largest integer scale that fits, the tagline under it, and stars. */
 export function socialCard(logoImage: PixelImage, tagline: TextMask): PixelImage {
-  const cardWidth = 1200,
-    cardHeight = 630;
+  const cardWidth = 1200;
+  const cardHeight = 630;
   const card = new PixelImage(cardWidth, cardHeight, colours.night);
   const taglineImage = textImage(tagline, [colours.cream]);
   const logoScale = Math.max(

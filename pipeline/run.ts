@@ -16,10 +16,11 @@ import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
+import { slugify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
 import { checkoutSandboxOptions, renderFromCheckout } from "./render-checkout";
 import { RENDERED_WITH } from "./render-types";
-import { type Brief, type LoopContext, processBrief, processBriefWithCandidates, slugify } from "./sprite-loop";
+import { type Brief, type LoopContext, processBrief, processBriefWithCandidates } from "./sprite-loop";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 /** Briefs in flight at once, each with at most one sandbox render at a time (Vercel Sandbox has been measured to 25). */

@@ -4,14 +4,8 @@
 // The contract with the game: the answer is always a decision it can play. The model's when it answered in time and
 // validly; the rules' (source "rules") when it did not, with the reason. Only a play the server cannot find or read is
 // an error, and the game treats that as the rules' too.
-import {
-  clampProposal,
-  type Director,
-  directorFrom,
-  type FallbackReason,
-  parseProposal,
-  rulesDirector,
-} from "@/game/director";
+import { clampProposal, type FallbackReason, parseProposal } from "@/game/director";
+import { type Director, directorFrom, rulesDirector } from "@/game/director-decision";
 import { engagementOf } from "@/game/engagement";
 
 import { type MubitClient, shortSha } from "../../../pipeline/mubit";

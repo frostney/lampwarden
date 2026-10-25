@@ -19,7 +19,10 @@ export function quantise(input: Input): Input {
 export class Replayer {
   private nextRow = 0;
   private current: Input = { moveX: 0, moveY: 0, melee: false, ranged: false, aim: null };
-  constructor(public play: Play) {}
+  readonly play: Play;
+  constructor(play: Play) {
+    this.play = play;
+  }
   input(stepIndex: number): Input {
     const rows = this.play.inputs;
     let edge = false;

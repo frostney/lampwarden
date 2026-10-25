@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { emptyLevels, type Legacy, type Levels, MAX_LEVEL, newLegacy } from "./legacy";
+import { type Legacy, newLegacy } from "./legacy";
+import { emptyLevels, type Levels, MAX_LEVEL } from "./levels";
 import { STEP } from "./replay";
 import {
   CENTRE_X,
@@ -42,7 +43,7 @@ function place(state: State, kind: MonsterKind, offsetX: number, offsetY = 0) {
     knockX: 0,
     knockY: 0,
   });
-  const monster = state.monsters[state.monsters.length - 1];
+  const monster = state.monsters.at(-1);
   if (!monster) {
     throw new Error("monster not placed");
   }

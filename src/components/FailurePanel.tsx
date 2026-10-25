@@ -13,7 +13,7 @@ export function FailurePanel({ title, message, hint, action, onAction }: Failure
     <div className="panel" data-panel="failure" role="alert">
       <div className="logo small">{title}</div>
       <p>{message}</p>
-      {hint && <p className="dim">{hint}</p>}
+      {hint ? <p className="dim">{hint}</p> : null}
       <button className="btn big" onClick={onAction} type="button">
         {action}
       </button>

@@ -5,18 +5,18 @@
 // --director: only the live director's section, with stub decisions in place of the model (see directorReport).
 import { consumePresses, liveInput, newControls } from "../src/game/controls";
 import { ARCHETYPES, type Modifiers } from "../src/game/creature";
-import { clampProposal, type Director, EVEN_MIX, type Mix } from "../src/game/director";
+import { clampProposal } from "../src/game/director";
+import { type Director, EVEN_MIX, type Mix } from "../src/game/director-decision";
 import {
   applyDirector,
   buy,
   type Legacy,
-  MAX_LEVEL,
   newLegacy,
   openShop,
   setRulesDirector,
-  UPGRADE_IDS,
   upgradeCost,
 } from "../src/game/legacy";
+import { MAX_LEVEL, UPGRADE_IDS } from "../src/game/levels";
 import { STEP } from "../src/game/replay";
 import {
   bodyHeight,

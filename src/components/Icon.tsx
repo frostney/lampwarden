@@ -1,6 +1,7 @@
 // 16x16 pixel icons for the upgrades, the HUD and the touch controls, drawn as crisp SVG rects. One character per pixel;
 // '.' is transparent.
-import type { TraitId, UpgradeId } from "@/game/legacy";
+import type { TraitId } from "@/game/legacy";
+import type { UpgradeId } from "@/game/levels";
 
 export const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline

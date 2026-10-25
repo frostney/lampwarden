@@ -51,7 +51,8 @@ function outline(pixels: PixelMap) {
 
 function toTexture(pixels: PixelMap): Texture {
   const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = CANVAS_SIZE;
+  canvas.width = CANVAS_SIZE;
+  canvas.height = CANVAS_SIZE;
   const context = canvas.getContext("2d");
   if (context) {
     for (const [key, colour] of pixels) {
@@ -68,10 +69,10 @@ function toTexture(pixels: PixelMap): Texture {
 // An arrow pointing along `angle` (radians, screen space): the tip at +7 pixels from the centre, the nock at -6.
 function arrowPixels(angle: number): PixelMap {
   const pixels: PixelMap = new Map();
-  const alongX = Math.cos(angle),
-    alongY = Math.sin(angle);
-  const acrossX = -alongY,
-    acrossY = alongX;
+  const alongX = Math.cos(angle);
+  const alongY = Math.sin(angle);
+  const acrossX = -alongY;
+  const acrossY = alongX;
   const pointAt = (along: number, across: number): [number, number] => [
     CENTRE + alongX * along + acrossX * across,
     CENTRE + alongY * along + acrossY * across,

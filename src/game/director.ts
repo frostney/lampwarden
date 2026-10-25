@@ -8,7 +8,7 @@
 // The decision's shape, bounds, schema and the rules' own decision are in director-decision.ts, which a recorded night
 // replays from and the sim fingerprint covers. This file is not covered: how a reply is read or cleaned does not change
 // how a recorded night plays. Anything `directorFrom` or `rulesDirector` reads therefore belongs in that file, never
-// here: an edit here would change what a replay does without changing the fingerprint. It re-exports that module so the game and the server have one place to import from.
+// here: an edit here would change what a replay does without changing the fingerprint.
 import { z } from "zod";
 
 import {
@@ -24,24 +24,6 @@ import {
   mayEase,
   TIDE_MAX,
   TIDE_MIN,
-  TIDE_SPAN,
-} from "./director-decision";
-
-export {
-  CREATURE_SHARE_MAX,
-  CREATURE_SHARE_MIN,
-  DEFAULT_CREATURE_SHARE,
-  type Director,
-  directorFrom,
-  directorSchema,
-  type EngagementKind,
-  EVEN_MIX,
-  LINE_MAX,
-  MIX_MAX,
-  MIX_MIN,
-  type Mix,
-  mayEase,
-  rulesDirector,
   TIDE_SPAN,
 } from "./director-decision";
 

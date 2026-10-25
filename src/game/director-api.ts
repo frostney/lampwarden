@@ -3,7 +3,8 @@
 // failure is null, and the night simply keeps the rules' decision.
 import { z } from "zod";
 
-import { directorSchema, FALLBACK_REASONS } from "./director";
+import { FALLBACK_REASONS } from "./director";
+import { directorSchema } from "./director-decision";
 import { PLAY_ID } from "./plays";
 
 export const DIRECTOR_API = "/api/director";

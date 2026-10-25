@@ -6,12 +6,14 @@
 // Every sprite is re-rendered from its committed build code, all of them in one Vercel Sandbox batch (the PNG is
 // byte-identical to the committed one), so the verifier gets the same engine stats it would in a job. Needs Vercel auth
 // (docs/tooling.md, "Rendering needs Vercel auth"). Costs about one verifier call per sprite and repeat.
+
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
+import { ignore } from "../src/lib/ignore";
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
 import { createMubitClient } from "./mubit";
@@ -63,8 +65,8 @@ const loop: LoopCore = {
   pose: "",
   generatorPrompt: "",
   verifierPrompt: readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8"),
-  store: { logCall: () => {}, saveAttemptCode: () => {}, saveAttemptPng: () => {} },
-  print: () => {},
+  store: { logCall: ignore, saveAttemptCode: ignore, saveAttemptPng: ignore },
+  print: ignore,
 };
 
 const requests = items.map((item) => ({

@@ -135,4 +135,4 @@ slices.forEach((slice, sliceIndex) => {
 console.log(
   `sprites ${jobs.length}, with differences ${failures}, differing pixels ${totalDiffering}; ${batchCount} sandbox batches of ${vcpus} vCPUs in ${elapsedSeconds.toFixed(1)} s`,
 );
-process.exit(failures ? 1 : 0);
+process.exit(failures > 0 ? 1 : 0);

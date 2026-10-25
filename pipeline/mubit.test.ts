@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { compareCodeUnits } from "../src/lib/compare";
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "./mubit";
 
 const TEST_KEY = "test-key-not-a-secret";
@@ -66,7 +67,7 @@ describe("Mubit request", () => {
       "content-type": "application/json",
     });
     const body = JSON.parse(String(request?.init.body));
-    expect(Object.keys(body).sort()).toEqual(["max_tokens", "messages", "metadata", "model", "system"]);
+    expect(Object.keys(body).sort(compareCodeUnits)).toEqual(["max_tokens", "messages", "metadata", "model", "system"]);
     expect(body).toEqual({
       model: "claude-opus-5-5",
       max_tokens: 1500,

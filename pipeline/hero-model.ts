@@ -44,11 +44,11 @@ export function heroBrief(sex: Sex): string {
     `The player's warden, ${WARDEN_BRIEFS[sex]}. Greek and heroic, with a readable silhouette that stands out against a dark night: ` +
     `distinct bronze, linen and accent colours, so ${pronouns.possessive} armour, cloth and cape do not melt into one colour. ` +
     `Write one call: hero(k, { sex: '${sex}', melee: '${weapons.melee}', ranged: '${weapons.ranged}', pose: POSE || 'idle', facing: FACING, ...}). ` +
-    `The game draws the warden in 20 poses (idle, walk, melee, ranged) from five directions with this same code, so ` +
-    `FACING is a global number, in degrees, that the renderer gives your code for each direction: write facing: FACING exactly and ` +
-    `never a fixed number. Never pass at, height, build or ready (the game sets them), and call no raw shapes (k.sphere, k.capsule and the ` +
+    "The game draws the warden in 20 poses (idle, walk, melee, ranged) from five directions with this same code, so " +
+    "FACING is a global number, in degrees, that the renderer gives your code for each direction: write facing: FACING exactly and " +
+    "never a fixed number. Never pass at, height, build or ready (the game sets them), and call no raw shapes (k.sphere, k.capsule and the " +
     `others): they would not turn with ${pronouns.object}. Choose only what makes ${pronouns.object} look like ${pronouns.reflexive}: helmet ('none'|'corinthian'|'attic'), cape, ` +
-    `and palette {cloth, accent, hair, skin, metal} with material names from the list.`
+    "and palette {cloth, accent, hair, skin, metal} with material names from the list."
   );
 }
 

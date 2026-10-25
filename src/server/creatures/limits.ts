@@ -108,7 +108,7 @@ export async function checkStartLimits(
   const recent = await store.visitorStartsBetween(visitor, new Date(now.getTime() - HOUR_MILLISECONDS), now);
   if (recent.length >= limits.perVisitorPerHour) {
     // the start that frees a place is the one `perVisitorPerHour` places from the newest
-    const freesAt = (recent[recent.length - limits.perVisitorPerHour]?.getTime() ?? now.getTime()) + HOUR_MILLISECONDS;
+    const freesAt = (recent.at(-limits.perVisitorPerHour)?.getTime() ?? now.getTime()) + HOUR_MILLISECONDS;
     return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((freesAt - now.getTime()) / 1000)) };
   }
   if ((await store.startsOnDay(now.toISOString().slice(0, 10))) >= limits.perDay) {

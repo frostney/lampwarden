@@ -1,4 +1,4 @@
-// What the creature API reads from the environment, validated once. A missing secret turns generation off (the gallery
+// What the creature and building APIs read from the environment, validated once. A missing secret turns generation off (the gallery
 // still serves); a malformed limit falls back to its default.
 import { z } from "zod";
 
@@ -13,6 +13,10 @@ export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - 30;
 const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 12;
 const DEFAULT_STARTS_PER_DAY = 40;
 const DEFAULT_BLOB_PREFIX = "creatures";
+// Buildings are scenery, asked for as each night begins like creatures are: the same hourly allowance, and a daily cap of
+// their own (a smaller one, since the plaza needs one new building a night at most).
+const DEFAULT_BUILDING_STARTS_PER_DAY = 20;
+const DEFAULT_BUILDING_BLOB_PREFIX = "buildings";
 const DEFAULT_CANDIDATES = 3;
 const MAX_CANDIDATES = 5;
 export const MIN_SALT_LENGTH = 16;
@@ -25,6 +29,10 @@ export interface StartLimits {
 export interface CreatureConfig {
   limits: StartLimits;
   blobPrefix: string;
+  /** The buildings' own starts per visitor an hour and per day, counted apart from the creatures'. */
+  buildingLimits: StartLimits;
+  /** Where in the Blob store the building gallery and its limit marks live. */
+  buildingBlobPrefix: string;
   /** What generation needs; null where it is missing, which turns generation off. */
   mubitApiKey: string | null;
   snapshotId: string | null;
@@ -43,10 +51,9 @@ export const positiveInteger = (fallback: number) =>
     .pipe(z.number().int().min(1).max(100_000))
     .catch(fallback);
 
-const prefixSchema = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9/_-]{0,60}$/)
-  .catch(DEFAULT_BLOB_PREFIX);
+const prefixPattern = /^[a-z0-9][a-z0-9/_-]{0,60}$/;
+const prefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BLOB_PREFIX);
+const buildingPrefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BUILDING_BLOB_PREFIX);
 
 export const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
 
@@ -60,6 +67,13 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
       perDay: positiveInteger(DEFAULT_STARTS_PER_DAY).parse(env.CREATURE_MAX_STARTS_PER_DAY),
     },
     blobPrefix: prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX),
+    buildingLimits: {
+      perVisitorPerHour: positiveInteger(DEFAULT_STARTS_PER_VISITOR_PER_HOUR).parse(
+        env.BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR,
+      ),
+      perDay: positiveInteger(DEFAULT_BUILDING_STARTS_PER_DAY).parse(env.BUILDING_MAX_STARTS_PER_DAY),
+    },
+    buildingBlobPrefix: buildingPrefixSchema.parse(present(env.BUILDING_BLOB_PREFIX) ?? DEFAULT_BUILDING_BLOB_PREFIX),
     mubitApiKey: present(env.MUBIT_API_KEY),
     snapshotId: present(env.VERCEL_SANDBOX_SNAPSHOT_ID),
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,

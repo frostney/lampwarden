@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { decodePng } from "../../tools/logo/png";
-import { anchorYFromBbox, isAccepted } from "../server/creatures/job";
+import { anchorYFromBbox, isAccepted } from "../server/creatures/job-shell";
 import { anchorYFor, assetList, sceneryAssetList, sceneryKeyFor } from "./assets";
 
 const SPRITES = join(import.meta.dir, "../../public/sprites");

@@ -13,7 +13,8 @@ import {
   verdictJson,
 } from "../../../pipeline/fakes";
 import { decodePng } from "../../../tools/logo/png";
-import { anchorYFromBbox, creatureId, isAccepted, type JobDeps, runCreatureJob } from "./job";
+import { creatureId, type JobDeps, runCreatureJob } from "./job";
+import { anchorYFromBbox, isAccepted } from "./job-shell";
 import { createMemoryStore } from "./store.memory";
 
 const verdict = (score: number | null, pass: boolean) => ({ pass, score, issues: [], fix: "", lesson: "" });

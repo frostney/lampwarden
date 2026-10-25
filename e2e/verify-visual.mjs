@@ -3445,12 +3445,29 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await shoot("21c-plaza-title-both");
   sea.mode = "none";
 
-  // the night: the building stands in the building slot, drawn from its sprite at the anchor its record gave
-  await openTitle();
-  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
-  await startFromTitle();
-  const nightProps = await drawnProps();
-  const placed = nightProps.find(([key]) => key === liveKey);
+  // the night: the building stands in the building slot, drawn from its sprite at the anchor its record gave. A night's seed
+  // is random, and a building that fits no spot of the seed's layout is skipped for that night and the committed one stays
+  // (src/scene/decor.ts), so a night where it was skipped is checked for that and the next is tried.
+  let nightProps = [];
+  let placed;
+  let skippedNights = 0;
+  for (let attempt = 0; attempt < 12 && !placed; attempt++) {
+    await openTitle();
+    await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+    await startFromTitle();
+    nightProps = await drawnProps();
+    placed = nightProps.find(([key]) => key === liveKey);
+    if (!placed) {
+      skippedNights++;
+      check(
+        "plaza-night",
+        "a night the building fits nowhere keeps the committed one, and no more than one",
+        slotSprites(nightProps).length === 1,
+        JSON.stringify(slotSprites(nightProps)),
+      );
+    }
+  }
+  console.log(`  the live building was skipped on ${skippedNights} night(s) before one placed it`);
   const slot = slotSprites(nightProps);
   check(
     "plaza-night",

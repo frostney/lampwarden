@@ -6,6 +6,7 @@ import {
   drawOffers,
   emptyLevels,
   endWarden,
+  type HeirChoice,
   heirAs,
   heirChoices,
   LEVEL_COSTS,
@@ -195,6 +196,45 @@ describe("loading a saved legacy", () => {
     expect(legacy.levels).toEqual({ ...emptyLevels(), blade: 2 });
     expect(legacy.heir).toEqual(newLegacy().heir);
     expect(legacy.night).toBe(4);
+  });
+
+  test("a save without its levels keeps everything else", () => {
+    const { levels: _levels, ...withoutLevels } = OLD_SAVE;
+    const legacy = parseLegacy(withoutLevels);
+    expect(legacy.levels).toEqual(emptyLevels());
+    expect(legacy.generation).toBe(3);
+    expect(legacy.heir).toEqual({ name: "Ione", sex: "female", trait: "keen" });
+  });
+});
+
+describe("the heir choice after a warden falls", () => {
+  const choice: HeirChoice = {
+    name: "Ione",
+    night: 4,
+    outcome: "dark",
+    tideBefore: 1.1,
+    heirs: [
+      { name: "Phaedra", sex: "female", trait: "keen" },
+      { name: "Theron", sex: "male", trait: "stout" },
+      { name: "Myrto", sex: "female", trait: "swift" },
+    ],
+  };
+
+  test("is saved with the line, so a reload offers the same heirs", () => {
+    const legacy = { ...newLegacy(), heirChoice: choice };
+    expect(parseLegacy(JSON.parse(JSON.stringify(legacy))).heirChoice).toEqual(choice);
+  });
+
+  test("is gone once it is cleared, and a line without one has none", () => {
+    const legacy = { ...newLegacy(), heirChoice: undefined };
+    expect(parseLegacy(JSON.parse(JSON.stringify(legacy))).heirChoice).toBeUndefined();
+    expect(parseLegacy(OLD_SAVE).heirChoice).toBeUndefined();
+  });
+
+  test("a damaged choice is dropped and the rest of the save kept", () => {
+    const legacy = parseLegacy({ ...OLD_SAVE, heirChoice: { ...choice, heirs: [] } });
+    expect(legacy.heirChoice).toBeUndefined();
+    expect(legacy.generation).toBe(3);
   });
 });
 

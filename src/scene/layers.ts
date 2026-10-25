@@ -1,6 +1,7 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
+
 import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
 
 import { type Archetype, creatureSpritePath } from "../game/creature";
@@ -26,6 +27,7 @@ import {
   type State,
   SWING_HALF_ARC,
 } from "../game/sim";
+import { band } from "../lib/band";
 import {
   anchorYFor,
   assetList,
@@ -353,7 +355,8 @@ export function drawGround(graphics: Graphics) {
       const tileX = CENTRE_X + (column - row) * 32;
       const tileY = CENTRE_Y - PLAZA_HALF_HEIGHT + (column + row) * 16 + 16;
       const edge = row === 0 || column === 0 || row === PLAZA_TILES - 1 || column === PLAZA_TILES - 1;
-      const colour = edge ? 0xb89a6a : (row + column) % 2 === 0 ? 0xe3d3a8 : 0xd6c394;
+      const checker = (row + column) % 2 === 0 ? 0xe3d3a8 : 0xd6c394;
+      const colour = edge ? 0xb89a6a : checker;
       graphics
         .poly([tileX, tileY - 16, tileX + 32, tileY, tileX, tileY + 16, tileX - 32, tileY])
         .fill(colour)
@@ -555,7 +558,15 @@ function drawImpact(graphics: Graphics, puff: Puff) {
   }
   const progress = puff.age / IMPACT_TIME;
   const wound = puff.kind === "hurt";
-  const size = (progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2) + (wound ? 1 : 0);
+  const size =
+    band(
+      progress,
+      [
+        [0.4, 4],
+        [0.75, 3],
+      ],
+      2,
+    ) + (wound ? 1 : 0);
   const colours = wound ? WOUND_SPARK_COLOURS : SPARK_COLOURS;
   const colour = colours[Math.min(colours.length - 1, Math.floor(progress * colours.length))] ?? 0xffffff;
   const base = Math.atan2(puff.directionY / 2, puff.directionX);

@@ -4,9 +4,11 @@
 // visual verifier, so its frames are deterministic). All of it is drawn additively over the night tint: the pools and glints
 // lie on the ground under every sprite, the lantern glow and halo sort with their lamp (Scene.tsx). How a lamp lights the
 // characters standing in it is lighting.ts.
+
 import { Rectangle, Texture } from "pixi.js";
 
 import { CENTRE_X, CENTRE_Y, PLAZA_HALF_HEIGHT } from "../game/sim";
+import { band } from "../lib/band";
 import { ANCHOR_Y } from "./assets";
 import { bayerThreshold, bufferTexture, type Rgb, seededRandom, shuffle } from "./paint";
 import { frontRimY, onPlaza, onPlazaRim, onSea, PLAZA_WALL } from "./plaza";
@@ -232,6 +234,16 @@ function patternPiece(rows: readonly string[]): LightPiece {
   };
 }
 
+// the glints along a tile edge, by direction: six cells where the light is strong (level 3 and up), four elsewhere
+const LONG_STROKES: Record<"slash" | "backslash", readonly GlintShape[]> = {
+  slash: ["slashDim", "slash", "slashBright", "slashBright", "slash", "slashDim"],
+  backslash: ["backslashDim", "backslash", "backslashBright", "backslashBright", "backslash", "backslashDim"],
+};
+const SHORT_STROKES: Record<"slash" | "backslash", readonly GlintShape[]> = {
+  slash: ["slashDim", "slash", "slash", "slashDim"],
+  backslash: ["backslashDim", "backslash", "backslash", "backslashDim"],
+};
+
 const glintPieces = new Map<GlintShape, LightPiece>();
 function glintPiece(shape: GlintShape): LightPiece {
   let piece = glintPieces.get(shape);
@@ -257,10 +269,14 @@ function ripplePiece(length: number, bright: boolean, shiftX: number): LightPiec
   let piece = rippleCache.get(key);
   if (!piece) {
     const middle = Math.floor((length - 1) / 2);
-    const row = Array.from({ length }, (_, index) =>
-      index === 0 || index === length - 1 ? "w" : bright && index === middle ? "y" : "x",
-    ).join("");
-    const pattern = patternPiece([length === 1 ? (bright ? "x" : "w") : row]);
+    const row = Array.from({ length }, (_, index) => {
+      if (index === 0 || index === length - 1) {
+        return "w";
+      }
+      return bright && index === middle ? "y" : "x";
+    }).join("");
+    const single = bright ? "x" : "w";
+    const pattern = patternPiece([length === 1 ? single : row]);
     piece = { ...pattern, offsetX: pattern.offsetX + shiftX };
     rippleCache.set(key, piece);
   }
@@ -394,17 +410,7 @@ function groundGlints(pool: LightShape, random: () => number): Glint[] {
     ) {
       continue;
     }
-    add(
-      snapped.x,
-      snapped.y,
-      level >= 3
-        ? slash
-          ? ["slashDim", "slash", "slashBright", "slashBright", "slash", "slashDim"]
-          : ["backslashDim", "backslash", "backslashBright", "backslashBright", "backslash", "backslashDim"]
-        : slash
-          ? ["slashDim", "slash", "slash", "slashDim"]
-          : ["backslashDim", "backslash", "backslash", "backslashDim"],
-    );
+    add(snapped.x, snapped.y, (level >= 3 ? LONG_STROKES : SHORT_STROKES)[slash ? "slash" : "backslash"]);
     placed++;
   }
 
@@ -491,7 +497,15 @@ function seaGlints(pool: LightShape, lampX: number, random: () => number): Glint
     // a column under the lamp, narrowing with depth
     const halfWidth = Math.min(16, Math.max(6, (chordRight - chordLeft) / 2));
     for (let row = 0; row < 8; row++) {
-      for (let streak = 0; streak < (row < 2 ? 3 : row < 4 ? 2 : 1); streak++) {
+      const streaks = band(
+        row,
+        [
+          [2, 3],
+          [4, 2],
+        ],
+        1,
+      );
+      for (let streak = 0; streak < streaks; streak++) {
         const x = Math.round(center + (random() * 2 - 1) * halfWidth * (1 - row * 0.1));
         const y = Math.floor(frontRimY(x)) + PLAZA_WALL + 3 + row * 4 + Math.floor(random() * 2);
         add(x, y, Math.max(2, 9 - row + Math.floor(random() * 3) - 1), row < 3);

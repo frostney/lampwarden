@@ -1,7 +1,9 @@
 // The part of a run that outlives the warden: oil, upgrades, the bloodline and the director's read of the player.
 // Saved to localStorage, so a reload keeps the line going.
+
 import { z } from "zod";
 
+import { band } from "../lib/band";
 import { SEXES, type Sex } from "../scene/assets";
 import { checkedDecision } from "./director";
 import { type Director, directorFrom, type EngagementKind, rulesDirector } from "./director-decision";
@@ -281,5 +283,13 @@ export function ordinal(value: number) {
 }
 
 export function tideLabel(tide: number) {
-  return tide < 0.85 ? "calm" : tide < 1.15 ? "restless" : tide < 1.5 ? "rising" : "raging";
+  return band(
+    tide,
+    [
+      [0.85, "calm"],
+      [1.15, "restless"],
+      [1.5, "rising"],
+    ],
+    "raging",
+  );
 }

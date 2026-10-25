@@ -1053,8 +1053,12 @@ const KILL_SHAKE = { time: 0.12, amplitude: 2 };
 const WOUND_SHAKE = { time: 0.22, amplitude: 4 };
 const NO_SHAKE = { startedAt: Number.NEGATIVE_INFINITY, time: 0, amplitude: 0 };
 // how hard a shake throws the picture `age` seconds in: its full amplitude for the first half, half of it for the rest
-const shakeAmplitude = (shake: { time: number; amplitude: number }, age: number) =>
-  age > shake.time ? 0 : age < shake.time / 2 ? shake.amplitude : shake.amplitude / 2;
+function shakeAmplitude(shake: { time: number; amplitude: number }, age: number) {
+  if (age > shake.time) {
+    return 0;
+  }
+  return age < shake.time / 2 ? shake.amplitude : shake.amplitude / 2;
+}
 function ScreenShake({ state }: { state: State }) {
   const { app } = useApplication();
   const reducedMotion = useReducedMotion();
@@ -1129,9 +1133,8 @@ function WoundVignette({ state }: { state: State }) {
         return;
       }
       const hurt = state.hero.hurt;
-      const texture = vignetteTexture(
-        reducedMotion.current ? (hurt > 0 ? 2 : 0) : vignetteStrength(hurt, HERO_HURT_TIME),
-      );
+      const stillStrength = hurt > 0 ? 2 : 0; // reduced motion: a steady vignette while hurt, no pulse
+      const texture = vignetteTexture(reducedMotion.current ? stillStrength : vignetteStrength(hurt, HERO_HURT_TIME));
       sprite.visible = texture !== null;
       if (texture) {
         sprite.texture = texture;

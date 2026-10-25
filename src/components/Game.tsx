@@ -155,6 +155,14 @@ const sameHud = (first: Hud, second: Hud) =>
   first.oil === second.oil &&
   Math.abs(first.dawn - second.dawn) < 0.01;
 
+// What the replay panel says about how a replay ended: null is a night that was abandoned, so has no end to compare.
+function replayVerdict(endsMatch: boolean | null): string {
+  if (endsMatch === null) {
+    return "Abandoned night: no end to compare.";
+  }
+  return endsMatch ? "Replay ends exactly where the live night ended." : "Replay diverged from the live night.";
+}
+
 export function Game() {
   const appRef = useRef<PixiApp | null>(null);
   const stateRef = useRef<State | null>(null); // the night on screen, also read outside React (debug hook, pagehide)
@@ -816,13 +824,7 @@ export function Game() {
               REPLAY OVER
             </h2>
             <p>{describeNight(replay.play)}</p>
-            <p className="dim">
-              {replay.endsMatch === null
-                ? "Abandoned night: no end to compare."
-                : replay.endsMatch
-                  ? "Replay ends exactly where the live night ended."
-                  : "Replay diverged from the live night."}
-            </p>
+            <p className="dim">{replayVerdict(replay.endsMatch)}</p>
             <button
               className="btn big"
               onClick={() => {
@@ -1093,12 +1095,15 @@ function tideNote(report: Report) {
 function actOnMenu(action: MenuAction) {
   document.body.dataset.input = "gamepad"; // shows the focus ring on gamepad-focused buttons
   // the first press while the title scroll unrolls completes it (TitleScroll catches the click) and does nothing else
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const unrolling = document.querySelector<HTMLElement>(".scroll:not([data-stage='done'])");
   if (unrolling) {
     unrolling.click();
     return;
   }
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const buttons = [...document.querySelectorAll<HTMLButtonElement>(".panel button:not([disabled])")];
+  // biome-ignore lint/security/noSecrets: a CSS selector
   const primary = document.querySelector<HTMLButtonElement>(".panel .btn.big:not([disabled])");
   const focused =
     document.activeElement instanceof HTMLButtonElement && buttons.includes(document.activeElement)
@@ -1124,7 +1129,8 @@ function actOnMenu(action: MenuAction) {
     return;
   }
   const index = focused ? buttons.indexOf(focused) : -1;
-  const next = action === "next" ? (index + 1) % buttons.length : index <= 0 ? buttons.length - 1 : index - 1;
+  const previous = index <= 0 ? buttons.length - 1 : index - 1;
+  const next = action === "next" ? (index + 1) % buttons.length : previous;
   buttons[next]?.focus();
   buttons[next]?.scrollIntoView({ block: "nearest" });
 }

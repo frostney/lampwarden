@@ -116,7 +116,8 @@ const applyMode = (mode) => {
   const rect = app.canvas.getBoundingClientRect();
   const deviceWidth = Math.round(rect.width * window.devicePixelRatio); // the canvas as the screen shows it
   const deviceScale = deviceWidth / 960;
-  const resolution = mode === "A" ? 1 : mode === "B" ? deviceScale : Math.max(1, Math.floor(deviceScale));
+  const resolutions = { A: 1, B: deviceScale, C: Math.max(1, Math.floor(deviceScale)) };
+  const resolution = resolutions[mode] ?? resolutions.C;
   app.renderer.resize(960, 600, resolution);
   return {
     resolution,
@@ -178,7 +179,7 @@ const playBot = ({ milliseconds, syncGpu }) =>
           hero.health = hero.maxHealth; // keep the night going; this is a frame-time test, not a balance test
           state.elapsed = Math.min(state.elapsed, state.length - 1); // a night is short: it must not reach dawn mid-run
           const dark = state.lamps.filter((lamp) => !lamp.lit);
-          const targets = dark.length ? dark : state.monsters.length ? state.monsters : [{ x: 480, y: 330 }];
+          const targets = [dark, state.monsters, [{ x: 480, y: 330 }]].find((candidates) => candidates.length > 0);
           let best = targets[0];
           let bestDistance = Number.POSITIVE_INFINITY;
           for (const target of targets) {

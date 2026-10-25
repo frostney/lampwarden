@@ -19,6 +19,7 @@ export const SANDBOX_PIPELINE_DIRECTORY = "/vercel/sandbox/pipeline";
 export const PINNED_BUN_VERSION = "1.4.4";
 export const PINNED_BUN_URL = `https://github.com/oven-sh/bun/releases/download/bun-v${PINNED_BUN_VERSION}/bun-linux-x64.zip`;
 /** SHA-256 of that zip, from the release's SHASUMS256.txt (and checked against a download made on 24 Oct 2026). */
+// biome-ignore lint/security/noSecrets: a published checksum
 export const PINNED_BUN_SHA256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c";
 /** Where the snapshot installs it. */
 export const SANDBOX_BUN_PATH = "/usr/local/bin/bun";

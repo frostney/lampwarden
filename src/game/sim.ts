@@ -820,7 +820,9 @@ export function rulesTide(tide: number, night: NightResult): number {
   if (night.outcome === "dawn") {
     const clean = night.lampsLost <= 1 && night.health > night.maxHealth * 0.5;
     const rise = TIDE_RISE[night.night <= LEARNING_NIGHTS ? "learning" : "settled"];
-    next *= clean ? (killRate > 20 ? rise.fast : rise.steady) : 1.0;
+    if (clean) {
+      next *= killRate > 20 ? rise.fast : rise.steady;
+    }
   } else {
     next *= 0.85;
   }

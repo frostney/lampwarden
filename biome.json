@@ -276,6 +276,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["e2e/**", "scripts/measure-pixel-scaling.mjs"],
+      "linter": {
+        "rules": {
+          "security": {
+            "noSecrets": "off"
+          }
+        }
+      }
     }
   ]
 }

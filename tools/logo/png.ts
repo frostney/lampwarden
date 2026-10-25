@@ -49,6 +49,30 @@ export function encodePng(image: PixelImage): Buffer {
   ]);
 }
 
+/** The byte a scanline's filter adds back: none, left, above, their average, or Paeth's pick of the three. */
+function predictorFor(filter: number | undefined, left: number, above: number, aboveLeft: number): number {
+  if (filter === 1) {
+    return left;
+  }
+  if (filter === 2) {
+    return above;
+  }
+  if (filter === 3) {
+    return (left + above) >> 1;
+  }
+  if (filter === 4) {
+    const estimate = left + above - aboveLeft;
+    const distanceLeft = Math.abs(estimate - left);
+    const distanceAbove = Math.abs(estimate - above);
+    const distanceAboveLeft = Math.abs(estimate - aboveLeft);
+    if (distanceLeft <= distanceAbove && distanceLeft <= distanceAboveLeft) {
+      return left;
+    }
+    return distanceAbove <= distanceAboveLeft ? above : aboveLeft;
+  }
+  return 0;
+}
+
 /** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
 export function decodePng(bytes: Buffer): PixelImage {
   let width = 0;
@@ -81,26 +105,7 @@ export function decodePng(bytes: Buffer): PixelImage {
       const left = index >= 4 ? (current[index - 4] ?? 0) : 0;
       const above = previous[index] ?? 0;
       const aboveLeft = index >= 4 ? (previous[index - 4] ?? 0) : 0;
-      let predictor = 0;
-      if (filter === 1) {
-        predictor = left;
-      } else if (filter === 2) {
-        predictor = above;
-      } else if (filter === 3) {
-        predictor = (left + above) >> 1;
-      } else if (filter === 4) {
-        const estimate = left + above - aboveLeft;
-        const distanceLeft = Math.abs(estimate - left);
-        const distanceAbove = Math.abs(estimate - above);
-        const distanceAboveLeft = Math.abs(estimate - aboveLeft);
-        predictor =
-          distanceLeft <= distanceAbove && distanceLeft <= distanceAboveLeft
-            ? left
-            : distanceAbove <= distanceAboveLeft
-              ? above
-              : aboveLeft;
-      }
-      current[index] = ((row[index] ?? 0) + predictor) & 255;
+      current[index] = ((row[index] ?? 0) + predictorFor(filter, left, above, aboveLeft)) & 255;
     }
     image.data.set(current, y * stride);
     previous.set(current);

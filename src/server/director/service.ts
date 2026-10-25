@@ -8,7 +8,7 @@ import { clampProposal, type FallbackReason, parseProposal } from "@/game/direct
 import { type Director, directorFrom, rulesDirector } from "@/game/director-decision";
 import { engagementOf } from "@/game/engagement";
 
-import { type MubitClient, shortSha } from "../../../pipeline/mubit";
+import { type ModelCall, type MubitClient, shortSha } from "../../../pipeline/mubit";
 import { checkStartLimits, visitorKey } from "../creatures/limits";
 import type { DirectorConfig } from "./config";
 import type { DecisionLog, MubitCall } from "./log";
@@ -90,6 +90,14 @@ function failureReason(status: number | null, error: string | null | undefined):
   return error && /timeout|abort/i.test(error) ? "timeout" : "error";
 }
 
+// Why the rules decide this night instead: the call failed, or its reply was not a usable decision; null when it was.
+function fallbackReasonOf(call: ModelCall, decided: boolean): FallbackReason | null {
+  if (call.text === null) {
+    return failureReason(call.record.status, call.record.error);
+  }
+  return decided ? null : "invalid";
+}
+
 export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<DirectorResult> {
   const began = performance.now();
   const found = await loadPlay(deps, input.playId);
@@ -158,8 +166,7 @@ export async function decide(deps: DirectorDeps, input: DirectorInput): Promise<
     const answered = performance.now();
     const proposal = call.text === null ? null : parseProposal(call.text);
     const decision = proposal && clampProposal(proposal, rules.rulesTide, play.legacy.night, play.id, engagement);
-    const reason: FallbackReason | null =
-      call.text === null ? failureReason(call.record.status, call.record.error) : decision ? null : "invalid";
+    const reason = fallbackReasonOf(call, Boolean(decision));
 
     const mubit: MubitCall = {
       requestId: call.record.rid,

@@ -62,7 +62,8 @@ function keycap(text: string, face: string, shade: string): Grid {
       if (onEdgeRow && onEdgeColumn) {
         continue; // rounded corner
       }
-      line[column] = onEdgeRow || onEdgeColumn ? "K" : row === height - 2 ? shade : face;
+      const fill = row === height - 2 ? shade : face;
+      line[column] = onEdgeRow || onEdgeColumn ? "K" : fill;
     }
   }
   writeText(grid, text, 2, 2);

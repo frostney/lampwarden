@@ -4,9 +4,11 @@
 // DAWN_STAGES steps that warm it towards morning in step with nightTint. A few stars twinkle, the lighthouse blinks
 // and the moon lays a broken path of light on the far sea; those are small textures picked from the scene clock (frozen
 // by the visual verifier, so its frames are deterministic).
+
 import type { Texture } from "pixi.js";
 
 import { STAGE_WIDTH } from "../game/sim";
+import { band } from "../lib/band";
 import { bayerThreshold, bufferTexture, hashUnit, hexRgb, putPixel, type Rgb, seededRandom } from "./paint";
 import { HORIZON_Y } from "./water";
 
@@ -69,7 +71,15 @@ const STARS: readonly Star[] = (() => {
     // thinner towards the horizon, where the haze is
     const y = 2 + Math.floor(random() ** 1.5 * (HORIZON_Y - 14));
     const roll = random();
-    return { x, y, level: roll < 0.6 ? 1 : roll < 0.9 ? 2 : 3 };
+    const level = band(
+      roll,
+      [
+        [0.6, 1],
+        [0.9, 2],
+      ],
+      3,
+    );
+    return { x, y, level };
   });
 })();
 // stars dim a level, then go, as the dawn comes

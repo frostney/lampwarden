@@ -3,9 +3,11 @@
 // and ripples around the boats. Everything is painted here pixel by pixel, once, into a WATER_FRAMES-long loop; a frame
 // only picks textures from the scene clock (frozen by the visual verifier, so its frames are deterministic). The night
 // tint multiplies over all of it, as over the rest of the ground; the sky above the horizon is in sky.ts.
+
 import { Rectangle, Texture } from "pixi.js";
 
 import { CENTRE_Y, STAGE_HEIGHT, STAGE_WIDTH } from "../game/sim";
+import { band } from "../lib/band";
 import type { Ripple } from "./decor";
 import { bayerThreshold, bufferTexture, hashUnit, hexRgb, putPixel, type Rgb, seededRandom } from "./paint";
 import { shoreDistance } from "./plaza";
@@ -109,7 +111,8 @@ function paintCrest(
     const rise = step <= peak ? Math.floor(step / 2) : Math.floor(peak / 2) - Math.ceil((step - peak) / 2);
     const y = crest.y - rise;
     const tip = step === 0 || step === length - 1;
-    plot(x, y, tip ? SHALLOW : peaking && Math.abs(step - peak) <= 1 ? FOAM : CREST);
+    const body = peaking && Math.abs(step - peak) <= 1 ? FOAM : CREST;
+    plot(x, y, tip ? SHALLOW : body);
     if (!tip) {
       plot(x, y + 1, SHALLOW);
     }
@@ -168,7 +171,15 @@ function paintFarSea(plot: (x: number, y: number, colour: Rgb) => void, frame: n
     const age = (frame + glint.phase) % WATER_FRAMES;
     const depth = (glint.y - HORIZON_Y) / (FAR_SEA_END - HORIZON_Y);
     const length = Math.round((2 + 5 * depth * (0.6 + 0.4 * glint.size)) * (CREST_GROWTH[age] ?? 0));
-    const colour = depth < 0.3 ? OPEN : depth < 0.65 ? SEA : age >= 5 && age <= 6 ? CREST : SHALLOW;
+    const near = age >= 5 && age <= 6 ? CREST : SHALLOW;
+    const colour = band(
+      depth,
+      [
+        [0.3, OPEN],
+        [0.65, SEA],
+      ],
+      near,
+    );
     const start = glint.x + Math.floor(age / 4) - Math.floor(length / 2);
     for (let step = 0; step < length; step++) {
       plot(start + step, glint.y, colour);
@@ -219,7 +230,10 @@ function surfPixel(x: number, y: number, frame: number): Rgb | null {
   }
   // the back edges: a thin line, broken and rejoining as the water laps
   if (distance < 1.6) {
-    return hashUnit(x >> 2, frame >> 2) > 0.15 ? (lap > -0.2 ? FOAM : CREST) : null;
+    if (hashUnit(x >> 2, frame >> 2) <= 0.15) {
+      return null;
+    }
+    return lap > -0.2 ? FOAM : CREST;
   }
   if (distance < 2.6 && lap > 0.3) {
     return bayerThreshold(x, y) < 0.5 ? CREST : null;
@@ -241,7 +255,14 @@ function paintRipples(ripples: readonly Ripple[], plot: (x: number, y: number, c
       const scale = 1 + (ripple.growth * age) / WATER_FRAMES;
       const radiusX = ripple.radiusX * scale;
       const radiusY = ripple.radiusY * scale;
-      const colour = age < 4 ? FOAM : age < 8 ? CREST : SHALLOW;
+      const colour = band(
+        age,
+        [
+          [4, FOAM],
+          [8, CREST],
+        ],
+        SHALLOW,
+      );
       const samples = Math.ceil(radiusX * 8);
       for (let sample = 0; sample < samples; sample++) {
         const turn = sample / samples;

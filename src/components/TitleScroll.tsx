@@ -1,11 +1,12 @@
 "use client";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+
 // The title screen's scroll: a parchment between two rollers, painted from code (src/scene/scroll.ts) at 1x and shown at
 // a whole multiple. It starts rolled up; the bottom roller travels down, turning, to reveal the parchment, then every
 // [data-line] element of the contents is inked in, one after another. A click or tap, Enter or Space, or a gamepad
 // press (actOnMenu clicks the scroll) completes it at once and does nothing else. With ?verify=1 (the visual verifier)
 // or prefers-reduced-motion it is unrolled from the start.
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-
+import { band } from "@/lib/band";
 import { paintParchment, paintRoller, ROLLER_HEIGHT, ROLLER_OVERHANG, ROLLER_SHADOW } from "@/scene/scroll";
 
 type Stage = "unrolling" | "writing" | "done";
@@ -69,7 +70,14 @@ export function TitleScroll({ children }: { children: ReactNode }) {
     const measure = () => {
       const style = getComputedStyle(panel);
       const room = panel.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
-      const scale = room >= 880 ? 3 : room >= 260 ? 2 : 1;
+      const scale = band<1 | 2 | 3>(
+        room,
+        [
+          [260, 1],
+          [880, 2],
+        ],
+        3,
+      );
       const width = Math.min(MAX_ART_WIDTH[scale], Math.floor(room / scale) - 2 * ROLLER_OVERHANG);
       setSize((previous) => (previous?.scale === scale && previous.width === width ? previous : { scale, width }));
     };

@@ -17,6 +17,13 @@ const NAME_HISTORY = 60;
 /** Ids start with their creation time in seconds (base 36, fixed width), so sorting them sorts by age. */
 export const buildingId = (now: Date, name: string, entropy: string) => galleryId(now, name, entropy, "building");
 
+type BuildingFailure =
+  | "generation is unavailable"
+  | "no building was written"
+  | "no sprite could be drawn"
+  | "the sprite was not good enough"
+  | "its size could not be measured";
+
 export interface BuildingJobDeps {
   store: BuildingStore;
   now: () => Date;
@@ -43,7 +50,7 @@ export interface BuildingJobDeps {
 
 /** Runs one job to its end. Never throws: every outcome is recorded in the job. */
 export async function runBuildingJob(deps: BuildingJobDeps, jobId: string): Promise<BuildingJob> {
-  const job = await runJobShell(deps, jobId, "building", "building-job", async (context) => {
+  const job = await runJobShell<BuildingFailure>(deps, jobId, "building", "building-job", async (context) => {
     await context.report("writing");
     const names = await namesOfNewestBuildings(deps.store);
     const written = await writeBuildingBrief(

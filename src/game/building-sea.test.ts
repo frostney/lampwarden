@@ -133,6 +133,15 @@ describe("the plaza's building, asked for like the creature", () => {
     expect(world.followed).toEqual(["job-2"]);
   });
 
+  test("a delay of nothing is still a wait, so a server that names none is not asked in a tight loop", async () => {
+    const world = fakeBuildingSea();
+    world.answer({ kind: "none", reason: "busy", retryAfterSeconds: 0 });
+    world.sea.ask([]);
+    await settle();
+    expect(world.slept.every((milliseconds) => milliseconds >= 1000)).toBe(true);
+    expect(world.slept).toHaveLength(300);
+  });
+
   test("a limit is not asked again: a long delay is let go", async () => {
     const world = fakeBuildingSea();
     world.answer({ kind: "none", reason: "rate-limited", retryAfterSeconds: 3000 });
@@ -142,13 +151,13 @@ describe("the plaza's building, asked for like the creature", () => {
     expect(world.questions).toEqual([[]]);
   });
 
-  test("a busy slot that stays busy is given up on after a few tries", async () => {
+  test("a busy slot that stays busy is waited for as long as the longest job, then given up on", async () => {
     const world = fakeBuildingSea();
     world.answer({ kind: "none", reason: "busy", retryAfterSeconds: 15 });
     world.sea.ask([]);
     await settle();
-    expect(world.slept).toHaveLength(8);
-    expect(world.questions).toHaveLength(9);
+    expect(world.slept).toHaveLength(20); // 20 waits of 15 s: 300 s
+    expect(world.questions).toHaveLength(21);
     expect(world.sea.get()).toEqual({ kind: "none" });
   });
 

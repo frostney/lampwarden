@@ -181,6 +181,27 @@ describe("buildings: the limits", () => {
     expect(malformed.buildingBlobPrefix).toBe("buildings");
   });
 
+  test("the building gallery follows a creature prefix set to keep a run apart, and is never the same prefix", () => {
+    const apart = readCreatureConfig({ ...GENERATING_ENV, CREATURE_BLOB_PREFIX: "creatures-dev" });
+    expect(apart.blobPrefix).toBe("creatures-dev");
+    expect(apart.buildingBlobPrefix).toBe("creatures-dev-buildings");
+    // set on its own, it is what was set
+    expect(
+      readCreatureConfig({
+        ...GENERATING_ENV,
+        CREATURE_BLOB_PREFIX: "creatures-dev",
+        BUILDING_BLOB_PREFIX: "buildings-dev",
+      }).buildingBlobPrefix,
+    ).toBe("buildings-dev");
+    // one prefix for both would mix their records
+    const same = readCreatureConfig({
+      ...GENERATING_ENV,
+      CREATURE_BLOB_PREFIX: "gallery",
+      BUILDING_BLOB_PREFIX: "gallery",
+    });
+    expect(same.buildingBlobPrefix).not.toBe(same.blobPrefix);
+  });
+
   test("a visitor gets 12 starts an hour, then waits for the oldest to age out", async () => {
     const { askBuilding, finishJob, clock } = service();
     for (let start = 1; start <= 12; start++) {

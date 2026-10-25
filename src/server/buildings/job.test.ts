@@ -222,6 +222,20 @@ describe("a building job", () => {
     expect(await store.listBuildingIds()).toEqual([]);
   });
 
+  test("a job that runs past its budget while its building is being stored stays failed: a late done does not undo it", async () => {
+    const { deps, store } = jobWith([buildingBriefJson(), fenced(BUILDING_CODE), verdictJson(8)]);
+    deps.budgetMilliseconds = 60;
+    const put = store.putBuilding;
+    store.putBuilding = async (...stored) => {
+      await new Promise((resolve) => setTimeout(resolve, 150)); // the deadline passes while the blob is written
+      await put(...stored);
+    };
+    const job = await runBuildingJob(deps, "job-late-done-aaaa");
+    expect(job).toMatchObject({ step: "failed", error: "timed out" });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect((await store.getJob("job-late-done-aaaa"))?.step).toBe("failed");
+  });
+
   test("a failure never puts model output or a stack trace in the job or the log", async () => {
     const secretText = "SECRET-MODEL-WORDS";
     const { deps, events } = jobWith([buildingBriefJson({ name: secretText })]);

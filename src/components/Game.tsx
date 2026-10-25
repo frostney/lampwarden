@@ -88,6 +88,15 @@ const APP = {
 const RENDERER_GRACE = 1500; // ms a renderer that failed to start is given before the title says so
 const CREATURE_LOAD_TIMEOUT = 4000; // ms a night waits for its creature's sprite (and its building's) before going without it
 
+// A load that gives up after `milliseconds` with null, and stops its timer when it does not need to wait that long
+function loadWithin<Loaded>(load: Promise<Loaded | null>, milliseconds: number): Promise<Loaded | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const giveUp = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), milliseconds);
+  });
+  return Promise.race([load, giveUp]).finally(() => clearTimeout(timer));
+}
+
 const INTRODUCTION = [
   "Lychnos is a harbour of lamps.",
   "Every night the sea sends its creatures to put them out.",
@@ -589,16 +598,13 @@ export default function Game() {
     // The building that was ready stands on the night's plaza the same way: if its sprite is loaded by now. Otherwise the
     // plaza is the committed one.
     const buildingLoad = announcedBuilding
-      ? Promise.race([
-          loadBuildingTexture(announcedBuilding),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
-        ])
+      ? loadWithin(loadBuildingTexture(announcedBuilding), CREATURE_LOAD_TIMEOUT)
       : Promise.resolve(null);
     const loaded = announcedCreature
-      ? await Promise.race([
+      ? await loadWithin(
           loadCreatureTextures(announcedCreature.id, announcedCreature.frames ?? null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), CREATURE_LOAD_TIMEOUT)),
-        ])
+          CREATURE_LOAD_TIMEOUT,
+        )
       : null;
     const creature = announcedCreature && loaded ? announcedCreature : null;
     if (creature) {

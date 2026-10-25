@@ -54,12 +54,25 @@ export const positiveInteger = (fallback: number) =>
 
 const prefixPattern = /^[a-z0-9][a-z0-9/_-]{0,60}$/;
 const prefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BLOB_PREFIX);
-const buildingPrefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BUILDING_BLOB_PREFIX);
+
+/**
+ * Where the building gallery lives. Unset, it follows the creatures': "buildings" beside "creatures", and a creature prefix
+ * set to keep a test run out of the real gallery ("creatures-dev") takes the buildings with it ("creatures-dev-buildings"),
+ * so one setting cannot leave a run writing to the real building gallery and spending its daily allowance. The two are never
+ * the same prefix: records of both kinds would mix.
+ */
+function buildingPrefixOf(creaturePrefix: string, explicit: string | null): string {
+  const derived =
+    creaturePrefix === DEFAULT_BLOB_PREFIX ? DEFAULT_BUILDING_BLOB_PREFIX : `${creaturePrefix.slice(0, 50)}-buildings`;
+  const chosen = explicit !== null && prefixPattern.test(explicit) ? explicit : derived;
+  return chosen === creaturePrefix ? derived : chosen;
+}
 
 export const present = (value: string | undefined) => (value && value.trim() !== "" ? value.trim() : null);
 
 export function readCreatureConfig(env: Readonly<Record<string, string | undefined>>): CreatureConfig {
   const salt = present(env.CREATURE_RATE_SALT);
+  const blobPrefix = prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX);
   return {
     limits: {
       perVisitorPerHour: positiveInteger(DEFAULT_STARTS_PER_VISITOR_PER_HOUR).parse(
@@ -67,14 +80,14 @@ export function readCreatureConfig(env: Readonly<Record<string, string | undefin
       ),
       perDay: positiveInteger(DEFAULT_STARTS_PER_DAY).parse(env.CREATURE_MAX_STARTS_PER_DAY),
     },
-    blobPrefix: prefixSchema.parse(present(env.CREATURE_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX),
+    blobPrefix,
     buildingLimits: {
       perVisitorPerHour: positiveInteger(DEFAULT_STARTS_PER_VISITOR_PER_HOUR).parse(
         env.BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR,
       ),
       perDay: positiveInteger(DEFAULT_BUILDING_STARTS_PER_DAY).parse(env.BUILDING_MAX_STARTS_PER_DAY),
     },
-    buildingBlobPrefix: buildingPrefixSchema.parse(present(env.BUILDING_BLOB_PREFIX) ?? DEFAULT_BUILDING_BLOB_PREFIX),
+    buildingBlobPrefix: buildingPrefixOf(blobPrefix, present(env.BUILDING_BLOB_PREFIX)),
     mubitApiKey: present(env.MUBIT_API_KEY),
     snapshotId: present(env.VERCEL_SANDBOX_SNAPSHOT_ID),
     rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,

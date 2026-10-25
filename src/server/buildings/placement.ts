@@ -22,7 +22,10 @@ export function measurePlacement(png: Uint8Array, bbox: string): Placement | nul
   try {
     const image = decodePng(Buffer.from(png));
     if (image.width !== 128 || image.height !== 128) return null;
-    return { anchorY, bbox: painted, extent: measureSprite(image.data, anchorY) };
+    // what was measured must be what a record can hold: a picture with no solid pixel, or a base of fewer than three corners,
+    // has no extent the placer can use, and would be stored as a record that could never be read back
+    const extent = buildingSchema.shape.extent.safeParse(measureSprite(image.data, anchorY));
+    return extent.success ? { anchorY, bbox: painted, extent: extent.data } : null;
   } catch {
     return null;
   }

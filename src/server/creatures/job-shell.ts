@@ -76,8 +76,14 @@ export interface JobShellDeps {
   log?: (event: Record<string, unknown>) => void;
 }
 
-/** What the work of one kind of job is handed: the model and renderer tied to the job's deadline, and its way to report. */
-export interface JobContext {
+/** The two reasons the shell itself ends a job with; the work's own are the fixed reasons its kind of job names. */
+type ShellFailure = "timed out" | "something went wrong";
+
+/**
+ * What the work of one kind of job is handed: the model and renderer tied to the job's deadline, and its way to report.
+ * `Failure` is the closed set of reasons that kind of job may fail with, so no text the model wrote can be a reason.
+ */
+export interface JobContext<Failure extends string> {
   jobId: string;
   model: MubitClient;
   render: Renderer;
@@ -88,7 +94,7 @@ export interface JobContext {
   /** Moves the job to a step. Throws once the job has ended, which stops the work that was about to go on. */
   report: (step: JobStep) => Promise<void>;
   /** Ends the job as failed with one of the work's fixed reasons. */
-  fail: (reason: string) => Promise<void>;
+  fail: (reason: Failure) => Promise<void>;
   /** Ends the job as done, with what it made. */
   conclude: (made: Pick<StoredJob, "creature" | "building">) => Promise<void>;
   /** Logs a Mubit call (no text) under the job's id. */
@@ -100,16 +106,17 @@ export interface JobContext {
  * Runs one job to its end around `work`. Never throws: every outcome is recorded in the job. `eventPrefix` names its log
  * events ("creature-job", "building-job").
  */
-export async function runJobShell(
+export async function runJobShell<Failure extends string>(
   deps: JobShellDeps,
   jobId: string,
   kind: JobKind,
   eventPrefix: string,
-  work: (context: JobContext) => Promise<void>,
+  work: (context: JobContext<Failure>) => Promise<void>,
 ): Promise<StoredJob> {
   const log = deps.log ?? ((event) => console.info(JSON.stringify(event)));
   let ended = false;
   let concluded = false; // the job's last state, done or failed, has been written
+  let settled = false; // the job's last state has been chosen: the first to conclude a job is the one that does
   // a creature job has no `kind` in the store, as before buildings existed: no kind means a creature
   const kindField = kind === "building" ? ({ kind } as const) : {};
   let latest: StoredJob = { jobId, ...kindField, step: "queued", updatedAt: deps.now().toISOString() };
@@ -129,20 +136,29 @@ export async function runJobShell(
     await write(step);
   }
 
+  // a job ends once: a late "done" (the deadline passed while its record was being stored) never turns a failed job done
   async function conclude(step: "done" | "failed", extra: Pick<StoredJob, "creature" | "building" | "error">) {
+    if (settled) return;
+    settled = true;
     ended = true;
-    await write(step, extra);
+    try {
+      await write(step, extra);
+    } catch (error) {
+      settled = false; // the store did not take it: a job that could not be written done may still be written failed
+      throw error;
+    }
     concluded = true;
   }
+  const failWith = (reason: Failure | ShellFailure) => conclude("failed", { error: reason });
 
-  const context: JobContext = {
+  const context: JobContext<Failure> = {
     jobId,
     model: bindMubitSignal(deps.model, stop.signal),
     render: bindRenderSignal(deps.render, stop.signal),
     signal: stop.signal,
     ended: () => ended,
     report,
-    fail: (reason) => conclude("failed", { error: reason }),
+    fail: failWith,
     conclude: (made) => conclude("done", made),
     onCall: (record) => log({ event: "mubit-call", jobId, ...safeCallSummary(record) }),
     log,
@@ -155,7 +171,7 @@ export async function runJobShell(
     log({ event: `${eventPrefix}-failed`, jobId, kind: error instanceof Error ? error.name : "unknown" });
     if (!concluded) {
       const timedOut = error instanceof Error && error.message === "timed out";
-      await context.fail(timedOut ? "timed out" : "something went wrong").catch(() => {});
+      await failWith(timedOut ? "timed out" : "something went wrong").catch(() => {});
     }
   }
   ended = true;

@@ -31,8 +31,10 @@ export interface GallerySeaDeps<Made extends { id: string }, Ready> {
 
 /** The longest delay that is taken to mean "the slot is busy, ask again" and not "a limit has been reached". */
 const BUSY_RETRY_LIMIT_SECONDS = 30;
-/** How many times a busy answer is asked again before it is let go (8 asks of at most 30 s each: a long job's length). */
-const BUSY_RETRIES = 8;
+/** How long a busy answer is asked again for before it is let go: a job holds the slot for 40 to 80 s, 270 s at the longest. */
+const BUSY_PATIENCE_SECONDS = 300;
+/** The shortest wait between two asks, whatever delay the server names. */
+const BUSY_LEAST_SECONDS = 1;
 
 interface Asking {
   /** The question: the ids the line has met. */
@@ -78,11 +80,14 @@ export function createGallerySea<Made extends { id: string }, Ready extends { ki
         if (!isCurrent()) return;
       }
       let answer = await deps.ask([...seen]);
-      for (let retries = 0; ; retries++) {
+      for (let waited = 0; ; ) {
         if (!isCurrent()) return;
         const delay = answer?.kind === "none" ? answer.retryAfterSeconds : undefined;
-        if (delay === undefined || delay > BUSY_RETRY_LIMIT_SECONDS || retries >= BUSY_RETRIES) break;
-        await sleep(delay * 1000);
+        if (delay === undefined || delay > BUSY_RETRY_LIMIT_SECONDS) break;
+        const seconds = Math.max(BUSY_LEAST_SECONDS, delay);
+        if (waited + seconds > BUSY_PATIENCE_SECONDS) break;
+        waited += seconds;
+        await sleep(seconds * 1000);
         if (!isCurrent()) return;
         answer = await deps.ask([...seen]);
       }

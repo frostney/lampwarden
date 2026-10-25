@@ -28,6 +28,13 @@ const FRAME_ATTEMPTS = 2;
 /** Ids start with their creation time in seconds (base 36, fixed width), so sorting them sorts by age. */
 export const creatureId = (now: Date, name: string, entropy: string) => galleryId(now, name, entropy, "creature");
 
+type CreatureFailure =
+  | "generation is unavailable"
+  | "no creature was written"
+  | "no sprite could be drawn"
+  | "the sprite was not good enough"
+  | "it could not be animated";
+
 export interface JobDeps {
   store: CreatureStore;
   now: () => Date;
@@ -56,7 +63,7 @@ export interface JobDeps {
 
 /** Runs one job to its end. Never throws: every outcome is recorded in the job. */
 export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<CreatureJob> {
-  return runJobShell(deps, jobId, "creature", "creature-job", async (job) => {
+  return runJobShell<CreatureFailure>(deps, jobId, "creature", "creature-job", async (job) => {
     const renderBatch = bindBatchRenderSignal(deps.renderBatch, job.signal);
 
     await job.report("writing");

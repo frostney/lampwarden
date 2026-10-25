@@ -75,12 +75,12 @@ function debugSink(directory: string) {
   };
 }
 
-/** What every deployed job needs of the real world, or null when generation is not configured. */
+/** What every deployed job needs of the real world, with the sandbox's settings, or null when generation is not configured. */
 function createSharedJobDeps(config: CreatureConfig) {
   const { mubitApiKey, snapshotId } = config;
   if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) return null;
   const expectedBundleSha = runnerBundleSha(readRunnerFiles(pipelineDirectory()));
-  return {
+  const deps = {
     now: () => new Date(),
     model: createMubitClient({ apiKey: mubitApiKey }),
     render: (request: RenderRequest, signal?: AbortSignal) =>
@@ -89,10 +89,8 @@ function createSharedJobDeps(config: CreatureConfig) {
     budgetMilliseconds: JOB_BUDGET_SECONDS * 1000,
     candidates: config.candidates,
     ...(config.debugDirectory ? { onOutcome: debugSink(config.debugDirectory) } : {}),
-    // a creature's 15 frames in one VM, a frame per vCPU at a time (a building has no frames)
-    renderBatch: (requests: readonly RenderRequest[], signal?: AbortSignal) =>
-      renderBatchSafely(requests, { snapshotId, expectedBundleSha, vcpus: FRAME_BATCH_VCPUS }, signal),
   };
+  return { deps, sandbox: { snapshotId, expectedBundleSha } };
 }
 
 /** The deployed creature job's dependencies, or null when generation is not configured. */
@@ -100,8 +98,11 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
   const shared = createSharedJobDeps(config);
   if (!shared) return null;
   return {
-    ...shared,
+    ...shared.deps,
     store,
+    // a creature's 15 frames in one VM, a frame per vCPU at a time
+    renderBatch: (requests, signal) =>
+      renderBatchSafely(requests, { ...shared.sandbox, vcpus: FRAME_BATCH_VCPUS }, signal),
     prompts: {
       creature: readPrompt("creature.md"),
       generator: readPrompt("generator.md"),
@@ -114,9 +115,8 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
 function createBuildingJobDeps(config: CreatureConfig, store: BuildingStore): BuildingJobDeps | null {
   const shared = createSharedJobDeps(config);
   if (!shared) return null;
-  const { renderBatch: _unused, ...deps } = shared;
   return {
-    ...deps,
+    ...shared.deps,
     store,
     prompts: {
       building: readPrompt("building.md"),

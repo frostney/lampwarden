@@ -4,6 +4,8 @@
 
 A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea sends creatures to put out the town's lamps; you strike them down, relight the lamps and keep one burning until dawn. When a warden falls, an heir takes up the lamp. The sprites are code written by a model through Mubit, then rendered, judged and corrected.
 
+[Asset pipeline deck (PDF)](docs/submission/lampwarden-asset-pipeline-deck.pdf) · [Demo video (2 min)](docs/submission/lampwarden-asset-pipeline-demo.mp4)
+
 ![Night 1 in Lychnos: a harpy claws at a lamp while a satyr and a cyclops come up from the shore, and the warden draws his bow](screenshot.png)
 
 ```bash
@@ -11,6 +13,24 @@ bun install && bun run dev
 ```
 
 Opens at http://localhost:3000. Live at https://lampwarden.vercel.app (it may lag behind `main`). Built at [Night Shift](https://luma.com/nightshift-london), Mubit's hackathon in London, 24–25 October 2026.
+
+## Where Mubit comes in
+
+![The asset pipeline: the game asks for a creature or a sprite, Mubit's brief writer and sprite generator write it, our renderer draws it, the verifier scores it and a fix goes back to the generator; after each night the director answers with the next night's tide, mix and a line, and our code clamps it](docs/images/asset-pipeline.png)
+
+Four Mubit calls, and the rest is my own code. The deck and the demo video walk through it.
+
+Night Shift's brief: build a product that routes its LLM calls through Mubit and turns corrections into model updates for a recurring task. Lampwarden's recurring task is making game art: every sprite is written as code by a model, rendered, judged and corrected, the same way each time. The model never draws a pixel. It writes `build(k)` against the kit's API (the sprites' code is `public/sprites/*.ts`, next to the PNGs) and the renderer in `pipeline/kit/` draws it, with no model in the loop.
+- **Every model call goes through Mubit**: `https://api.mubit.ai/anthropic/v1/messages`, model `claude-opus-5-5`, no temperature (`pipeline/mubit.ts`). Each call carries an anonymous session in `metadata.user_id`.
+- **Five recurring tasks.** Mubit groups calls into a task when they share their system prompt, so each prompt is a fixed file and everything that changes per call (the brief, the creatures already made, the variation for each candidate, the night's recorded play) sits in the user message:
+  - the creature brief writer (`pipeline/prompts/creature.md`): the creatures that exist in, the next one out (live creatures only);
+  - the building brief writer (`pipeline/prompts/building.md`): the buildings that exist in, the next one out (live buildings only);
+  - the generator (`pipeline/prompts/generator.md`): a brief in, kit code out (it also writes the fix);
+  - the verifier (`pipeline/prompts/verifier.md`): the render, brief, code and stats in, a score with issues and a fix out;
+  - the director (`pipeline/prompts/director.md`): after each night, that night's recorded play in, bounded balance tweaks and a line for the next night out. The game clamps every number and falls back to the rules if the call fails or is late (see "Live director").
+- **Corrections.** A sprite the verifier fails goes back to the generator with the verifier's issues and requested fix, as a follow-up turn; the better of the first and the fixed version is kept. Live creatures draw three candidates and keep the best that passes. These corrected calls are the examples Mubit trains on. The trireme scored 5 on its first try and 7 after one fix (`public/sprites/manifest.json`).
+- **Model updates.** Once a task has enough kept examples (25 by default), Mubit trains an adapter, a small model for that task, and tests each version against the provider model's answers. Tasks, adapters and their test results are in the Mubit console, where a passing version can be compared side by side with the provider model in Try models, and replies can be rated Good or Bad in Requests. The verifier is set up to become a Mubit adapter but is not ready yet (the console's Adapters page shows it as Not ready yet), so verifier calls still run on `claude-opus-5-5`.
+- **Why a director.** The difficulty curve was tuned on a bot. Nine recorded human nights from three people lost night 2 every time ([#47](https://github.com/frostney/lampwarden/pull/47)), so the director tunes each player's next night instead. Those recordings are not in this repository ([#55](https://github.com/frostney/lampwarden/pull/55)).
 
 ## Play
 
@@ -90,18 +110,6 @@ Starting a job is rate limited, to 12 an hour per visitor (a salted hash of the 
 A building and a creature job share the one slot, so at most one model job and one sandbox render run at a time; creatures go first (a creature told to wait asks again in 15 s, and no building job starts while one has waited). Buildings have their own limits: 12 an hour per visitor and 20 a UTC day for the site (`BUILDING_MAX_STARTS_PER_VISITOR_PER_HOUR`, `BUILDING_MAX_STARTS_PER_DAY`). In the game the building takes the plaza's building slot (`decorFor(seed, live)`, `docs/ARCHITECTURE.md`, "Decorations") and is recorded with the night so a replay shows the same plaza. Design and measurements: [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), "Buildings".
 
 Creatures are drawn from frames rendered in the sandbox and shipped as an image. Running the model's code in process (QuickJS in WebAssembly, [#33](https://github.com/frostney/lampwarden/pull/33)), in the player's browser ([#45](https://github.com/frostney/lampwarden/pull/45), [#49](https://github.com/frostney/lampwarden/pull/49)) or in a worker on the server ([#50](https://github.com/frostney/lampwarden/pull/50)) was measured and not adopted: `docs/LIVE_GENERATION.md`, "Why only the sandbox".
-
-## Night Shift and Mubit
-
-Night Shift's brief: build a product that routes its LLM calls through Mubit and turns corrections into model updates for a recurring task. Lampwarden's recurring task is making game art: every sprite is written as code by a model, rendered, judged and corrected, the same way each time.
-- **Every model call goes through Mubit**: `https://api.mubit.ai/anthropic/v1/messages`, model `claude-opus-5-5`, no temperature (`pipeline/mubit.ts`). Each call carries an anonymous session in `metadata.user_id`.
-- **Four recurring tasks.** Mubit groups calls into a task when they share their system prompt, so each prompt is a fixed file and everything that changes per call (the brief, the creatures already made, the variation for each candidate) sits in the user message:
-  - the generator (`pipeline/prompts/generator.md`): a brief in, kit code out;
-  - the verifier (`pipeline/prompts/verifier.md`): the render, brief, code and stats in, a score with issues and a fix out;
-  - the creature brief writer (`pipeline/prompts/creature.md`): the creatures that exist in, the next one out;
-  - the building brief writer (`pipeline/prompts/building.md`): the buildings that exist in, the next one out.
-- **Corrections.** A sprite the verifier fails goes back to the generator with the verifier's issues and requested fix, as a follow-up turn; the better of the first and the fixed version is kept. Live creatures draw three candidates and keep the best that passes. These corrected calls are the examples Mubit trains on.
-- **Model updates.** Once a task has enough kept examples (25 by default), Mubit trains an adapter, a small model for that task, and tests each version against the provider model's answers. Tasks, adapters and their test results are in the Mubit console, where a passing version can be compared side by side with the provider model in Try models, and replies can be rated Good or Bad in Requests.
 
 ## Run it
 

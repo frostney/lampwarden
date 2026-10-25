@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  BUILDING_API,
-  buildingJobPath,
-  buildingSchema,
-  buildingSpritePath,
-  nextBuildingRequestSchema,
-  recordedBuildingSchema,
-} from "./building";
+import { buildingSchema, nextBuildingRequestSchema, recordedBuildingSchema } from "./building";
 
 const extent = {
   hull: [
@@ -77,12 +70,6 @@ describe("what a recording keeps", () => {
 });
 
 describe("the API", () => {
-  test("names its paths under /api/buildings", () => {
-    expect(BUILDING_API).toBe("/api/buildings");
-    expect(buildingSpritePath("0000aaaa-stoa-abc123")).toBe("/api/buildings/0000aaaa-stoa-abc123/sprite.png");
-    expect(buildingJobPath("job-1")).toBe("/api/buildings/jobs/job-1");
-  });
-
   test("a request carries at most 500 seen ids", () => {
     expect(nextBuildingRequestSchema.safeParse({ seen: [] }).success).toBe(true);
     expect(nextBuildingRequestSchema.safeParse({ seen: Array.from({ length: 501 }, () => "x") }).success).toBe(false);

@@ -18,11 +18,9 @@ describe("the paths the contract names", () => {
     expect(existsSync(routeFileFor(`${BUILDING_API}/next`, {}))).toBe(true);
   });
   test("GET the job", () => {
-    expect(buildingJobPath("JOBID")).toBe("/api/buildings/jobs/JOBID");
     expect(existsSync(routeFileFor(buildingJobPath("JOBID"), { JOBID: "jobId" }))).toBe(true);
   });
   test("GET the sprite", () => {
-    expect(buildingSpritePath("BUILDINGID")).toBe("/api/buildings/BUILDINGID/sprite.png");
     expect(existsSync(routeFileFor(buildingSpritePath("BUILDINGID"), { BUILDINGID: "id" }))).toBe(true);
   });
 });

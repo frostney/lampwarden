@@ -8,6 +8,7 @@
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, devices, webkit } from "playwright";
+import { creatureSchema } from "../src/game/creature.ts";
 import { CREATURE_FRAME_COUNTS, CREATURE_FRAME_SIZE, creatureAtlasLayout } from "../src/game/creature-frames.ts";
 import { newLegacy, openShop } from "../src/game/legacy.ts";
 import { anchorYFor, heroAtlasCell } from "../src/scene/assets.ts";
@@ -34,9 +35,10 @@ for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(dir
 // but its sprite never arrives) or "sequence" (a small sea of its own, see SEQUENCE). sea.asked logs the `seen` lists.
 const SEA_CREATURE = {
   id: "brine-hound-satyr",
-  name: "Drowned sponge diver", // a real generated name
-  // lore as long as the contract allows (160), so a panel that only fits short lore fails here
-  lore: "He dove too deep for the sponge beds and never rose. Now he climbs the quay dripping and blows our flames out with his last held breath, one by one, till dawn.",
+  // the longest name and lore the contract allows (creatureSchema: 40 and 160 characters), so a panel that only fits
+  // short text, or cuts it, fails here; checked against the schema just below
+  name: "Drowned sponge diver of the Lychnos deep",
+  lore: "He dived too deep for the sponge beds and never rose. Now he climbs the quay dripping and blows our flames out with his last held breath, one by one, till dawn.",
   brief: "a hound of grey sea foam with a lantern jaw, the verifier's fixture",
   archetype: "skulker",
   modifiers: { speed: 1, toughness: 0, bite: 0, snuffing: 0 },
@@ -44,6 +46,11 @@ const SEA_CREATURE = {
   score: 8,
   createdAt: "2026-10-24T01:00:00.000Z",
 };
+if (
+  SEA_CREATURE.name.length !== creatureSchema.shape.name.maxLength ||
+  SEA_CREATURE.lore.length !== creatureSchema.shape.lore.maxLength
+)
+  throw new Error("the sea fixture must hold the longest name and lore the creature contract allows");
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
 // "sequence": three creatures made one after another. sea.made of them are finished; asking with `seen` answers with a
 // finished one not yet met, else starts the job that makes the next (job-seq-<index>, done once sea.made passes it).
@@ -727,6 +734,59 @@ async function checkScrollFits(tag) {
     "the scroll holds the controls and the rest without scrolling",
     room !== null && room.needed <= room.shown + 1,
     room && `${room.needed}px of content in ${room.shown}px`,
+  );
+}
+// A creature's name and lore are shown whole wherever the announcement appears (title, dawn, heir; desktop and phone):
+// the text is the full string, nothing ellipsizes or line-clamps it, neither element holds more than it shows, and
+// both lie inside the panel
+async function checkCreatureText(tag, screen, creature) {
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  const shown = await page.evaluate(() => {
+    const panel = document.querySelector('.sea[data-state="ready"]');
+    if (!panel) return null;
+    const panelBox = panel.getBoundingClientRect();
+    const read = (selector) => {
+      const element = panel.querySelector(selector);
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return {
+        text: element.textContent,
+        ellipsis: style.textOverflow === "ellipsis",
+        clamped: [style.getPropertyValue("-webkit-line-clamp"), style.getPropertyValue("line-clamp")].some(
+          (value) => value !== "" && value !== "none",
+        ),
+        holdsMore: element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1,
+        inside:
+          box.left >= panelBox.left - 1 &&
+          box.right <= panelBox.right + 1 &&
+          box.top >= panelBox.top - 1 &&
+          box.bottom <= panelBox.bottom + 1,
+        lines: Math.round(box.height / Number.parseFloat(style.lineHeight)),
+      };
+    };
+    return { name: read(".sea-name"), lore: read(".sea-lore") };
+  });
+  const problems = [];
+  for (const [part, expected] of [
+    ["name", creature.name],
+    ["lore", creature.lore],
+  ]) {
+    const found = shown?.[part];
+    if (!found) problems.push(`no ${part}`);
+    else {
+      if (found.text !== expected) problems.push(`${part} reads "${found.text.slice(0, 30)}"`);
+      if (found.ellipsis) problems.push(`${part} has an ellipsis`);
+      if (found.clamped) problems.push(`${part} is line-clamped`);
+      if (found.holdsMore) problems.push(`${part} holds more than it shows`);
+      if (!found.inside) problems.push(`${part} spills out of the panel`);
+    }
+  }
+  check(
+    tag,
+    `${screen}: the creature's whole name and lore are shown`,
+    problems.length === 0,
+    problems.join("; ") || `name ${shown.name.lines} line(s), lore ${shown.lore.lines} line(s)`,
   );
 }
 // The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
@@ -2897,6 +2957,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     sea.asked.length === askedAtStart,
     `${askedAtStart} → ${sea.asked.length}`,
   );
+  await checkCreatureText("sea-dawn", "dawn", SEA_CREATURE);
   await shoot("16-sea-dawn");
   await page.getByRole("button", { name: /Into night/ }).click();
   await page.waitForSelector('[data-phase="night"]');
@@ -2984,6 +3045,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     panel.name === SEA_CREATURE.name && panel.lore === SEA_CREATURE.lore,
     `${panel.name}: ${panel.lore}`,
   );
+  await checkCreatureText("sea-title", "title", SEA_CREATURE);
   check(
     "sea-title",
     "the panel shows its sprite, from its sprite path",
@@ -3092,6 +3154,21 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     tintRed > plainRed * 1.03,
     `red/blue ${plainRed.toFixed(2)} → ${tintRed.toFixed(2)}`,
   );
+
+  // 20b the heir screen announces the coming creature too, name and lore whole
+  sea.mode = "ready";
+  await openTitle();
+  await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
+  await startFromTitle();
+  await page.evaluate(() => {
+    for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+    window.lampwarden.scene().setPaused(false);
+  });
+  await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
+  await page.waitForSelector('.panel .sea[data-state="ready"]', { timeout: 5000 });
+  await freeze();
+  await checkCreatureText("sea-heir", "heir", SEA_CREATURE);
+  await shoot("20b-sea-heir");
 
   // 21 a sprite that will not load: nothing is announced and the night has no creature
   sea.mode = "broken";
@@ -3846,6 +3923,7 @@ for (const [tag, device, sex] of [
   await page.waitForTimeout(300);
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
   await checkPhoneText(tag, "title");
+  await checkCreatureText(tag, "title", SEA_CREATURE);
   await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
   const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
   check(
@@ -4008,6 +4086,7 @@ for (const [tag, device, sex] of [
   await settle();
   await checkWeaponShop(tag, sex);
   await checkPhoneText(tag, "dawn");
+  await checkCreatureText(tag, "dawn", SEA_CREATURE);
   await shoot(`${tag}-3-dawn`, true);
   const seaDawn = page.locator(".panel .sea").first();
   await seaDawn.scrollIntoViewIfNeeded();

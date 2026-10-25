@@ -106,7 +106,7 @@ export async function runBuildingJob(deps: BuildingJobDeps, jobId: string): Prom
       score: outcome.winner.verdict.score ?? 0,
       createdAt: deps.now().toISOString(),
     };
-    await deps.store.putBuilding(building, outcome.winner.png, outcome.winner.code);
+    await deps.store.putBuilding(building, outcome.winner.png, outcome.winner.code, context.signal);
     await context.conclude({ building });
   });
   return {

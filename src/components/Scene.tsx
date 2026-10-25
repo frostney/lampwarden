@@ -29,7 +29,7 @@ import {
   useState,
 } from "react";
 import { bindKeyboard, type Controls, consumePresses, liveInput, release, shootAt } from "@/game/controls";
-import { newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
+import { holdGamepad, newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
 import { STEP } from "@/game/replay";
 import {
   CENTRE_X,
@@ -187,6 +187,7 @@ export const Scene = memo(function Scene({
   // a new night starts from step 0 with nothing held and no press left over from the menus
   const run = useRef({ night, stepIndex: 0, accumulated: 0 });
   const gamepadMemory = useRef(newGamepadMemory());
+  const wasPaused = useRef(true);
   useLayoutEffect(() => {
     run.current = { night, stepIndex: 0, accumulated: 0 };
     release(controls);
@@ -207,6 +208,9 @@ export const Scene = memo(function Scene({
         const state = night.state;
         const progress = run.current;
         if (!settings.paused) {
+          // a button already down as the night (re)starts, the one that pressed Resume included, is not a press
+          if (wasPaused.current) holdGamepad(gamepadMemory.current);
+          wasPaused.current = false;
           // fixed 60 Hz sim step, so a recorded night replays exactly
           progress.accumulated += elapsedSeconds * settings.speed;
           pollGamepadForPlay(controls, state, gamepadMemory.current);
@@ -220,7 +224,7 @@ export const Scene = memo(function Scene({
               input = { ...input, melee: false, ranged: false };
             }
           }
-        }
+        } else wasPaused.current = true;
         lightCharacters(state, lighting, clock.current);
         settings.onTick(state);
       },

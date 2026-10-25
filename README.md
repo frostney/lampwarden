@@ -138,4 +138,6 @@ Every night is recorded and sent to `/api/plays`: its seed, the legacy it starte
 
 `bun run check` is the gate; the rules for contributors and agents are in [`AGENTS.md`](AGENTS.md).
 
+Ideas we found during the hackathon and left for later are in [`IDEAS.md`](IDEAS.md).
+
 More: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (directory map, sprite flow), [`docs/LIVE_GENERATION.md`](docs/LIVE_GENERATION.md), [`docs/tooling.md`](docs/tooling.md) and [`pipeline/README.md`](pipeline/README.md).

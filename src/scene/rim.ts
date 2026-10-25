@@ -1,6 +1,7 @@
 // Character sprites as pixels, for the lamp light that falls on them (lighting.ts): the sprite without the shadow it was
 // painted with, and a rim of hard warm pixels along the edge that faces a lamp, cut from the sprite's own outline. Each
-// is derived from the loaded sprite once, in code, and cached; nothing is blurred or blended per pixel at draw time.
+// is derived from the loaded sprite once, in code, and cached; nothing is blurred or blended per pixel at draw time. A
+// lamp's sprite is split the same way, its painted shadow becoming a texture that lies on the ground.
 import type { Texture } from "pixi.js";
 import { bufferTexture, type Rgb } from "./paint";
 
@@ -36,6 +37,20 @@ export function withoutShadowPixels(pixels: ArrayLike<number>): Uint8Array {
     clean[index + 3] = 255;
   }
   return clean;
+}
+
+// The other half of the same split, for a prop that is not a character: the translucent pixels alone, the shadow the
+// sprite was painted with, as premultiplied pixels for a texture of its own
+export function paintedShadowPixels(pixels: ArrayLike<number>): Uint8Array {
+  const shadow = new Uint8Array(pixels.length);
+  for (let index = 0; index < pixels.length; index += 4) {
+    const alpha = pixels[index + 3] ?? 0;
+    if (alpha === 0 || alpha >= OPAQUE) continue;
+    for (let component = 0; component < 3; component++)
+      shadow[index + component] = Math.round(((pixels[index + component] ?? 0) * alpha) / 255);
+    shadow[index + 3] = alpha;
+  }
+  return shadow;
 }
 
 // RGBA pixels of only the figure's edge that faces `octant`: opaque pixels with an empty neighbour that way
@@ -93,6 +108,17 @@ export function withoutPaintedShadow(texture: Texture): Texture | null {
   const read = readPixels(texture);
   if (!read) return null;
   return characterTexture(withoutShadowPixels(read.pixels), read.width, read.height, texture.source.label);
+}
+
+// A prop's sprite split into its body (the opaque pixels, nearest-sampled) and the shadow it was painted with, each a
+// texture the size of the sprite, to be drawn at the same place: the body sorts with the figures, the shadow lies on
+// the ground under them (null when the browser will not give up the pixels, which leaves the sprite as it was).
+export function splitPaintedShadow(texture: Texture): { body: Texture; shadow: Texture } | null {
+  const read = readPixels(texture);
+  if (!read) return null;
+  const body = bufferTexture(withoutShadowPixels(read.pixels), read.width, read.height);
+  body.source.label = texture.source.label;
+  return { body, shadow: bufferTexture(paintedShadowPixels(read.pixels), read.width, read.height) };
 }
 
 // Cuts square cells out of an atlas of character frames, each as its own shadowless texture with the label it is given

@@ -1,17 +1,11 @@
-// The canvas module the kit imports as 'shotcup:canvas' (a name from the kit's first home; only what the kit uses).
-// /out/* maps to $KIT_OUT.
+// The PNG encoder the runner writes a sprite with. Its bytes are the contract: a sandbox render is byte-identical to the
+// committed `public/sprites/*.png` because both come through this encoder (zero filter byte, RGBA, one `deflateSync`
+// call with its defaults), so a change to the encoding is a change to every committed PNG.
 import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { deflateSync } from "node:zlib";
 
-const OUTPUT_DIRECTORY = process.env.KIT_OUT || "./out";
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
-
-/** Maps `/out/<file>` to `$KIT_OUT/<file>` and makes sure the directory it lands in exists. */
-function resolveOutputPath(path: string): string {
-  const resolved = path.startsWith("/out/") ? `${OUTPUT_DIRECTORY}/${path.slice(5)}` : path;
-  mkdirSync(resolved.slice(0, resolved.lastIndexOf("/")) || ".", { recursive: true });
-  return resolved;
-}
 
 function crc32(bytes: Uint8Array): number {
   let crc = ~0;
@@ -24,7 +18,7 @@ function crc32(bytes: Uint8Array): number {
 
 const bigEndian32 = (value: number) => [value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
 
-function encodePng(width: number, height: number, pixels: Uint8Array): Uint8Array {
+export function encodePng(width: number, height: number, pixels: Uint8Array): Uint8Array {
   const rowBytes = width * 4;
   // each scanline is a zero filter byte followed by its RGBA pixels
   const raw = new Uint8Array((rowBytes + 1) * height);
@@ -53,31 +47,8 @@ function encodePng(width: number, height: number, pixels: Uint8Array): Uint8Arra
   return output;
 }
 
-interface CanvasOptions {
-  /** RGBA bytes to start from, `width * height * 4` of them (transparent black when omitted). */
-  pixels?: Uint8Array;
-}
-
-class Canvas {
-  width: number;
-  height: number;
-  data: Uint8Array;
-
-  constructor(width: number, height: number, options?: CanvasOptions) {
-    this.width = width;
-    this.height = height;
-    this.data = options?.pixels ? new Uint8Array(options.pixels) : new Uint8Array(width * height * 4);
-  }
-
-  toPNG(): Uint8Array {
-    return encodePng(this.width, this.height, this.data);
-  }
-
-  save(path: string): void {
-    writeFileSync(resolveOutputPath(path), this.toPNG());
-  }
-}
-
-export function createCanvas(width: number, height: number, options?: CanvasOptions): Canvas {
-  return new Canvas(width, height, options);
+/** Writes `pixels` (RGBA, `width * height * 4` bytes) to `path` as a PNG, creating the directory it lands in. */
+export function writePng(path: string, width: number, height: number, pixels: Uint8Array): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, encodePng(width, height, pixels));
 }

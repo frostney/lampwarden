@@ -1,5 +1,5 @@
 // kit.ts - Greek-myth isometric pixel-art kit (Titan Quest flavour). Pure TypeScript, no imports, deterministic:
-// own sin/cos/atan (only + - * / sqrt floor), so Shotcup and a local runtime produce identical pixels.
+// own sin/cos/atan (only + - * / sqrt floor): Bun versions and CPU architectures don't promise identical Math.sin results, so the sandbox and a local runtime would otherwise differ.
 // World: u runs screen down-right, v down-left, z up. Screen = (64 + 2(u - v), 100 + u + v - sqrt6*z). 128x128 canvas.
 export type V = [number, number, number];
 export type Shape = { f: (x: number, y: number, z: number) => number; lo: V; hi: V; lip: number };
@@ -40,8 +40,8 @@ export function hash(a: number, b: number, c = 0): number {   // stable 0..1
 }
 const sq = (x: number): number => x * x;
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
-// Math.max, Math.min and Math.abs with identical results (NaN and signed zeros included), as plain functions: in GocciaScript, the
-// engine behind Shotcup, a built-in Math call costs about four times a plain function call. Used in the shape and render hot loops.
+// Math.max, Math.min and Math.abs with identical results (NaN and signed zeros included), as plain functions. They were written for
+// GocciaScript, whose built-in Math calls cost about four times a plain function call; they stay so every pixel is unchanged. Used in the shape and render hot loops.
 const larger = (first: number, second: number): number => (first > second ? first : first < second ? second : first !== first ? first : second !== second ? second : first === 0 ? first + second : first);
 const smaller = (first: number, second: number): number => (first < second ? first : first > second ? second : first !== first ? first : second !== second ? second : first === 0 ? -(-first - second) : first);
 const magnitude = (value: number): number => (value < 0 ? -value : value + 0);

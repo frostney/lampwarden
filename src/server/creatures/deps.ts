@@ -23,7 +23,7 @@ import type { ServiceDeps } from "./service";
 import type { CreatureStore } from "./store";
 import { createBlobStore } from "./store.blob";
 
-const FRAME_BATCH_VCPUS = 4;
+const FRAME_BATCH_VCPUS = 8;
 
 const pipelineDirectory = () => join(process.cwd(), "pipeline");
 const readPrompt = (name: string) =>
@@ -69,7 +69,7 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
     now: () => new Date(),
     model: createMubitClient({ apiKey: mubitApiKey }),
     render: (request, signal) => renderSafely(request, { snapshotId, expectedBundleSha }, signal),
-    // a creature's 15 frames in one VM, a frame per vCPU at a time
+    // a creature's 75 frames (five directions of 15) in one VM, a frame per vCPU at a time
     renderBatch: (requests, signal) =>
       renderBatchSafely(requests, { snapshotId, expectedBundleSha, vcpus: FRAME_BATCH_VCPUS }, signal),
     prompts: {

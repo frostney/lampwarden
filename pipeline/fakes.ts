@@ -120,11 +120,19 @@ export function framePng(seed: number): Uint8Array {
   return encodePng(frame);
 }
 
+/** What a fake frame batch can be told about a frame: which picture it is, and what the kit reports of it. */
+export interface FrameBatchOptions {
+  /** The picture's seed (frames with the same seed are the same picture); default: one for each request, in order. */
+  seedOf?: (request: RenderRequest, index: number) => number;
+  /** The stats the kit reports for the frame; default: a figure well inside the canvas. */
+  statsOf?: (request: RenderRequest, index: number, batch: number) => RenderStats;
+}
+
 /**
  * A batch renderer for a creature's frames: each pose comes out as its own picture, or, when the code says `STATIC`, the
  * same picture whatever the pose (a builder that ignores POSE). Code that says `BROKEN` fails to render its walk frames.
  */
-export function fakeFrameBatch(): { render: BatchRenderer; batches: RenderRequest[][] } {
+export function fakeFrameBatch(options: FrameBatchOptions = {}): { render: BatchRenderer; batches: RenderRequest[][] } {
   const batches: RenderRequest[][] = [];
   return {
     batches,
@@ -133,8 +141,12 @@ export function fakeFrameBatch(): { render: BatchRenderer; batches: RenderReques
       return requests.map((request, index): RenderResult => {
         if (request.code.includes("BROKEN") && request.pose.startsWith("walk"))
           return { ok: false, error: "exit 1: error: boom" };
-        const seed = request.code.includes("STATIC") ? 0 : index + 1;
-        return { ok: true, stats: CLEAN_STATS, png: framePng(seed) };
+        const seed = request.code.includes("STATIC") ? 0 : (options.seedOf?.(request, index) ?? index + 1);
+        return {
+          ok: true,
+          stats: options.statsOf?.(request, index, batches.length) ?? CLEAN_STATS,
+          png: framePng(seed),
+        };
       });
     },
   };

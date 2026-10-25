@@ -20,8 +20,9 @@
 | `bun run assets -- "brief"`            | The Mubit sprite pipeline, `pipeline/run.ts` (see `pipeline/README.md`); renders in Vercel Sandbox.                                                                                                                         |
 | `bun run kit`                          | Reassembles `pipeline/kit/kit.ts` from `pipeline/kit/src`.                                                                                                                                                                  |
 | `bun run sandbox:snapshot`             | Builds the Vercel Sandbox snapshot every render boots from (Bun 1.4.4 + kit + runner) and prints `VERCEL_SANDBOX_SNAPSHOT_ID`.                                                                                              |
-| `bun run check:pixels`                 | Renders every committed sprite and hero frame in Vercel Sandbox (4 batches of 4 vCPUs) and compares pixels with the committed PNGs; exits 1 on any difference.                                                              |
+| `bun run check:pixels`                 | Renders every committed sprite, hero frame and monster frame in Vercel Sandbox (4 batches of 4 vCPUs) and compares pixels with the committed PNGs and atlases; exits 1 on any difference.                                   |
 | `bun run assets:hero`                  | Regenerates the hero atlases from the model's committed build code (`public/sprites/hero/<sex>.ts`), rendered in Vercel Sandbox.                                                                                            |
+| `bun run assets:monsters`              | Draws the satyr's, cyclops's and harpy's atlases (five directions, idle, walk and attack) from their committed code in Vercel Sandbox and writes `src/scene/monster-frames.json`.                                           |
 | `bun run assets:hero:generate`         | Has Mubit write the warden's build code, verifies it on four frames and keeps it only if it beats the warden in use (`pipeline/README.md`); needs the Mubit key.                                                            |
 
 ## Lint and format
@@ -76,14 +77,14 @@ the script only the variables it needs, removes every other schema variable from
 your shell) and does not resolve the rest at all, so `bun run plays` never asks for the Mubit key. `--inject vars`
 leaves out the `__VARLOCK_ENV` blob, which holds every resolved value.
 
-| Command                                         | Receives                                                                                                                 |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `bun run assets`                                | The variables tagged `pipeline` in `.env.schema`: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`. |
-| `bun run calibrate:verifier`                    | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (it renders the committed art in the sandbox).     |
-| `bun run assets:hero:generate`                  | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (the `pipeline` variables, like `assets`).         |
-| `bun run check:pixels`, `assets:hero`, `render` | `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`.                                                                    |
-| `bun run sandbox:snapshot`                      | `VERCEL_OIDC_TOKEN` (or the Vercel CLI login of a `vercel link`ed project).                                              |
-| `bun run plays`                                 | `BLOB_READ_WRITE_TOKEN`.                                                                                                 |
+| Command                                                            | Receives                                                                                                                 |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `bun run assets`                                                   | The variables tagged `pipeline` in `.env.schema`: `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`. |
+| `bun run calibrate:verifier`                                       | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (it renders the committed art in the sandbox).     |
+| `bun run assets:hero:generate`                                     | `MUBIT_API_KEY`, `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN` (the `pipeline` variables, like `assets`).         |
+| `bun run check:pixels`, `assets:hero`, `assets:monsters`, `render` | `VERCEL_SANDBOX_SNAPSHOT_ID` and `VERCEL_OIDC_TOKEN`.                                                                    |
+| `bun run sandbox:snapshot`                                         | `VERCEL_OIDC_TOKEN` (or the Vercel CLI login of a `vercel link`ed project).                                              |
+| `bun run plays`                                                    | `BLOB_READ_WRITE_TOKEN`.                                                                                                 |
 
 `kit`, `logo` and `balance` need no variable and get none.
 

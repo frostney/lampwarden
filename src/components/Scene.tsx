@@ -49,7 +49,7 @@ import {
   type State,
   step,
 } from "@/game/sim";
-import { heroKey, heroView, type Sex } from "@/scene/assets";
+import { heroKey, heroView, octantOf, type Sex } from "@/scene/assets";
 import type { Layout, Placed } from "@/scene/decor";
 import {
   anchor,
@@ -59,14 +59,15 @@ import {
   drawMarks,
   drawPlanks,
   drawSweep,
-  ghostTextureKey,
+  ghostPicture,
   heroFlashTexture,
   heroFrame,
   lightsAlpha,
+  type MonsterPicture,
   monsterBob,
   monsterFlashTexture,
   monsterLook,
-  monsterTextureKey,
+  monsterPicture,
   nightProgress,
   nightTint,
   paintedShadowKey,
@@ -592,12 +593,16 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
       const sprite = ref.current;
       if (!sprite) return;
       const light = lighting.get(monster) ?? DARK_CHARACTER;
-      sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(state, monster.kind, monster.age)));
+      // a monster with frames shows the one its animation is at, from the way it faces; any other, its one sprite
+      const picture = monsterPicture(state, monster, textures);
+      sprite.position.set(
+        Math.round(monster.x) + picture.offsetX,
+        Math.round(monster.y + monsterBob(state, monster.kind, monster.age)) + picture.offsetY,
+      );
       sprite.zIndex = monster.y;
-      sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
+      sprite.scale.x = picture.mirrored ? -1 : 1;
       sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
-      // a creature with frames shows the one its animation is at; any other monster, its one sprite
-      const texture = textureFor(textures, monsterTextureKey(state, monster, textures));
+      const texture = textureFor(textures, picture.key);
       if (sprite.texture !== texture) sprite.texture = texture;
       showRim(rim.current, sprite, texture, light.rim);
     }, [monster, state, textures, lighting]),
@@ -872,17 +877,32 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         return sprite;
       };
       // a monster's white silhouette: its own look, which is the creature's on a night that has one
-      // (a creature with frames flashes the frame it is on)
-      const showMonster = (key: string, kind: MonsterKind, spriteKey: string, x: number, y: number, alpha: number) => {
+      // (a monster with frames flashes the frame it is on, turned the way it is)
+      const showMonster = (
+        key: string,
+        kind: MonsterKind,
+        picture: MonsterPicture,
+        x: number,
+        y: number,
+        alpha: number,
+      ) => {
         const look = monsterLook(state, kind);
-        show(key, monsterFlashTexture(textures, spriteKey), anchorAt(look.anchorY), x, y, alpha);
+        // the frame is put where the monster's own sprite is, slid back as it is
+        show(
+          key,
+          monsterFlashTexture(textures, picture.key),
+          anchorAt(look.anchorY),
+          x + picture.offsetX,
+          y + picture.offsetY,
+          alpha,
+        ).scale.x = picture.mirrored ? -1 : 1;
       };
       for (const monster of state.monsters)
         if (monster.hurt > HURT_TIME - FLASH_TIME)
           showMonster(
             `monster${monster.id}`,
             monster.kind,
-            monsterTextureKey(state, monster, textures),
+            monsterPicture(state, monster, textures),
             monster.x,
             monster.y + monsterBob(state, monster.kind, monster.age),
             1,
@@ -907,7 +927,8 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
         showMonster(
           `puff${puff.id}`,
           ghost.monster,
-          ghostTextureKey(state, ghost.monster, ghost.monsterAge),
+          // it faces the blow that killed it
+          ghostPicture(state, ghost, octantOf(-puff.directionX, -puff.directionY), textures),
           ghost.x + puff.directionX * travel,
           ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
           progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,

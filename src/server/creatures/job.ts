@@ -10,7 +10,13 @@ import { z } from "zod";
 import type { CreatureJob, JobStep } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
-import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
+import {
+  type BatchRenderer,
+  bindBatchRenderSignal,
+  canvasOfStill,
+  type FrameSetFailure,
+  renderFrameSet,
+} from "../../../pipeline/creature-frames";
 import {
   type CandidateOutcome,
   isAccepted,
@@ -195,10 +201,14 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
     // a builder that ignores its pose), the next best accepted candidate gets the same chance.
     await report("rendering");
     let animated: Animated | null = null;
-    const tried: string[] = [];
+    const tried: FrameSetFailure["kind"][] = [];
+    const framesStarted = Date.now();
+    let batches = 0;
     for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
       if (ended) return; // timed out while rendering: do not put a creature in the gallery for a job that failed
-      const frameSet = await renderFrameSet(renderBatch, candidate.code);
+      const frameSet = await renderFrameSet(renderBatch, candidate.code, canvasOfStill(candidate.stats));
+      batches += frameSet.batches;
+      tried.push(...frameSet.earlier);
       if (frameSet.ok) {
         animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
         break;
@@ -206,7 +216,16 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
       tried.push(frameSet.kind);
     }
     if (ended) return;
-    log({ event: "creature-job-frames", jobId, animated: animated !== null, refused: tried });
+    log({
+      event: "creature-job-frames",
+      jobId,
+      animated: animated !== null,
+      refused: tried,
+      directions: animated?.frames.directions?.length ?? (animated ? 1 : 0),
+      batches,
+      milliseconds: Date.now() - framesStarted,
+      atlasBytes: animated?.atlas.length ?? 0,
+    });
     if (!animated) return fail("it could not be animated");
 
     const creature = buildCreature(id, written.brief, animated.candidate, animated.frames, deps.now());

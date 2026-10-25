@@ -303,6 +303,13 @@
             "useBlockStatements": "off"
           }
         }
+      },
+      "assist": {
+        "actions": {
+          "source": {
+            "organizeImports": "off"
+          }
+        }
       }
     }
   ]

@@ -1,5 +1,6 @@
 // Pixel-identity check for kit changes: renders every committed sprite (public/sprites/*.ts) and every hero frame (each
-// sex's atlas, public/sprites/hero/<sex>.png, holds them) in the Vercel Sandbox with the snapshot's kit, and compares
+// sex's atlas, public/sprites/hero/<sex>.png, holds them; a frame is drawn from the sex's committed model code,
+// public/sprites/hero/<sex>.ts, or from the deterministic builder when it has none) in the Vercel Sandbox with the snapshot's kit, and compares
 // the decoded RGBA with the committed PNGs and atlas cells. The renders go out in a few batches, one VM each, side by
 // side. Needs Vercel auth and VERCEL_SANDBOX_SNAPSHOT_ID (docs/tooling.md, "Rendering needs Vercel auth"); a snapshot
 // that does not hold this checkout's kit and runner fails the check with the command that rebuilds it.
@@ -8,16 +9,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { HERO_ANIMATIONS, heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
+import { heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
-import { heroFrameBuilds } from "./hero-animation";
 import { atlasCellPixels } from "./hero-atlas";
+import { heroBuildsFor } from "./hero-source";
 import { renderBatchFromCheckout } from "./render-checkout";
 import { SnapshotMismatchError } from "./render-vercel-sandbox";
 
 interface Job {
   name: string;
   code: string;
+  pose: string;
   committed: () => Uint8Array; // the committed pixels
 }
 
@@ -42,18 +44,23 @@ const jobs: Job[] = readdirSync(spritesDirectory)
     return {
       name,
       code: readFileSync(join(spritesDirectory, file), "utf8"),
+      pose: "",
       committed: () => decodePng(readFileSync(join(spritesDirectory, `${name}.png`))).data,
     };
   });
 for (const sex of SEXES) {
   const atlas = decodePng(readFileSync(join(import.meta.dir, "..", "public", heroAtlasPath(sex))));
   const cells = new Map(heroFrames(sex).map((frame) => [frame.key, frame]));
-  for (const animation of HERO_ANIMATIONS)
-    for (const frame of heroFrameBuilds(sex, animation)) {
-      const cell = cells.get(`hero/${frame.name}`);
-      if (!cell) throw new Error(`${frame.name} has no cell in the ${sex} atlas`);
-      jobs.push({ name: frame.name, code: frame.code, committed: () => atlasCellPixels(atlas, cell.x, cell.y) });
-    }
+  for (const build of heroBuildsFor(sex).builds) {
+    const cell = cells.get(`hero/${build.name}`);
+    if (!cell) throw new Error(`${build.name} has no cell in the ${sex} atlas`);
+    jobs.push({
+      name: build.name,
+      code: build.code,
+      pose: build.pose,
+      committed: () => atlasCellPixels(atlas, cell.x, cell.y),
+    });
+  }
 }
 
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
@@ -83,7 +90,7 @@ try {
   renderedSlices = await Promise.all(
     slices.map((slice) =>
       renderBatchFromCheckout(
-        slice.map((job) => ({ code: job.code, name: job.name, pose: "" })),
+        slice.map((job) => ({ code: job.code, name: job.name, pose: job.pose })),
         { vcpus },
       ),
     ),

@@ -30,9 +30,12 @@ src/
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
                      component per entity moved every frame through refs, depth-sorted by ground y; re-renders only when a
                      night starts or a monster spawns or dies. Layers, bottom to top: sky, the tinted sea and ground, the
-                     lights that lie on the ground (pools, the warden's light, stone and sea glints), the characters'
-                     shadows, the depth-sorted sprites (props, characters, lamps, and each lamp's lantern glow and halo
-                     sorted with its lamp), the melee sweep, shots, white blow flashes, marks and the wound vignette
+                     lights that lie on the ground (pools, the warden's light, stone and sea glints), the marks on the
+                     ground (each lamp's painted shadow, the melee sweep, the ring round a dark lamp), the characters'
+                     shadows, the depth-sorted sprites (props, characters, and each lamp as one object with its lantern
+                     glow, halo, lit foot and glints, sorted by the lamp's ground y), shots, white blow flashes, the
+                     marks that hang in the air or gauge something (puffs, progress rings, health pips) and the wound
+                     vignette. A ground mark is under every sprite; an effect in the air is over them
   game/              the game itself, no Pixi
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide the rules pick (rulesTide) and the live director's mix and creature share; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
@@ -105,7 +108,8 @@ src/
     shadow.ts        the cast shadows as pixel art: a tapering lozenge along the ground away from a lamp, per direction and
                      length, painted on first use
     rim.ts           character sprites as pixels: the sprite without the shadow it was painted with, and a rim of hard warm
-                     pixels along the edge that faces a lamp
+                     pixels along the edge that faces a lamp; a lamp's sprite is split the same way, its painted shadow
+                     becoming a texture that lies on the ground
     water.ts         the sea as pixel art, painted once into a 12-frame loop: stepped, dithered depths darkening to the
                      horizon, a far sea of flat glints, a swell tile of 2:1 crests and sparkles (a TilingSprite
                      drifting down the grid), surf lapping at the plaza's edges, ripples spreading from the moored
@@ -147,6 +151,7 @@ pipeline/            offline asset pipeline (see pipeline/README.md)
   render-vercel-sandbox.ts   the only renderer: a batch of builds in one Vercel Sandbox VM (build-code.ts rejects banned identifiers first);
                      render-checkout.ts is its entry for the command line (runner files from this checkout, snapshot from the environment)
   hero-animation.ts, hero-frames.ts, check-pixels.ts   hero frame builds, regenerating them, and the pixel-identity check (both in the sandbox)
+  hero-model.ts, hero-loop.ts, hero-generate.ts, hero-source.ts   the warden as Mubit-written code (public/sprites/hero/<sex>.ts): brief, frame scripts, checks and the candidate loop; the frames are drawn from it
   assemble-kit.ts    kit/src/*.ts → kit/kit.ts (`bun run kit`)
   prompts/           generator.md (kit API doc), verifier.md
   kit/               building kit: src/*.ts → assemble-kit.ts → kit.ts; exports.json, palette.json, examples/

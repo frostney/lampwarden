@@ -562,6 +562,7 @@ h2.logo:focus {
 }
 .scroll .raised {
   color: var(--ink-faded);
+  line-height: 1.2;
 }
 .scroll .raised-name {
   color: var(--ink);
@@ -570,10 +571,11 @@ h2.logo:focus {
   border-color: var(--ink-faded);
   background: #e6cd99;
 }
-/* on the scroll the name is set at 16 px, the size of its grid (Ithaca is drawn on 16 px; 22 px was off it), so that
-   40 characters take one or two lines, and the lore's lines sit a little closer */
+/* on the scroll the name is set at 22 px, so it stands out from the lore under it (at 16 px it read smaller than the lore)
+   and a 40 character name still takes no more than two lines beside the portrait (at 32 px it takes three). 22 px is off
+   Ithaca's 16 px grid, so a stroke can come out a pixel wider than its neighbour; the lore's lines sit a little closer */
 .scroll .sea-name {
-  font-size: 16px;
+  font-size: 22px;
 }
 .scroll .sea-lore {
   line-height: 1.2;
@@ -606,8 +608,9 @@ h2.logo:focus {
   margin-top: 4px;
 }
 /* The title scroll has no room to spare (a creature's panel alone fills it), and a building's whole name goes in a line of its
-   own, never cut: with one announced, the panel's padding and the gaps round it close up (and the scroll's column, below,
-   is a little wider), so the longest creature the contract allows and a 40 character building still fit without scrolling. */
+   own, never cut: with one announced, the panel's padding and the gaps in and round it close up (and the scroll's column,
+   below, is a little wider, and the introduction and How to play close up to what is above them), so the longest creature
+   the contract allows and a 40 character building still fit without scrolling. */
 .scroll .sea-sends:has(.raised) {
   gap: 2px;
 }
@@ -617,6 +620,12 @@ h2.logo:focus {
 }
 .scroll .sea:has(~ .raised) .sea-text {
   gap: 0;
+}
+.scroll .sea[data-state="ready"]:has(~ .raised) .sea-name {
+  margin-top: 0;
+}
+.scroll .sea[data-state="ready"]:has(~ .raised) .sea-lore {
+  margin-top: 2px;
 }
 .icon {
   image-rendering: pixelated;
@@ -968,6 +977,10 @@ h2.logo:focus {
 .scroll-intro {
   gap: 4px;
 }
+/* and with a building announced as well, its text closes up to the logo (see .scroll .sea-sends:has(.raised)) */
+.scroll-layout:has(.raised) .scroll-intro {
+  gap: 0;
+}
 .scroll-hero {
   gap: 6px;
 }
@@ -1010,6 +1023,9 @@ h2.logo:focus {
   .scroll-layout:has(.raised) {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
     row-gap: 2px;
+  }
+  .scroll-layout:has(.raised) > .controls {
+    margin-top: 0;
   }
 }
 .scroll .brand img {

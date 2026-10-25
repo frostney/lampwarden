@@ -47,7 +47,7 @@ export interface Ripple {
 }
 
 export interface DecorKind {
-  key: string; // the sprite (assets.ts SINGLE) and its extents (decor-extents.ts, bun run decor)
+  key: string; // the sprite (assets.ts SINGLE) and its extents (decor-extents.ts, which `bun run decor` writes for it)
   where: Where;
   groups: readonly [min: number, max: number]; // how many groups of it: one temple, two or three clusters of olives
   pieces?: readonly [min: number, max: number]; // how many props in a group, one when left out
@@ -133,6 +133,18 @@ export const DECOR: readonly DecorKind[] = [
   },
 ];
 
+// The sprites whose extents the placer reads from decor-extents.ts: the lamps it keeps clear of, every kind in DECOR and
+// the kinds a group is sometimes replaced by. This is the set `bun run decor` measures (tools/decor-extents), so nothing
+// else the scene draws (the monsters, the hero, the hand-written stand-ins for the buildings, which take their building's
+// extents) is in the table. A live building's extents come in at run time (`LiveBuilding`) and are not in it either.
+const LAMP_SPRITE = "lamp-lit";
+export const PLACED_SPRITES: readonly string[] = [
+  ...new Set([
+    LAMP_SPRITE,
+    ...DECOR.flatMap((kind) => (kind.replacedBy ? [kind.key, kind.replacedBy.key] : [kind.key])),
+  ]),
+];
+
 // --- the rules --------------------------------------------------------------------------------------------------------
 
 const MARGIN = 8; // iso steps a prop's base keeps from the plaza's rim
@@ -188,7 +200,7 @@ function extentsOf(key: string): SpriteExtents {
 }
 
 const LAMPS_DRAWN: readonly { lantern: Box; pole: Box }[] = LAMP_SPOTS.map(([x, y]) => {
-  const lamp = boxAt(extentsOf("lamp-lit").sprite, x, y);
+  const lamp = boxAt(extentsOf(LAMP_SPRITE).sprite, x, y);
   return {
     lantern: { ...lamp, bottom: lamp.top + LANTERN_DEPTH },
     pole: { left: x - POLE_HALF_WIDTH, right: x + POLE_HALF_WIDTH, top: lamp.top + LANTERN_DEPTH, bottom: lamp.bottom },

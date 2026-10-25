@@ -21,7 +21,7 @@ const DAUGHTER_UPGRADES: Partial<Record<UpgradeId, { icon: UpgradeIcon; label: s
   quiver: {
     icon: "pouch",
     label: "Fuller pouch",
-    text: "Stones fly 15% faster; at level 2 you sling a spread of three.",
+    text: "15% less wait between stones; at level 2 you sling a spread of three.",
   },
 };
 

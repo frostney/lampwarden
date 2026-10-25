@@ -26,7 +26,7 @@ import { nextRandom, UINT32_RANGE } from "./random";
 export const UPGRADES: Record<UpgradeId, { label: string; text: string; wardenOnly?: true }> = {
   wick: { label: "Brighter wicks", text: "Lamps resist claws 35% longer and light 12 px wider." },
   blade: { label: "Keener blade", text: "Melee reaches 10 px further; at level 2 it hits harder." },
-  quiver: { label: "Deeper quiver", text: "Shots fly 15% faster; at level 2 you shoot a spread of three." },
+  quiver: { label: "Deeper quiver", text: "15% less wait between shots; at level 2 you shoot a spread of three." },
   heart: { label: "Warden's heart", text: "+20 health for this warden and every one after." },
   hide: { label: "Thick hide", text: "+30 health for this warden only. Lost when they fall.", wardenOnly: true },
   knockback: { label: "Heavy blows", text: "Blows and shots throw monsters back 40% further." },
@@ -71,6 +71,18 @@ export interface Legacy {
   director: Director; // the coming night's decision: the live director's answer if it came in time, else the rules'
   bestiary: string[]; // ids of the creatures from the sea this line has met, oldest first (sent to the gallery as `seen`)
   fallen: { name: string; night: number; cause: string }[];
+  heirChoice?: HeirChoice | undefined; // the heirs offered since a warden fell, until one takes up the lamp
+}
+
+// The heirs offered when a warden falls, with the fallen warden's night for the panel. Until one of them takes up the lamp
+// the line's heir is still the fallen warden, so the choice is saved with the line: a reload offers the same heirs again
+// instead of sending the fallen warden back out.
+export interface HeirChoice {
+  name: string; // the fallen warden
+  night: number;
+  outcome: "dark" | "fallen";
+  tideBefore: number; // the tide the night was played at, for the sea's note on the panel
+  heirs: Heir[];
 }
 
 const NAMES: Record<Sex, readonly [string, ...string[]]> = {
@@ -224,20 +236,29 @@ export function buy(legacy: Legacy, id: UpgradeId): boolean {
 
 // A saved legacy, as far as it can be read: every field that is missing or wrong falls back to a new line's, and the
 // offers are drawn if the save has none (a save from before the shop offered three).
+const heirSchema = z.object({ name: z.string(), sex: z.enum(SEXES), trait: z.enum(TRAIT_IDS) });
+const heirChoiceSchema = z.object({
+  name: z.string(),
+  night: z.number().int().min(1),
+  outcome: z.enum(["dark", "fallen"]),
+  tideBefore: z.number().min(TIDE_MIN).max(TIDE_MAX),
+  heirs: z.array(heirSchema).min(1),
+});
 const field = <Schema extends z.ZodType>(schema: Schema) => schema.optional().catch(undefined);
 const storedLegacy = z.object({
   generation: field(z.number().int().min(1)),
-  heir: field(z.object({ name: z.string(), sex: z.enum(SEXES), trait: z.enum(TRAIT_IDS) })),
+  heir: field(heirSchema),
   night: field(z.number().int().min(1)),
   bestNight: field(z.number().int().min(0)),
   oil: field(z.number().int().min(0)),
-  levels: z.unknown(),
+  levels: field(z.unknown()),
   offerSeed: field(z.number().int()),
   offers: field(z.array(z.enum(UPGRADE_IDS))),
   tide: field(z.number().min(TIDE_MIN).max(TIDE_MAX)),
   director: field(z.unknown()),
   bestiary: field(z.array(z.string())),
   fallen: field(z.array(z.object({ name: z.string(), night: z.number(), cause: z.string() }))),
+  heirChoice: field(heirChoiceSchema),
 });
 export function parseLegacy(stored: unknown): Legacy {
   const fresh = newLegacy();
@@ -259,6 +280,7 @@ export function parseLegacy(stored: unknown): Legacy {
     director: directorFrom(parsed.director, tide, night),
     bestiary: [...new Set(parsed.bestiary)].slice(-BESTIARY_LIMIT),
     fallen: parsed.fallen ?? fresh.fallen,
+    heirChoice: parsed.heirChoice,
   };
 }
 

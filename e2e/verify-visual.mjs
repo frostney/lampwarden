@@ -2760,13 +2760,30 @@ await checkWeaponShop("heir", "male");
       daughter: card.textContent.includes("sling"),
     })),
   );
+  // a reload on the heir panel offers the same heirs again, not the fallen warden
+  await page.reload();
+  await page.waitForSelector('[data-phase="heir"]', { timeout: 15000 });
+  const reloadedNames = await page.locator(".btn.heir b").allTextContents();
+  check(
+    "heir",
+    "a reload offers the same heirs",
+    JSON.stringify(reloadedNames) === JSON.stringify(heirCards.map((heir) => heir.name)),
+    JSON.stringify(reloadedNames),
+  );
+  check(
+    "heir",
+    "after a reload no heir is chosen yet, so the night cannot start",
+    (await page.getByRole("button", { name: "Choose an heir" }).isDisabled()) &&
+      (await page.locator('.btn.heir[aria-pressed="true"]').count()) === 0,
+  );
   const picked = heirCards.find((heir) => heir.daughter) ?? heirCards[0];
   const keptHeir = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:legacy:v1")).heir);
   await page.locator(".btn.heir", { hasText: picked.name }).click();
   await checkWeaponShop("heir-picked", picked.daughter ? "female" : "male");
   await page.evaluate((heir) => {
-    const saved = JSON.parse(localStorage.getItem("lampwarden:legacy:v1"));
-    localStorage.setItem("lampwarden:legacy:v1", JSON.stringify({ ...saved, heir })); // the later scenes keep their warden
+    const { heirChoice: _open, ...saved } = JSON.parse(localStorage.getItem("lampwarden:legacy:v1"));
+    // the later scenes keep their warden, on the title (an heir choice left open would bring the heir panel back)
+    localStorage.setItem("lampwarden:legacy:v1", JSON.stringify({ ...saved, heir }));
   }, keptHeir);
 }
 

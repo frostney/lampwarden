@@ -1,10 +1,10 @@
 function build(k) {
   harpy(k, {
-    facing: 25,
+    facing: 40,
     pose: 'attack3',
-    skin: 'skin_grey',
-    head: { hair: 'fur_dark' },
-    wings: { type: 'feather', colour: 'feather', span: 13 },
+    skin: 'skin_pale',
+    head: { type: 'human', hair: 'fur_dark' },
+    wings: { type: 'feather', colour: 'fur_dark', span: 12 },
     legs: { lower: 'bird' },
   });
 }

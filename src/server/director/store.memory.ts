@@ -11,6 +11,7 @@ export function createMemoryStore(): MemoryDirectorStore {
   const plays = new Map<string, unknown>();
   const decisions = new Map<string, DecisionLog>();
   const calls: Array<{ visitor: string; at: Date }> = [];
+  const claimed = new Set<string>();
   return {
     plays,
     decisions,
@@ -25,6 +26,11 @@ export function createMemoryStore(): MemoryDirectorStore {
     },
     async recordCall(visitor, _playId, calledAt) {
       calls.push({ visitor, at: calledAt });
+    },
+    async claim(key) {
+      if (claimed.has(key)) return false;
+      claimed.add(key);
+      return true;
     },
     async visitorStartsBetween(visitor, since, until) {
       return calls

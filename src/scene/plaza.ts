@@ -7,6 +7,10 @@ export const PLAZA_WALL = 14; // the plaza's side walls, drawn under its front e
 // the plaza's top face, tested at the pixel centre
 export const onPlaza = (x: number, y: number) =>
   Math.abs(x + 0.5 - CENTRE_X) / PLAZA_HALF_WIDTH + Math.abs(y + 0.5 - CENTRE_Y) / PLAZA_HALF_HEIGHT <= 1;
+// How far inside the plaza's top face the point (x, y) lies, in iso steps (one pixel vertically or two horizontally per
+// step, as shoreDistance counts): zero on the rim, negative outside. The decor placer keeps a prop's base this far in.
+export const plazaInset = (x: number, y: number) =>
+  PLAZA_HALF_HEIGHT * (1 - Math.abs(x - CENTRE_X) / PLAZA_HALF_WIDTH) - Math.abs(y - CENTRE_Y);
 // a plaza pixel on its rim, where the stone meets the wall or the sea
 export const onPlazaRim = (x: number, y: number) => onPlaza(x, y) && (!onPlaza(x, y + 1) || !onPlaza(x, y - 1));
 // the y of the plaza's front rim above x, where its side wall starts

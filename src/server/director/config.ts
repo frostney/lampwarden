@@ -25,6 +25,12 @@ export interface DirectorConfig {
   rateSalt: string | null;
 }
 
+/** The salt that keys visitors for the director's limits and the play uploads': its own, else the creature routes'; null when missing or too short. */
+export function readRateSalt(env: Readonly<Record<string, string | undefined>>): string | null {
+  const salt = present(env.DIRECTOR_RATE_SALT) ?? present(env.CREATURE_RATE_SALT);
+  return salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null;
+}
+
 const prefixSchema = (fallback: string) =>
   z
     .string()
@@ -32,8 +38,6 @@ const prefixSchema = (fallback: string) =>
     .catch(fallback);
 
 export function readDirectorConfig(env: Readonly<Record<string, string | undefined>>): DirectorConfig {
-  // the creature routes' salt keys this route's visitors too, unless it has one of its own
-  const salt = present(env.DIRECTOR_RATE_SALT) ?? present(env.CREATURE_RATE_SALT);
   return {
     limits: {
       perVisitorPerHour: positiveInteger(DEFAULT_CALLS_PER_VISITOR_PER_HOUR).parse(
@@ -44,6 +48,6 @@ export function readDirectorConfig(env: Readonly<Record<string, string | undefin
     blobPrefix: prefixSchema(DEFAULT_BLOB_PREFIX).parse(present(env.DIRECTOR_BLOB_PREFIX) ?? DEFAULT_BLOB_PREFIX),
     playsPrefix: prefixSchema(DEFAULT_PLAYS_PREFIX).parse(present(env.DIRECTOR_PLAYS_PREFIX) ?? DEFAULT_PLAYS_PREFIX),
     mubitApiKey: present(env.MUBIT_API_KEY),
-    rateSalt: salt !== null && salt.length >= MIN_SALT_LENGTH ? salt : null,
+    rateSalt: readRateSalt(env),
   };
 }

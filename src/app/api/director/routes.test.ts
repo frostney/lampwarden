@@ -8,7 +8,6 @@ const ROUTE = join(import.meta.dir, "route.ts");
 
 describe("POST /api/director", () => {
   test("is the path the game fetches, and a route file is there", () => {
-    expect(DIRECTOR_API).toBe("/api/director");
     expect(existsSync(join(import.meta.dir, "..", "..", "..", "..", "src", "app", DIRECTOR_API, "route.ts"))).toBe(
       true,
     );

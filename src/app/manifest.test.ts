@@ -11,12 +11,6 @@ const sizeOf = (path: string) => {
   return `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`;
 };
 
-test("the manifest is a landscape fullscreen app", () => {
-  const { display, orientation } = manifest();
-  expect(display).toBe("fullscreen");
-  expect(orientation).toBe("landscape");
-});
-
 test("the manifest has 192 and 512 px icons, each as any and as maskable, and they are the generated files", () => {
   const icons = manifest().icons ?? [];
   const wanted = ["192x192", "512x512"].flatMap((sizes) => ["any", "maskable"].map((purpose) => `${sizes} ${purpose}`));

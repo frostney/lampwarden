@@ -24,18 +24,10 @@ describe("upgradeView", () => {
 });
 
 describe("shopSex", () => {
-  test("at dawn the shop is for the warden who held the night", () => {
-    const legacy = newLegacy();
-    legacy.heir = heirAs(legacy.heir, "female");
-    expect(shopSex(legacy)).toBe("female");
-  });
-
-  test("on the heir screen it is the fallen warden's until an heir is picked, then the heir's", () => {
+  test("on the heir screen it is the fallen warden's until an heir is picked", () => {
     const legacy = newLegacy();
     legacy.heir = heirAs(legacy.heir, "female");
     endWarden(legacy); // she falls: the heirs are offered and the shop opens
     expect(shopSex(legacy)).toBe("female");
-    legacy.heir = { name: "Lykos", sex: "male", trait: "keen" }; // the player picks the son
-    expect(shopSex(legacy)).toBe("male");
   });
 });

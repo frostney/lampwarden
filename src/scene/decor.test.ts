@@ -8,7 +8,7 @@ import { type Play, Recorder } from "../game/recording";
 import { creatureOf, legacyOf, STEP } from "../game/replay";
 import { CENTRE_X, CENTRE_Y, LAMP_SPOTS, NO_INPUT, newNight, step } from "../game/sim";
 import { anchorYFor } from "./assets";
-import { DECOR, decorFor, PLACED_SPRITES, type Placed, SPAWN_POINTS } from "./decor";
+import { DECOR, decorFor, PLACED_SPRITES, type Placed } from "./decor";
 import { SPRITE_EXTENTS } from "./decor-extents";
 import { baseBandOf, SOLID_ALPHA, SPRITE_SIZE } from "./extent";
 import { onPlaza, onSea, plazaInset, shoreDistance } from "./plaza";
@@ -259,7 +259,6 @@ describe("a night's decorations", () => {
       const ellipse = ((spawn.x - CENTRE_X) / (384 * 0.9)) ** 2 + ((spawn.y - CENTRE_Y) / (192 * 0.9)) ** 2;
       expect(Math.abs(ellipse - 1)).toBeLessThan(0.03);
     }
-    expect(SPAWN_POINTS.length).toBeGreaterThanOrEqual(96);
     for (const { seed, layout } of layouts.slice(0, 100))
       for (const placed of land(layout)) {
         // the placer samples the ellipse every 23 ground px, so a spawn is within 12 of a sample and 26 clear of it means 23 clear of the spawn

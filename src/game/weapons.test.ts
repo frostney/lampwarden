@@ -24,7 +24,7 @@ describe("upgradeView", () => {
 });
 
 describe("shopSex", () => {
-  test("on the heir screen it is the fallen warden's until an heir is picked", () => {
+  test("on the heir screen it is the fallen warden's: a warden falling does not replace the heir", () => {
     const legacy = newLegacy();
     legacy.heir = heirAs(legacy.heir, "female");
     endWarden(legacy); // she falls: the heirs are offered and the shop opens

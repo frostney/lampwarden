@@ -66,6 +66,20 @@ describe("the hidden time a recording keeps", () => {
     });
   });
 
+  test("a recorder that has finished stops listening: hidden time after its night is not counted", async () => {
+    await withDocument(async (page) => {
+      const recorder = new Recorder(newLegacy(), 1, "");
+      const night = newNight(newLegacy(), 1);
+      recorder.finish(night);
+      page.visibilityState = "hidden";
+      page.dispatchEvent(new Event("visibilitychange"));
+      await wait(120);
+      page.visibilityState = "visible";
+      page.dispatchEvent(new Event("visibilitychange"));
+      expect(recorder.finish(night).hiddenSeconds).toBe(0);
+    });
+  });
+
   test("changes nothing about how the night plays: the same night replays exactly with and without it", () => {
     const legacy = newLegacy();
     const state = newNight(legacy, 5);

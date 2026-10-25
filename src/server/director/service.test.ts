@@ -153,6 +153,7 @@ describe("a decision from the model", () => {
     expect(log).toMatchObject({
       playId: FIXTURE_PLAY_ID,
       night: 2,
+      replayed: false, // the numbers in it were not re-checked by replaying the play on the server
       source: "mubit",
       fallback: null,
       reasoning: expect.stringContaining("Lost early"),

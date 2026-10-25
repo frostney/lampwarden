@@ -81,7 +81,16 @@ describe("a creature in the night", () => {
   test("its stats come from its archetype and modifiers, and the sim plays by them", () => {
     const creature = creatureOf("brute", STRONG);
     const state = newNight(newLegacy(), 1, creature);
-    expect(monsterStats(state, "creature").health).toBe(MONSTER.cyclops.health + 1);
+    // the cyclops (speed 30, health 3, damage 16, snuff 1.5) one step stronger in everything
+    expect(monsterStats(state, "creature")).toEqual({
+      speed: 35,
+      health: 4,
+      damage: 19,
+      snuff: 1.2,
+      oil: 2,
+      fly: false,
+      recoil: 0.6,
+    });
     expect(monsterStats(state, "satyr")).toEqual(MONSTER.satyr); // the hand-made monsters are untouched
   });
 

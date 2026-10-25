@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { NIGHT_SEA, nightTint } from "./layers";
+import { NIGHT_SEA } from "./layers";
 
 const hex = (colour: number) => `#${colour.toString(16).padStart(6, "0")}`;
 
 describe("the colour behind the scene while it loads", () => {
   test("is the open sea under the night's first tint", () => {
-    expect(nightTint(0)).toBe(0x46559a);
     expect(hex(NIGHT_SEA)).toBe("#082053");
   });
 

@@ -6,6 +6,7 @@
 import { z } from "zod";
 
 import { bestIndexBy } from "../src/lib/best";
+import { PERCENT } from "../src/lib/units";
 import { rejectionReason } from "./build-code";
 import type { CallRecord, ContentBlock, ModelCall, ModelMessage, MubitClient } from "./mubit";
 import { RENDERED_WITH, type Renderer, type RenderRequest, type RenderResult, type RenderStats } from "./render-types";
@@ -14,7 +15,6 @@ import { verifierImageBase64 } from "./verifier-image";
 const PASSING_SCORE = 7;
 const BORDERLINE_LOW = 6;
 const BORDERLINE_SCORES = [BORDERLINE_LOW, PASSING_SCORE] as const;
-const PERCENT = 100;
 const UNPARSED_KEPT = 200; // characters of a reply that could not be read, kept for the log
 export const GENERATOR_MAX_TOKENS = 1500;
 const GENERATOR_RETRY_MAX_TOKENS = 4000;

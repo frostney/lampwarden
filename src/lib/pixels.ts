@@ -22,9 +22,11 @@ export function differingPixels(first: Uint8Array, second: Uint8Array): number {
   }
   let differing = 0;
   for (let offset = 0; offset < first.length; offset += BYTES_PER_PIXEL) {
-    const channels = [0, 1, 2, ALPHA_BYTE].map((channel) => offset + channel);
-    if (channels.some((index) => first[index] !== second[index])) {
-      differing++;
+    for (let index = offset; index < offset + BYTES_PER_PIXEL; index++) {
+      if (first[index] !== second[index]) {
+        differing++;
+        break;
+      }
     }
   }
   return differing;

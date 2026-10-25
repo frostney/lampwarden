@@ -152,19 +152,16 @@ function decided(
   rules: Director,
   reasoning: string | undefined,
 ): Pick<DecisionLog, "source" | "fallback" | "decision" | "reasoning"> {
-  if (!decision) {
-    return { source: "rules", fallback, decision: rules, reasoning: reasoning ?? "" };
-  }
-  return { source: "mubit", fallback, decision, reasoning: reasoning ?? "" };
+  return { source: decision ? "mubit" : "rules", fallback, decision: decision ?? rules, reasoning: reasoning ?? "" };
 }
 
 /**
  * Stores the decision's log, unless a concurrent call for the same play decided first: its decision stands (returned
  * here), so what the player played and what the log says the model reasoned about stay one decision.
  */
-async function storeDecision(deps: DirectorDeps, log: DecisionLog, decided: boolean): Promise<Director | null> {
+async function storeDecision(deps: DirectorDeps, log: DecisionLog, modelDecided: boolean): Promise<Director | null> {
   try {
-    const decidedMeanwhile = decided ? await deps.store.getDecision(log.playId) : null;
+    const decidedMeanwhile = modelDecided ? await deps.store.getDecision(log.playId) : null;
     if (decidedMeanwhile && decidedMeanwhile.source === "mubit") {
       return decidedMeanwhile.decision;
     }

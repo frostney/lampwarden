@@ -95,13 +95,15 @@ const FIRST_SPAWN = 1;
 export const creatureFrom = (length: number) => length * CREATURE_FROM_SHARE;
 
 // Lamps around the plaza (screen px; ground y). The statue stands in the middle.
+// biome-ignore-start lint/style/noMagicNumbers: positions, kept as the [x, y] points the scene's geometry works in
 export const LAMP_SPOTS: [number, number][] = [
-  { x: 262, y: 318 },
-  { x: 698, y: 318 },
-  { x: 372, y: 414 },
-  { x: 588, y: 414 },
-  { x: 480, y: 246 },
-].map(({ x, y }) => [x, y]);
+  [262, 318],
+  [698, 318],
+  [372, 414],
+  [588, 414],
+  [480, 246],
+];
+// biome-ignore-end lint/style/noMagicNumbers: positions
 
 export interface Lamp {
   x: number;
@@ -443,9 +445,10 @@ export interface Input {
 // A shot leaves the warden's hand on the third frame of the draw, `height` px above his feet, and flies `speed` px/s;
 // a spread looses three, `spread` radians apart. It hits what is within `hitRadius` of it, and is dropped once it is
 // `offStage` px off the stage.
-const SHOT = { loosedOnFrame: 3, height: 40, speed: 420, spread: 0.16, hitRadius: 30, offStage: 50 };
+export const SHOT_HEIGHT = 40; // where a shot leaves the warden, above his feet
+const SHOT = { loosedOnFrame: 3, height: SHOT_HEIGHT, speed: 420, spread: 0.16, hitRadius: 30, offStage: 50 };
 const PUFF_TIME = 0.5; // seconds a puff lasts
-const SCREEN_PER_GROUND_Y = 0.5; // the plaza is foreshortened 2:1: a ground step down is half as far down the screen
+export const SCREEN_PER_GROUND_Y = 0.5; // the plaza is foreshortened 2:1: a ground step down is half as far down the screen
 const RELIGHT_REACH = 40; // how near a dark lamp the warden stands to relight it
 export const LANTERN_HEIGHT = 40; // where a lamp's puff shows, above its foot
 const KILL_PUFF_HEIGHT = 30; // where a kill's puff shows, above the monster's feet

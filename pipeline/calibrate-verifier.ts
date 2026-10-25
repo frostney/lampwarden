@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 
 import { ignore } from "../src/lib/ignore";
+import { PERCENT } from "../src/lib/units";
 import { countOption } from "./cli-options";
 import { heroFrameBuilds } from "./hero-animation";
 import { type LoopCore, verify } from "./loop";
@@ -22,7 +23,6 @@ import { renderBatchFromCheckout } from "./render-checkout";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
 const COLUMN = { name: 20, scores: 14 }; // widths of the report's columns
-const PERCENT = 100;
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
 const manifestSchema = z.object({ sprites: z.record(z.string(), z.object({ brief: z.string(), code: z.string() })) });
 

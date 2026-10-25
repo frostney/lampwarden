@@ -71,6 +71,7 @@ import {
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { isNewLine, loadWelcome, markWelcome, type Welcome } from "@/game/welcome";
 import { ignore } from "@/lib/ignore";
+import { PERCENT } from "@/lib/units";
 import { SEXES, type Sex } from "@/scene/assets";
 import { decorFor } from "@/scene/decor";
 import {
@@ -952,6 +953,10 @@ export function Game() {
     phaseRef.current = "night";
     setPhase("night");
   };
+  // the panels' buttons into the next night: a night that could not be put together is reported, as from the title
+  const intoNight = () => {
+    startNight().catch(reportError);
+  };
   const watchAgain = () => {
     startReplay(new URLSearchParams(location.search).get("replay") || "last").catch(reportError);
   };
@@ -960,7 +965,7 @@ export function Game() {
     if (!welcomeRef.current.practice && isNewLine(legacyRef.current) && !isVerifying()) {
       startPractice();
     } else {
-      startNight().catch(reportError);
+      intoNight();
     }
   };
   // The practice holds still while the real night is put together (its creature's sprite may still be loading), and
@@ -1122,7 +1127,7 @@ export function Game() {
           night={legacy.night}
           onAgain={startPractice}
           onEndOpening={endOpening}
-          onNight={startNight}
+          onNight={intoNight}
           openingLine={openingLine}
           phase={phase}
           starting={isStarting}
@@ -1153,7 +1158,7 @@ export function Game() {
           <DawnPanel
             legacy={legacy}
             onSpriteBroken={withdraw}
-            onStart={startNight}
+            onStart={intoNight}
             raised={raised}
             report={report}
             shop={shop}
@@ -1168,7 +1173,7 @@ export function Game() {
             legacy={legacy}
             onChooseHeir={chooseHeir}
             onSpriteBroken={withdraw}
-            onStart={startNight}
+            onStart={intoNight}
             raised={raised}
             report={report}
             shop={shop}
@@ -1274,7 +1279,6 @@ function NightOverlays({
   );
 }
 
-const PERCENT = 100;
 const FASTEST_REPLAY = 4;
 const REPLAY_SPEEDS = [1, 2, FASTEST_REPLAY];
 

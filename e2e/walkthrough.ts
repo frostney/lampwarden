@@ -17,6 +17,8 @@ import { pathToFileURL } from "node:url";
 
 import { chromium, type Page } from "playwright";
 
+import { MILLISECONDS_PER_SECOND } from "../src/lib/units";
+
 export interface Walkthrough {
   url: string; // the page the first footage segment loads
   voice?: string; // a macOS `say` voice; Daniel by default (espeak-ng always reads in British English)
@@ -55,7 +57,6 @@ const HEIGHT = VIEWPORT.height * SCALE;
 const BAND_HEIGHT = 200;
 const NARRATION_TAIL = 0.6; // seconds of quiet after each line
 const MILLISECOND_DIGITS = 3; // ffmpeg takes a duration in seconds to the millisecond
-const MILLISECONDS_PER_SECOND = 1000;
 const FRAME_NAME_DIGITS = 4; // frames are 0000.png, 0001.png, ...
 // a pause that lands in the past is tried again this much further ahead each time, this many times
 const PAUSE_RETRY = { stepMilliseconds: 50, attempts: 5 };

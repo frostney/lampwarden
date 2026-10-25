@@ -5,7 +5,7 @@
 // buttons and A / Start presses.
 import { eightWayStep } from "../lib/eight-way";
 import { type Controls, press } from "./controls";
-import type { State } from "./sim";
+import { SCREEN_PER_GROUND_Y, SHOT_HEIGHT, type State } from "./sim";
 
 // standard-mapping button indices
 const BUTTON = {
@@ -74,8 +74,6 @@ function eightWay(horizontal: number, vertical: number): [number, number] {
 const padAxis = (gamepad: Gamepad, positive: number, negative: number) =>
   (isPressed(gamepad, positive) ? 1 : 0) - (isPressed(gamepad, negative) ? 1 : 0);
 
-const AIM_HEIGHT = 40; // where a shot leaves the warden, above his feet
-const SCREEN_PER_GROUND_Y = 0.5; // the ground is foreshortened 2:1
 // A shot: along the right stick when it is pushed, else the way the warden faces.
 function shootWithPad(controls: Controls, gamepad: Gamepad, state: State) {
   const aimHorizontal = gamepad.axes[2] ?? 0;
@@ -89,7 +87,7 @@ function shootWithPad(controls: Controls, gamepad: Gamepad, state: State) {
   controls.ranged = true;
   controls.aim = {
     x: Math.round(state.hero.x + (aimHorizontal / length) * AIM_DISTANCE),
-    y: Math.round(state.hero.y - AIM_HEIGHT + (aimVertical / length) * AIM_DISTANCE * SCREEN_PER_GROUND_Y),
+    y: Math.round(state.hero.y - SHOT_HEIGHT + (aimVertical / length) * AIM_DISTANCE * SCREEN_PER_GROUND_Y),
   };
 }
 

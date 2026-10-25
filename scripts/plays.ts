@@ -9,7 +9,7 @@ import { get, list } from "@vercel/blob";
 import { replaysExactlyOn } from "../src/game/plays";
 import type { Play } from "../src/game/recording";
 import { verifyPlay } from "../src/game/replay";
-import { HTTP_OK } from "../src/lib/units";
+import { HTTP_OK, PERCENT } from "../src/lib/units";
 import { simFingerprint } from "../tools/sim-fingerprint/sim-fingerprint";
 
 const argument = (name: string) => {
@@ -27,7 +27,6 @@ if (!token) {
 }
 
 const PLAYS_PREFIX = "plays/";
-const PERCENT = 100;
 // widths of the report's columns
 const COLUMN = { count: 6, fallen: 7, length: 8, rate: 10, lamps: 11, health: 8, creature: 32, plays: 7 };
 const SHORT_ID = 8; // characters of a creature's id the report shows

@@ -1,4 +1,10 @@
 "use client";
+
+// The Pixi scene as @pixi/react components, rendered inside Game's <Application>. The tree mirrors the scene graph and
+// re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
+// written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
+// 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
+
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
   Container,
@@ -42,15 +48,12 @@ import {
   type MonsterKind,
   monsterStats,
   type Puff,
+  SCREEN_PER_GROUND_Y,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
   step,
 } from "@/game/sim";
-// The Pixi scene as @pixi/react components, rendered inside Game's <Application>. The tree mirrors the scene graph and
-// re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
-// written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
-// 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { ignore } from "@/lib/ignore";
 import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 import { heroKey, heroView, octantOf, type Sex } from "@/scene/assets";
@@ -120,7 +123,6 @@ const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the scene 
 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
-// What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
 // the longest a frame may advance the night, in seconds: a tab that stalls does not jump the night ahead
 const LONGEST_FRAME = 0.05;
 
@@ -144,6 +146,7 @@ function runSteps(
   }
 }
 
+// What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
 export interface Night {
   state: State;
   sex: Sex;
@@ -1027,7 +1030,6 @@ function flashHero(frame: ReturnType<typeof spriteFrame>, hero: HeroState, sex: 
 
 // A killed monster's silhouette flies `distance` px (times its recoil), and fades out over the last `fade` of its time.
 const GHOST_FLIGHT = { distance: 30, fadeFrom: 0.4, fade: 0.6 };
-const SCREEN_PER_GROUND_Y = 0.5; // the ground is foreshortened 2:1
 const MIDDLE = 0.5; // an anchor at a sprite's middle
 
 // Where a killed monster's silhouette is, flung back along the blow, and how far it has faded.

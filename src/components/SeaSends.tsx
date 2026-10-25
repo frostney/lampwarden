@@ -1,13 +1,15 @@
 "use client";
+
+// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one, and
+// under it one line for the building that will stand on the coming night's plaza ("Raised on the plaza tonight: …"), when
+// there is one. Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever
+// an announcement: nothing here has to finish before the night can begin.
+
 import { useEffect, useRef } from "react";
 
 import type { RaisedTonight } from "@/game/building-sea";
 import { creatureSpritePath, type JobStep } from "@/game/creature";
 import type { Tonight } from "@/game/sea";
-// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one, and
-// under it one line for the building that will stand on the coming night's plaza ("Raised on the plaza tonight: …"), when
-// there is one. Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever
-// an announcement: nothing here has to finish before the night can begin.
 import { ALPHA_BYTE, BYTES_PER_PIXEL } from "@/lib/pixels";
 
 const STEP_TEXT: Record<JobStep, string> = {

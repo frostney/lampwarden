@@ -6,8 +6,9 @@ they mean here:
   `velocityX`, not `vx`; `health`, not `hp`). `x` and `y` for coordinates and `id` are fine. The lint plugin catches
   bindings; property names are on review.
 - **Numbers have names.** Outside drawing code and tests, a number other than 0, 1, 2, 10, 24 or 60 is a named
-  constant, or a property of a named table (`SHOT.speed`), that says what it is. Data tables are objects
-  (`{ x: 262, y: 318 }`), not bare tuples. Biome enforces it (docs/tooling.md, "Lint and format").
+  constant, or a property of a named table (`SHOT.speed`), that says what it is. Data tables are objects, not bare
+  tuples, unless the code that reads them works in tuples (the lamp spots are the scene's `[x, y]` points, under a
+  `biome-ignore-start` that says so). Biome enforces it (docs/tooling.md, "Lint and format").
 - **Short functions, flat logic.** A function stays under Biome's cognitive complexity of 15: split it into named steps
   rather than nesting loops, ternaries or conditions. A threshold ladder is a `band()` from `src/lib/band.ts`.
 - **No `any`, no `!`, no `as`.** Accept `unknown` at untrusted boundaries and validate it once with Zod (the plays API);

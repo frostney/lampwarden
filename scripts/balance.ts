@@ -36,9 +36,9 @@ import {
   type State,
   step,
 } from "../src/game/sim";
+import { PERCENT } from "../src/lib/units";
 import { humanBot } from "./human-bot";
 
-const PERCENT = 100;
 // night n's seeds are n times this plus the run, the same on every run of the script, so two builds play the same nights
 const SEEDS_PER_NIGHT = 100_000;
 const seedFor = (night: number, run: number) => night * SEEDS_PER_NIGHT + run;
@@ -71,8 +71,9 @@ function nearestMonster(state: State): { nearest: Monster | null; nearestDistanc
 function threatOf(state: State): Monster | null {
   let threat: Monster | null = null;
   let threatDistance = Number.POSITIVE_INFINITY;
+  const litLamps = state.lamps.filter((lamp) => lamp.lit);
   for (const monster of state.monsters) {
-    for (const lamp of state.lamps.filter((each) => each.lit)) {
+    for (const lamp of litLamps) {
       const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
       if (distance < threatDistance) {
         threatDistance = distance;

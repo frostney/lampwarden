@@ -40,6 +40,7 @@ import {
   type Lamp,
   type Monster,
   type MonsterKind,
+  type Puff,
   monsterStats,
   STAGE_HEIGHT,
   STAGE_WIDTH,
@@ -118,6 +119,26 @@ const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the scene 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
 // What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
+// Runs every fixed 60 Hz sim step the accumulated time holds, so a recorded night replays exactly. A strike or a shot is
+// one press: it goes into the first step and is consumed.
+function runSteps(
+  progress: { stepIndex: number; accumulated: number },
+  state: State,
+  controls: Controls,
+  driver: Driver | null,
+) {
+  let input = liveInput(controls, state.hero);
+  while (progress.accumulated >= STEP && !state.outcome) {
+    step(state, STEP, driver ? driver(progress.stepIndex, input, state) : input);
+    progress.stepIndex++;
+    progress.accumulated -= STEP;
+    if (input.melee || input.ranged) {
+      consumePresses(controls);
+      input = { ...input, melee: false, ranged: false };
+    }
+  }
+}
+
 export interface Night {
   state: State;
   sex: Sex;
@@ -207,19 +228,9 @@ export const Scene = memo(function Scene({
         const state = night.state;
         const progress = run.current;
         if (!settings.paused) {
-          // fixed 60 Hz sim step, so a recorded night replays exactly
           progress.accumulated += elapsedSeconds * settings.speed;
           pollGamepadForPlay(controls, state, gamepadMemory.current);
-          let input = liveInput(controls, state.hero);
-          while (progress.accumulated >= STEP && !state.outcome) {
-            step(state, STEP, night.driver ? night.driver(progress.stepIndex, input, state) : input);
-            progress.stepIndex++;
-            progress.accumulated -= STEP;
-            if (input.melee || input.ranged) {
-              consumePresses(controls);
-              input = { ...input, melee: false, ranged: false };
-            }
-          }
+          runSteps(progress, state, controls, night.driver);
         }
         lightCharacters(state, lighting, clock.current);
         settings.onTick(state);
@@ -934,6 +945,69 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
   return <pixiContainer ref={layer} />;
 }
 
+// One frame of pooled sprites: `show` places the sprite for a key (made on its first use, facing the plaza's middle) and
+// `end` destroys the ones the frame did not show.
+function spriteFrame(container: Container, sprites: Map<string, Sprite>) {
+  const shown = new Set<string>();
+  const show = (
+    key: string,
+    texture: Texture,
+    anchorPoint: { x: number; y: number },
+    x: number,
+    y: number,
+    alpha: number,
+  ) => {
+    shown.add(key);
+    let sprite = sprites.get(key);
+    if (!sprite) {
+      sprite = new Sprite(texture);
+      sprite.anchor.copyFrom(anchorPoint);
+      sprite.scale.x = x > CENTRE_X ? -1 : 1;
+      container.addChild(sprite);
+      sprites.set(key, sprite);
+    }
+    sprite.texture = texture;
+    sprite.position.set(Math.round(x), Math.round(y));
+    sprite.alpha = alpha;
+    return sprite;
+  };
+  const end = () => {
+    for (const [key, sprite] of sprites) {
+      if (shown.has(key)) {
+        continue;
+      }
+      sprite.destroy();
+      sprites.delete(key);
+    }
+  };
+  return { show, end };
+}
+
+// The warden's white silhouette: the same frame, place and mirroring as his own sprite (Hero).
+function flashHero(frame: ReturnType<typeof spriteFrame>, hero: HeroState, sex: Sex, textures: TextureMap) {
+  const view = heroView(hero.octant);
+  const white = heroFlashTexture(
+    textures,
+    heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
+  );
+  if (white) {
+    frame.show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
+  }
+}
+
+// Where a killed monster's silhouette is, flung back along the blow, and how far it has faded.
+function flungGhost(state: State, puff: Puff, ghost: NonNullable<Puff["ghost"]>) {
+  const progress = puff.age / GHOST_TIME;
+  // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
+  const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
+  const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
+  return {
+    x: ghost.x + puff.directionX * travel,
+    y: ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
+    alpha: progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
+  };
+}
+
 // The white silhouettes of a blow, above the night tint so they read as a flash and not as another shade of blue: a
 // monster that was just hit, for its first FLASH_TIME, a monster that was just killed, flung back along the blow while
 // it fades (the sim keeps it on the kill's puff, since the monster is gone from the list the moment it dies), and the
@@ -948,34 +1022,12 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
       if (!container) {
         return;
       }
-      const shown = new Set<string>();
-      const show = (
-        key: string,
-        texture: Texture,
-        anchorPoint: { x: number; y: number },
-        x: number,
-        y: number,
-        alpha: number,
-      ) => {
-        shown.add(key);
-        let sprite = sprites.current.get(key);
-        if (!sprite) {
-          sprite = new Sprite(texture);
-          sprite.anchor.copyFrom(anchorPoint);
-          sprite.scale.x = x > CENTRE_X ? -1 : 1;
-          container.addChild(sprite);
-          sprites.current.set(key, sprite);
-        }
-        sprite.texture = texture;
-        sprite.position.set(Math.round(x), Math.round(y));
-        sprite.alpha = alpha;
-        return sprite;
-      };
+      const frame = spriteFrame(container, sprites.current);
       // a monster's white silhouette: its own look, which is the creature's on a night that has one
       // (a creature with frames flashes the frame it is on)
       const showMonster = (key: string, kind: MonsterKind, spriteKey: string, x: number, y: number, alpha: number) => {
         const look = monsterLook(state, kind);
-        show(key, monsterFlashTexture(textures, spriteKey), anchorAt(look.anchorY), x, y, alpha);
+        frame.show(key, monsterFlashTexture(textures, spriteKey), anchorAt(look.anchorY), x, y, alpha);
       };
       for (const monster of state.monsters) {
         if (monster.hurt > HURT_TIME - FLASH_TIME) {
@@ -989,43 +1041,24 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
           );
         }
       }
-      const hero = state.hero;
-      if (hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
-        // the same frame, place and mirroring as the warden's own sprite (Hero)
-        const view = heroView(hero.octant);
-        const white = heroFlashTexture(
-          textures,
-          heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
-        );
-        if (white) {
-          show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
-        }
+      if (state.hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
+        flashHero(frame, state.hero, sex, textures);
       }
       for (const puff of state.puffs) {
         const ghost = puff.ghost;
-        if (!ghost || puff.age >= GHOST_TIME) {
-          continue;
+        if (ghost && puff.age < GHOST_TIME) {
+          const flung = flungGhost(state, puff, ghost);
+          showMonster(
+            `puff${puff.id}`,
+            ghost.monster,
+            ghostTextureKey(state, ghost.monster, ghost.monsterAge),
+            flung.x,
+            flung.y,
+            flung.alpha,
+          );
         }
-        const progress = puff.age / GHOST_TIME;
-        // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
-        const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-        const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
-        showMonster(
-          `puff${puff.id}`,
-          ghost.monster,
-          ghostTextureKey(state, ghost.monster, ghost.monsterAge),
-          ghost.x + puff.directionX * travel,
-          ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
-          progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
-        );
       }
-      for (const [key, sprite] of sprites.current) {
-        if (shown.has(key)) {
-          continue;
-        }
-        sprite.destroy();
-        sprites.current.delete(key);
-      }
+      frame.end();
     }, [state, textures, sex]),
   );
   return <pixiContainer ref={layer} />;

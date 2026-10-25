@@ -62,6 +62,25 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
 const PORTRAIT_HEIGHT = 72;
 const OPAQUE = 128;
 
+// The box around a picture's opaque pixels, or null when it has none.
+function opaqueBounds({ data, width, height }: ImageData) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if ((data[(y * width + x) * 4 + 3] ?? 0) >= OPAQUE) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  return right < 0 ? null : { left, top, right, bottom };
+}
+
 function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBroken: (creatureId: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -81,25 +100,12 @@ function CreaturePortrait({ creatureId, onBroken }: { creatureId: string; onBrok
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
       context.drawImage(image, 0, 0);
-      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-      let left = canvas.width;
-      let top = canvas.height;
-      let right = -1;
-      let bottom = -1;
-      for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
-          if ((data[(y * canvas.width + x) * 4 + 3] ?? 0) >= OPAQUE) {
-            left = Math.min(left, x);
-            right = Math.max(right, x);
-            top = Math.min(top, y);
-            bottom = Math.max(bottom, y);
-          }
-        }
-      }
-      if (right < 0) {
+      const bounds = opaqueBounds(context.getImageData(0, 0, canvas.width, canvas.height));
+      if (!bounds) {
         onBroken(creatureId);
         return;
       }
+      const { left, top, right, bottom } = bounds;
       const width = right - left + 1;
       const height = bottom - top + 1;
       const scale = Math.max(1, Math.floor(PORTRAIT_HEIGHT / height));

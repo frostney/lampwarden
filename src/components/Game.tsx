@@ -3,7 +3,7 @@
 import { Application } from "@pixi/react";
 import Image from "next/image";
 import type { Application as PixiApp } from "pixi.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { FailurePanel } from "@/components/FailurePanel";
 import { HeroPortrait } from "@/components/HeroPortrait";
@@ -45,6 +45,7 @@ import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn }
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
+import type { Tonight } from "@/game/sea";
 import {
   dawnBonus,
   LAMP_SPOTS,
@@ -634,6 +635,9 @@ export function Game() {
     phaseRef.current = "night";
     setPhase("night");
   };
+  const watchAgain = () => {
+    startReplay(new URLSearchParams(location.search).get("replay") || "last").catch(reportError);
+  };
   const chooseHeir = (heir: Heir) => {
     legacyRef.current.heir = heir;
     saveLegacy(legacyRef.current);
@@ -716,7 +720,7 @@ export function Game() {
       data-kills={hud?.kills}
       data-lit={hud?.lit}
       data-phase={phase}
-      data-ready={ready ? 1 : 0}
+      data-ready={Number(ready)}
     >
       <div className="canvas" data-drawn={drawn || undefined}>
         <Application {...APP} onInit={onInit}>
@@ -735,311 +739,65 @@ export function Game() {
         </Application>
       </div>
       <div className="hud">
-        {(phase === "night" || phase === "replay") && hud && (
-          <>
-            <div className="stats">
-              <div>
-                {legacy.heir.name}
-                <span className="long">
-                  , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
-                </span>
-              </div>
-              {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
-              <div
-                aria-label="Health"
-                aria-valuemax={Math.round(hud.maxHealth)}
-                aria-valuemin={0}
-                aria-valuenow={Math.round(hud.health)}
-                className={hud.hits > 0 ? "bar struck" : "bar"}
-                key={hud.hits}
-                role="meter"
-              >
-                <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
-              </div>
-              <div aria-label={`${hud.kills} slain, ${hud.oil} oil`} className="oilline" role="img">
-                <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
-              </div>
-            </div>
-            <div className="nightbar">
-              <div>
-                Night {legacy.night}
-                <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
-              </div>
-              <div
-                aria-label="Night until dawn"
-                aria-valuemax={100}
-                aria-valuemin={0}
-                aria-valuenow={Math.round(hud.dawn * 100)}
-                aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
-                className="bar dawnbar"
-                role="progressbar"
-              >
-                <i style={{ width: `${hud.dawn * 100}%` }} />
-              </div>
-            </div>
-            <div aria-label={`${hud.lit} of ${hud.lamps} lamps lit`} className="lamps" role="img">
-              <span className="long">Lamps </span>
-              {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
-                <span className={index < hud.lit ? "lit" : ""} key={slot}>
-                  {index < hud.lit ? "◆" : "◇"}
-                </span>
-              ))}
-            </div>
-            {phase === "night" ? (
-              <div className="help">
-                {gamepadConnected
-                  ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
-                  : "WASD move · J strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
-              </div>
-            ) : (
-              <div className="help replaybar">
-                REPLAY {replay?.play.id}
-                {[1, 2, 4].map((multiplier) => (
-                  <button
-                    className={`btn small ${speed === multiplier ? "on" : ""}`}
-                    key={multiplier}
-                    onClick={() => setSpeed(multiplier)}
-                    type="button"
-                  >
-                    {multiplier}×
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        <NightOverlays
+          away={away}
+          gamepadConnected={gamepadConnected}
+          hud={hud}
+          legacy={legacy}
+          onPress={(action) => press(controls, action, stateRef.current)}
+          onResume={resume}
+          onSpeed={setSpeed}
+          onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
+          phase={phase}
+          replayId={replay?.play.id}
+          resumeRef={focusResume}
+          speed={speed}
+        />
 
-        {phase === "night" && <div className="rotate">Turn your phone sideways for a bigger view</div>}
-        {phase === "night" && (
-          <TouchControls
-            onPress={(action) => press(controls, action, stateRef.current)}
-            onStick={(horizontal, vertical) => stick(controls, horizontal, vertical)}
-            sex={legacy.heir.sex}
-          />
-        )}
-
-        {phase === "replayEnd" && replay && (
-          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
-            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
-              REPLAY OVER
-            </h2>
-            <p>{describeNight(replay.play)}</p>
-            <p className="dim">{replayVerdict(replay.endsMatch)}</p>
-            <button
-              className="btn big"
-              onClick={() => {
-                startReplay(new URLSearchParams(location.search).get("replay") || "last").catch(reportError);
-              }}
-              type="button"
-            >
-              Watch again
-            </button>
-          </div>
-        )}
-        {phase === "replayRefused" && refusedPlay !== null && (
-          <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-refused" role="dialog">
-            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
-              AN EARLIER VERSION
-            </h2>
-            <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
-            {describeNight(refusedPlay) && <p>{describeNight(refusedPlay)}</p>}
-            <button className="btn big" onClick={() => location.assign("/")} type="button">
-              Back to the title
-            </button>
-          </div>
-        )}
-        {phase === "night" && away && (
-          <div className="panel" data-panel="paused">
-            <div className="logo small">PAUSED</div>
-            <p>The window lost focus, so the night is waiting for you.</p>
-            <button className="btn big" onClick={resume} ref={focusResume} type="button">
-              Resume
-            </button>
-          </div>
-        )}
-        {loadFailure === "graphics" && (
-          <FailurePanel
-            action="Reload"
-            hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
-            message="Lampwarden could not start its graphics."
-            onAction={() => location.reload()}
-            title="NO LAMPLIGHT"
-          />
-        )}
-        {loadFailure === "assets" && (
-          <FailurePanel
-            action="Reload"
-            hint="Check your connection, then reload."
-            message="The pictures for the night would not load."
-            onAction={() => location.reload()}
-            title="THE LAMPS WON'T LIGHT"
-          />
-        )}
-        {replayError ? (
-          <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-error" role="dialog">
-            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
-              NO REPLAY
-            </h2>
-            <p>Could not load that replay: {replayError}</p>
-            <button className="btn big" onClick={() => location.assign("/")} type="button">
-              Back to the title
-            </button>
-          </div>
-        ) : null}
+        {phase === "replayEnd" && replay ? <ReplayEndPanel onWatchAgain={watchAgain} replay={replay} /> : null}
+        {phase === "replayRefused" ? <ReplayRefusedPanel play={refusedPlay} /> : null}
+        <LoadFailurePanel failure={loadFailure} />
+        <ReplayErrorPanel error={replayError} />
 
         {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
-        {phase === "title" && !loadFailure && !replayError && (
-          <TitleScroll>
-            <div className="scroll-layout">
-              <div className="scroll-intro">
-                <h1 className="brand" data-line={true}>
-                  <Image
-                    alt="Lampwarden"
-                    height={37}
-                    loading="eager"
-                    src="/logo/logo-noglow.png"
-                    unoptimized={true}
-                    width={68}
-                  />
-                </h1>
-                <div className="scroll-prose">
-                  {INTRODUCTION.map((line) => (
-                    <p data-line={true} key={line}>
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              </div>
-              <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
-              <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
-              <div className="scroll-hero">
-                <h2 className="scroll-heading" data-line={true}>
-                  Who takes up the lamp?
-                </h2>
-                <div className="hero-cards" data-line={true}>
-                  {SEXES.map((sex) => {
-                    const chosen = legacy.heir.sex === sex;
-                    return (
-                      <button
-                        aria-pressed={chosen}
-                        className={`hero-card ${chosen ? "chosen" : ""}`}
-                        data-sex={sex}
-                        key={sex}
-                        onClick={() => chooseSex(sex)}
-                        type="button"
-                      >
-                        <span className="hero-portrait">
-                          <HeroPortrait
-                            sex={sex}
-                            strike={strike?.sex === sex ? strike.count : null}
-                            textures={textures}
-                          />
-                        </span>
-                        <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
-                        <span>{ARMS[sex].loadout}</span>
-                        <span className="hero-mark">
-                          {chosen ? (
-                            <>
-                              <Icon name="wick" size={16} /> chosen
-                            </>
-                          ) : (
-                            "choose"
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="warden" data-line={true}>
-                  {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
-                </p>
-                <p className="dim" data-line={true}>
-                  Night {legacy.night}
-                  {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
-                </p>
-                <button className="btn big" data-line={true} disabled={!ready} onClick={startNight} type="button">
-                  {ready ? "Light the lamps" : "Lighting the lamps…"}
-                </button>
-                {legacy.generation > 1 && (
-                  <button className="btn small" data-line={true} onClick={newLine} type="button">
-                    Start a new bloodline
-                  </button>
-                )}
-                <p className="privacy dim" data-line={true}>
-                  Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the
-                  game.
-                </p>
-              </div>
-            </div>
-          </TitleScroll>
-        )}
+        {phase === "title" && !loadFailure && !replayError ? (
+          <TitleScreen
+            gamepadConnected={gamepadConnected}
+            legacy={legacy}
+            onChooseSex={chooseSex}
+            onNewLine={newLine}
+            onSpriteBroken={withdraw}
+            onStart={startNight}
+            ready={ready}
+            strike={strike}
+            textures={textures}
+            tonight={tonight}
+          />
+        ) : null}
 
-        {phase === "dawn" && report && (
-          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
-            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
-              DAWN
-            </h2>
-            <p>
-              {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
-              {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
-            </p>
-            <p>
-              +{report.oil} oil from the slain, +{report.bonus} for the lamps still burning.
-            </p>
-            <SeaAnswer report={report} />
-            {shop}
-            <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
-            <button className="btn big" onClick={startNight} type="button">
-              Into night {legacy.night}
-            </button>
-          </div>
-        )}
+        {phase === "dawn" && report ? (
+          <DawnPanel
+            legacy={legacy}
+            onSpriteBroken={withdraw}
+            onStart={startNight}
+            report={report}
+            shop={shop}
+            tonight={tonight}
+          />
+        ) : null}
 
-        {phase === "heir" && report && (
-          <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
-            <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
-              {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
-            </h2>
-            <p>
-              {report.outcome === "dark"
-                ? `The lamps of Lychnos went dark on night ${report.night}.`
-                : `${report.name} fell on night ${report.night}.`}{" "}
-              Their oil passes to the next warden.
-            </p>
-            <SeaAnswer report={report} />
-            <div className="heirs">
-              {heirs.map((heir) => (
-                <button
-                  className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
-                  key={heir.name}
-                  onClick={() => chooseHeir(heir)}
-                  type="button"
-                >
-                  <Icon name={heir.trait} />
-                  <div>
-                    <b>{heir.name}</b>
-                    <span>{ARMS[heir.sex].loadout}</span>
-                    <span>
-                      {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-            {shop}
-            <SeaSends onSpriteBroken={withdraw} tonight={tonight} />
-            <button
-              className="btn big"
-              disabled={!heirs.some((heir) => heir.name === legacy.heir.name)}
-              onClick={startNight}
-              type="button"
-            >
-              {heirs.some((heir) => heir.name === legacy.heir.name)
-                ? `${legacy.heir.name} takes up the lamp`
-                : "Choose an heir"}
-            </button>
-          </div>
-        )}
+        {phase === "heir" && report ? (
+          <HeirPanel
+            heirs={heirs}
+            legacy={legacy}
+            onChooseHeir={chooseHeir}
+            onSpriteBroken={withdraw}
+            onStart={startNight}
+            report={report}
+            shop={shop}
+            tonight={tonight}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1056,6 +814,462 @@ function focusOnMount(element: HTMLElement | null) {
 }
 
 // a trait's name with its icon (the icon is decoration: the name says it)
+// What lies over a night or a replay: its bars, and on a live night the touch controls and the paused panel.
+function NightOverlays({
+  phase,
+  hud,
+  legacy,
+  gamepadConnected,
+  replayId,
+  speed,
+  onSpeed,
+  away,
+  onResume,
+  resumeRef,
+  onPress,
+  onStick,
+}: {
+  phase: Phase;
+  hud: Hud | null;
+  legacy: Legacy;
+  gamepadConnected: boolean;
+  replayId: string | undefined;
+  speed: number;
+  onSpeed: (speed: number) => void;
+  away: boolean;
+  onResume: () => void;
+  resumeRef: (button: HTMLButtonElement | null) => void;
+  onPress: (action: "melee" | "ranged") => void;
+  onStick: (horizontal: number, vertical: number) => void;
+}) {
+  const live = phase === "night";
+  if (!(live || phase === "replay")) {
+    return null;
+  }
+  return (
+    <>
+      {hud ? (
+        <NightHud
+          gamepadConnected={gamepadConnected}
+          hud={hud}
+          legacy={legacy}
+          live={live}
+          onSpeed={onSpeed}
+          replayId={replayId}
+          speed={speed}
+        />
+      ) : null}
+      {live ? (
+        <>
+          <div className="rotate">Turn your phone sideways for a bigger view</div>
+          <TouchControls onPress={onPress} onStick={onStick} sex={legacy.heir.sex} />
+        </>
+      ) : null}
+      {live && away ? (
+        <div className="panel" data-panel="paused">
+          <div className="logo small">PAUSED</div>
+          <p>The window lost focus, so the night is waiting for you.</p>
+          <button className="btn big" onClick={onResume} ref={resumeRef} type="button">
+            Resume
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// The bars over a night: the warden, health and slain, the night's progress, the lamps, and the controls (or, for a
+// replay, its speed).
+function NightHud({
+  hud,
+  legacy,
+  live,
+  gamepadConnected,
+  replayId,
+  speed,
+  onSpeed,
+}: {
+  hud: Hud;
+  legacy: Legacy;
+  live: boolean;
+  gamepadConnected: boolean;
+  replayId: string | undefined;
+  speed: number;
+  onSpeed: (speed: number) => void;
+}) {
+  return (
+    <>
+      <div className="stats">
+        <div>
+          {legacy.heir.name}
+          <span className="long">
+            , {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
+          </span>
+        </div>
+        {/* biome-ignore lint/a11y/useSemanticElements: a <meter> cannot take the bar's pixel styling or struck animation */}
+        <div
+          aria-label="Health"
+          aria-valuemax={Math.round(hud.maxHealth)}
+          aria-valuemin={0}
+          aria-valuenow={Math.round(hud.health)}
+          className={hud.hits > 0 ? "bar struck" : "bar"}
+          key={hud.hits}
+          role="meter"
+        >
+          <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
+        </div>
+        <div aria-label={`${hud.kills} slain, ${hud.oil} oil`} className="oilline" role="img">
+          <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
+        </div>
+      </div>
+      <div className="nightbar">
+        <div>
+          Night {legacy.night}
+          <span className="long"> · the sea is {tideLabel(legacy.tide)}</span>
+        </div>
+        <div
+          aria-label="Night until dawn"
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={Math.round(hud.dawn * 100)}
+          aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+          className="bar dawnbar"
+          role="progressbar"
+        >
+          <i style={{ width: `${hud.dawn * 100}%` }} />
+        </div>
+      </div>
+      <div aria-label={`${hud.lit} of ${hud.lamps} lamps lit`} className="lamps" role="img">
+        <span className="long">Lamps </span>
+        {LAMP_SLOTS.slice(0, hud.lamps).map((slot, index) => (
+          <span className={index < hud.lit ? "lit" : ""} key={slot}>
+            {index < hud.lit ? "◆" : "◇"}
+          </span>
+        ))}
+      </div>
+      {live ? (
+        <div className="help">
+          {gamepadConnected
+            ? "Left stick move · A strike (the stick turns you) · B or RT shoot (right stick aims) · stand by a dark lamp to relight it"
+            : "WASD move · J strike (hold a direction to turn) · K or click shoot · stand by a dark lamp to relight it"}
+        </div>
+      ) : (
+        <div className="help replaybar">
+          REPLAY {replayId}
+          {[1, 2, 4].map((multiplier) => (
+            <button
+              className={`btn small ${speed === multiplier ? "on" : ""}`}
+              key={multiplier}
+              onClick={() => onSpeed(multiplier)}
+              type="button"
+            >
+              {multiplier}×
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// The title scroll: the story, what the sea sends tonight, how to play, and the choice of warden.
+function TitleScreen({
+  legacy,
+  tonight,
+  gamepadConnected,
+  textures,
+  strike,
+  ready,
+  onChooseSex,
+  onStart,
+  onNewLine,
+  onSpriteBroken,
+}: {
+  legacy: Legacy;
+  tonight: Tonight;
+  gamepadConnected: boolean;
+  textures: TextureMap | null;
+  strike: { sex: Sex; count: number } | null;
+  ready: boolean;
+  onChooseSex: (sex: Sex) => void;
+  onStart: () => void;
+  onNewLine: () => void;
+  onSpriteBroken: (creatureId: string) => void;
+}) {
+  return (
+    <TitleScroll>
+      <div className="scroll-layout">
+        <div className="scroll-intro">
+          <h1 className="brand" data-line={true}>
+            <Image
+              alt="Lampwarden"
+              height={37}
+              loading="eager"
+              src="/logo/logo-noglow.png"
+              unoptimized={true}
+              width={68}
+            />
+          </h1>
+          <div className="scroll-prose">
+            {INTRODUCTION.map((line) => (
+              <p data-line={true} key={line}>
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+        <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+        <HowToPlay gamepadConnected={gamepadConnected} sex={legacy.heir.sex} />
+        <div className="scroll-hero">
+          <h2 className="scroll-heading" data-line={true}>
+            Who takes up the lamp?
+          </h2>
+          <div className="hero-cards" data-line={true}>
+            {SEXES.map((sex) => {
+              const chosen = legacy.heir.sex === sex;
+              return (
+                <button
+                  aria-pressed={chosen}
+                  className={`hero-card ${chosen ? "chosen" : ""}`}
+                  data-sex={sex}
+                  key={sex}
+                  onClick={() => onChooseSex(sex)}
+                  type="button"
+                >
+                  <span className="hero-portrait">
+                    <HeroPortrait sex={sex} strike={strike?.sex === sex ? strike.count : null} textures={textures} />
+                  </span>
+                  <span className="hero-title">{sex === "male" ? "Son" : "Daughter"}</span>
+                  <span>{ARMS[sex].loadout}</span>
+                  <span className="hero-mark">
+                    {chosen ? (
+                      <>
+                        <Icon name="wick" size={16} /> chosen
+                      </>
+                    ) : (
+                      "choose"
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="warden" data-line={true}>
+            {legacy.heir.name}, {ordinal(legacy.generation)} Lampwarden · <TraitMark trait={legacy.heir.trait} />
+          </p>
+          <p className="dim" data-line={true}>
+            Night {legacy.night}
+            {legacy.bestNight ? ` · best night ${legacy.bestNight}` : ""}
+          </p>
+          <button className="btn big" data-line={true} disabled={!ready} onClick={onStart} type="button">
+            {ready ? "Light the lamps" : "Lighting the lamps…"}
+          </button>
+          {legacy.generation > 1 && (
+            <button className="btn small" data-line={true} onClick={onNewLine} type="button">
+              Start a new bloodline
+            </button>
+          )}
+          <p className="privacy dim" data-line={true}>
+            Each night you play is recorded anonymously (your inputs, no personal data) so we can balance the game.
+          </p>
+        </div>
+      </div>
+    </TitleScroll>
+  );
+}
+
+// After a night that was lost: what happened, the heirs to choose from, the shop, and on into the next night.
+function HeirPanel({
+  report,
+  heirs,
+  legacy,
+  shop,
+  tonight,
+  onSpriteBroken,
+  onChooseHeir,
+  onStart,
+}: {
+  report: Report;
+  heirs: readonly Heir[];
+  legacy: Legacy;
+  shop: ReactNode;
+  tonight: Tonight;
+  onSpriteBroken: (creatureId: string) => void;
+  onChooseHeir: (heir: Heir) => void;
+  onStart: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        {report.outcome === "dark" ? "DARKNESS" : "FALLEN"}
+      </h2>
+      <p>
+        {report.outcome === "dark"
+          ? `The lamps of Lychnos went dark on night ${report.night}.`
+          : `${report.name} fell on night ${report.night}.`}{" "}
+        Their oil passes to the next warden.
+      </p>
+      <SeaAnswer report={report} />
+      <div className="heirs">
+        {heirs.map((heir) => (
+          <button
+            className={`btn heir ${legacy.heir.name === heir.name ? "on" : ""}`}
+            key={heir.name}
+            onClick={() => onChooseHeir(heir)}
+            type="button"
+          >
+            <Icon name={heir.trait} />
+            <div>
+              <b>{heir.name}</b>
+              <span>{ARMS[heir.sex].loadout}</span>
+              <span>
+                {TRAITS[heir.trait].label}: {TRAITS[heir.trait].text}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+      {shop}
+      <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+      <button
+        className="btn big"
+        disabled={!heirs.some((heir) => heir.name === legacy.heir.name)}
+        onClick={onStart}
+        type="button"
+      >
+        {heirs.some((heir) => heir.name === legacy.heir.name)
+          ? `${legacy.heir.name} takes up the lamp`
+          : "Choose an heir"}
+      </button>
+    </div>
+  );
+}
+
+// After a night held to dawn: what it earned, the shop, and on into the next night.
+function DawnPanel({
+  report,
+  legacy,
+  shop,
+  tonight,
+  onSpriteBroken,
+  onStart,
+}: {
+  report: Report;
+  legacy: Legacy;
+  shop: ReactNode;
+  tonight: Tonight;
+  onSpriteBroken: (creatureId: string) => void;
+  onStart: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        DAWN
+      </h2>
+      <p>
+        {report.name} held night {report.night}. {report.kills} slain, {report.lampsLost}{" "}
+        {report.lampsLost === 1 ? "lamp" : "lamps"} snuffed.
+      </p>
+      <p>
+        +{report.oil} oil from the slain, +{report.bonus} for the lamps still burning.
+      </p>
+      <SeaAnswer report={report} />
+      {shop}
+      <SeaSends onSpriteBroken={onSpriteBroken} tonight={tonight} />
+      <button className="btn big" onClick={onStart} type="button">
+        Into night {legacy.night}
+      </button>
+    </div>
+  );
+}
+
+// The end of a replay: the night it showed, and whether it ended where the live night did.
+function ReplayEndPanel({
+  replay,
+  onWatchAgain,
+}: {
+  replay: { play: Play; endsMatch: boolean | null };
+  onWatchAgain: () => void;
+}) {
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        REPLAY OVER
+      </h2>
+      <p>{describeNight(replay.play)}</p>
+      <p className="dim">{replayVerdict(replay.endsMatch)}</p>
+      <button className="btn big" onClick={onWatchAgain} type="button">
+        Watch again
+      </button>
+    </div>
+  );
+}
+
+// A recording from another version of the sim, which cannot be replayed exactly. Nothing until there is one.
+function ReplayRefusedPanel({ play }: { play: unknown }) {
+  if (play === null) {
+    return null;
+  }
+  const described = describeNight(play);
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-refused" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        AN EARLIER VERSION
+      </h2>
+      <p>This night was played on an earlier version of Lampwarden and can't be replayed exactly.</p>
+      {described ? <p>{described}</p> : null}
+      <button className="btn big" onClick={() => location.assign("/")} type="button">
+        Back to the title
+      </button>
+    </div>
+  );
+}
+
+// Why the title can never light, when it cannot: the graphics would not start, or the pictures would not load.
+function LoadFailurePanel({ failure }: { failure: "assets" | "graphics" | null }) {
+  if (failure === "graphics") {
+    return (
+      <FailurePanel
+        action="Reload"
+        hint="It draws with WebGL: turn on hardware acceleration or try another browser, then reload."
+        message="Lampwarden could not start its graphics."
+        onAction={() => location.reload()}
+        title="NO LAMPLIGHT"
+      />
+    );
+  }
+  if (failure === "assets") {
+    return (
+      <FailurePanel
+        action="Reload"
+        hint="Check your connection, then reload."
+        message="The pictures for the night would not load."
+        onAction={() => location.reload()}
+        title="THE LAMPS WON'T LIGHT"
+      />
+    );
+  }
+  return null;
+}
+
+// A replay that could not be loaded, and why. Nothing when there is no such error.
+function ReplayErrorPanel({ error }: { error: string | null }) {
+  if (!error) {
+    return null;
+  }
+  return (
+    <div aria-labelledby={PANEL_TITLE_ID} className="panel" data-panel="replay-error" role="dialog">
+      <h2 className="logo small" id={PANEL_TITLE_ID} ref={focusOnMount} tabIndex={-1}>
+        NO REPLAY
+      </h2>
+      <p>Could not load that replay: {error}</p>
+      <button className="btn big" onClick={() => location.assign("/")} type="button">
+        Back to the title
+      </button>
+    </div>
+  );
+}
+
 function TraitMark({ trait }: { trait: TraitId }) {
   return (
     <span className="trait">

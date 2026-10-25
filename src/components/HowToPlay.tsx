@@ -33,17 +33,24 @@ const LETTERS: Record<string, readonly string[]> = {
 const LETTER_SIZE = 5;
 const textWidth = (text: string) => text.length * LETTER_SIZE + (text.length - 1);
 
+// visits every cell of a grid, row by row
+function eachCell(grid: Grid, visit: (row: number, column: number, line: string[]) => void) {
+  for (const [row, line] of grid.entries()) {
+    for (const column of line.keys()) {
+      visit(row, column, line);
+    }
+  }
+}
+
 // text in ink, its top left at (left, top)
 function writeText(grid: Grid, text: string, left: number, top: number) {
   for (const [index, letter] of [...text].entries()) {
-    const rows = LETTERS[letter] ?? [];
-    for (const [rowIndex, row] of rows.entries()) {
+    const letterLeft = left + index * (LETTER_SIZE + 1);
+    for (const [rowIndex, row] of (LETTERS[letter] ?? []).entries()) {
+      const target = grid[top + rowIndex];
       for (const [columnIndex, symbol] of [...row].entries()) {
-        if (symbol === "X") {
-          const target = grid[top + rowIndex];
-          if (target) {
-            target[left + index * (LETTER_SIZE + 1) + columnIndex] = "K";
-          }
+        if (symbol === "X" && target) {
+          target[letterLeft + columnIndex] = "K";
         }
       }
     }
@@ -55,17 +62,15 @@ function keycap(text: string, face: string, shade: string): Grid {
   const width = textWidth(text) + 4;
   const height = LETTER_SIZE + 4;
   const grid = blank(width, height);
-  for (const [row, line] of grid.entries()) {
-    for (const column of line.keys()) {
-      const onEdgeRow = row === 0 || row === height - 1;
-      const onEdgeColumn = column === 0 || column === width - 1;
-      if (onEdgeRow && onEdgeColumn) {
-        continue; // rounded corner
-      }
-      const fill = row === height - 2 ? shade : face;
-      line[column] = onEdgeRow || onEdgeColumn ? "K" : fill;
+  eachCell(grid, (row, column, line) => {
+    const onEdgeRow = row === 0 || row === height - 1;
+    const onEdgeColumn = column === 0 || column === width - 1;
+    if (onEdgeRow && onEdgeColumn) {
+      return; // rounded corner
     }
-  }
+    const fill = row === height - 2 ? shade : face;
+    line[column] = onEdgeRow || onEdgeColumn ? "K" : fill;
+  });
   writeText(grid, text, 2, 2);
   return grid;
 }
@@ -102,36 +107,38 @@ interface StickLook {
   text?: string;
   pips?: true;
 }
+// a small arrowhead towards each side of a stick's well
+function drawPips(grid: Grid, middle: number) {
+  let offsets: [number, number][] = [
+    [0, 2 - middle],
+    [-1, 3 - middle],
+    [0, 3 - middle],
+    [1, 3 - middle],
+  ];
+  for (let turn = 0; turn < 4; turn++) {
+    for (const [across, down] of offsets) {
+      const target = grid[middle + down];
+      if (target) {
+        target[middle + across] = "e";
+      }
+    }
+    offsets = offsets.map(([across, down]) => [-down, across]);
+  }
+}
+
 function stickGlyph({ diameter, knobRadius, knob, knobShade, text, pips }: StickLook): Grid {
   const grid = disc(diameter, "l", "l");
   const middle = (diameter - 1) / 2;
-  for (const [row, line] of grid.entries()) {
-    for (const column of line.keys()) {
-      const distance = Math.hypot(column - middle, row - middle);
-      if (distance <= knobRadius) {
-        line[column] = column - middle + (row - middle) > knobRadius - 1 ? knobShade : knob;
-      } else if (distance <= knobRadius + 1 && line[column] === "l") {
-        line[column] = "K";
-      }
+  eachCell(grid, (row, column, line) => {
+    const distance = Math.hypot(column - middle, row - middle);
+    if (distance <= knobRadius) {
+      line[column] = column - middle + (row - middle) > knobRadius - 1 ? knobShade : knob;
+    } else if (distance <= knobRadius + 1 && line[column] === "l") {
+      line[column] = "K";
     }
-  }
+  });
   if (pips) {
-    // a small arrowhead towards each side
-    let offsets: [number, number][] = [
-      [0, 2 - middle],
-      [-1, 3 - middle],
-      [0, 3 - middle],
-      [1, 3 - middle],
-    ];
-    for (let turn = 0; turn < 4; turn++) {
-      for (const [across, down] of offsets) {
-        const target = grid[middle + down];
-        if (target) {
-          target[middle + across] = "e";
-        }
-      }
-      offsets = offsets.map(([across, down]) => [-down, across]);
-    }
+    drawPips(grid, middle);
   }
   if (text) {
     writeText(grid, text, Math.round(middle - 2), Math.round(middle - 2));

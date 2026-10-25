@@ -328,6 +328,10 @@ export const S = {
 };
 
 // ---------------- frames ----------------
+// The turn a renderer gives every figure, in degrees (the runner sets it from its facing argument, as it sets POSE; 0 when it
+// gives none). Every builder that takes `facing` adds it to the facing the code wrote, so one piece of code draws a figure
+// from every side: with a turn of 0 a figure is drawn exactly as its code says.
+export const TURN = { degrees: 0 };
 // A character's own frame: f = forward, l = its left, z = up. facing 0 = +u (screen down-right): the viewer sees its front and
 // its left side (a true 3/4 view). facing 90 = +v (down-left).
 export class Frame {

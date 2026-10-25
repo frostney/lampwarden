@@ -81,7 +81,7 @@ export function quadruped(k: Kit, P: QuadP = {}): void {
       for (let i = 0; i < 11; i++) { const x = bl * 0.85 - i * (bl * 1.75) / 10; const zt2 = by + (3.3 - 0.9 * (i / 10)) * s + (i < 3 ? 0.3 * s : 0); R.cap([x, 0, zt2 - 0.6 * s], [x - 0.9 * s, 0, zt2 + 1.6 * s], 0.62 * s, 0.08 * s, mm, { obj: ob, shift: i % 2 ? 0 : -1 }); }
     }
   }
-  R.emit(new Frame(P.at || [0, 0], fc, (P.at && P.at[2]) || 0));
+  R.emit(new Frame(P.at || [0, 0], fc + TURN.degrees, (P.at && P.at[2]) || 0));
 }
 export function centaur(k: Kit, P: { at?: number[]; facing?: number; colour?: string; pose?: string; upper?: HumanoidP } = {}): void {
   quadruped(k, { at: P.at, facing: P.facing, kind: 'horse', colour: P.colour || 'fur', pose: P.pose, rider: { ...(P.upper || {}), pose: P.pose } });

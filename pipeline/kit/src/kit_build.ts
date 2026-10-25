@@ -251,7 +251,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
   // ---- head
   const neckZ = 7.2; const hr = (build === 'giant' ? 2.05 : 1.85) * h * (htype === 'cyclops' ? 1.08 : 1); const Hc = U(0.15, 0, anat && build === 'giant' ? 9.3 : 8.85);
   const hz = g(po.head);
-  const hF0 = norm(LD([cosd(-hz), 0, sind(-hz)])); const fA = P.facing === undefined ? 0 : P.facing;
+  const hF0 = norm(LD([cosd(-hz), 0, sind(-hz)])); const fA = (P.facing === undefined ? 0 : P.facing) + TURN.degrees;
   const yh0 = htype === 'cyclops' ? 45 + clamp((fA - 45) * 0.25, -10, 10) - fA : 0.35 * (45 - fA);
   const yh = P.rig ? 0 : clamp(yh0, htype === 'cyclops' ? -75 : -25, htype === 'cyclops' ? 75 : 25);   // heads turn towards the camera; the cyclops eye must face it
   const hF = norm(add(mul(hF0, cosd(yh)), mul(aL, sind(yh)))); const hL = norm(add(mul(aL, cosd(yh)), mul(hF0, -sind(yh)))); const hZ = norm(cross(hF, hL));
@@ -448,7 +448,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
   const wm = P.weaponMat ? mat(P.weaponMat) : '';
   const HR: V = (g(po.rel) > 0 && wcl === 'throw') ? add(HR0, mul(wd, g(po.rel) * h)) : HR0;
   const weaponD = (g(po.rel) < 0 && wcl === 'throw') ? 'none' : weapon;
-  const camA = 45 - (P.facing === undefined ? -35 : P.facing); const wcam: V = norm(add(mul(aF, -sind(camA)), mul(aL, cosd(camA))));
+  const camA = 45 - ((P.facing === undefined ? -35 : P.facing) + TURN.degrees); const wcam: V = norm(add(mul(aF, -sind(camA)), mul(aL, cosd(camA))));
   const wpc: V = norm(sub(wcam, mul(wd, dot(wcam, wd))));   // blade width axis, turned to face the camera so blades never go edge-on
   const ptsC = (b: V, list: number[][]): V[] => list.map((q) => add(b, add(mul(wd, q[0] * h), mul(wpc, q[1] * h))));
   const along = (b: V, t: number): V => add(b, mul(wd, t * h));
@@ -683,7 +683,7 @@ export function humanoidCore(k: Kit, P: HumanoidP = {}): { top: V } {
       }
     }
   }
-  if (!P.rig) R.emit(new Frame(P.at || [0, 0], P.facing || 0, (P.at && P.at[2]) || 0), g(po.fall));
+  if (!P.rig) R.emit(new Frame(P.at || [0, 0], (P.facing || 0) + TURN.degrees, (P.at && P.at[2]) || 0), g(po.fall));
   return { top: add(Hc, mul(hZ, hr)) };
 }
 export function winged(k: Kit, P: HumanoidP & { span?: number } = {}): { top: V } {

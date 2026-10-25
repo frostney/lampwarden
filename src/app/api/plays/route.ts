@@ -1,7 +1,7 @@
 // Stores one recorded night (inputs + timeline, no personal data) as a private blob, for testing and balancing.
 // Limited per visitor and per day, and idempotent: a second upload under the same id is answered as stored and writes
 // nothing (src/server/plays/service.ts).
-import { incomingPlay } from "@/game/plays";
+import { playSchema } from "@/game/plays";
 import { clientAddress } from "@/server/creatures/limits";
 import { createPlayUploadDeps } from "@/server/plays/deps";
 import { savePlay } from "@/server/plays/service";
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
-  const parsed = incomingPlay.safeParse(parsedJson);
+  const parsed = playSchema.safeParse(parsedJson);
   if (!parsed.success) return Response.json({ error: "not a play" }, { status: 400 });
   const play = parsed.data;
   const saved = await savePlay(createPlayUploadDeps(), { play, ip: clientAddress(request.headers) });

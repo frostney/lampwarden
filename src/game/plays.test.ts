@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { describeNight, incomingPlay, replaysExactlyOn } from "./plays";
+import { newLegacy } from "./legacy";
+import { describeNight, playSchema, replaysExactlyOn } from "./plays";
+import { Recorder } from "./recording";
+import { NO_INPUT, newNight, step } from "./sim";
 
-const play = { v: 1, id: "2026-10-24-12-00-00-abc123", seed: 5, inputs: [[0, 0, 0, 0, 0, -1, -1]], steps: 10 };
+// a short night as the Recorder sends it, without a creature or a sim (as from before either was recorded)
+const legacy = newLegacy(1);
+const night = newNight(legacy, 5);
+const recorder = new Recorder(legacy, 5, "");
+for (let stepIndex = 0; stepIndex < 130; stepIndex++) {
+  recorder.input(stepIndex, NO_INPUT, night);
+  step(night, 1 / 60, NO_INPUT);
+}
+const play = JSON.parse(JSON.stringify(recorder.finish(night)));
 const creature = {
   id: "brine-hound-1",
   name: "Brine hound",
@@ -12,20 +23,46 @@ const creature = {
 
 describe("the play schema at /api/plays", () => {
   test("a play from before creatures still validates", () => {
-    expect(incomingPlay.safeParse(play).success).toBe(true);
+    expect(playSchema.safeParse(play).success).toBe(true);
   });
 
-  test("a play with its creature validates, and keeps what else it was sent", () => {
-    const parsed = incomingPlay.safeParse({ ...play, creature });
+  test("a play with its creature validates and keeps it", () => {
+    const parsed = playSchema.safeParse({ ...play, creature });
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toMatchObject({ steps: 10, creature });
+    expect(parsed.data).toMatchObject({ steps: 130, creature });
+  });
+
+  test("fields a recording does not have are dropped, not stored", () => {
+    const parsed = playSchema.safeParse({ ...play, padding: "x".repeat(1000), legacy: { ...play.legacy, extra: 1 } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).not.toHaveProperty("padding");
+    expect(parsed.data?.legacy).not.toHaveProperty("extra");
+  });
+
+  test("a play that could not replay is refused", () => {
+    const { heir } = play.legacy;
+    const broken = [
+      { ...play, legacy: undefined },
+      { ...play, legacy: { ...play.legacy, heir: undefined } },
+      { ...play, legacy: { ...play.legacy, heir: { ...heir, trait: "immortal" } } },
+      { ...play, legacy: { ...play.legacy, tide: 9 } },
+      { ...play, legacy: { ...play.legacy, tide: undefined } },
+      { ...play, legacy: { ...play.legacy, night: 0 } },
+      { ...play, steps: 1.5 },
+      { ...play, steps: 10_000_000 },
+      { ...play, outcome: "won" },
+      { ...play, inputs: [[0, 0, 0, 0, 0, -1]] },
+      { ...play, inputs: Array.from({ length: 10_000 }, (_, index) => [index, 0, 0, 0, 0, -1, -1]) },
+      { ...play, stats: { ...play.stats, kills: -1 } },
+    ];
+    for (const sent of broken) expect(playSchema.safeParse(sent).success).toBe(false);
   });
 
   test("a creature that could not have been met is refused", () => {
-    expect(incomingPlay.safeParse({ ...play, creature: { ...creature, archetype: "dragon" } }).success).toBe(false);
-    expect(incomingPlay.safeParse({ ...play, creature: { ...creature, anchorY: 4 } }).success).toBe(false);
+    expect(playSchema.safeParse({ ...play, creature: { ...creature, archetype: "dragon" } }).success).toBe(false);
+    expect(playSchema.safeParse({ ...play, creature: { ...creature, anchorY: 4 } }).success).toBe(false);
     expect(
-      incomingPlay.safeParse({ ...play, creature: { ...creature, modifiers: { ...creature.modifiers, speed: 9 } } })
+      playSchema.safeParse({ ...play, creature: { ...creature, modifiers: { ...creature.modifiers, speed: 9 } } })
         .success,
     ).toBe(false);
   });
@@ -55,18 +92,18 @@ describe("the sim a play was recorded on", () => {
   const sim = "0123456789ab";
 
   test("a play from before fingerprints, with no sim, still validates", () => {
-    const parsed = incomingPlay.safeParse(play);
+    const parsed = playSchema.safeParse(play);
     expect(parsed.success).toBe(true);
     expect(parsed.data).not.toHaveProperty("sim");
   });
 
   test("a play with its sim validates and keeps it", () => {
-    expect(incomingPlay.safeParse({ ...play, sim }).data).toMatchObject({ sim });
+    expect(playSchema.safeParse({ ...play, sim }).data).toMatchObject({ sim });
   });
 
   test("a sim that is not a fingerprint is refused", () => {
     for (const bad of ["", "dev", "0123456789AB", "0123456789abc", 12, null])
-      expect(incomingPlay.safeParse({ ...play, sim: bad }).success).toBe(false);
+      expect(playSchema.safeParse({ ...play, sim: bad }).success).toBe(false);
   });
 
   test("a play replays only on the sim it was recorded on", () => {

@@ -62,15 +62,19 @@ export function creatureOf(play: Play): NightCreature | null {
   return parsed.success ? nightCreature(parsed.data) : null;
 }
 
-// Replays a recording headlessly and reports whether it ends where the live play ended.
+// Replays a recording headlessly and reports whether it ends where the live play ended: the same outcome on the same
+// step, with the same kills, lamps lost, health and oil.
 export function verifyPlay(play: Play): { state: State; endsMatch: boolean } {
   const state = newNight(legacyOf(play), play.seed, creatureOf(play));
   const replayer = new Replayer(play);
-  for (let stepIndex = 0; stepIndex < play.steps && !state.outcome; stepIndex++)
-    step(state, STEP, replayer.input(stepIndex));
+  let stepIndex = 0;
+  for (; stepIndex < play.steps && !state.outcome; stepIndex++) step(state, STEP, replayer.input(stepIndex));
   const endsMatch =
     state.outcome === play.outcome &&
+    stepIndex === play.steps &&
     state.stats.kills === play.stats.kills &&
-    state.stats.lampsLost === play.stats.lampsLost;
+    state.stats.lampsLost === play.stats.lampsLost &&
+    Math.ceil(state.hero.health) === play.stats.hp &&
+    state.oilEarned === play.stats.oilEarned;
   return { state, endsMatch };
 }

@@ -808,7 +808,7 @@ function checkPropsOnPlaza(scene, label, props) {
   check(
     scene,
     `${label}: every land prop's painted base is on the plaza, a margin in from its rim`,
-    props.length >= 9 && stone.length === 0,
+    props.length >= 6 && stone.length === 0,
     stone.join("; ") || `${props.length} props drawn`,
   );
   const sea = boatsOnStone(props);

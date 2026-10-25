@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { clampProposal } from "@/game/director";
+import { nightLength } from "@/game/sim";
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
 import { rulesTideAfter, storedPlaySchema, summarise } from "./summary";
@@ -17,7 +18,7 @@ describe("the summary of a lost night 2", () => {
   test("has the night, the outcome, the pace and the upgrades", () => {
     expect(summary).toMatchObject({
       night: 2,
-      plannedSeconds: 46,
+      plannedSeconds: 22,
       playedSeconds: 18.4,
       tidePlayed: 1.1,
       warden: { trait: "swift", generation: 1, maxHealth: 100 },
@@ -70,11 +71,12 @@ describe("the summary of other nights", () => {
       [4, 3, 5, 96, 1, 1],
       [5, 4, 5, 90, 1, 1],
     ];
-    play.stats = { ...play.stats, kills: 11, lampsLost: 1, hpLost: 10, time: 40, hp: 90, lit: 5 };
+    play.stats = { ...play.stats, kills: 4, lampsLost: 1, hpLost: 10, time: 16, hp: 90, lit: 5 };
     const summary = summarise(parse(play), null);
     expect(summary.outcome).toBe("dawn");
     expect(summary.lamps).toMatchObject({ lostCount: 1, relightedCount: 1, litAtEnd: 5, lampSecondsDark: 1 });
-    expect(summary.killsPerMinute).toBe(16.5);
+    expect(summary.plannedSeconds).toBe(16);
+    expect(summary.killsPerMinute).toBe(15);
     expect(summary.ifTheRulesDecided.tideForNextNight).toBe(1.06); // night 1: a clean dawn raises the tide by 6% while the warden is learning
   });
 
@@ -171,7 +173,7 @@ describe.skipIf(!existsSync(REAL_PLAYS))("the recorded plays on this machine", (
     const play = parse(raw);
     const summary = summarise(play, null);
     expect(summary.kills).toBe(play.stats.kills);
-    expect(summary.plannedSeconds).toBeGreaterThanOrEqual(40);
+    expect(summary.plannedSeconds).toBe(nightLength(play.legacy.night));
     expect(JSON.stringify(summary).length).toBeLessThan(3000);
     expect(summary.ifTheRulesDecided.allowedTideRange[0]).toBeLessThanOrEqual(
       summary.ifTheRulesDecided.tideForNextNight,

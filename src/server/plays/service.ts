@@ -12,9 +12,10 @@ import { checkStartLimits, visitorKey } from "../creatures/limits";
 import type { PlayStore } from "./store";
 
 /**
- * A night lasts at least 40 s, so one player sends at most about 90 nights an hour, each as one first write (a snapshot
- * and the finished night of a night are one id, and only its first write counts); 120 leaves room for retries and for
- * several players behind one address.
+ * A night lasts at least 16 s, so a player who spent no time at the dawn panel could send 225 nights an hour; with the
+ * panel, the shop and the title it is well under 100, each night one first write (a snapshot and the finished night of a
+ * night are one id, and only its first write counts). 120 leaves room for retries and for several players behind one
+ * address. It is not raised for the shorter nights: it and the site's 3000 a day are spend limits the owner sets.
  */
 export const UPLOADS_PER_VISITOR_PER_HOUR = 120;
 /** Every upload is kept, so the site's daily total is capped: more than any day of real play, far less than a flood. */

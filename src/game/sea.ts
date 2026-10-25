@@ -2,7 +2,8 @@
 // asked with the ids the line has met, and the job that answers it followed for as long as the answer still matters.
 //
 // The game asks when a night begins as well as when it ends. A night that begins asks for the NEXT night's creature,
-// so a job that takes about a minute is generated while the player plays and the creature is ready by dawn. Asking
+// so a job that takes about a minute is generated while the player plays: ready by dawn on the longer nights, and
+// while the dawn panel is up on the 16 to 28 s ones (the night never waits for it). Asking
 // again about the same question (the same ids met) keeps the running one: a job that is still being made when a night
 // begins is not dropped, it carries on through the night. It never blocks play: while it is asking, when nothing is
 // coming and when the network fails, the answer is "none" and the night simply has no new creature.

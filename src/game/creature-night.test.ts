@@ -5,12 +5,14 @@ import { STEP } from "./replay";
 import {
   CENTRE_X,
   CENTRE_Y,
+  creatureFrom,
   MONSTER,
   monsterStats,
   type NightCreature,
   NO_INPUT,
   newNight,
   nightCreature,
+  nightLength,
   type State,
   step,
 } from "./sim";
@@ -166,12 +168,13 @@ describe("a creature in the night", () => {
     expect(walked(NEUTRAL)).toBeGreaterThan(walked(WEAK));
   });
 
-  test("it comes from eight seconds in, a share of the spawns, never more than two at once", () => {
+  test("it comes from a fifth of the night in, a share of the spawns, never more than two at once", () => {
     let creatures = 0;
     let spawns = 0;
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const night = watchNight(creatureOf("skulker"), seed);
-      for (const creature of night.creatures) expect(creature.second).toBeGreaterThanOrEqual(8);
+      for (const creature of night.creatures)
+        expect(creature.second).toBeGreaterThanOrEqual(creatureFrom(nightLength(3)));
       expect(night.mostAlive).toBeLessThanOrEqual(2);
       creatures += night.creatures.length;
       spawns += night.spawned.size;
@@ -188,13 +191,43 @@ describe("a creature in the night", () => {
     const omitted = newNight(legacy, seed, null);
     const with_ = newNight(legacy, seed, creatureOf("flyer", STRONG));
     const snapshot = (state: State) => JSON.stringify({ ...state, creature: null });
-    for (let count = 0; count < 7 * 60; count++) {
+    const beforeItCanCome = Math.floor(creatureFrom(without.length) / STEP) - 1;
+    for (let count = 0; count < beforeItCanCome; count++) {
       step(without, STEP, NO_INPUT);
       step(omitted, STEP, NO_INPUT);
       step(with_, STEP, NO_INPUT);
     }
+    expect(without.elapsed).toBeLessThan(creatureFrom(without.length));
+    expect(without.stats.time).toBeGreaterThan(0.8 * creatureFrom(without.length));
     expect(snapshot(omitted)).toBe(snapshot(without));
-    expect(snapshot(with_)).toBe(snapshot(without)); // before eight seconds the creature has not drawn anything
+    expect(snapshot(with_)).toBe(snapshot(without)); // before a fifth of the night the creature has not drawn anything
     expect(without.monsters.some((monster) => monster.kind === "creature")).toBe(false);
+  });
+
+  test("it can come early enough to matter on every night, short or long: a fifth of the night in", () => {
+    for (let night = 1; night <= 8; night++) {
+      const length = nightLength(night);
+      expect(creatureFrom(length)).toBeCloseTo(length / 5);
+      expect(creatureFrom(length)).toBeLessThan(11); // the first spawn is at 2.5 s and the sea sends one every second or two
+    }
+  });
+
+  test("on a night 2 of 22 s a creature does join, from 4.4 s in", () => {
+    let nights = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const legacy = newLegacy(seed);
+      legacy.night = 2;
+      const state = newNight(legacy, seed, creatureOf("skulker"));
+      let first: number | null = null;
+      while (!state.outcome) {
+        step(state, STEP, NO_INPUT);
+        if (first === null && state.monsters.some((monster) => monster.kind === "creature")) first = state.elapsed;
+      }
+      if (first === null) continue;
+      nights++;
+      expect(first).toBeGreaterThanOrEqual(creatureFrom(22));
+      expect(first).toBeLessThan(22 * 0.6);
+    }
+    expect(nights).toBeGreaterThanOrEqual(6);
   });
 });

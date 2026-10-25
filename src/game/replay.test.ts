@@ -68,6 +68,16 @@ describe("recorded nights", () => {
     expect(replayed.state.stats).toEqual(live.stats);
   });
 
+  test("a replay that ends the same way but at another step, health or oil does not match", () => {
+    const { play } = recordNight(2, 1.2, 9001);
+    expect(verifyPlay(play).endsMatch).toBe(true);
+    expect(verifyPlay({ ...play, steps: play.steps + 1 }).endsMatch).toBe(false);
+    expect(verifyPlay({ ...play, stats: { ...play.stats, hp: play.stats.hp + 1 } }).endsMatch).toBe(false);
+    expect(verifyPlay({ ...play, stats: { ...play.stats, oilEarned: play.stats.oilEarned + 1 } }).endsMatch).toBe(
+      false,
+    );
+  });
+
   test("a recording from before the newer upgrades replays with those at level 0", () => {
     const { live, play } = recordNight(3, 1.1, 777);
     play.legacy.levels = { wick: 0, blade: 0, quiver: 0, heart: 0 }; // the four upgrades of the first build

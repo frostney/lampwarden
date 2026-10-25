@@ -30,8 +30,20 @@ const held = (controls: Controls, key: string, alternative: string) =>
   controls.keys.has(key) || controls.keys.has(alternative) ? 1 : 0;
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 
+// where a shot leaves the warden, above his feet (as in sim.ts)
+const SHOT_RISE = 40;
+
+// A recording stores "no aim" as a negative x, so an aim left of the stage (a pad aiming left near the left edge, a
+// monster still out at sea) would replay as a shot along the facing. Such an aim is moved back along the line from the
+// shot towards it until x is 0: the shot flies the same way, and the night replays as it was played.
+function aimOnStage(aim: { x: number; y: number } | null, hero: { x: number; y: number }) {
+  if (!aim || aim.x >= 0) return aim;
+  const scale = hero.x / (hero.x - aim.x);
+  return { x: 0, y: hero.y - SHOT_RISE + (aim.y - (hero.y - SHOT_RISE)) * scale };
+}
+
 // the input for the next sim step, quantised so live play and replay see identical numbers
-export function liveInput(controls: Controls): Input {
+export function liveInput(controls: Controls, hero: { x: number; y: number }): Input {
   return quantise({
     moveX: clampUnit(
       held(controls, "d", "arrowright") - held(controls, "a", "arrowleft") + controls.stickX + controls.gamepadX,
@@ -41,7 +53,7 @@ export function liveInput(controls: Controls): Input {
     ),
     melee: controls.melee,
     ranged: controls.ranged,
-    aim: controls.aim,
+    aim: aimOnStage(controls.aim, hero),
   });
 }
 

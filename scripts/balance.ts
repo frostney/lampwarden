@@ -95,7 +95,7 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
   while (!state.outcome) {
     if (human) {
       human.act(state, controls, STEP);
-      input = liveInput(controls);
+      input = liveInput(controls, state.hero);
     } else if (policy !== "human") {
       think -= STEP;
       if (think <= 0) {

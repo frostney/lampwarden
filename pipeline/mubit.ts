@@ -22,14 +22,14 @@ export interface ModelMessage {
 }
 
 /** A system prompt block; `cache_control` marks the end of the stable prefix the API may cache (5 minute TTL). */
-export interface SystemBlock {
+interface SystemBlock {
   type: "text";
   text: string;
   cache_control?: { type: "ephemeral" };
 }
 
 /** The request body, exactly as it is sent. There is deliberately no `temperature`. */
-export interface MubitRequestBody {
+interface MubitRequestBody {
   model: typeof MUBIT_MODEL;
   max_tokens: number;
   /** A plain string, or with prompt caching on one cacheable text block. */

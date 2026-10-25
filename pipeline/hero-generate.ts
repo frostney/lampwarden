@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { HERO_ANIMATIONS, SEXES, type Sex } from "../src/scene/assets";
+import { countOption } from "./cli-options";
 import { createFileStore } from "./file-store";
 import { heroFrameBuilds } from "./hero-animation";
 import { type HeroAttempt, type HeroLoopOutcome, judgeCurrentHero, runHeroLoop } from "./hero-loop";
@@ -32,11 +33,12 @@ const REPLACEMENT_MARGIN = 0.25;
 const { values } = parseArgs({
   options: {
     sex: { type: "string" },
-    candidates: { type: "string", default: "3" },
+    candidates: { type: "string" },
     out: { type: "string", default: HERO_DIRECTORY },
     manifest: { type: "string", default: join(HERO_DIRECTORY, "..", "manifest.json") },
   },
 });
+const candidateCount = countOption("candidates", values.candidates, 3);
 const sexes = SEXES.filter((sex) => !values.sex || values.sex === sex);
 if (sexes.length === 0) throw new Error(`--sex is male or female, not ${values.sex}`);
 checkoutSandboxOptions(); // fail now, not at the first render, when the snapshot id is missing
@@ -174,12 +176,7 @@ for (const sex of sexes) {
   );
   // the score a new warden must beat: the one in use, plus a margin when that one is model code already
   const bar = current.score + (modelCode === null ? 0 : REPLACEMENT_MARGIN);
-  const outcome = await runHeroLoop(
-    core,
-    sex,
-    Math.max(1, Number(values.candidates) || 3),
-    (attempt) => attempt.accepted && attempt.score > bar,
-  );
+  const outcome = await runHeroLoop(core, sex, candidateCount, (attempt) => attempt.accepted && attempt.score > bar);
   if (!outcome) {
     console.log(`${sex}: nothing was drawn; the deterministic warden stays`);
     continue;

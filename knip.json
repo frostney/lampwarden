@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.{ts,mjs}", "tools/**/build.ts", "e2e/**/*.{ts,mjs}", "pipeline/*.ts"],
+  "entry": ["scripts/*.{ts,mjs}", "tools/**/build.ts", "e2e/**/*.{ts,mjs}"],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "tools/**/*.ts", "e2e/**/*.{ts,mjs}", "pipeline/*.ts"],
   "ignoreBinaries": ["ffmpeg"]
 }

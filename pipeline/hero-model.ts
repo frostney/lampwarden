@@ -155,7 +155,7 @@ const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
 /** Why an atlas was refused; `kind` is a fixed word, `reason` is for a person. */
-export interface HeroAtlasRefusal {
+interface HeroAtlasRefusal {
   ok: false;
   kind: "incomplete" | "render" | "picture" | "blank" | "static" | "attack";
   reason: string;

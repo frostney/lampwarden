@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { ANCHOR_Y } from "../src/scene/assets";
+import { countOption } from "./cli-options";
 import { createFileStore } from "./file-store";
 import { isAccepted, type LoopCore, type LoopWinner, runCandidateLoop, verify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
@@ -92,9 +93,10 @@ const { positionals, values } = parseArgs({
     only: { type: "string" },
     write: { type: "boolean", default: false },
     brief: { type: "string" },
-    candidates: { type: "string", default: "3" },
+    candidates: { type: "string" },
   },
 });
+const candidateCount = countOption("candidates", values.candidates, 3);
 const [command, ...targets] = positionals;
 const verifierPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "verifier.md"), "utf8");
 const generatorPrompt = readFileSync(join(PIPELINE_DIRECTORY, "prompts", "generator.md"), "utf8");
@@ -203,7 +205,7 @@ async function regenerateSprite(id: string): Promise<void> {
   const outcome = await runCandidateLoop(
     loop,
     { id, category: "sprite", text: brief },
-    Number(values.candidates),
+    candidateCount,
     // The live job skips the fix turn for any accepted sprite; a committed sprite is held to a higher bar, so the fix
     // turn (the verifier's issues sent back to the generator) runs unless the verifier passed it outright.
     (candidate) => candidate.verdict.pass,

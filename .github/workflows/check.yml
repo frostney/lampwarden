@@ -1,5 +1,5 @@
 # The gate on every pull request and every push to main: the same `bun run check` as locally (Biome, TypeScript,
-# tests, Knip, generated files, next build) and a gitleaks scan of the history.
+# tests, Knip, the Varlock secret scan, generated files, next build) and a gitleaks scan of the history.
 name: check
 
 on:
@@ -25,8 +25,17 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+      # Bun's package cache and Playwright's browsers, kept between runs for as long as bun.lock is unchanged
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-bun-playwright-${{ hashFiles('bun.lock') }}
+          # after a dependency change, start from the last cache: most packages and the browser are still in it
+          restore-keys: ${{ runner.os }}-bun-playwright-
       - run: bun install --frozen-lockfile
-      # the logo check rasterises its fonts in Chromium
+      # the logo check rasterises its fonts in Chromium (a cached browser is not downloaded again; its system libraries are)
       - run: bunx playwright install --with-deps chromium
       - run: bun run check
 

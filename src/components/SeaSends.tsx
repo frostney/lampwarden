@@ -32,13 +32,7 @@ export function SeaSends({ tonight, raised, onSpriteBroken }: SeaSendsProps) {
     <div className="sea-sends">
       <TheCreature tonight={tonight} onSpriteBroken={onSpriteBroken} />
       {raised.kind === "ready" && (
-        <p
-          className="raised"
-          data-line
-          data-state="ready"
-          data-building={raised.building.id}
-          title={raised.building.name}
-        >
+        <p className="raised" data-line data-state="ready" data-building={raised.building.id}>
           Raised on the plaza tonight: <b className="raised-name">{raised.building.name}</b>
         </p>
       )}

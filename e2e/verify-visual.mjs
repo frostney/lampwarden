@@ -172,7 +172,7 @@ const PLAZA_BUILDING = (() => {
       }
   return {
     id: "0000aaaa-fountain-house-verifier",
-    name: "Fountain house of the Lower Town", // a real generated name
+    name: "Treasury of the Sea-Captains of Lychnos", // a name as long as the contract allows (40) and a real one would be
     brief: "small stone fountain house with a tiled terracotta gable roof, the verifier's fixture",
     anchorY: PLAZA_ANCHOR_Y,
     bbox: [left, top, right, bottom],
@@ -181,6 +181,8 @@ const PLAZA_BUILDING = (() => {
     createdAt: "2026-10-25T09:00:00.000Z",
   };
 })();
+if (PLAZA_BUILDING.name.length < 38 || PLAZA_BUILDING.name.length > 40)
+  throw new Error("the building fixture must hold a name as long as the building contract allows");
 const plaza = { mode: "none", asked: [] };
 async function servePlaza(route) {
   const request = route.request();
@@ -787,6 +789,49 @@ async function checkCreatureText(tag, screen, creature) {
     `${screen}: the creature's whole name and lore are shown`,
     problems.length === 0,
     problems.join("; ") || `name ${shown.name.lines} line(s), lore ${shown.lore.lines} line(s)`,
+  );
+}
+// A building's whole name is shown wherever the announcement appears, as a creature's is: the line reads in full, nothing
+// ellipsizes or line-clamps it, it holds no more than it shows, and it lies inside the screen's content (the scroll's body,
+// or the panel) and not clipped by it
+async function checkBuildingText(tag, screen, building) {
+  await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
+  const shown = await page.evaluate(() => {
+    const line = document.querySelector('.raised[data-state="ready"]');
+    if (!line) return null;
+    const style = getComputedStyle(line);
+    const box = line.getBoundingClientRect();
+    const frame = (line.closest(".scroll-body") ?? line.closest(".panel") ?? document.body).getBoundingClientRect();
+    return {
+      text: line.textContent,
+      name: line.querySelector(".raised-name")?.textContent,
+      ellipsis: style.textOverflow === "ellipsis",
+      clamped: [style.getPropertyValue("-webkit-line-clamp"), style.getPropertyValue("line-clamp")].some(
+        (value) => value !== "" && value !== "none",
+      ),
+      holdsMore: line.scrollHeight > line.clientHeight + 1 || line.scrollWidth > line.clientWidth + 1,
+      clips: style.overflow !== "visible" && style.whiteSpace === "nowrap",
+      inside: box.left >= frame.left - 1 && box.right <= frame.right + 1,
+      lines: Math.round(box.height / Number.parseFloat(style.lineHeight)),
+    };
+  });
+  const problems = [];
+  if (!shown) problems.push("no line");
+  else {
+    if (shown.text !== `Raised on the plaza tonight: ${building.name}`)
+      problems.push(`reads "${shown.text.slice(0, 40)}"`);
+    if (shown.name !== building.name) problems.push("the name is not whole");
+    if (shown.ellipsis) problems.push("an ellipsis");
+    if (shown.clamped) problems.push("line-clamped");
+    if (shown.clips) problems.push("one line that clips");
+    if (shown.holdsMore) problems.push("holds more than it shows");
+    if (!shown.inside) problems.push("spills out of its frame");
+  }
+  check(
+    tag,
+    `${screen}: the building's whole name is shown`,
+    problems.length === 0,
+    problems.join("; ") || `${shown.lines} line(s), ${building.name.length} characters`,
   );
 }
 // The title scroll's "How to play" block: one block, of the kind of controls the player is likely using, drawn from the
@@ -3426,6 +3471,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     `${line.size}px`,
   );
   check("plaza-title", "the gallery was asked with nothing seen", lastSeen() === "[]", lastSeen());
+  await checkBuildingText("plaza-title", "title", PLAZA_BUILDING);
   await checkTitleScroll("plaza-title", 1000, 640);
   await checkScrollFits("plaza-title");
   await shoot("21c-plaza-title");
@@ -3441,6 +3487,8 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     (await page.locator(".sea").count()) === 1 && (await page.locator(".raised").count()) === 1,
   );
   await checkTitleScroll("plaza-title-both", 1000, 640);
+  await checkCreatureText("plaza-title-both", "title", SEA_CREATURE);
+  await checkBuildingText("plaza-title-both", "title", PLAZA_BUILDING);
   await checkScrollFits("plaza-title-both");
   await shoot("21c-plaza-title-both");
   sea.mode = "none";
@@ -3507,6 +3555,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     (await page.evaluate(() => localStorage.getItem("lampwarden:raised:v1"))) === JSON.stringify([PLAZA_BUILDING.id]),
   );
   await toDawn();
+  await checkBuildingText("plaza-dawn", "dawn", PLAZA_BUILDING);
   const played = await page.evaluate(() => JSON.parse(localStorage.getItem("lampwarden:lastPlay") ?? "null"));
   check(
     "plaza-night",
@@ -3941,6 +3990,7 @@ for (const [tag, device, sex] of [
   await checkTitleScroll(tag, viewportWidth, viewportHeight);
   await checkPhoneText(tag, "title");
   await checkCreatureText(tag, "title", SEA_CREATURE);
+  await checkBuildingText(tag, "title", PLAZA_BUILDING);
   await page.locator(".scroll .sea").first().scrollIntoViewIfNeeded();
   const seaTitleBox = await page.locator(".scroll .sea").first().boundingBox();
   check(
@@ -4104,6 +4154,7 @@ for (const [tag, device, sex] of [
   await checkWeaponShop(tag, sex);
   await checkPhoneText(tag, "dawn");
   await checkCreatureText(tag, "dawn", SEA_CREATURE);
+  await checkBuildingText(tag, "dawn", PLAZA_BUILDING);
   await shoot(`${tag}-3-dawn`, true);
   const seaDawn = page.locator(".panel .sea").first();
   await seaDawn.scrollIntoViewIfNeeded();

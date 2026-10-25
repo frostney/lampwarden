@@ -473,15 +473,18 @@ h2.logo:focus {
 .scroll .sea[data-state="ready"] .sea-lore {
   margin-top: 4px;
 }
-/* The title scroll has no room to spare (the creature's panel alone fills it): with a creature above it, the building's line is
-   held to one line (its full name is the line's title) and sits close under the panel. */
-.scroll .sea ~ .raised {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* The title scroll has no room to spare (a creature's panel alone fills it), and a building's whole name goes in a line of its
+   own, never cut: with one announced, the panel's padding and the gaps round it close up (and the scroll's column, below,
+   is a little wider), so the longest creature the contract allows and a 40 character building still fit without scrolling. */
 .scroll .sea-sends:has(.raised) {
   gap: 2px;
+}
+.scroll .sea:has(~ .raised) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.scroll .sea:has(~ .raised) .sea-text {
+  gap: 0;
 }
 .icon {
   image-rendering: pixelated;
@@ -884,9 +887,10 @@ h2.logo:focus {
     grid-column: 2;
     grid-row: 1 / 5;
   }
-  /* a building announced as well takes a line of the left column: the rows sit closer */
+  /* a building announced as well takes a line or two of the left column: it is a little wider, and the rows sit closer */
   .scroll-layout:has(.raised) {
-    row-gap: 4px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
+    row-gap: 2px;
   }
 }
 .scroll .brand img {

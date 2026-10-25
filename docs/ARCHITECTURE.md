@@ -15,7 +15,12 @@ src/
     TouchControls.tsx  on-screen stick and buttons for touch devices; Strike and Shoot show the warden's weapons
     HowToPlay.tsx    the title scroll's "How to play": the controls of the input in use (touch on a coarse pointer, the pad
                      while one is connected, else keyboard and mouse), keys, mouse, pad and touch buttons drawn as pixel
-                     art from code; each glyph carries `data-glyph` for the verifier
+                     art from code; each glyph carries `data-glyph` for the verifier; its "Practise first" opens the practice
+                     night, and ControlGlyphs draws one control for the practice's lessons
+    Opening.tsx      the opening scene's frame over the canvas: bars above and below the plaza, the line being told inked
+                     into the lower one, and Skip (Escape, Enter, Space or the pad's A or Start skip it too)
+    PracticeCard.tsx the practice night's lesson in place of the night bar: which of five, what to do, the control that does
+                     it for the input in use, and Skip practice
     TitleScroll.tsx  the title screen's parchment scroll: unrolls, then inks its lines in; a press skips it, ?verify=1 and
                      reduced motion show it open
     GameClient.tsx   dynamic import with ssr:false (Pixi needs the browser)
@@ -28,8 +33,8 @@ src/
     useTonight.ts    the sea's answer for the coming night as a hook (the asking is src/game/sea.ts: it asks as a night
                      begins, for the next night's creature, and keeps a job that is still running through the night);
                      never blocks play (none, a network error and "still generating" all mean the night starts without it)
-    Game.tsx         React shell: title (introduction, hero choice), night HUD, dawn upgrades, heir
-                     choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
+    Game.tsx         React shell: the opening scene, title (introduction, hero choice), the practice night, night HUD,
+                     dawn upgrades, heir choice; owns the Legacy, the night on stage (state, warden, recording or replay driver), pause,
                      replay speed, tonight's creature and its sprite; renders the @pixi/react <Application> and the
                      window.lampwarden debug hook
     Scene.tsx        the scene as @pixi/react components: steps the sim at a fixed 60 Hz (high ticker priority), one
@@ -88,6 +93,13 @@ src/
                      gallery-sea.ts are what it shares with the creatures' (reading answers, following a job, the question
                      per set of ids met, a busy slot asked again after its delay); sea.ts is the creatures' asking
     raised.ts        the ids of the buildings the line has seen go up (localStorage), sent as `seen`, apart from the legacy
+    welcome.ts       what a new player has been shown (the opening scene, the practice night; localStorage, apart from the
+                     legacy, so a new bloodline is not taught again) and isNewLine, which keeps a player who has played a
+                     night from being shown either unasked
+    staged.ts        nights staged by code (see Staged nights): a night 1 with nothing from the sea and no dawn, a monster
+                     put on the rim, a lamp put out, the guard that keeps the night from being lost, and a warden played by code
+    opening.ts       the opening scene's four lines and its staging: a satyr and a harpy, a lamp put out, the warden's fight
+    practice.ts      the practice night's five lessons (walk, strike, shoot, relight, hold the plaza) and their staging
     pressed.ts       the pressed look for buttons that code presses (a pad's A, Enter): `data-pressed` for 100 ms, which
                      the CSS shows like :active (every button sinks onto its 2 px edge and its face darkens)
     plays.ts         the recorded-play id format and the /api/plays body schema shared by the API routes and the
@@ -212,6 +224,23 @@ docs/LIVE_GENERATION.md  design note: live generation behind a server route, why
 2. Check `public/sprites/<slug>.png` and its manifest score; a passing sprite scores ≥ 7.
 3. Add the key to `SINGLE` and a `ANCHOR_Y` entry in `src/scene/assets.ts` (fraction of 128 px where the sprite's base touches the ground; tune by eye).
 4. Add a line to `DECOR` in `src/scene/decor.ts`: the key, where it may stand (`back`, `front`, `edge`, `anywhere`, or the sea), how many and how they group, then run `bun run decor`, which measures the pixels of every sprite `DECOR` places into `src/scene/decor-extents.ts` (`bun run check:generated` fails when the table is stale, and `src/scene/decor.test.ts` when a placed sprite has no row; a monster is not measured). The placer lays it out afresh each night (static and depth-sorted by ground y; `src/components/Scene.tsx` renders them); a slim base (a wall, a trunk) takes a row count in `SLIM_BASES` in `src/scene/extent.ts`. A monster instead goes in `src/game/sim.ts` (`MonsterKind` + `MONSTER` stats + `pickKind`). Lamps are `LAMP_SPOTS` in `src/game/sim.ts`.
+
+## Staged nights
+
+A new player's first visit plays the opening scene before the title, and their first "Light the lamps" opens the practice
+night; `?verify=1` skips both (the verifier asks for them), and so does a line that has played a night (`isNewLine`). Both
+are staged nights (`src/game/staged.ts`): the real sim on the real plaza, through the scene's fixed step, but with the
+spawn timer and the night's length at infinity, so nothing comes ashore by itself and dawn never comes. What happens is
+staged from the night's driver, before each step: `summon` puts a monster on the rim (where `spawn()` would), `snuff` puts
+a lamp out, and `spare` keeps the night from ending (the warden is never clawed below 40, and dark lamps relight while
+fewer burn than two, or than one more than the monsters clawing at lamps, each of which can put out one in a step). The
+opening's driver plays the warden too (`wardenAutopilot`) and ignores the player's input; its warden is a new line's (no
+upgrades, the first heir's trait, the player's son or daughter) and its seed fixed, so it plays the same for everyone; the practice's passes the player's input through and moves to the next lesson
+when the last is done (walked 90 px, a kill, a kill, the dark lamp lit, the wave cleared); Skip practice, or a pad's
+Start, leaves it for the real night. Neither is recorded or
+uploaded, the practice's oil never reaches the legacy, and nothing in them is among the sim fingerprint's sources:
+`sim.ts` is unchanged by them and a recorded night never meets one. `opening.test.ts` and `practice.test.ts` play them
+headless to the end.
 
 ## Decorations
 

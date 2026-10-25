@@ -627,9 +627,6 @@ h2.logo:focus {
 .scroll .sea[data-state="ready"]:has(~ .raised) .sea-lore {
   margin-top: 2px;
 }
-.scroll-layout:has(.raised) .scroll-intro {
-  gap: 0;
-}
 .icon {
   image-rendering: pixelated;
   flex-shrink: 0;
@@ -979,6 +976,10 @@ h2.logo:focus {
 /* the introduction's lines sit closer, so the title, a creature with long lore and How to play fit the desktop parchment */
 .scroll-intro {
   gap: 4px;
+}
+/* and with a building announced as well, its text closes up to the logo (see .scroll .sea-sends:has(.raised)) */
+.scroll-layout:has(.raised) .scroll-intro {
+  gap: 0;
 }
 .scroll-hero {
   gap: 6px;

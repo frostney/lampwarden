@@ -8,8 +8,11 @@
 // The decision's shape, bounds, schema and the rules' own decision are in director-decision.ts, which a recorded night
 // replays from and the sim fingerprint covers. This file is not covered: how a reply is read or cleaned does not change
 // how a recorded night plays. Anything `directorFrom` or `rulesDirector` reads therefore belongs in that file, never
-// here: an edit here would change what a replay does without changing the fingerprint. It re-exports that module so the game and the server have one place to import from.
+// here: an edit here would change what a replay does without changing the fingerprint.
+
 import { z } from "zod";
+
+import { hundredths } from "../lib/round";
 import {
   CREATURE_SHARE_MAX,
   CREATURE_SHARE_MIN,
@@ -26,24 +29,6 @@ import {
   TIDE_SPAN,
 } from "./director-decision";
 
-export {
-  CREATURE_SHARE_MAX,
-  CREATURE_SHARE_MIN,
-  DEFAULT_CREATURE_SHARE,
-  type Director,
-  directorFrom,
-  directorSchema,
-  type EngagementKind,
-  EVEN_MIX,
-  LINE_MAX,
-  MIX_MAX,
-  MIX_MIN,
-  type Mix,
-  mayEase,
-  rulesDirector,
-  TIDE_SPAN,
-} from "./director-decision";
-
 /** Why the rules answered instead of the model (the route says so; the game only needs to know it was them). */
 export const FALLBACK_REASONS = ["timeout", "error", "invalid", "rate-limited", "unavailable"] as const;
 export type FallbackReason = (typeof FALLBACK_REASONS)[number];
@@ -55,18 +40,21 @@ const LINE_STRIPPED = /[^\p{L}\p{N} .,;:!?'’\-–—…()]/gu;
 /** A line the player may be shown: only plain characters, one space between words, at most LINE_MAX long. */
 export function cleanLine(text: string): string {
   const plain = text.replace(LINE_STRIPPED, " ").replace(/\s+/g, " ").trim();
-  if (plain.length <= LINE_MAX) return plain;
+  if (plain.length <= LINE_MAX) {
+    return plain;
+  }
   // cut between code points, never inside a surrogate pair: the stored schema counts UTF-16 units and allows no lone half
   let cut = "";
   for (const character of plain) {
-    if (cut.length + character.length > LINE_MAX - 1) break;
+    if (cut.length + character.length > LINE_MAX - 1) {
+      break;
+    }
     cut += character;
   }
   const lastSpace = cut.lastIndexOf(" ");
   return `${(lastSpace > LINE_MAX / 2 ? cut.slice(0, lastSpace) : cut).replace(/[ .,;:\-–—]+$/, "")}…`;
 }
 
-const hundredths = (value: number) => Math.round(value * 100) / 100;
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
 /** The tides a decision may pick, given the one the rules picked: TIDE_SPAN either way, never outside TIDE_MIN..TIDE_MAX. */
@@ -80,8 +68,9 @@ export function tideRange(rulesTide: number, engagement?: EngagementKind): [numb
  * What a model may propose. Numbers are all that is trusted; the reasoning (one short sentence) is only recorded. A reply
  * that still carries an `expectedEffect` (the earlier, longer shape) parses too: the key is ignored.
  */
+const REASONING_MAX = 2000; // characters: one short sentence is asked for, and anything longer is not kept
 const proposalSchema = z.object({
-  reasoning: z.string().max(2000).catch(""),
+  reasoning: z.string().max(REASONING_MAX).catch(""),
   tide: z.number().finite(),
   mix: z.object({ satyr: z.number().finite(), cyclops: z.number().finite(), harpy: z.number().finite() }),
   creatureShare: z.number().finite(),
@@ -93,7 +82,9 @@ export type Proposal = z.infer<typeof proposalSchema>;
 export function parseProposal(text: string): Proposal | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start) {
+    return null;
+  }
   try {
     const parsed = proposalSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
     return parsed.success ? parsed.data : null;
@@ -116,7 +107,9 @@ export function clampProposal(
   engagement?: EngagementKind,
 ): Director | null {
   const line = cleanLine(proposal.line);
-  if (line === "") return null;
+  if (line === "") {
+    return null;
+  }
   // after a night that was not engaged, whatever the model says, no weight drops below 1 and the share not below the default
   const easing = mayEase(engagement);
   const weight = (value: number) => hundredths(clamp(value, easing ? MIX_MIN : 1, MIX_MAX));
@@ -146,7 +139,9 @@ export function clampProposal(
  */
 export function checkedDecision(received: unknown, rulesTide: number, engagement?: EngagementKind): Director | null {
   const parsed = directorSchema.safeParse(received);
-  if (!parsed.success || parsed.data.source !== "mubit") return null;
+  if (!parsed.success || parsed.data.source !== "mubit") {
+    return null;
+  }
   const { data } = parsed;
   return clampProposal(
     {

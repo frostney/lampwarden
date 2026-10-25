@@ -59,9 +59,11 @@ const MAX_VIEW_SLIDES = 40;
 /** A view as the runner's argument: `scale,dx,dy,slides`. */
 export const viewArgument = (view: FrameView) => `${view.scale},${view.dx},${view.dy},${view.slides}`;
 
+// a view draws the figure at more than a tenth of its size and at most four times it
+const VIEW_SCALE = { least: 0.1, most: 4 };
 const validView = (view: FrameView) =>
-  view.scale > 0.1 &&
-  view.scale <= 4 &&
+  view.scale > VIEW_SCALE.least &&
+  view.scale <= VIEW_SCALE.most &&
   Number.isInteger(view.slides) &&
   view.slides >= 0 &&
   view.slides <= MAX_VIEW_SLIDES &&
@@ -94,6 +96,8 @@ export function bindRenderSignal(render: Renderer, signal: AbortSignal): Rendere
 }
 
 const SAFE_RENDER_ARGUMENT = /^[A-Za-z0-9_-]*$/;
+const KILLED_EXIT_CODE = 137; // 128 + SIGKILL, what the kernel's out-of-memory kill leaves
+const ERROR_KEPT = 300; // characters of a render's last error line kept
 
 /** Names and poses end up in file paths and a command line; only these characters may. */
 function isSafeRenderArgument(value: string): boolean {
@@ -102,11 +106,18 @@ function isSafeRenderArgument(value: string): boolean {
 
 /** Why a request cannot be rendered, or null when it can. */
 export function invalidRequestReason(request: RenderRequest): string | null {
-  if (!request.name || !isSafeRenderArgument(request.name)) return `invalid sprite name: ${request.name}`;
-  if (!isSafeRenderArgument(request.pose)) return `invalid pose: ${request.pose}`;
-  if (request.facing !== undefined && !(Math.abs(request.facing) <= MAX_FACING_DEGREES))
+  if (!request.name || !isSafeRenderArgument(request.name)) {
+    return `invalid sprite name: ${request.name}`;
+  }
+  if (!isSafeRenderArgument(request.pose)) {
+    return `invalid pose: ${request.pose}`;
+  }
+  if (request.facing !== undefined && !(Math.abs(request.facing) <= MAX_FACING_DEGREES)) {
     return `invalid facing: ${request.facing}`;
-  if (request.view !== undefined && !validView(request.view)) return "invalid view";
+  }
+  if (request.view !== undefined && !validView(request.view)) {
+    return "invalid view";
+  }
   return null;
 }
 
@@ -174,16 +185,20 @@ export type BatchItemOutcome = z.infer<typeof batchResultsSchema>["items"][numbe
 
 /** One item's outcome as a render result: the runner's stats and PNG, or the one-line reason it failed. */
 export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds: number): RenderResult {
-  if (outcome.timedOut) return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
+  if (outcome.timedOut) {
+    return { ok: false, error: `render timed out after ${deadlineMilliseconds} ms` };
+  }
   if (outcome.exitCode !== 0) {
     // Bun reports a process killed by a signal (the kernel's out-of-memory kill) as a null exit code
     const reason =
-      outcome.exitCode === 137 || outcome.exitCode === null
+      outcome.exitCode === KILLED_EXIT_CODE || outcome.exitCode === null
         ? "render killed (memory)"
-        : lastErrorLine(outcome.standardError).slice(0, 300);
+        : lastErrorLine(outcome.standardError).slice(0, ERROR_KEPT);
     return { ok: false, error: `exit ${outcome.exitCode}: ${reason}` };
   }
-  if (outcome.png === null) return { ok: false, error: "render wrote no PNG" };
+  if (outcome.png === null) {
+    return { ok: false, error: "render wrote no PNG" };
+  }
   try {
     return { ok: true, stats: parseStatsLine(outcome.standardOutput), png: Buffer.from(outcome.png, "base64") };
   } catch {

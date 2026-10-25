@@ -12,7 +12,8 @@
 //
 // The recording is the client's, so this holds for an honest client: one that hides what it does, or leaves the field out,
 // is judged on what it sent.
-import { type EngagementKind, mayEase } from "./director";
+import { hundredths } from "../lib/round";
+import { type EngagementKind, mayEase } from "./director-decision";
 
 /** Moving for less of the night than this, and acting less often than ACTIONS_PER_MINUTE, is idle. */
 const IDLE_MOVING_SHARE = 0.15;
@@ -50,25 +51,55 @@ export interface Engagement {
 }
 
 const tenth = (value: number) => Math.round(value * 10) / 10;
-const hundredth = (value: number) => Math.round(value * 100) / 100;
 
 /**
  * The classification, in order: left (the night did not finish, so it says nothing about how hard it was), paused (most of
  * the real time was spent away), idle (hardly moving and hardly acting), engaged.
  */
-export function engagementOf(play: RecordedEngagement): Engagement {
-  const { inputs, steps } = play;
-  const simSeconds = steps / STEPS_PER_SECOND;
+// What the inputs did: how many steps the stick was held, and how many swings and shots were started.
+function countInputs(inputs: RecordedEngagement["inputs"], steps: number) {
   let movingSteps = 0;
   let strikes = 0;
   let shots = 0;
   for (const [index, row] of inputs.entries()) {
     const [start = 0, moveX = 0, moveY = 0, melee = 0, ranged = 0] = row;
     const end = inputs[index + 1]?.[0] ?? steps;
-    if (moveX !== 0 || moveY !== 0) movingSteps += Math.max(0, end - start);
-    if (melee) strikes++;
-    if (ranged) shots++;
+    if (moveX !== 0 || moveY !== 0) {
+      movingSteps += Math.max(0, end - start);
+    }
+    if (melee) {
+      strikes++;
+    }
+    if (ranged) {
+      shots++;
+    }
   }
+  return { movingSteps, strikes, shots };
+}
+
+function kindOf(
+  play: RecordedEngagement,
+  movingShare: number,
+  actionsPerMinute: number,
+  pausedSeconds: number | null,
+  pausedShare: number | null,
+): EngagementKind {
+  if (play.outcome === null) {
+    return "left";
+  }
+  if (pausedShare !== null && pausedShare > PAUSED_SHARE && (pausedSeconds ?? 0) >= PAUSED_MINIMUM_SECONDS) {
+    return "paused";
+  }
+  if (movingShare < IDLE_MOVING_SHARE && actionsPerMinute < IDLE_ACTIONS_PER_MINUTE) {
+    return "idle";
+  }
+  return "engaged";
+}
+
+export function engagementOf(play: RecordedEngagement): Engagement {
+  const { inputs, steps } = play;
+  const simSeconds = steps / STEPS_PER_SECOND;
+  const { movingSteps, strikes, shots } = countInputs(inputs, steps);
   const movingShare = steps > 0 ? Math.min(1, movingSteps / steps) : 0;
   const actionsPerMinute = simSeconds > 0 ? (strikes + shots) / (simSeconds / 60) : 0;
   const pausedSeconds = play.hiddenSeconds === undefined ? null : Math.max(0, play.hiddenSeconds);
@@ -76,23 +107,17 @@ export function engagementOf(play: RecordedEngagement): Engagement {
   const pausedShare =
     wallSeconds === null || pausedSeconds === null || wallSeconds <= 0 ? null : pausedSeconds / wallSeconds;
 
-  let kind: EngagementKind = "engaged";
-  if (play.outcome === null) kind = "left";
-  else if (pausedShare !== null && pausedShare > PAUSED_SHARE && (pausedSeconds ?? 0) >= PAUSED_MINIMUM_SECONDS)
-    kind = "paused";
-  else if (movingShare < IDLE_MOVING_SHARE && actionsPerMinute < IDLE_ACTIONS_PER_MINUTE) kind = "idle";
-
   return {
-    kind,
+    kind: kindOf(play, movingShare, actionsPerMinute, pausedSeconds, pausedShare),
     simSeconds: tenth(simSeconds),
-    movingShare: hundredth(movingShare),
+    movingShare: hundredths(movingShare),
     strikes,
     shots,
     inputChanges: inputs.length,
     actionsPerMinute: tenth(actionsPerMinute),
     wallSeconds: wallSeconds === null ? null : tenth(wallSeconds),
     pausedSeconds: pausedSeconds === null ? null : tenth(pausedSeconds),
-    pausedShare: pausedShare === null ? null : hundredth(pausedShare),
+    pausedShare: pausedShare === null ? null : hundredths(pausedShare),
   };
 }
 

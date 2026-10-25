@@ -22,7 +22,9 @@ export function createSea(deps: SeaDeps = { askForCreature, waitForJob }) {
   return createGallerySea<CreatureRecord, { kind: "ready"; creature: CreatureRecord }>({
     ask: async (seen) => {
       const answer = await deps.askForCreature(seen);
-      if (answer?.kind === "ready") return { kind: "ready", made: answer.creature };
+      if (answer?.kind === "ready") {
+        return { kind: "ready", made: answer.creature };
+      }
       return answer;
     },
     wait: deps.waitForJob,

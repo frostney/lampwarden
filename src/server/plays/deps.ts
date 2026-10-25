@@ -1,8 +1,11 @@
 // Wires the play upload to the real world: the environment (ENV, typed from .env.schema) and Blob.
 import { ENV } from "varlock/env";
+
 import { readRateSalt } from "../director/config";
 import { type PlayUploadDeps, UPLOADS_PER_DAY, UPLOADS_PER_VISITOR_PER_HOUR } from "./service";
 import { createBlobPlayStore } from "./store.blob";
+
+const SHORT_SHA = 7; // characters of the commit a play records as its build
 
 export function createPlayUploadDeps(): PlayUploadDeps {
   return {
@@ -10,6 +13,6 @@ export function createPlayUploadDeps(): PlayUploadDeps {
     now: () => new Date(),
     rateSalt: readRateSalt(ENV),
     limits: { perVisitorPerHour: UPLOADS_PER_VISITOR_PER_HOUR, perDay: UPLOADS_PER_DAY },
-    build: ENV.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
+    build: ENV.VERCEL_GIT_COMMIT_SHA?.slice(0, SHORT_SHA) ?? "dev",
   };
 }

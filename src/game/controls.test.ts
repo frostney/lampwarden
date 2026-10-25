@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+
 import { bindKeyboard, consumePresses, liveInput, newControls, release, shootAt } from "./controls";
 import { newLegacy } from "./legacy";
 import { type Play, Recorder } from "./recording";
@@ -95,7 +96,9 @@ describe("live input", () => {
         // as a pad's right stick aims: a point 260 px to the left, further than the warden is from the stage's edge
         controls.ranged = true;
         controls.aim = { x: Math.round(live.hero.x - 520), y: Math.round(live.hero.y - 40 - 90) };
-        if (controls.aim.x < 0) aimedOffStage++;
+        if (controls.aim.x < 0) {
+          aimedOffStage++;
+        }
       }
       const input = liveInput(controls, live.hero);
       recorder.input(stepIndex, input, live);

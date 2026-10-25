@@ -1,6 +1,7 @@
 // 16x16 pixel icons for the upgrades, the HUD and the touch controls, drawn as crisp SVG rects. One character per pixel;
 // '.' is transparent.
-import type { TraitId, UpgradeId } from "@/game/legacy";
+import type { TraitId } from "@/game/legacy";
+import type { UpgradeId } from "@/game/levels";
 
 export const PALETTE: Record<string, string> = {
   K: "#1b1410", // outline
@@ -32,7 +33,9 @@ function outlined(rows: readonly string[]): string[] {
   return rows.map((line, row) =>
     [...line]
       .map((symbol, column) => {
-        if (symbol !== ".") return symbol;
+        if (symbol !== ".") {
+          return symbol;
+        }
         const touchesDrawn =
           drawn(row - 1, column) || drawn(row + 1, column) || drawn(row, column - 1) || drawn(row, column + 1);
         return touchesDrawn ? "K" : ".";
@@ -433,27 +436,30 @@ interface Pixel {
 
 function pixelsOf(rows: readonly string[]): Pixel[] {
   const pixels: Pixel[] = [];
-  for (const [row, line] of rows.entries())
+  for (const [row, line] of rows.entries()) {
     for (const [column, symbol] of [...line].entries()) {
       const colour = PALETTE[symbol];
-      if (colour) pixels.push({ column, row, colour });
+      if (colour) {
+        pixels.push({ column, row, colour });
+      }
     }
+  }
   return pixels;
 }
 
 export function Icon({ name, size = 32 }: { name: IconName; size?: number }) {
   return (
     <svg
+      aria-hidden="true"
       className="icon"
       data-icon={name}
-      viewBox="0 0 16 16"
-      width={size}
       height={size}
       shapeRendering="crispEdges"
-      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width={size}
     >
       {pixelsOf(ART[name]).map(({ column, row, colour }) => (
-        <rect key={`${column},${row}`} x={column} y={row} width={1} height={1} fill={colour} />
+        <rect fill={colour} height={1} key={`${column},${row}`} width={1} x={column} y={row} />
       ))}
     </svg>
   );

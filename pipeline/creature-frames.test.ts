@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import {
   CREATURE_DIRECTIONS,
   creatureAtlasLayout,
@@ -146,8 +147,12 @@ const figureTall =
   (request: RenderRequest): RenderStats => {
     const scale = request.view?.scale ?? 1;
     const height = Math.round((request.name.startsWith("ne_") ? tall : 90) * scale);
-    if (height >= 126) return withStats({ flags: "clipped_at_edge", bbox: "40,0,90,127" });
-    if (request.name.startsWith("ne_")) return withStats({ fit: "0:6", bbox: `40,3,90,${2 + height}` });
+    if (height >= 126) {
+      return withStats({ flags: "clipped_at_edge", bbox: "40,0,90,127" });
+    }
+    if (request.name.startsWith("ne_")) {
+      return withStats({ fit: "0:6", bbox: `40,3,90,${2 + height}` });
+    }
     return withStats({ bbox: `40,10,90,${9 + height}` });
   };
 
@@ -179,7 +184,9 @@ describe("a frame set", () => {
   test("is packed into the atlas, each frame in its cell", () => {
     const set = assembleFrameSet(distinctSet());
     expect(set.ok).toBe(true);
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5, directions: [...CREATURE_DIRECTIONS] });
     const atlas = decodePng(Buffer.from(set.atlas));
     expect([atlas.width, atlas.height]).toEqual([640, 1920]);
@@ -197,7 +204,9 @@ describe("a frame set", () => {
     results[60] = okResult(framePng(61), withStats({ fit: "-6:0,-6:0,-6:0" }));
     const set = assembleFrameSet(results);
     expect(set.ok).toBe(true);
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames.shifts).toHaveLength(75);
     expect(set.frames.shifts?.[45]).toEqual([0, 12]);
     expect(set.frames.shifts?.[60]).toEqual([-18, 0]);
@@ -214,7 +223,9 @@ describe("a frame set", () => {
       ["se"],
     );
     expect(set.ok).toBe(true);
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     const atlas = decodePng(Buffer.from(set.atlas));
     expect([atlas.width, atlas.height]).toEqual([768, 384]);
@@ -266,7 +277,9 @@ describe("a frame set", () => {
     const batch = fakeFrameBatch({ statsOf: figureTall(120) });
     const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
     expect(set).toMatchObject({ ok: true, batches: 1 });
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.canvas.scale).toBe(1);
     expect(set.frames.shifts?.[45]).toEqual([0, 6]);
     expect(set.frames.shifts?.[0]).toEqual([0, 0]);
@@ -280,7 +293,9 @@ describe("a frame set", () => {
     });
     const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
     expect(set).toMatchObject({ ok: true, earlier: ["directions"], batches: 2 });
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     expect(batch.batches.map((requests) => requests.length)).toEqual([75, 15]);
   });
@@ -306,7 +321,9 @@ describe("a frame set", () => {
     const batch = fakeFrameBatch({ statsOf: figureTall(150) });
     const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
     expect(set).toMatchObject({ ok: true, batches: 3 });
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.canvas.scale).toBeCloseTo((116 / 150) * 0.98, 5);
     const [first, probe, last] = batch.batches;
     expect(first?.every((request) => request.view?.scale === 1)).toBe(true);
@@ -321,7 +338,9 @@ describe("a frame set", () => {
     const batch = fakeFrameBatch({ statsOf: figureTall(280) });
     const set = await renderFrameSet(batch.render, "function build(k) {}", STILL);
     expect(set).toMatchObject({ ok: true, earlier: ["fit"], batches: 3 });
-    if (!set.ok) return;
+    if (!set.ok) {
+      return;
+    }
     expect(set.frames).toEqual({ idle: 4, walk: 6, attack: 5 });
     expect(batch.batches.map((requests) => requests.length)).toEqual([75, 75, 15]);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { ARCHETYPES, type CreatureStats, creatureStats, MODIFIER_NAMES, type Modifiers, statsOf } from "./creature";
 import { newLegacy } from "./legacy";
 import { STEP } from "./replay";
@@ -35,9 +36,12 @@ function watchNight(creature: NightCreature | null, seed: number) {
     step(state, STEP, NO_INPUT);
     let alive = 0;
     for (const monster of state.monsters) {
-      if (monster.kind === "creature") alive++;
-      if (!spawned.has(monster.id))
+      if (monster.kind === "creature") {
+        alive++;
+      }
+      if (!spawned.has(monster.id)) {
         spawned.set(monster.id, { kind: monster.kind, second: state.elapsed, health: monster.health });
+      }
     }
     mostAlive = Math.max(mostAlive, alive);
   }
@@ -63,17 +67,19 @@ describe("a creature's modifiers", () => {
       bite: "damage",
       snuffing: "snuff",
     };
-    for (const archetype of ARCHETYPES)
-      for (const name of MODIFIER_NAMES) {
-        const neutral = creatureStats(archetype, NEUTRAL);
-        for (const level of [-1, 1] as const) {
-          const stats = creatureStats(archetype, { ...NEUTRAL, [name]: level });
-          for (const stat of STAT_NAMES) {
-            if (stat !== moves[name]) expect(stats[stat]).toBe(neutral[stat]);
-            else if (level === 1) expect(stats[stat]).not.toBe(neutral[stat]); // weaker may be held at a floor
-          }
-        }
+    const cases = ARCHETYPES.flatMap((archetype) =>
+      MODIFIER_NAMES.flatMap((name) => ([-1, 1] as const).map((level) => ({ archetype, name, level }))),
+    );
+    for (const { archetype, name, level } of cases) {
+      const neutral = creatureStats(archetype, NEUTRAL);
+      const stats = creatureStats(archetype, { ...NEUTRAL, [name]: level });
+      for (const stat of STAT_NAMES.filter((other) => other !== moves[name])) {
+        expect(stats[stat]).toBe(neutral[stat]);
       }
+      if (level === 1) {
+        expect(stats[moves[name]]).not.toBe(neutral[moves[name]]); // weaker may be held at a floor
+      }
+    }
   });
 });
 
@@ -98,7 +104,9 @@ describe("a creature in the night", () => {
     for (const modifiers of [WEAK, NEUTRAL, STRONG]) {
       const { creatures } = watchNight(creatureOf("brute", modifiers), 5);
       expect(creatures.length).toBeGreaterThan(0);
-      for (const creature of creatures) expect(creature.health).toBe(statsOf({ archetype: "brute", modifiers }).health);
+      for (const creature of creatures) {
+        expect(creature.health).toBe(statsOf({ archetype: "brute", modifiers }).health);
+      }
     }
   });
 
@@ -167,9 +175,13 @@ describe("a creature in the night", () => {
         knockY: 0,
       });
       const monster = state.monsters[0];
-      if (!monster) throw new Error("no monster");
+      if (!monster) {
+        throw new Error("no monster");
+      }
       const startX = monster.x;
-      for (let count = 0; count < 60; count++) step(state, STEP, NO_INPUT);
+      for (let count = 0; count < 60; count++) {
+        step(state, STEP, NO_INPUT);
+      }
       return Math.abs(monster.x - startX);
     };
     expect(walked(STRONG)).toBeGreaterThan(walked(NEUTRAL));
@@ -181,8 +193,9 @@ describe("a creature in the night", () => {
     let spawns = 0;
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const night = watchNight(creatureOf("skulker"), seed);
-      for (const creature of night.creatures)
+      for (const creature of night.creatures) {
         expect(creature.second).toBeGreaterThanOrEqual(creatureFrom(nightLength(3)));
+      }
       expect(night.mostAlive).toBeLessThanOrEqual(2);
       creatures += night.creatures.length;
       spawns += night.spawned.size;
@@ -228,9 +241,13 @@ describe("a creature in the night", () => {
       let first: number | null = null;
       while (!state.outcome) {
         step(state, STEP, NO_INPUT);
-        if (first === null && state.monsters.some((monster) => monster.kind === "creature")) first = state.elapsed;
+        if (first === null && state.monsters.some((monster) => monster.kind === "creature")) {
+          first = state.elapsed;
+        }
       }
-      if (first === null) continue;
+      if (first === null) {
+        continue;
+      }
       nights++;
       expect(first).toBeGreaterThanOrEqual(creatureFrom(34));
       expect(first).toBeLessThan(34 * 0.6);

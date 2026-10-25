@@ -15,7 +15,9 @@ const MAX_BODY_LENGTH = 1000;
 
 export async function POST(request: Request) {
   const body = await request.text();
-  if (body.length > MAX_BODY_LENGTH) return Response.json({ error: "too large" }, { status: 413 });
+  if (body.length > MAX_BODY_LENGTH) {
+    return Response.json({ error: "too large" }, { status: 413 });
+  }
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(body);
@@ -23,10 +25,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
   const parsed = directorRequestSchema.safeParse(parsedJson);
-  if (!parsed.success) return Response.json({ error: "bad request" }, { status: 400 });
+  if (!parsed.success) {
+    return Response.json({ error: "bad request" }, { status: 400 });
+  }
 
   const result = await decide(createDirectorDeps(), { playId: parsed.data.playId, ip: clientAddress(request.headers) });
-  if (result.kind === "no-play") return Response.json({ error: "play not found" }, { status: 404 });
+  if (result.kind === "no-play") {
+    return Response.json({ error: "play not found" }, { status: 404 });
+  }
   const answer: DirectorAnswer = {
     decision: result.decision,
     ...(result.fallback ? { fallback: result.fallback } : {}),

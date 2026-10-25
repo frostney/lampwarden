@@ -3,8 +3,11 @@
 // and ripples around the boats. Everything is painted here pixel by pixel, once, into a WATER_FRAMES-long loop; a frame
 // only picks textures from the scene clock (frozen by the visual verifier, so its frames are deterministic). The night
 // tint multiplies over all of it, as over the rest of the ground; the sky above the horizon is in sky.ts.
+
 import { Rectangle, Texture } from "pixi.js";
+
 import { CENTRE_Y, STAGE_HEIGHT, STAGE_WIDTH } from "../game/sim";
+import { band } from "../lib/band";
 import type { Ripple } from "./decor";
 import { bayerThreshold, bufferTexture, hashUnit, hexRgb, putPixel, type Rgb, seededRandom } from "./paint";
 import { shoreDistance } from "./plaza";
@@ -41,12 +44,13 @@ function depthTone(x: number, y: number): number {
 function paintBase(): Texture {
   const height = STAGE_HEIGHT - HORIZON_Y;
   const pixels = new Uint8Array(STAGE_WIDTH * height * 4);
-  for (let row = 0; row < height; row++)
+  for (let row = 0; row < height; row++) {
     for (let x = 0; x < STAGE_WIDTH; x++) {
       const y = HORIZON_Y + row;
       const tone = row === 0 ? 1 : Math.floor(depthTone(x, y) + (bayerThreshold(x, y) - 0.5) * 0.6);
       putPixel(pixels, STAGE_WIDTH, x, row, TONES[Math.max(0, Math.min(TONES.length - 1, tone))] ?? SEA);
     }
+  }
   return bufferTexture(pixels, STAGE_WIDTH, height);
 }
 
@@ -76,7 +80,9 @@ function scatter(count: number, width: number, height: number, spacing: number, 
       const down = Math.min(Math.abs(feature.y - y), height - Math.abs(feature.y - y));
       return across / 2 + down >= spacing;
     });
-    if (clear) features.push({ x, y, size: random(), phase: Math.floor(random() * WATER_FRAMES) });
+    if (clear) {
+      features.push({ x, y, size: random(), phase: Math.floor(random() * WATER_FRAMES) });
+    }
   }
   return features;
 }
@@ -94,7 +100,9 @@ function paintCrest(
 ) {
   const age = (frame + crest.phase) % WATER_FRAMES;
   const length = Math.round(maximumLength * (CREST_GROWTH[age] ?? 0));
-  if (length === 0) return;
+  if (length === 0) {
+    return;
+  }
   const peak = Math.floor((length * 2) / 3);
   const start = crest.x + Math.floor(age / 4) - peak;
   const peaking = length === maximumLength && age >= 5 && age <= 6;
@@ -103,15 +111,20 @@ function paintCrest(
     const rise = step <= peak ? Math.floor(step / 2) : Math.floor(peak / 2) - Math.ceil((step - peak) / 2);
     const y = crest.y - rise;
     const tip = step === 0 || step === length - 1;
-    plot(x, y, tip ? SHALLOW : peaking && Math.abs(step - peak) <= 1 ? FOAM : CREST);
-    if (!tip) plot(x, y + 1, SHALLOW);
+    const body = peaking && Math.abs(step - peak) <= 1 ? FOAM : CREST;
+    plot(x, y, tip ? SHALLOW : body);
+    if (!tip) {
+      plot(x, y + 1, SHALLOW);
+    }
   }
 }
 
 // a sparkle: a speck, a small star, a speck, then dark for the rest of the loop
 function paintSparkle(plot: (x: number, y: number, colour: Rgb) => void, sparkle: Feature, frame: number) {
   const age = (frame + sparkle.phase) % WATER_FRAMES;
-  if (age === 0 || age === 2) plot(sparkle.x, sparkle.y, CREST);
+  if (age === 0 || age === 2) {
+    plot(sparkle.x, sparkle.y, CREST);
+  }
   if (age === 1) {
     plot(sparkle.x, sparkle.y, FOAM);
     for (const [across, down] of [
@@ -119,8 +132,9 @@ function paintSparkle(plot: (x: number, y: number, colour: Rgb) => void, sparkle
       [-1, 0],
       [0, 1],
       [0, -1],
-    ] as const)
+    ] as const) {
       plot(sparkle.x + across, sparkle.y + down, CREST);
+    }
   }
 }
 
@@ -135,8 +149,12 @@ function paintSwell(frame: number): Texture {
       ((y % SWELL_HEIGHT) + SWELL_HEIGHT) % SWELL_HEIGHT,
       colour,
     );
-  for (const crest of SWELL_CRESTS) paintCrest(plot, crest, frame, 6 + 2 * Math.floor(crest.size * 5));
-  for (const sparkle of SWELL_SPARKLES) paintSparkle(plot, sparkle, frame);
+  for (const crest of SWELL_CRESTS) {
+    paintCrest(plot, crest, frame, 6 + 2 * Math.floor(crest.size * 5));
+  }
+  for (const sparkle of SWELL_SPARKLES) {
+    paintSparkle(plot, sparkle, frame);
+  }
   return bufferTexture(pixels, SWELL_WIDTH, SWELL_HEIGHT, "repeat");
 }
 
@@ -153,16 +171,27 @@ function paintFarSea(plot: (x: number, y: number, colour: Rgb) => void, frame: n
     const age = (frame + glint.phase) % WATER_FRAMES;
     const depth = (glint.y - HORIZON_Y) / (FAR_SEA_END - HORIZON_Y);
     const length = Math.round((2 + 5 * depth * (0.6 + 0.4 * glint.size)) * (CREST_GROWTH[age] ?? 0));
-    const colour = depth < 0.3 ? OPEN : depth < 0.65 ? SEA : age >= 5 && age <= 6 ? CREST : SHALLOW;
+    const near = age >= 5 && age <= 6 ? CREST : SHALLOW;
+    const colour = band(
+      depth,
+      [
+        [0.3, OPEN],
+        [0.65, SEA],
+      ],
+      near,
+    );
     const start = glint.x + Math.floor(age / 4) - Math.floor(length / 2);
-    for (let step = 0; step < length; step++) plot(start + step, glint.y, colour);
+    for (let step = 0; step < length; step++) {
+      plot(start + step, glint.y, colour);
+    }
   }
   // the horizon row: short lighter dashes that come and go
-  for (let x = 0; x < STAGE_WIDTH; x += 4)
+  for (let x = 0; x < STAGE_WIDTH; x += 4) {
     if (hashUnit(x, Math.floor(frame / 3)) < 0.18) {
       plot(x, HORIZON_Y, SEA);
       plot(x + 1, HORIZON_Y, SEA);
     }
+  }
 }
 
 // The swell drifts slowly down the 2:1 grid, a whole pixel at a time; the tile repeats, so it never jumps.
@@ -173,25 +202,46 @@ export const swellDrift = (clock: number) => ({ x: Math.floor(clock * 4), y: Mat
 const SURF_REACH = 9; // iso steps from the stone that the surf can reach
 const SURF_WAVELENGTH = 96; // pixels along the shore between two lapping crests
 
+// the front shore, under the side walls: in and out by a pixel or two around a two-pixel band, dithered at its edge,
+// and a line of swash beyond it
+function frontSurfPixel(x: number, y: number, distance: number, turn: number, lap: number): Rgb | null {
+  const reach = 3.2 + 1.6 * lap;
+  if (distance < reach - 1) {
+    return FOAM;
+  }
+  if (distance < reach) {
+    return bayerThreshold(x, y) < 0.55 ? FOAM : CREST;
+  }
+  if (distance < reach + 1) {
+    return bayerThreshold(x, y) < 0.2 ? CREST : null;
+  }
+  const swash = reach + 2.6 + Math.sin(turn + Math.PI + (2 * Math.PI * x) / 61);
+  if (Math.abs(distance - swash) < 0.5 && hashUnit(x >> 2, 7) > 0.2) {
+    return lap > 0.4 ? FOAM : CREST;
+  }
+  return null;
+}
+
 function surfPixel(x: number, y: number, frame: number): Rgb | null {
   const distance = shoreDistance(x + 0.5, y + 0.5);
-  if (distance < -1 || distance > SURF_REACH) return null;
+  if (distance < -1 || distance > SURF_REACH) {
+    return null;
+  }
   const turn = (2 * Math.PI * frame) / WATER_FRAMES;
   const lap = Math.sin(turn - (2 * Math.PI * x) / SURF_WAVELENGTH);
   if (y >= CENTRE_Y) {
-    // the front shore, under the side walls
-    // in and out by a pixel or two around a two-pixel band, dithered at its edge
-    const reach = 3.2 + 1.6 * lap;
-    if (distance < reach - 1) return FOAM;
-    if (distance < reach) return bayerThreshold(x, y) < 0.55 ? FOAM : CREST;
-    if (distance < reach + 1) return bayerThreshold(x, y) < 0.2 ? CREST : null;
-    const swash = reach + 2.6 + Math.sin(turn + Math.PI + (2 * Math.PI * x) / 61);
-    if (Math.abs(distance - swash) < 0.5 && hashUnit(x >> 2, 7) > 0.2) return lap > 0.4 ? FOAM : CREST;
-    return null;
+    return frontSurfPixel(x, y, distance, turn, lap);
   }
   // the back edges: a thin line, broken and rejoining as the water laps
-  if (distance < 1.6) return hashUnit(x >> 2, frame >> 2) > 0.15 ? (lap > -0.2 ? FOAM : CREST) : null;
-  if (distance < 2.6 && lap > 0.3) return bayerThreshold(x, y) < 0.5 ? CREST : null;
+  if (distance < 1.6) {
+    if (hashUnit(x >> 2, frame >> 2) <= 0.15) {
+      return null;
+    }
+    return lap > -0.2 ? FOAM : CREST;
+  }
+  if (distance < 2.6 && lap > 0.3) {
+    return bayerThreshold(x, y) < 0.5 ? CREST : null;
+  }
   return null;
 }
 
@@ -200,27 +250,48 @@ function surfPixel(x: number, y: number, frame: number): Rgb | null {
 // Two rings per ripple, half a loop apart, each spreading and fading: teal while fresh, then the shelf's tone, then
 // gone. Broken into dashes that turn a little as the ring spreads.
 function paintRipples(ripples: readonly Ripple[], plot: (x: number, y: number, colour: Rgb) => void, frame: number) {
-  for (const ripple of ripples)
+  for (const ripple of ripples) {
     for (let ring = 0; ring < 2; ring++) {
       const age = (frame + ripple.phase + ring * (WATER_FRAMES / 2)) % WATER_FRAMES;
-      if (age >= WATER_FRAMES - 2) continue;
+      if (age >= WATER_FRAMES - 2) {
+        continue;
+      }
       const scale = 1 + (ripple.growth * age) / WATER_FRAMES;
       const radiusX = ripple.radiusX * scale;
       const radiusY = ripple.radiusY * scale;
-      const colour = age < 4 ? FOAM : age < 8 ? CREST : SHALLOW;
-      const samples = Math.ceil(radiusX * 8);
-      for (let sample = 0; sample < samples; sample++) {
-        const turn = sample / samples;
-        const angle = 2 * Math.PI * turn;
-        if (Math.sin(angle) < -0.3) continue; // the back of the ring, under the hull
-        if (Math.floor(turn * ripple.dashes * 2 + age / 4) % 2 === 1) continue;
-        plot(
-          Math.round(ripple.x + Math.cos(angle) * radiusX),
-          Math.round(ripple.y + Math.sin(angle) * radiusY),
-          colour,
-        );
-      }
+      const colour = band(
+        age,
+        [
+          [4, FOAM],
+          [8, CREST],
+        ],
+        SHALLOW,
+      );
+      paintRing(ripple, plot, { radiusX, radiusY, age, colour });
     }
+  }
+}
+
+// one ring of a ripple, in dashes, without its back (under the hull)
+function paintRing(
+  ripple: Ripple,
+  plot: (x: number, y: number, colour: Rgb) => void,
+  ring: { radiusX: number; radiusY: number; age: number; colour: Rgb },
+) {
+  const samples = Math.ceil(ring.radiusX * 8);
+  for (let sample = 0; sample < samples; sample++) {
+    const turn = sample / samples;
+    const angle = 2 * Math.PI * turn;
+    const back = Math.sin(angle) < -0.3;
+    const gap = Math.floor(turn * ripple.dashes * 2 + ring.age / 4) % 2 === 1;
+    if (!(back || gap)) {
+      plot(
+        Math.round(ripple.x + Math.cos(angle) * ring.radiusX),
+        Math.round(ripple.y + Math.sin(angle) * ring.radiusY),
+        ring.colour,
+      );
+    }
+  }
 }
 const nearRipple = (ripples: readonly Ripple[], x: number, y: number) =>
   ripples.some(
@@ -244,13 +315,19 @@ interface WaterPatch {
 // the tiles of the canvas where `moves` finds something to animate
 function patchOrigins(moves: (x: number, y: number) => boolean): { x: number; y: number }[] {
   const origins: { x: number; y: number }[] = [];
-  for (let top = 0; top < STAGE_HEIGHT; top += PATCH_HEIGHT)
+  for (let top = 0; top < STAGE_HEIGHT; top += PATCH_HEIGHT) {
     for (let left = 0; left < STAGE_WIDTH; left += PATCH_WIDTH) {
       let found = false;
-      for (let y = top; y < top + PATCH_HEIGHT && !found; y++)
-        for (let x = left; x < left + PATCH_WIDTH && !found; x++) found = moves(x, y);
-      if (found) origins.push({ x: left, y: top });
+      for (let y = top; y < top + PATCH_HEIGHT && !found; y++) {
+        for (let x = left; x < left + PATCH_WIDTH && !found; x++) {
+          found = moves(x, y);
+        }
+      }
+      if (found) {
+        origins.push({ x: left, y: top });
+      }
     }
+  }
   return origins;
 }
 
@@ -269,13 +346,16 @@ function packPatches(
     origins.forEach((origin, index) => {
       const atlasX = (index % ATLAS_COLUMNS) * PATCH_WIDTH;
       const atlasY = Math.floor(index / ATLAS_COLUMNS) * PATCH_HEIGHT;
-      for (let row = 0; row < PATCH_HEIGHT; row++)
+      for (let row = 0; row < PATCH_HEIGHT; row++) {
         for (let column = 0; column < PATCH_WIDTH; column++) {
           const x = origin.x + column;
           const y = origin.y + row;
           const colour = marks.get(y * STAGE_WIDTH + x) ?? underneath(x, y, frame);
-          if (colour) putPixel(pixels, atlasWidth, atlasX + column, atlasY + row, colour);
+          if (colour) {
+            putPixel(pixels, atlasWidth, atlasX + column, atlasY + row, colour);
+          }
         }
+      }
     });
     return bufferTexture(pixels, atlasWidth, atlasHeight).source;
   });
@@ -294,7 +374,9 @@ function packPatches(
 function marksOf(frame: number, paint: (plot: (x: number, y: number, colour: Rgb) => void, frame: number) => void) {
   const marks = new Map<number, Rgb>();
   paint((x, y, colour) => {
-    if (x >= 0 && x < STAGE_WIDTH) marks.set(y * STAGE_WIDTH + x, colour);
+    if (x >= 0 && x < STAGE_WIDTH) {
+      marks.set(y * STAGE_WIDTH + x, colour);
+    }
   }, frame);
   return marks;
 }
@@ -320,8 +402,14 @@ export function createRipples(ripples: readonly Ripple[]): { patches: readonly W
   );
   const release = () => {
     const sources = new Set(patches.flatMap((patch) => patch.frames.map((texture) => texture.source)));
-    for (const patch of patches) for (const texture of patch.frames) texture.destroy(false);
-    for (const source of sources) source.destroy();
+    for (const patch of patches) {
+      for (const texture of patch.frames) {
+        texture.destroy(false);
+      }
+    }
+    for (const source of sources) {
+      source.destroy();
+    }
   };
   return { patches, release };
 }

@@ -3,11 +3,13 @@
 // building job about 40 s (the live runs, docs/LIVE_GENERATION.md), and the game asks the way Game.tsx does: for the creature,
 // then for the building once the creature's question has settled, as each night begins and as it ends.
 import { describe, expect, test } from "bun:test";
+
 import { type Building, buildingSchema } from "@/game/building";
 import { createBuildingSea } from "@/game/building-sea";
 import type { Creature } from "@/game/creature";
 import { createSea } from "@/game/sea";
 import { nightLength } from "@/game/sim";
+
 import { readCreatureConfig } from "../creatures/config";
 import { nextBuilding, nextCreature, type ServiceDeps } from "../creatures/service";
 import { createMemoryStore } from "../creatures/store.memory";
@@ -78,7 +80,9 @@ function virtualClock() {
       for (;;) {
         timers.sort((first, second) => first.at - second.at);
         const next = timers[0];
-        if (!next || next.at > end) break;
+        if (!next || next.at > end) {
+          break;
+        }
         timers.shift();
         now = next.at;
         next.run();
@@ -88,6 +92,15 @@ function virtualClock() {
       await settle();
     },
   };
+}
+
+// the fourteen nights of an evening, played one after another
+async function playEvening(world: ReturnType<typeof evening>) {
+  const nights: Awaited<ReturnType<typeof world.night>>[] = [];
+  for (let number = 1; number <= 14; number++) {
+    nights.push(await world.night(number));
+  }
+  return nights;
 }
 
 function evening(withBuildings = true) {
@@ -112,7 +125,7 @@ function evening(withBuildings = true) {
       alive.add(jobId);
       mostAlive = Math.max(mostAlive, alive.size);
       clock.after(duration, () => {
-        void (async () => {
+        (async () => {
           const stamp = date().toISOString();
           if (kind === "creature") {
             const made = creature(counter * 10 + started.length, stamp);
@@ -126,7 +139,7 @@ function evening(withBuildings = true) {
             buildingWaits.get(jobId)?.(made);
           }
           alive.delete(jobId);
-        })();
+        })().catch(reportError);
       });
     },
   };
@@ -146,7 +159,9 @@ function evening(withBuildings = true) {
   // Game.tsx's askSea: the creature, then the building once the creature's question has settled
   const askSea = () => {
     creatures.ask(met);
-    if (withBuildings) buildings.ask(raised, creatures.settled());
+    if (withBuildings) {
+      buildings.ask(raised, creatures.settled());
+    }
   };
   askSea(); // the title, before night 1
 
@@ -162,8 +177,12 @@ function evening(withBuildings = true) {
       building: tonightBuilding.kind === "ready" ? tonightBuilding.building.id : null,
       creatureStep: tonightCreature.kind === "generating" ? tonightCreature.step : null,
     };
-    if (joined.creature) met.push(joined.creature);
-    if (joined.building) raised.push(joined.building.toString());
+    if (joined.creature) {
+      met.push(joined.creature);
+    }
+    if (joined.building) {
+      raised.push(joined.building.toString());
+    }
     askSea(); // the next night's, while this one is played
     await clock.advance(nightLength(number));
     askSea(); // dawn
@@ -176,19 +195,22 @@ function evening(withBuildings = true) {
 describe("an evening of short nights with a creature and a building to make", () => {
   test("never runs two jobs at once, whatever order they are asked in", async () => {
     const world = evening();
-    for (let number = 1; number <= 14; number++) await world.night(number);
+    for (let number = 1; number <= 14; number++) {
+      await world.night(number);
+    }
     expect(world.mostAlive()).toBe(1);
     // the jobs run one after another: each starts when the one before has ended
     for (const [index, job] of world.started.entries()) {
       const before = world.started[index - 1];
-      if (before) expect(job.at).toBeGreaterThanOrEqual(before.ends);
+      if (before) {
+        expect(job.at).toBeGreaterThanOrEqual(before.ends);
+      }
     }
   });
 
   test("the creature goes first and the building follows it, on the nights a one-minute job does not outlast", async () => {
     const world = evening();
-    const nights = [];
-    for (let number = 1; number <= 14; number++) nights.push(await world.night(number));
+    const nights = await playEvening(world);
     // nothing is ready for the first night: a night begins at 0 s, 28 + 25 s, ... and the first job takes 50 s
     expect(nights.slice(0, 1).every((joined) => joined.creature === null && joined.building === null)).toBe(true);
     // the creature's job was ready by night 2 (it began at 53 s), the building's by night 3
@@ -209,11 +231,9 @@ describe("an evening of short nights with a creature and a building to make", ()
   });
 
   test("what the buildings cost the creatures when nobody else has made any: the empty gallery, one visitor, the worst case", async () => {
-    const counts = [];
+    const counts: { withBuildings: boolean; creatures: number; buildings: number }[] = [];
     for (const withBuildings of [false, true]) {
-      const world = evening(withBuildings);
-      const nights = [];
-      for (let number = 1; number <= 14; number++) nights.push(await world.night(number));
+      const nights = await playEvening(evening(withBuildings));
       counts.push({
         withBuildings,
         creatures: nights.filter((joined) => joined.creature !== null).length,

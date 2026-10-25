@@ -3,6 +3,7 @@
 // deterministic builds in hero-animation.ts. `assets:hero` and `check:pixels` both read it from here, so they always agree.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { HERO_ANIMATIONS, type Sex } from "../src/scene/assets";
 import { type FrameBuild, heroFrameBuilds } from "./hero-animation";
 import { heroModelFrameBuilds } from "./hero-model";

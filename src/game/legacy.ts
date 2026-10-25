@@ -1,14 +1,24 @@
 // The part of a run that outlives the warden: oil, upgrades, the bloodline and the director's read of the player.
 // Saved to localStorage, so a reload keeps the line going.
-import { z } from "zod";
-import { SEXES, type Sex } from "../scene/assets";
-import { checkedDecision, type Director, directorFrom, type EngagementKind, rulesDirector } from "./director";
-import { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
-import { nextRandom } from "./random";
 
-// The levels live in levels.ts, which the sim fingerprint covers; this file holds the shop's wording and the line's
-// storage, which it does not, so a copy edit here does not retire recorded nights.
-export { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
+import { z } from "zod";
+
+import { band } from "../lib/band";
+import { SEXES, type Sex } from "../scene/assets";
+import { checkedDecision } from "./director";
+import {
+  type Director,
+  directorFrom,
+  type EngagementKind,
+  rulesDirector,
+  TIDE_MAX,
+  TIDE_MIN,
+} from "./director-decision";
+import { emptyLevels, type Levels, levelsOf, MAX_LEVEL, UPGRADE_IDS, type UpgradeId } from "./levels";
+import { nextRandom, UINT32_RANGE } from "./random";
+
+// The levels live in levels.ts, which the sim fingerprint covers (import them from there); this file holds the shop's
+// wording and the line's storage, which it does not, so a copy edit here does not retire recorded nights.
 
 // text: what a level does, with the numbers (the rules themselves are in rulesFor in sim.ts). wardenOnly: lost when the
 // warden falls, because it was only ever theirs. The blade and quiver read here as the son's sword and bow; the shop
@@ -25,7 +35,10 @@ export const UPGRADES: Record<UpgradeId, { label: string; text: string; wardenOn
   stride: { label: "Light sandals", text: "Walk 8% faster, on top of Swift." },
 };
 // What the next level costs, whichever upgrade: a night of oil buys about the first.
-export const LEVEL_COSTS = [12, 26, 45] as const;
+const FIRST_LEVEL_COST = 12;
+const SECOND_LEVEL_COST = 26;
+const THIRD_LEVEL_COST = 45;
+export const LEVEL_COSTS = [FIRST_LEVEL_COST, SECOND_LEVEL_COST, THIRD_LEVEL_COST] as const;
 // How many upgrades the shop offers before a night.
 export const OFFER_COUNT = 3;
 
@@ -82,8 +95,11 @@ function pick<Item>(items: readonly [Item, ...Item[]], roll: number): Item {
   return items[Math.floor(roll * items.length)] ?? items[0];
 }
 
+const EVEN_CHANCE = 0.5;
+const HEIR_CHOICES = 3;
+
 function randomHeir(random: () => number): Heir {
-  const sex: Sex = random() < 0.5 ? "male" : "female";
+  const sex: Sex = random() < EVEN_CHANCE ? "male" : "female";
   return { name: pick(NAMES[sex], random()), sex, trait: pick(TRAIT_IDS, random()) };
 }
 
@@ -91,10 +107,14 @@ function randomHeir(random: () => number): Heir {
 // chosen when the line's warden is one of them, so a namesake would count as chosen before the player picks anyone.
 export function heirChoices(random = Math.random, fallenName?: string): Heir[] {
   const choices: Heir[] = [];
-  while (choices.length < 3) {
+  while (choices.length < HEIR_CHOICES) {
     const heir = randomHeir(random);
-    if (heir.name === fallenName) continue;
-    if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) choices.push(heir);
+    if (heir.name === fallenName) {
+      continue;
+    }
+    if (!choices.some((other) => other.name === heir.name || other.trait === heir.trait)) {
+      choices.push(heir);
+    }
   }
   return choices;
 }
@@ -102,7 +122,9 @@ export function heirChoices(random = Math.random, fallenName?: string): Heir[] {
 // The same warden as the other sex: a name from that sex's list (the one at the same place, so choosing back restores
 // the name), the trait kept.
 export function heirAs(heir: Heir, sex: Sex): Heir {
-  if (heir.sex === sex) return heir;
+  if (heir.sex === sex) {
+    return heir;
+  }
   const place = NAMES[heir.sex].indexOf(heir.name);
   return { ...heir, sex, name: NAMES[sex][Math.max(0, place)] ?? NAMES[sex][0] };
 }
@@ -116,7 +138,9 @@ export function drawOffers(seed: number, levels: Levels): UpgradeId[] {
     const draw = nextRandom(state);
     state = draw.seed;
     const [picked] = pool.splice(Math.floor(draw.value * pool.length), 1);
-    if (picked) offers.push(picked);
+    if (picked) {
+      offers.push(picked);
+    }
   }
   return offers;
 }
@@ -124,17 +148,21 @@ export function drawOffers(seed: number, levels: Levels): UpgradeId[] {
 // Opens a new shop: the next seed, and the offers it draws. The next seed is a generator output, not its next state,
 // so consecutive shops draw from unrelated sequences.
 export function openShop(legacy: Legacy) {
-  legacy.offerSeed = Math.floor(nextRandom(legacy.offerSeed).value * 4294967296);
+  legacy.offerSeed = Math.floor(nextRandom(legacy.offerSeed).value * UINT32_RANGE);
   legacy.offers = drawOffers(legacy.offerSeed, legacy.levels);
 }
 
 // The warden falls: what was only theirs falls with them.
 export function endWarden(legacy: Legacy) {
-  for (const id of UPGRADE_IDS) if (UPGRADES[id].wardenOnly) legacy.levels[id] = 0;
+  for (const id of UPGRADE_IDS) {
+    if (UPGRADES[id].wardenOnly) {
+      legacy.levels[id] = 0;
+    }
+  }
 }
 
 // A new line starts from a seed (a fresh one unless the caller names it), which is the only chance in the shop.
-export function newLegacy(offerSeed = Math.floor(Math.random() * 4294967296)): Legacy {
+export function newLegacy(offerSeed = Math.floor(Math.random() * UINT32_RANGE)): Legacy {
   const levels = emptyLevels();
   return {
     generation: 1,
@@ -170,10 +198,13 @@ export function setRulesDirector(
 // that night's recording has already replaced it), and it is brought inside the bounds again. True when it was applied.
 export function applyDirector(legacy: Legacy, received: unknown): boolean {
   const waiting = legacy.director;
-  if (waiting.source !== "rules" || waiting.playId === undefined) return false;
-  const decision = checkedDecision(received, waiting.rulesTide, waiting.engagement);
-  if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight)
+  if (waiting.source !== "rules" || waiting.playId === undefined) {
     return false;
+  }
+  const decision = checkedDecision(received, waiting.rulesTide, waiting.engagement);
+  if (!decision || decision.playId !== waiting.playId || decision.decidedAfterNight !== waiting.decidedAfterNight) {
+    return false;
+  }
   legacy.tide = decision.tide;
   legacy.director = decision;
   return true;
@@ -182,7 +213,9 @@ export function applyDirector(legacy: Legacy, received: unknown): boolean {
 // The line meets a creature from the sea: its id joins the bestiary (once), and the oldest drop off past the limit.
 const BESTIARY_LIMIT = 500; // the most `seen` ids the gallery takes (nextCreatureRequestSchema)
 export function meet(legacy: Legacy, creatureId: string) {
-  if (legacy.bestiary.includes(creatureId)) return;
+  if (legacy.bestiary.includes(creatureId)) {
+    return;
+  }
   legacy.bestiary = [...legacy.bestiary, creatureId].slice(-BESTIARY_LIMIT);
 }
 
@@ -193,7 +226,9 @@ export function upgradeCost(legacy: Legacy, id: UpgradeId): number | null {
 // Buys one level of an upgrade on offer. It stays on offer, so a second level can follow in the same shop.
 export function buy(legacy: Legacy, id: UpgradeId): boolean {
   const cost = upgradeCost(legacy, id);
-  if (cost === null || legacy.oil < cost || !legacy.offers.includes(id)) return false;
+  if (cost === null || legacy.oil < cost || !legacy.offers.includes(id)) {
+    return false;
+  }
   legacy.oil -= cost;
   legacy.levels[id]++;
   return true;
@@ -206,7 +241,7 @@ const heirChoiceSchema = z.object({
   name: z.string(),
   night: z.number().int().min(1),
   outcome: z.enum(["dark", "fallen"]),
-  tideBefore: z.number().min(0.6).max(2),
+  tideBefore: z.number().min(TIDE_MIN).max(TIDE_MAX),
   heirs: z.array(heirSchema).min(1),
 });
 const field = <Schema extends z.ZodType>(schema: Schema) => schema.optional().catch(undefined);
@@ -219,7 +254,7 @@ const storedLegacy = z.object({
   levels: field(z.unknown()),
   offerSeed: field(z.number().int()),
   offers: field(z.array(z.enum(UPGRADE_IDS))),
-  tide: field(z.number().min(0.6).max(2)),
+  tide: field(z.number().min(TIDE_MIN).max(TIDE_MAX)),
   director: field(z.unknown()),
   bestiary: field(z.array(z.string())),
   fallen: field(z.array(z.object({ name: z.string(), night: z.number(), cause: z.string() }))),
@@ -253,7 +288,9 @@ const KEY = "lampwarden:legacy:v1";
 export function loadLegacy(): Legacy {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-    if (raw) return parseLegacy(JSON.parse(raw));
+    if (raw) {
+      return parseLegacy(JSON.parse(raw));
+    }
   } catch {
     /* corrupt or unavailable storage: start a new line */
   }
@@ -274,12 +311,25 @@ export function clearLegacy() {
   }
 }
 
+// 1st, 2nd, 3rd, 4th, 11th to 13th, 21st, and so on: the suffix goes by the last digit, except in the teens
 const ORDINAL_SUFFIXES = ["th", "st", "nd", "rd"];
+const HUNDRED = 100;
+const TWENTY = 20;
 export function ordinal(value: number) {
-  const lastTwoDigits = value % 100;
-  return value + (ORDINAL_SUFFIXES[(lastTwoDigits - 20) % 10] || ORDINAL_SUFFIXES[lastTwoDigits] || "th");
+  const lastTwoDigits = value % HUNDRED;
+  return value + (ORDINAL_SUFFIXES[(lastTwoDigits - TWENTY) % 10] || ORDINAL_SUFFIXES[lastTwoDigits] || "th");
 }
 
+// the tide below which the sea reads as each word; at 1.5 and above it is raging
+const TIDE_LABELS = { calm: 0.85, restless: 1.15, rising: 1.5 };
 export function tideLabel(tide: number) {
-  return tide < 0.85 ? "calm" : tide < 1.15 ? "restless" : tide < 1.5 ? "rising" : "raging";
+  return band(
+    tide,
+    [
+      [TIDE_LABELS.calm, "calm"],
+      [TIDE_LABELS.restless, "restless"],
+      [TIDE_LABELS.rising, "rising"],
+    ],
+    "raging",
+  );
 }

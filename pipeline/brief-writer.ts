@@ -3,6 +3,7 @@
 // creature brief writer (creature-brief.ts) and the building one (building-brief.ts) differ in the prompt, the contract,
 // the Mubit task they are logged under and the message they send; this is the rest.
 import type { z } from "zod";
+
 import type { CallRecord, ModelCall, MubitClient } from "./mubit";
 
 const BRIEF_MAX_TOKENS = 1500;
@@ -17,7 +18,9 @@ const normalizedName = (name: string) =>
 /** The first `{ ... }` span of a reply as a brief the contract accepts, or null. Fences and chatter around the JSON are tolerated. */
 export function parseBrief<Brief>(schema: z.ZodType<Brief>, text: string | null): Brief | null {
   const span = /\{[\s\S]*\}/.exec(text ?? "")?.[0];
-  if (!span) return null;
+  if (!span) {
+    return null;
+  }
   try {
     const parsed = schema.safeParse(JSON.parse(span));
     return parsed.success ? parsed.data : null;
@@ -71,7 +74,9 @@ export async function writeValidatedBrief<Brief>(
     }
     failure = "invalid";
     const brief = parseBrief(request.schema, call.text);
-    if (brief && !taken.has(normalizedName(request.nameOf(brief)))) return { ok: true, brief };
+    if (brief && !taken.has(normalizedName(request.nameOf(brief)))) {
+      return { ok: true, brief };
+    }
   }
   return { ok: false, reason: failure };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { PORTRAIT, portraitShift, solidColumns } from "./portrait";
 
 const SIZE = 128;
@@ -7,8 +8,14 @@ function frame(first: number, last: number, shadowEnd: number) {
   const pixels = new Uint8Array(SIZE * SIZE * 4);
   const set = (column: number, row: number, alpha: number) =>
     pixels.set([90, 60, 40, alpha], (row * SIZE + column) * 4);
-  for (let row = 40; row < 100; row++) for (let column = first; column <= last; column++) set(column, row, 255);
-  for (let column = last + 1; column <= shadowEnd; column++) set(column, 98, 120);
+  for (let row = 40; row < 100; row++) {
+    for (let column = first; column <= last; column++) {
+      set(column, row, 255);
+    }
+  }
+  for (let column = last + 1; column <= shadowEnd; column++) {
+    set(column, 98, 120);
+  }
   return pixels;
 }
 
@@ -31,8 +38,9 @@ describe("portraitShift", () => {
       [42, 86],
       [48, 81],
       [10, 33],
-    ] as const)
+    ] as const) {
       expect(Math.abs(middleAfter(first, last, last + 25) - PORTRAIT.width / 2)).toBeLessThanOrEqual(0.5);
+    }
   });
 
   test("centres the frame itself when it has no solid body", () => {

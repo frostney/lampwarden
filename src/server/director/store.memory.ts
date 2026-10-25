@@ -28,7 +28,9 @@ export function createMemoryStore(): MemoryDirectorStore {
       calls.push({ visitor, at: calledAt });
     },
     async claim(key) {
-      if (claimed.has(key)) return false;
+      if (claimed.has(key)) {
+        return false;
+      }
       claimed.add(key);
       return true;
     },

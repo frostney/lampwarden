@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { atlasCellPixels } from "../../pipeline/hero-atlas";
 import { monsterFrameBuilds } from "../../pipeline/monster-source";
 import { decodePng } from "../../tools/logo/png";
 import { CREATURE_DIRECTIONS, creatureAtlasLayout } from "../game/creature-frames";
 import { MONSTER } from "../game/sim";
+import { compareCodeUnits } from "../lib/compare";
 import { isSheetKind, monsterAtlasPath, SHEET_CANVASES, SHEET_FRAMES, SHEET_KINDS } from "./monster-sheets";
 
 const publicDirectory = join(import.meta.dir, "../../public");
@@ -13,7 +15,7 @@ const opaque = (pixels: Uint8Array) => pixels.filter((value, index) => index % 4
 
 describe("the hand-made monsters' frames", () => {
   test("are the monsters the sim has", () => {
-    expect(Object.keys(MONSTER).sort()).toEqual([...SHEET_KINDS].sort());
+    expect(Object.keys(MONSTER).sort(compareCodeUnits)).toEqual([...SHEET_KINDS].sort(compareCodeUnits));
     expect(SHEET_KINDS.every(isSheetKind)).toBe(true);
     expect(isSheetKind("creature")).toBe(false);
   });
@@ -29,7 +31,9 @@ describe("the hand-made monsters' frames", () => {
         expect([atlas.width, atlas.height]).toEqual([640, 1920]);
         expect([layout.width, layout.height]).toEqual([640, 1920]);
         expect(layout.cells).toHaveLength(75);
-        for (const cell of layout.cells) expect(opaque(atlasCellPixels(atlas, cell.x, cell.y))).toBeGreaterThan(300);
+        for (const cell of layout.cells) {
+          expect(opaque(atlasCellPixels(atlas, cell.x, cell.y))).toBeGreaterThan(300);
+        }
       });
 
       test("looks different from every direction, and walks", () => {

@@ -3,6 +3,7 @@
 // is derived from the loaded sprite once, in code, and cached; nothing is blurred or blended per pixel at draw time. A
 // lamp's sprite is split the same way, its painted shadow becoming a texture that lies on the ground.
 import type { Texture } from "pixi.js";
+
 import { bufferTexture, type Rgb } from "./paint";
 
 export const isCharacterKey = (key: string) =>
@@ -30,7 +31,9 @@ const RIM_MIX = 0.72;
 export function withoutShadowPixels(pixels: ArrayLike<number>): Uint8Array {
   const clean = new Uint8Array(pixels.length);
   for (let index = 0; index < pixels.length; index += 4) {
-    if ((pixels[index + 3] ?? 0) < OPAQUE) continue;
+    if ((pixels[index + 3] ?? 0) < OPAQUE) {
+      continue;
+    }
     clean[index] = pixels[index] ?? 0;
     clean[index + 1] = pixels[index + 1] ?? 0;
     clean[index + 2] = pixels[index + 2] ?? 0;
@@ -45,9 +48,12 @@ export function paintedShadowPixels(pixels: ArrayLike<number>): Uint8Array {
   const shadow = new Uint8Array(pixels.length);
   for (let index = 0; index < pixels.length; index += 4) {
     const alpha = pixels[index + 3] ?? 0;
-    if (alpha === 0 || alpha >= OPAQUE) continue;
-    for (let component = 0; component < 3; component++)
+    if (alpha === 0 || alpha >= OPAQUE) {
+      continue;
+    }
+    for (let component = 0; component < 3; component++) {
       shadow[index + component] = Math.round(((pixels[index + component] ?? 0) * alpha) / 255);
+    }
     shadow[index + 3] = alpha;
   }
   return shadow;
@@ -59,16 +65,20 @@ export function rimPixels(pixels: ArrayLike<number>, width: number, height: numb
   const rim = new Uint8Array(width * height * 4);
   const solid = (column: number, row: number) =>
     column >= 0 && row >= 0 && column < width && row < height && (pixels[(row * width + column) * 4 + 3] ?? 0) > 0;
-  for (let row = 0; row < height; row++)
+  for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
-      if (!solid(column, row) || solid(column + stepX, row + stepY)) continue;
+      if (!solid(column, row) || solid(column + stepX, row + stepY)) {
+        continue;
+      }
       const index = (row * width + column) * 4;
-      for (let component = 0; component < 3; component++)
+      for (let component = 0; component < 3; component++) {
         rim[index + component] = Math.round(
           (pixels[index + component] ?? 0) * (1 - RIM_MIX) + (RIM_LIGHT[component] ?? 255) * RIM_MIX,
         );
+      }
       rim[index + 3] = 255;
     }
+  }
   return rim;
 }
 
@@ -82,12 +92,16 @@ const rims = new WeakMap<Texture, (Texture | undefined)[]>();
 
 function readPixels(texture: Texture): { pixels: Uint8ClampedArray; width: number; height: number } | null {
   const { resource } = texture.source;
-  if (!(resource instanceof ImageBitmap) && !(resource instanceof HTMLImageElement)) return null;
+  if (!(resource instanceof ImageBitmap) && !(resource instanceof HTMLImageElement)) {
+    return null;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = texture.source.pixelWidth;
   canvas.height = texture.source.pixelHeight;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return null;
+  if (!context) {
+    return null;
+  }
   context.drawImage(resource, 0, 0);
   const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
   return { pixels: data, width: canvas.width, height: canvas.height };
@@ -106,7 +120,9 @@ function characterTexture(pixels: Uint8Array, width: number, height: number, lab
 // the pixels, which leaves the sprite as it was). The pixels are kept for the rim.
 export function withoutPaintedShadow(texture: Texture): Texture | null {
   const read = readPixels(texture);
-  if (!read) return null;
+  if (!read) {
+    return null;
+  }
   return characterTexture(withoutShadowPixels(read.pixels), read.width, read.height, texture.source.label);
 }
 
@@ -115,7 +131,9 @@ export function withoutPaintedShadow(texture: Texture): Texture | null {
 // the ground under them (null when the browser will not give up the pixels, which leaves the sprite as it was).
 export function splitPaintedShadow(texture: Texture): { body: Texture; shadow: Texture } | null {
   const read = readPixels(texture);
-  if (!read) return null;
+  if (!read) {
+    return null;
+  }
   const body = bufferTexture(withoutShadowPixels(read.pixels), read.width, read.height);
   body.source.label = texture.source.label;
   return { body, shadow: bufferTexture(paintedShadowPixels(read.pixels), read.width, read.height) };
@@ -129,7 +147,9 @@ export function cutCharacterFrames(
   cells: readonly { key: string; label: string; x: number; y: number }[],
 ): Map<string, Texture> | null {
   const read = readPixels(atlas);
-  if (!read) return null;
+  if (!read) {
+    return null;
+  }
   const frames = new Map<string, Texture>();
   for (const cell of cells) {
     const pixels = new Uint8Array(size * size * 4);
@@ -145,7 +165,9 @@ export function cutCharacterFrames(
 // The rim for the edge of a (shadowless) sprite that faces `octant`, a texture the size of the sprite to draw over it.
 export function rimTexture(texture: Texture, octant: number): Texture | null {
   const sprite = spritePixels.get(texture);
-  if (!sprite) return null;
+  if (!sprite) {
+    return null;
+  }
   let byOctant = rims.get(texture);
   if (!byOctant) {
     byOctant = [];

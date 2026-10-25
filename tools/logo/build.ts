@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { appleTouchIcon, favicon16, favicon32, logo, manifestIcon, socialCard } from "./compose";
 import { rasteriseTexts } from "./glyphs";
 import { type PixelImage, scaleImage, toSvg } from "./image";
@@ -30,7 +31,9 @@ async function buildAssets(): Promise<Asset[]> {
       pixelSize: 8,
     },
   ]);
-  if (!wordmark || !tagline || extra.length > 0) throw new Error("expected exactly the wordmark and the tagline");
+  if (!wordmark || !tagline || extra.length > 0) {
+    throw new Error("expected exactly the wordmark and the tagline");
+  }
   const master = logo(wordmark, true);
   const smallFavicon = favicon16();
   const icon = favicon32();
@@ -60,8 +63,12 @@ const samePixels = (first: PixelImage, second: PixelImage): boolean =>
 /** How the committed file compares with the fresh build, or null when it does not match. */
 function compare(asset: Asset): string | null {
   const committed = readFileSync(join(repositoryRoot, asset.path));
-  if (committed.equals(asset.bytes)) return "identical bytes";
-  if (asset.frames.length === 0) return null;
+  if (committed.equals(asset.bytes)) {
+    return "identical bytes";
+  }
+  if (asset.frames.length === 0) {
+    return null;
+  }
   const committedFrames = asset.path.endsWith(".ico") ? decodeIco(committed) : [decodePng(committed)];
   const pixelsMatch =
     committedFrames.length === asset.frames.length &&
@@ -77,7 +84,9 @@ if (process.argv.includes("--check")) {
   let mismatches = 0;
   for (const asset of assets) {
     const result = compare(asset);
-    if (result === null) mismatches++;
+    if (result === null) {
+      mismatches++;
+    }
     console.log(`${asset.path}: ${result ?? "DIFFERS"}`);
   }
   if (mismatches > 0) {

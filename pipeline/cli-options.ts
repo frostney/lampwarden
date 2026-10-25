@@ -11,13 +11,16 @@ export function countOption(
   fallback: number,
   maximum = Number.MAX_SAFE_INTEGER,
 ): number {
-  if (value === undefined) return fallback;
+  if (value === undefined) {
+    return fallback;
+  }
   const count = /^\d+$/.test(value) ? Number(value) : Number.NaN;
-  if (!(count >= 1 && count <= maximum))
+  if (!(count >= 1 && count <= maximum)) {
     throw new Error(
       maximum === Number.MAX_SAFE_INTEGER
         ? `--${name} takes a whole number of at least 1, not "${value}"`
         : `--${name} takes a whole number from 1 to ${maximum}, not "${value}"`,
     );
+  }
   return count;
 }

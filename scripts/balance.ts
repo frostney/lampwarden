@@ -5,18 +5,18 @@
 // --director: only the live director's section, with stub decisions in place of the model (see directorReport).
 import { consumePresses, liveInput, newControls } from "../src/game/controls";
 import { ARCHETYPES, type Modifiers } from "../src/game/creature";
-import { clampProposal, type Director, EVEN_MIX, type Mix } from "../src/game/director";
+import { clampProposal } from "../src/game/director";
+import { type Director, EVEN_MIX, type Mix } from "../src/game/director-decision";
 import {
   applyDirector,
   buy,
   type Legacy,
-  MAX_LEVEL,
   newLegacy,
   openShop,
   setRulesDirector,
-  UPGRADE_IDS,
   upgradeCost,
 } from "../src/game/legacy";
+import { MAX_LEVEL, UPGRADE_IDS } from "../src/game/levels";
 import { STEP } from "../src/game/replay";
 import {
   bodyHeight,
@@ -36,9 +36,24 @@ import {
   type State,
   step,
 } from "../src/game/sim";
+import { PERCENT } from "../src/lib/units";
 import { humanBot } from "./human-bot";
 
-function bot(state: State): Input {
+// night n's seeds are n times this plus the run, the same on every run of the script, so two builds play the same nights
+const SEEDS_PER_NIGHT = 100_000;
+const seedFor = (night: number, run: number) => night * SEEDS_PER_NIGHT + run;
+// a share as a whole percentage, as the report prints it
+const percentOf = (count: number, total: number) => ((PERCENT * count) / total).toFixed(0);
+// widths of the report's columns
+const COLUMN = { policy: 6, shortPolicy: 5, label: 18, creatureLabel: 17, percent: 3 };
+// The bot strikes a monster within its reach (less a margin), relights a dark lamp when nothing is within
+// `relightWhenClear`, shoots a threat farther than `shootBeyond`, and walks while its goal is over 10 px across or
+// `stillY` down.
+const BOT = { reachMargin: 8, relightWhenClear: 120, shootBeyond: 180, stillY: 5 };
+const DEFAULT_RUNS = 200;
+
+// the monster nearest the warden, and how far it is (infinitely far when there is none)
+function nearestMonster(state: State): { nearest: Monster | null; nearestDistance: number } {
   const hero = state.hero;
   let nearest: Monster | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
@@ -49,7 +64,30 @@ function bot(state: State): Input {
       nearest = monster;
     }
   }
-  if (nearest && nearestDistance < state.rules.meleeReach - 8) {
+  return { nearest, nearestDistance };
+}
+
+// the threat: the monster closest to a lit lamp
+function threatOf(state: State): Monster | null {
+  let threat: Monster | null = null;
+  let threatDistance = Number.POSITIVE_INFINITY;
+  const litLamps = state.lamps.filter((lamp) => lamp.lit);
+  for (const monster of state.monsters) {
+    for (const lamp of litLamps) {
+      const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
+      if (distance < threatDistance) {
+        threatDistance = distance;
+        threat = monster;
+      }
+    }
+  }
+  return threat;
+}
+
+function bot(state: State): Input {
+  const hero = state.hero;
+  const { nearest, nearestDistance } = nearestMonster(state);
+  if (nearest && nearestDistance < state.rules.meleeReach - BOT.reachMargin) {
     // swing towards the monster: a direction held with the strike turns the warden to face it
     const towardX = nearest.x - hero.x;
     const towardY = (nearest.y - hero.y) * 2;
@@ -58,28 +96,20 @@ function bot(state: State): Input {
   const dark = state.lamps
     .filter((lamp) => !lamp.lit)
     .sort((first, second) => ground(first.x, first.y, hero.x, hero.y) - ground(second.x, second.y, hero.x, hero.y))[0];
-  // threat: the monster closest to a lit lamp
-  let threat: Monster | null = null;
-  let threatDistance = Number.POSITIVE_INFINITY;
-  for (const monster of state.monsters)
-    for (const lamp of state.lamps)
-      if (lamp.lit) {
-        const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
-        if (distance < threatDistance) {
-          threatDistance = distance;
-          threat = monster;
-        }
-      }
-  const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
-  if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180)
+  const threat = threatOf(state);
+  const goal = dark && nearestDistance > BOT.relightWhenClear ? { x: dark.x, y: dark.y } : (threat ?? nearest);
+  if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > BOT.shootBeyond) {
     return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - bodyHeight(state, threat.kind) } };
-  if (!goal) return NO_INPUT;
+  }
+  if (!goal) {
+    return NO_INPUT;
+  }
   const towardX = goal.x - hero.x;
   const towardY = goal.y - hero.y;
   return {
     ...NO_INPUT,
     moveX: Math.abs(towardX) > 10 ? Math.sign(towardX) : 0,
-    moveY: Math.abs(towardY) > 5 ? Math.sign(towardY) : 0,
+    moveY: Math.abs(towardY) > BOT.stillY ? Math.sign(towardY) : 0,
   };
 }
 
@@ -87,6 +117,12 @@ function bot(state: State): Input {
 // "human": the human-paced bot (scripts/human-bot.ts), which works the controls like live play
 type Policy = "idle" | "bot" | "novice" | "human";
 const REACTION: Record<Exclude<Policy, "human">, number> = { idle: 0.15, bot: 0.15, novice: 0.45 };
+
+// What a scripted policy does when it next thinks: ~150 ms reaction time (the novice's is 450 ms, and he never shoots).
+function scriptedInput(policy: Exclude<Policy, "human">, state: State): Input {
+  const input = policy === "idle" ? NO_INPUT : bot(state);
+  return policy === "novice" ? { ...input, ranged: false, aim: null } : input;
+}
 
 function playNight(legacy: Legacy, policy: Policy, seed: number, creature: NightCreature | null = null) {
   const state = newNight(legacy, seed, creature);
@@ -102,22 +138,26 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
     } else if (policy !== "human") {
       think -= STEP;
       if (think <= 0) {
-        // ~150 ms reaction time (the novice's is 450 ms, and he never shoots)
-        input = policy === "idle" ? NO_INPUT : bot(state);
-        if (policy === "novice") input = { ...input, ranged: false, aim: null };
+        input = scriptedInput(policy, state);
         think = REACTION[policy];
       }
     }
     step(state, STEP, input);
-    if (creatureAt === null && state.monsters.some((monster) => monster.kind === "creature"))
+    if (creatureAt === null && state.monsters.some((monster) => monster.kind === "creature")) {
       creatureAt = state.elapsed;
+    }
     if (input.melee || input.ranged) {
       consumePresses(controls);
       input = { ...input, melee: false, ranged: false };
     }
   }
+  return nightResult(state, state.outcome, legacy, creatureAt);
+}
+
+// what a played night comes to; `creatureAt` is the second its creature first rose from the sea, if it did
+function nightResult(state: State, outcome: Outcome, legacy: Legacy, creatureAt: number | null) {
   return {
-    outcome: state.outcome,
+    outcome,
     time: state.elapsed,
     lit: litCount(state),
     kills: state.stats.kills,
@@ -168,9 +208,19 @@ function stubDecision(stub: Stub, rulesTide: number, endedNight: number): Direct
     endedNight,
     "2026-10-24-00-00-00-balance",
   );
-  if (!decision) throw new Error("stub decision rejected");
+  if (!decision) {
+    throw new Error("stub decision rejected");
+  }
   return decision;
 }
+
+// the nights the director report plays, each at the tide the rules would have reached by then
+const DIRECTOR_SCENARIOS = [
+  { night: 1, tide: 1 },
+  { night: 2, tide: 1 },
+  { night: 3, tide: 1.1 },
+  { night: 5, tide: 1.2 },
+] as const;
 
 function directorReport(runs: number) {
   console.log(
@@ -180,12 +230,7 @@ function directorReport(runs: number) {
     "novice = 450 ms reaction, melee only; human = the human-paced bot; bot = 150 ms reaction, bow and sword\n",
   );
   for (const policy of ["novice", "human", "bot"] as const) {
-    for (const [night, tide] of [
-      [1, 1],
-      [2, 1],
-      [3, 1.1],
-      [5, 1.2],
-    ] as const) {
+    for (const { night, tide } of DIRECTOR_SCENARIOS) {
       const variants: [string, Stub | null][] = [
         ["rules", null],
         ...STUBS.map((stub): [string, Stub] => [stub.label, stub]),
@@ -195,18 +240,20 @@ function directorReport(runs: number) {
           const legacy = newLegacy(run + 1);
           legacy.night = night;
           setRulesDirector(legacy, tide, night - 1, "2026-10-24-00-00-00-balance");
-          if (stub && !applyDirector(legacy, stubDecision(stub, tide, night - 1))) throw new Error("stub not applied");
-          return playNight(legacy, policy, night * 100_000 + run);
+          if (stub && !applyDirector(legacy, stubDecision(stub, tide, night - 1))) {
+            throw new Error("stub not applied");
+          }
+          return playNight(legacy, policy, seedFor(night, run));
         });
         const percent = (outcome: string) =>
-          ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0).padStart(3);
+          percentOf(results.filter((result) => result.outcome === outcome).length, runs).padStart(COLUMN.percent);
         const average = (measure: (result: (typeof results)[number]) => number) =>
           (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
         const killsPerMinute =
           (60 * results.reduce((total, result) => total + result.kills, 0)) /
           results.reduce((total, result) => total + result.time, 0);
         console.log(
-          `${policy.padEnd(6)} night ${night} (rules' tide ${tide}) ${label.padEnd(18)}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | lamps lit ${average((result) => result.lit)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}`,
+          `${policy.padEnd(COLUMN.policy)} night ${night} (rules' tide ${tide}) ${label.padEnd(COLUMN.label)}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | lamps lit ${average((result) => result.lit)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}`,
         );
       }
       console.log("");
@@ -216,36 +263,37 @@ function directorReport(runs: number) {
 
 const ONLY = ["all", "idle", "bot", "human", "creatures"];
 const words = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
-const runs = Number(words.find((argument) => /^[0-9]+$/.test(argument)) || 200);
+const runs = Number(words.find((argument) => /^[0-9]+$/.test(argument)) || DEFAULT_RUNS);
 const only = words.find((argument) => !/^[0-9]+$/.test(argument)) ?? "all";
-if (!ONLY.includes(only)) throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
+if (!ONLY.includes(only)) {
+  throw new Error(`usage: bun scripts/balance.ts [runs] [${ONLY.join("|")}], not "${only}"`);
+}
 const POLICIES = (["idle", "bot", "human"] as const).filter((policy) => only === "all" || only === policy);
 if (process.argv.includes("--director")) {
   directorReport(runs);
   process.exit(0);
 }
 const SCENARIOS = [
-  [1, 1],
-  [2, 1],
-  [3, 1.1],
-  [4, 1.1],
-  [5, 1.2],
-  [6, 1.2],
-  [7, 1.4],
+  { night: 1, tide: 1 },
+  { night: 2, tide: 1 },
+  { night: 3, tide: 1.1 },
+  { night: 4, tide: 1.1 },
+  { night: 5, tide: 1.2 },
+  { night: 6, tide: 1.2 },
+  { night: 7, tide: 1.4 },
 ] as const;
 for (const policy of POLICIES) {
-  for (const [night, tide] of SCENARIOS) {
+  for (const { night, tide } of SCENARIOS) {
     // the same seeds on every run, so a change to the sim shows against the same nights
-    const results = Array.from({ length: runs }, (_, run) => play(night, tide, policy, night * 100_000 + run));
-    const percent = (outcome: string) =>
-      ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0);
+    const results = Array.from({ length: runs }, (_, run) => play(night, tide, policy, seedFor(night, run)));
+    const percent = (outcome: string) => percentOf(results.filter((result) => result.outcome === outcome).length, runs);
     const average = (measure: (result: (typeof results)[number]) => number) =>
       (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
     const sum = (measure: (result: (typeof results)[number]) => number) =>
       results.reduce((total, result) => total + measure(result), 0);
     const killsPerMinute = (60 * sum((result) => result.kills)) / sum((result) => result.time);
     console.log(
-      `${policy.padEnd(5)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, lamps lost ${average((result) => result.lampsLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
+      `${policy.padEnd(COLUMN.shortPolicy)} night ${night} tide ${tide}: dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}%  | ends at ${average((result) => result.time)}s, lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((result) => result.healthLost)}, lamps lost ${average((result) => result.lampsLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
     );
   }
 }
@@ -277,7 +325,7 @@ const campaignOf = (policy: Policy) =>
     for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
       legacy.night = night;
       const tide = legacy.tide;
-      const result = playNight(legacy, policy, night * 100_000 + run);
+      const result = playNight(legacy, policy, seedFor(night, run));
       const row: Row = {
         outcome: result.outcome,
         time: result.time,
@@ -291,7 +339,9 @@ const campaignOf = (policy: Policy) =>
         highest: highestLevel(legacy),
       };
       rows.push(row);
-      if (result.outcome !== "dawn") break;
+      if (result.outcome !== "dawn") {
+        break;
+      }
       legacy.oil += result.income;
       legacy.tide = result.nextTide;
       openShop(legacy);
@@ -301,7 +351,9 @@ const campaignOf = (policy: Policy) =>
           .map((id) => ({ id, cost: upgradeCost(legacy, id) }))
           .filter((offer) => offer.cost !== null && offer.cost <= legacy.oil)
           .sort((first, second) => (first.cost ?? 0) - (second.cost ?? 0))[0];
-        if (!affordable || !buy(legacy, affordable.id)) break;
+        if (!affordable || !buy(legacy, affordable.id)) {
+          break;
+        }
       }
       row.bought = levelsOwned(legacy) - owned;
       row.ownedAfter = levelsOwned(legacy);
@@ -310,27 +362,29 @@ const campaignOf = (policy: Policy) =>
     return rows;
   });
 for (const policy of POLICIES) {
-  if (policy === "idle") continue;
+  if (policy === "idle") {
+    continue;
+  }
   const campaigns = campaignOf(policy);
   console.log(
     `\ncampaign (${policy} warden holds nights in a row, buys the cheapest affordable level; ${runs} lines; outcome rates are of the lines that reach the night):`,
   );
   for (let night = 1; night <= CAMPAIGN_NIGHTS; night++) {
     const rows = campaigns.flatMap((line) => line[night - 1] ?? []);
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      break;
+    }
     const total = (measure: (row: Row) => number) => rows.reduce((sum, row) => sum + measure(row), 0);
     const average = (measure: (row: Row) => number) => (total(measure) / rows.length).toFixed(1);
     const percent = (outcome: Outcome) =>
-      ((100 * rows.filter((row) => row.outcome === outcome).length) / rows.length).toFixed(0).padStart(3);
+      percentOf(rows.filter((row) => row.outcome === outcome).length, rows.length).padStart(COLUMN.percent);
     const killsPerMinute = (60 * total((row) => row.kills)) / total((row) => row.time);
     const held = rows.filter((row) => row.outcome === "dawn");
     const mean = (measure: (row: Row) => number) =>
       held.length ? (held.reduce((sum, row) => sum + measure(row), 0) / held.length).toFixed(1) : "-";
-    const atTop = held.length
-      ? ((100 * held.filter((row) => row.highest >= MAX_LEVEL).length) / held.length).toFixed(0)
-      : "-";
+    const atTop = held.length ? percentOf(held.filter((row) => row.highest >= MAX_LEVEL).length, held.length) : "-";
     console.log(
-      `  night ${night}: reached by ${((100 * rows.length) / runs).toFixed(0).padStart(3)}% (${String(rows.length).padStart(3)}), tide ${average((row) => row.tide)} | dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}% | kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((row) => row.healthLost)}, lamps lost ${average((row) => row.lampsLost)} | income ${average((row) => row.income)}, levels bought ${mean((row) => row.bought)}, levels owned ${mean((row) => row.ownedAfter)}, an upgrade at top level in ${atTop}%`,
+      `  night ${night}: reached by ${percentOf(rows.length, runs).padStart(COLUMN.percent)}% (${String(rows.length).padStart(COLUMN.percent)}), tide ${average((row) => row.tide)} | dawn ${percent("dawn")}%  dark ${percent("dark")}%  fallen ${percent("fallen")}% | kills/min ${killsPerMinute.toFixed(1)}, health lost ${average((row) => row.healthLost)}, lamps lost ${average((row) => row.lampsLost)} | income ${average((row) => row.income)}, levels bought ${mean((row) => row.bought)}, levels owned ${mean((row) => row.ownedAfter)}, an upgrade at top level in ${atTop}%`,
     );
   }
 }
@@ -342,8 +396,8 @@ const NEUTRAL: Modifiers = { speed: 0, toughness: 0, bite: 0, snuffing: 0 };
 const STRONGEST: Modifiers = { speed: 1, toughness: 1, bite: 1, snuffing: 1 };
 const WEAKEST: Modifiers = { speed: -1, toughness: -1, bite: -1, snuffing: -1 };
 const CREATURE_SCENARIOS = [
-  [3, 1.1],
-  [5, 1.2],
+  { night: 3, tide: 1.1 },
+  { night: 5, tide: 1.2 },
 ] as const;
 const MODIFIER_SETS = [
   ["neutral", NEUTRAL],
@@ -351,24 +405,26 @@ const MODIFIER_SETS = [
   ["weakest", WEAKEST],
 ] as const;
 const withCreatures = only === "all" || only === "creatures";
-if (withCreatures)
+if (withCreatures) {
   console.log(`\nwith a creature from the sea (bot warden, ${runs} nights each, the same seeds as above):`);
-for (const [night, tide] of withCreatures ? CREATURE_SCENARIOS : []) {
+}
+for (const { night, tide } of withCreatures ? CREATURE_SCENARIOS : []) {
   const variants: [string, NightCreature | null][] = [["no creature", null]];
-  for (const archetype of ARCHETYPES)
-    for (const [label, modifiers] of MODIFIER_SETS)
+  for (const archetype of ARCHETYPES) {
+    for (const [label, modifiers] of MODIFIER_SETS) {
       variants.push([
         `${archetype} ${label}`,
         nightCreature({ id: `balance-${archetype}-${label}`, archetype, modifiers, anchorY: 0.8 }),
       ]);
+    }
+  }
   for (const [label, creature] of variants) {
-    const results = Array.from({ length: runs }, (_, run) => play(night, tide, "bot", night * 100_000 + run, creature));
-    const percent = (outcome: string) =>
-      ((100 * results.filter((result) => result.outcome === outcome).length) / runs).toFixed(0);
+    const results = Array.from({ length: runs }, (_, run) => play(night, tide, "bot", seedFor(night, run), creature));
+    const percent = (outcome: string) => percentOf(results.filter((result) => result.outcome === outcome).length, runs);
     const average = (measure: (result: (typeof results)[number]) => number) =>
       (results.reduce((total, result) => total + measure(result), 0) / runs).toFixed(1);
     console.log(
-      `  night ${night} tide ${tide} ${label.padEnd(17)}: dawn ${percent("dawn").padStart(3)}%  dark ${percent("dark").padStart(3)}%  fallen ${percent("fallen").padStart(3)}%  | lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
+      `  night ${night} tide ${tide} ${label.padEnd(COLUMN.creatureLabel)}: dawn ${percent("dawn").padStart(COLUMN.percent)}%  dark ${percent("dark").padStart(COLUMN.percent)}%  fallen ${percent("fallen").padStart(COLUMN.percent)}%  | lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
     );
   }
 }
@@ -383,16 +439,15 @@ if (withCreatures) {
     modifiers: NEUTRAL,
     anchorY: 0.8,
   });
-  for (const policy of ["bot", "human"] as const)
-    for (const [night, tide] of SCENARIOS) {
-      const results = Array.from({ length: runs }, (_, run) =>
-        play(night, tide, policy, night * 100_000 + run, skulker),
-      );
+  for (const policy of ["bot", "human"] as const) {
+    for (const { night, tide } of SCENARIOS) {
+      const results = Array.from({ length: runs }, (_, run) => play(night, tide, policy, seedFor(night, run), skulker));
       const came = results.flatMap((result) => (result.creatureAt === null ? [] : [result.creatureAt]));
       const first = came.length ? (came.reduce((total, second) => total + second, 0) / came.length).toFixed(1) : "-";
-      const dawn = ((100 * results.filter((result) => result.outcome === "dawn").length) / runs).toFixed(0);
+      const dawn = percentOf(results.filter((result) => result.outcome === "dawn").length, runs);
       console.log(
-        `  ${policy.padEnd(5)} night ${night} (${nightLength(night)} s, may start at ${creatureFrom(nightLength(night)).toFixed(1)} s): the creature comes in ${((100 * came.length) / runs).toFixed(0).padStart(3)}% of nights, first at ${first} s | dawn ${dawn}%`,
+        `  ${policy.padEnd(COLUMN.shortPolicy)} night ${night} (${nightLength(night)} s, may start at ${creatureFrom(nightLength(night)).toFixed(1)} s): the creature comes in ${percentOf(came.length, runs).padStart(COLUMN.percent)}% of nights, first at ${first} s | dawn ${dawn}%`,
       );
     }
+  }
 }

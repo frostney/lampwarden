@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+
 import { newLegacy } from "./legacy";
 import { isNewLine, loadWelcome, markWelcome } from "./welcome";
 
@@ -14,8 +15,11 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 afterEach(() => storage.clear());
 afterAll(() => {
-  if (original) Object.defineProperty(globalThis, "localStorage", original);
-  else Reflect.deleteProperty(globalThis, "localStorage");
+  if (original) {
+    Object.defineProperty(globalThis, "localStorage", original);
+  } else {
+    Reflect.deleteProperty(globalThis, "localStorage");
+  }
 });
 
 describe("what a new player has been shown", () => {

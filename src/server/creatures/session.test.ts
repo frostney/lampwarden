@@ -2,8 +2,10 @@
 // service on the in-memory store, with a job that finishes when the test says so. The game asks as each night begins
 // (for the NEXT night's creature) and as it ends, exactly as Game.tsx does.
 import { describe, expect, test } from "bun:test";
+
 import type { Creature } from "@/game/creature";
 import { createSea } from "@/game/sea";
+
 import { fakeClock } from "../../../pipeline/fakes";
 import { readCreatureConfig } from "./config";
 import { nextCreature, type ServiceDeps } from "./service";
@@ -63,7 +65,9 @@ function evening() {
   const startNight = async () => {
     const tonight = sea.get();
     const joining = tonight.kind === "ready" ? tonight.creature : null;
-    if (joining) met.push(joining.id);
+    if (joining) {
+      met.push(joining.id);
+    }
     sea.ask(met); // the next night's creature, while this one is played
     await settle();
     return joining?.id ?? null;
@@ -133,7 +137,9 @@ describe("a run of nights", () => {
     const nights: Array<string | null> = [];
     for (let night = 1; night <= 14; night++) {
       nights.push(await world.startNight());
-      if (world.started.length <= 12) await world.finishJob(world.started.at(-1) ?? "");
+      if (world.started.length <= 12) {
+        await world.finishJob(world.started.at(-1) ?? "");
+      }
       await world.endNight();
     }
     expect(nights.slice(1, 13).every((id) => id !== null)).toBe(true);

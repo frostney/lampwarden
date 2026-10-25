@@ -2,9 +2,10 @@
 // extents its record carries, held to the same rules as a committed prop, and skipped, with the committed building left
 // standing, when it fits nowhere.
 import { describe, expect, test } from "bun:test";
+
 import { type RecordedBuilding, recordedBuildingSchema } from "../game/building";
 import { LAMP_SPOTS } from "../game/sim";
-import { decorFor, type Layout, SPAWN_POINTS } from "./decor";
+import { decorFor, type Layout, type Placed, SPAWN_POINTS } from "./decor";
 import { SPRITE_EXTENTS } from "./decor-extents";
 import { measureSprite, type SpriteExtents } from "./extent";
 import { groundShape, nearPoint, nearShape, toGround } from "./footprint";
@@ -24,9 +25,11 @@ const PROP_GAP = 12; // ground px between the bases of two props (decor.ts)
 function blockExtents(width: number, height: number, anchorY: number): SpriteExtents {
   const rgba = new Uint8Array(128 * 128 * 4);
   const bottom = Math.round(anchorY * 128) + 3;
-  for (let row = bottom - height + 1; row <= bottom; row++)
-    for (let column = 64 - Math.floor(width / 2); column < 64 + Math.ceil(width / 2); column++)
+  for (let row = bottom - height + 1; row <= bottom; row++) {
+    for (let column = 64 - Math.floor(width / 2); column < 64 + Math.ceil(width / 2); column++) {
       rgba[(row * 128 + column) * 4 + 3] = 255;
+    }
+  }
   return measureSprite(rgba, anchorY);
 }
 
@@ -119,7 +122,9 @@ const live = (extents: SpriteExtents) => ({ key: KEY, extents });
 const BUILDING_SLOT = ["house", "house-ochre"];
 // a check inside a loop of thousands: a throw names the seed, where thousands of expect() calls would only slow it
 const must = (condition: boolean, message: string) => {
-  if (!condition) throw new Error(message);
+  if (!condition) {
+    throw new Error(message);
+  }
 };
 const keysOf = (layout: Layout) => layout.props.map((placed) => placed.key);
 
@@ -136,8 +141,35 @@ function layoutsOf(extents: SpriteExtents | null): Layout[] {
 }
 function layoutAt(extents: SpriteExtents | null, index: number): Layout {
   const layout = layoutsOf(extents)[index];
-  if (!layout) throw new Error(`no layout for seed ${index}`);
+  if (!layout) {
+    throw new Error(`no layout for seed ${index}`);
+  }
   return layout;
+}
+
+// The live building stands where a committed one may: inside the plaza with the margin, by every corner of its base; clear
+// of the lamps and of where monsters come ashore; and off the other props.
+function mustStandClear(seed: number, placed: Placed, extents: SpriteExtents, layout: Layout) {
+  for (const [hullX, hullY] of extents.hull) {
+    must(plazaInset(placed.x + hullX, placed.y + hullY) >= MARGIN, `seed ${seed}: near the rim`);
+  }
+  const base = groundShape(extents.solid, placed.x, placed.y);
+  for (const spot of LAMP_SPOTS) {
+    must(!nearPoint(base, toGround(spot), LAMP_RING), `seed ${seed}: by a lamp`);
+  }
+  for (const spawn of SPAWN_POINTS) {
+    must(!nearPoint(base, toGround(spawn), SPAWN_GAP), `seed ${seed}: by a spawn`);
+  }
+  // the pieces of one cluster or run may stand closer: only a different kind is held to the gap
+  for (const other of layout.props.filter((prop) => prop !== placed && prop.key !== placed.key)) {
+    const otherExtents = SPRITE_EXTENTS[other.key];
+    if (otherExtents) {
+      must(
+        !nearShape(base, groundShape(otherExtents.solid, other.x, other.y), PROP_GAP),
+        `seed ${seed}: on ${other.key}`,
+      );
+    }
+  }
 }
 
 describe("a live building on the plaza", () => {
@@ -158,26 +190,11 @@ describe("a live building on the plaza", () => {
             `seed ${seed}`,
           ).toHaveLength(1);
           const placed = layout.props.find((prop) => prop.key === KEY);
-          if (!placed) continue;
-          placedCount++;
-          // inside the plaza, with the margin, by every corner of its base
-          for (const [hullX, hullY] of extents.hull)
-            must(plazaInset(placed.x + hullX, placed.y + hullY) >= MARGIN, `seed ${seed}: near the rim`);
-          const base = groundShape(extents.solid, placed.x, placed.y);
-          // clear of the lamps and of where monsters come ashore
-          for (const spot of LAMP_SPOTS) must(!nearPoint(base, toGround(spot), LAMP_RING), `seed ${seed}: by a lamp`);
-          for (const spawn of SPAWN_POINTS)
-            must(!nearPoint(base, toGround(spawn), SPAWN_GAP), `seed ${seed}: by a spawn`);
-          // and off the other props
-          for (const other of layout.props) {
-            if (other === placed) continue;
-            const otherExtents = SPRITE_EXTENTS[other.key];
-            if (!otherExtents) continue;
-            const otherBase = groundShape(otherExtents.solid, other.x, other.y);
-            // the pieces of one cluster or run may stand closer: only a different kind is held to the gap
-            if (other.key === placed.key) continue;
-            must(!nearShape(base, otherBase, PROP_GAP), `seed ${seed}: on ${other.key}`);
+          if (!placed) {
+            continue;
           }
+          placedCount++;
+          mustStandClear(seed, placed, extents, layout);
         }
         // it is a building a layout can take: placed on most nights (a long one fits less often than a small one)
         expect(placedCount).toBeGreaterThan(SEEDS * 0.3);
@@ -201,8 +218,9 @@ describe("a live building on the plaza", () => {
         layoutsOf(null).flatMap((layout) => [...layout.props, ...layout.boats].map((placed) => placed.key)),
       );
       for (const layout of layoutsOf(FOUNTAIN_HOUSE)) {
-        for (const placed of [...layout.props, ...layout.boats])
+        for (const placed of [...layout.props, ...layout.boats]) {
           must(placed.key === KEY || committed.has(placed.key), `an unknown prop ${placed.key}`);
+        }
       }
     },
     TIMEOUT,
@@ -229,8 +247,9 @@ describe("a live building on the plaza", () => {
     "never adds clutter: a plaza with a live building has no more props than the most a committed one has",
     () => {
       const most = Math.max(...layoutsOf(null).map((layout) => layout.props.length));
-      for (const layout of layoutsOf(FOUNTAIN_HOUSE))
+      for (const layout of layoutsOf(FOUNTAIN_HOUSE)) {
         must(layout.props.length <= most, "more props than a committed plaza has");
+      }
     },
     TIMEOUT,
   );

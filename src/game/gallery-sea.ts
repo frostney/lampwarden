@@ -7,6 +7,10 @@
 // question (the same ids met) keeps the running one: a job that is still being made when a night begins is not dropped,
 // it carries on through the night. It never blocks play: while it is asking, when nothing is coming and when the network
 // fails, the answer is "none" and the night simply goes without.
+
+import { compareCodeUnits } from "../lib/compare";
+import { ignore } from "../lib/ignore";
+import { MILLISECONDS_PER_SECOND } from "../lib/units";
 import type { JobStep } from "./creature";
 import type { WaitOptions } from "./gallery-api";
 
@@ -46,6 +50,38 @@ interface Asking {
   answering: Promise<void>;
 }
 
+/**
+ * Asks, and asks again while the answer is "busy" (a short retry delay), until the patience runs out. Undefined once the
+ * asking is no longer the current one.
+ */
+async function askPatiently<Made>(
+  ask: (seen: string[]) => Promise<GalleryAnswer<Made> | null>,
+  seen: readonly string[],
+  isCurrent: () => boolean,
+  sleep: (milliseconds: number) => Promise<void>,
+): Promise<GalleryAnswer<Made> | null | undefined> {
+  let answer = await ask([...seen]);
+  for (let waited = 0; ; ) {
+    if (!isCurrent()) {
+      return undefined;
+    }
+    const delay = answer?.kind === "none" ? answer.retryAfterSeconds : undefined;
+    if (delay === undefined || delay > BUSY_RETRY_LIMIT_SECONDS) {
+      return answer;
+    }
+    const seconds = Math.max(BUSY_LEAST_SECONDS, delay);
+    if (waited + seconds > BUSY_PATIENCE_SECONDS) {
+      return answer;
+    }
+    waited += seconds;
+    await sleep(seconds * MILLISECONDS_PER_SECOND);
+    if (!isCurrent()) {
+      return undefined;
+    }
+    answer = await ask([...seen]);
+  }
+}
+
 export function createGallerySea<Made extends { id: string }, Ready extends { kind: "ready" }>(
   deps: GallerySeaDeps<Made, Ready>,
 ) {
@@ -58,7 +94,53 @@ export function createGallerySea<Made extends { id: string }, Ready extends { ki
 
   const show = (next: GalleryTonight<Ready>) => {
     tonight = next;
-    for (const listener of listeners) listener();
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+
+  // Puts the answer on show: one that is ready, or one being made, followed until it is (or is not).
+  const answerAsking = async (
+    seen: readonly string[],
+    asking: Asking,
+    isCurrent: () => boolean,
+    after: Promise<void> | undefined,
+  ) => {
+    if (after !== undefined) {
+      await after;
+      if (!isCurrent()) {
+        return;
+      }
+    }
+    const answer = await askPatiently(deps.ask, seen, isCurrent, sleep);
+    if (answer === undefined) {
+      return;
+    }
+    if (!answer || answer.kind === "none") {
+      asking.alive = false;
+      return;
+    }
+    if (answer.kind === "ready") {
+      asking.madeId = answer.made.id;
+      show(deps.ready(answer.made));
+      return;
+    }
+    await follow(answer.jobId, asking, isCurrent);
+  };
+
+  // A job being made is shown step by step, and what it made once it is done (or nothing, if it failed).
+  const follow = async (jobId: string, asking: Asking, isCurrent: () => boolean) => {
+    show({ kind: "generating", step: "queued" });
+    const made = await deps.wait(jobId, {
+      onStep: (step) => isCurrent() && show({ kind: "generating", step }),
+      isCurrent,
+    });
+    if (!isCurrent()) {
+      return;
+    }
+    asking.madeId = made?.id ?? null;
+    asking.alive = made !== null;
+    show(made ? deps.ready(made) : none);
   };
 
   /**
@@ -67,54 +149,22 @@ export function createGallerySea<Made extends { id: string }, Ready extends { ki
    * question back until it has settled (the buildings wait for the creature's question, which goes first).
    */
   const ask = (seen: readonly string[], after?: Promise<void>) => {
-    const key = [...seen].sort().join(",");
-    if (current?.key === key && current.alive) return;
+    const key = [...seen].sort(compareCodeUnits).join(",");
+    if (current?.key === key && current.alive) {
+      return;
+    }
     const mine = ++generation;
     const isCurrent = () => mine === generation;
     const asking: Asking = { key, alive: true, madeId: null, answering: Promise.resolve() };
     current = asking;
     show(none);
-    const answering = (async () => {
-      if (after) {
-        await after;
-        if (!isCurrent()) return;
-      }
-      let answer = await deps.ask([...seen]);
-      for (let waited = 0; ; ) {
-        if (!isCurrent()) return;
-        const delay = answer?.kind === "none" ? answer.retryAfterSeconds : undefined;
-        if (delay === undefined || delay > BUSY_RETRY_LIMIT_SECONDS) break;
-        const seconds = Math.max(BUSY_LEAST_SECONDS, delay);
-        if (waited + seconds > BUSY_PATIENCE_SECONDS) break;
-        waited += seconds;
-        await sleep(seconds * 1000);
-        if (!isCurrent()) return;
-        answer = await deps.ask([...seen]);
-      }
-      if (!isCurrent()) return;
-      if (!answer || answer.kind === "none") {
-        asking.alive = false;
-        return;
-      }
-      if (answer.kind === "ready") {
-        asking.madeId = answer.made.id;
-        show(deps.ready(answer.made));
-        return;
-      }
-      show({ kind: "generating", step: "queued" });
-      const made = await deps.wait(answer.jobId, {
-        onStep: (step) => isCurrent() && show({ kind: "generating", step }),
-        isCurrent,
-      });
-      if (!isCurrent()) return;
-      asking.madeId = made?.id ?? null;
-      asking.alive = made !== null;
-      show(made ? deps.ready(made) : none);
-    })();
+    const answering = answerAsking(seen, asking, isCurrent, after);
     asking.answering = answering;
     // the game's own calls never throw, but whatever is injected may: the asking ends and the next one is a new one
     answering.catch(() => {
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        return;
+      }
       asking.alive = false;
       show(none);
     });
@@ -122,9 +172,13 @@ export function createGallerySea<Made extends { id: string }, Ready extends { ki
 
   // It cannot come after all (its sprite did not load): nothing is announced, and the next asking is a new one.
   const withdraw = (id: string) => {
-    if (current?.madeId !== id) return;
+    if (current?.madeId !== id) {
+      return;
+    }
     current.alive = false;
-    if (tonight.kind === "ready") show(none);
+    if (tonight.kind === "ready") {
+      show(none);
+    }
   };
 
   // The page goes: whatever is still being made is no longer waited for.
@@ -134,7 +188,7 @@ export function createGallerySea<Made extends { id: string }, Ready extends { ki
   };
 
   /** Settles when the current question has been answered and its job, if it started one, is over. Never rejects. */
-  const settled = () => (current ? current.answering.catch(() => {}) : Promise.resolve());
+  const settled = () => (current ? current.answering.catch(ignore) : Promise.resolve());
 
   const get = () => tonight;
   const subscribe = (listener: () => void) => {

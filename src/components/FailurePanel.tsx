@@ -10,11 +10,11 @@ interface FailurePanelProps {
 
 export function FailurePanel({ title, message, hint, action, onAction }: FailurePanelProps) {
   return (
-    <div className="panel" role="alert" data-panel="failure">
+    <div className="panel" data-panel="failure" role="alert">
       <h2 className="logo small">{title}</h2>
       <p>{message}</p>
-      {hint && <p className="dim">{hint}</p>}
-      <button type="button" className="btn big" onClick={onAction}>
+      {hint ? <p className="dim">{hint}</p> : null}
+      <button className="btn big" onClick={onAction} type="button">
         {action}
       </button>
     </div>

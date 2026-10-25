@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+
 import { buildingSchema } from "@/game/building";
 import { measureSprite } from "@/scene/extent";
+
 import {
   BUILDING_STATS,
   buildingBriefJson,
@@ -30,7 +32,7 @@ function jobWith(
   const model = fakeModel(replies);
   const renderer = options.render ?? renderedBuilding();
   const steps: string[] = [];
-  const events: Array<Record<string, unknown>> = [];
+  const events: Record<string, unknown>[] = [];
   const originalPut = store.putJob;
   store.putJob = async (job) => {
     steps.push(job.step);
@@ -71,7 +73,9 @@ describe("a building job", () => {
 
     const [id] = await store.listBuildingIds();
     expect(id).toBeDefined();
-    if (!id) return;
+    if (!id) {
+      return;
+    }
     const building = await store.getBuilding(id);
     expect(building).toEqual(job.building ?? null);
     expect(buildingSchema.safeParse(building).success).toBe(true);

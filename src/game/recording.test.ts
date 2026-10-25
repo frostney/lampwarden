@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { newLegacy } from "./legacy";
 import { playSchema, replaysExactlyOn } from "./plays";
 import {
@@ -135,7 +136,9 @@ describe("the queue of plays that did not reach the server", () => {
 
   test("holds a few plays and drops the oldest past that", () => {
     const storage = memoryStorage();
-    for (let index = 0; index < MAX_QUEUED_PLAYS + 2; index++) queuePlay(storage, queued(`play-${index}`));
+    for (let index = 0; index < MAX_QUEUED_PLAYS + 2; index++) {
+      queuePlay(storage, queued(`play-${index}`));
+    }
     expect(ids(storage)).toEqual(["play-2", "play-3", "play-4", "play-5", "play-6"]);
   });
 
@@ -189,7 +192,9 @@ describe("the queue of plays that did not reach the server", () => {
 describe("sending the queue again", () => {
   test("sends oldest first and empties the queue", async () => {
     const storage = memoryStorage();
-    for (const id of ["a", "b", "c"]) queuePlay(storage, queued(id));
+    for (const id of ["a", "b", "c"]) {
+      queuePlay(storage, queued(id));
+    }
     const order: string[] = [];
     await flushQueue(storage, async (waiting) => {
       order.push(waiting.id);
@@ -201,7 +206,9 @@ describe("sending the queue again", () => {
 
   test("stops at the first play that must wait and keeps it and the ones behind it", async () => {
     const storage = memoryStorage();
-    for (const id of ["a", "b", "c"]) queuePlay(storage, queued(id));
+    for (const id of ["a", "b", "c"]) {
+      queuePlay(storage, queued(id));
+    }
     const order: string[] = [];
     await flushQueue(storage, async (waiting) => {
       order.push(waiting.id);
@@ -213,7 +220,9 @@ describe("sending the queue again", () => {
 
   test("drops a play the server will never take and goes on", async () => {
     const storage = memoryStorage();
-    for (const id of ["a", "b"]) queuePlay(storage, queued(id));
+    for (const id of ["a", "b"]) {
+      queuePlay(storage, queued(id));
+    }
     const order: string[] = [];
     await flushQueue(storage, async (waiting) => {
       order.push(waiting.id);
@@ -225,7 +234,9 @@ describe("sending the queue again", () => {
 
   test("leaves alone the plays on their way right now", async () => {
     const storage = memoryStorage();
-    for (const id of ["a", "b"]) queuePlay(storage, queued(id));
+    for (const id of ["a", "b"]) {
+      queuePlay(storage, queued(id));
+    }
     const order: string[] = [];
     await flushQueue(
       storage,

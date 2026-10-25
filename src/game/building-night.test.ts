@@ -2,6 +2,7 @@
 // and the sim, the replay and the sim fingerprint are exactly what they were without it.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+
 import { SIM_SOURCES, simFingerprint } from "../../tools/sim-fingerprint/sim-fingerprint";
 import { decorFor } from "../scene/decor";
 import { liveBuildingOf } from "../scene/layers";
@@ -131,8 +132,9 @@ describe("the sim fingerprint", () => {
       "decor.ts",
       "layers.ts",
       "sea.ts",
-    ])
+    ]) {
       expect(names, name).not.toContain(name);
+    }
   });
 
   test("is a 12 digit hash, as the plays record it", () => {

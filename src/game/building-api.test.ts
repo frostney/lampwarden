@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
+
 import { type Building, buildingSchema } from "./building";
 import { askForBuilding, waitForBuildingJob } from "./building-api";
 import type { JobStep } from "./creature";
@@ -36,7 +37,9 @@ afterAll(() => fetching.mockRestore());
 // a stand-in for fetch (bun's typing wants its preconnect too)
 const standIn = (respond: () => Promise<Response>): typeof fetch => Object.assign(respond, { preconnect: () => {} });
 const answers = (...bodies: unknown[]) => {
-  for (const body of bodies) fetching.mockImplementationOnce(standIn(async () => Response.json(body)));
+  for (const body of bodies) {
+    fetching.mockImplementationOnce(standIn(async () => Response.json(body)));
+  }
 };
 const job = (step: JobStep, extra: object = {}) => ({
   jobId: "job-1",
@@ -76,7 +79,9 @@ describe("asking for a building", () => {
       { kind: "none", reason: "busy", retryAfterSeconds: -4 },
       { error: "oops" },
     );
-    for (let call = 0; call < 5; call++) expect(await askForBuilding([])).toBeNull();
+    for (let call = 0; call < 5; call++) {
+      expect(await askForBuilding([])).toBeNull();
+    }
     fetching.mockImplementationOnce(
       standIn(async () => {
         throw new Error("offline");

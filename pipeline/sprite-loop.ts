@@ -16,7 +16,6 @@ import {
 } from "./loop";
 
 export type { Brief } from "./loop";
-export { correctionMessage, engineFlagIssues, formatFixed, parseVerdict, slugify } from "./loop";
 
 /** The command line's context: the loop's context with directories in place of a store. */
 export interface LoopContext extends Omit<LoopCore, "store"> {
@@ -31,7 +30,9 @@ export interface LoopContext extends Omit<LoopCore, "store"> {
 /** Runs the whole loop for one brief and writes its outputs. Returns its manifest row, or null when nothing renderable came out. */
 export async function processBrief(context: LoopContext, brief: Brief): Promise<SpriteRow | null> {
   const outcome = await runLoop({ ...context, store: createFileStore(context) }, brief);
-  if (!outcome) return null;
+  if (!outcome) {
+    return null;
+  }
   writeSpriteOutputs(context.outputDirectory, slugify(brief.id), outcome);
   return outcome.row;
 }
@@ -72,8 +73,12 @@ export async function processBriefWithCandidates(
     candidateCount,
     (winner) => winner.verdict.pass,
   );
-  if (!outcome) return null;
+  if (!outcome) {
+    return null;
+  }
   const accepted = isAccepted(outcome.winner);
-  if (accepted) writeSpriteOutputs(context.outputDirectory, slugify(brief.id), outcome, mubitFields(outcome));
+  if (accepted) {
+    writeSpriteOutputs(context.outputDirectory, slugify(brief.id), outcome, mubitFields(outcome));
+  }
   return { outcome, accepted };
 }

@@ -60,7 +60,9 @@ function inside(polygon: Polygon, point: Point): boolean {
   for (let index = 0; index < polygon.length; index++) {
     const start = polygon[index];
     const end = polygon[(index + 1) % polygon.length];
-    if (!start || !end) continue;
+    if (!start || !end) {
+      continue;
+    }
     const side = cross(start, end, point);
     positive ||= side > 0;
     negative ||= side < 0;
@@ -76,10 +78,14 @@ const edgesOf = (polygon: Polygon): [Point, Point][] =>
 
 // the gap between a segment (a point when both ends are one) and a convex polygon: 0 when they touch
 function segmentGap(start: Point, end: Point, polygon: Polygon): number {
-  if (inside(polygon, start)) return 0;
+  if (inside(polygon, start)) {
+    return 0;
+  }
   let gap = Number.POSITIVE_INFINITY;
   for (const [edgeStart, edgeEnd] of edgesOf(polygon)) {
-    if (segmentsCross(start, end, edgeStart, edgeEnd)) return 0;
+    if (segmentsCross(start, end, edgeStart, edgeEnd)) {
+      return 0;
+    }
     gap = Math.min(gap, pointToSegment(start, edgeStart, edgeEnd), pointToSegment(end, edgeStart, edgeEnd));
     gap = Math.min(gap, pointToSegment(edgeStart, start, end));
   }
@@ -89,14 +95,20 @@ function segmentGap(start: Point, end: Point, polygon: Polygon): number {
 // the gap between two convex polygons: 0 when they touch or overlap
 function polygonGap(first: Polygon, second: Polygon): number {
   const [vertex] = second;
-  if (vertex && inside(first, vertex)) return 0;
+  if (vertex && inside(first, vertex)) {
+    return 0;
+  }
   let gap = Number.POSITIVE_INFINITY;
   for (const [start, end] of edgesOf(first)) {
     const apart = segmentGap(start, end, second);
-    if (apart === 0) return 0;
+    if (apart === 0) {
+      return 0;
+    }
     gap = Math.min(gap, apart);
   }
-  for (const [start, end] of edgesOf(second)) gap = Math.min(gap, segmentGap(start, end, first));
+  for (const [start, end] of edgesOf(second)) {
+    gap = Math.min(gap, segmentGap(start, end, first));
+  }
   return gap;
 }
 

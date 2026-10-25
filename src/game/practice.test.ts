@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { newLegacy } from "./legacy";
 import { LESSONS, type Lesson, newPractice, stagePractice } from "./practice";
 import { STEP } from "./replay";
@@ -12,7 +13,9 @@ function practise(seed: number, player: (state: State, lesson: Lesson) => Input,
   const lessons: Lesson[] = [practice.lesson];
   while (practice.lesson !== "done" && practice.state.elapsed < seconds) {
     stagePractice(practice);
-    if (lessons.at(-1) !== practice.lesson) lessons.push(practice.lesson);
+    if (lessons.at(-1) !== practice.lesson) {
+      lessons.push(practice.lesson);
+    }
     step(practice.state, STEP, player(practice.state, practice.lesson));
   }
   return { practice, lessons };
@@ -23,12 +26,13 @@ const learner = (state: State, lesson: Lesson): Input =>
   lesson === "move" ? { ...NO_INPUT, moveX: 1 } : (wardenAutopilot(state) ?? NO_INPUT);
 
 describe("the practice night", () => {
-  for (const seed of [1, 7, 4242])
+  for (const seed of [1, 7, 4242]) {
     test(`a player who does each lesson learns them all, in order (seed ${seed})`, () => {
       const { practice, lessons } = practise(seed, learner, 120);
       expect(lessons).toEqual([...LESSONS, "done"]);
       expect(practice.state.outcome).toBeNull();
     });
+  }
 
   test("a lesson waits for the player: standing still never moves past the first", () => {
     const { practice } = practise(1, () => NO_INPUT, 30);
@@ -41,7 +45,9 @@ describe("the practice night", () => {
     const { practice } = practise(
       3,
       (_state, lesson) => {
-        if (lesson !== "move") walked = true;
+        if (lesson !== "move") {
+          walked = true;
+        }
         return walked ? NO_INPUT : { ...NO_INPUT, moveX: 1 };
       },
       300,
@@ -59,7 +65,9 @@ describe("the practice night", () => {
     stagePractice(practice);
     const lamp = practice.lamp;
     expect(lamp?.lit).toBe(false);
-    if (!lamp) return;
+    if (!lamp) {
+      return;
+    }
     practice.state.hero.x = lamp.x;
     practice.state.hero.y = lamp.y;
     while (practice.lesson === "relight" && practice.state.elapsed < 5) {
@@ -76,7 +84,9 @@ describe("the relight lesson's lamp", () => {
     const practice = newPractice(newLegacy(), 5);
     const { state } = practice;
     const [near] = state.lamps;
-    if (!near) throw new Error("no lamp");
+    if (!near) {
+      throw new Error("no lamp");
+    }
     near.lit = false;
     state.hero.x = near.x;
     state.hero.y = near.y;

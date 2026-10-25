@@ -1,5 +1,6 @@
 // The sandbox renderer's cancellation, against a fake @vercel/sandbox: an abort stops the VM and nothing starts after it.
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
 import { PINNED_BUN_VERSION } from "./runner-bundle";
 
 interface FakeSandbox {
@@ -92,6 +93,8 @@ describe("sandbox renderer cancellation", () => {
     await pending;
     const signals = created[0]?.signals ?? [];
     expect(signals.length).toBe(4); // create, manifest, write, command
-    for (const signal of signals) expect(signal?.aborted).toBe(true);
+    for (const signal of signals) {
+      expect(signal?.aborted).toBe(true);
+    }
   });
 });

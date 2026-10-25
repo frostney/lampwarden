@@ -7,7 +7,11 @@
 // are in the sandbox snapshot, not read for rendering.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { ENV } from "varlock/env";
+
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
+
 import type { CandidateOutcome } from "../../../pipeline/loop";
 import { createMubitClient } from "../../../pipeline/mubit";
 import type { RenderRequest } from "../../../pipeline/render-types";
@@ -24,7 +28,7 @@ import {
 import { type JobDeps, runCreatureJob } from "./job";
 import { randomEntropy } from "./job-shell";
 import type { ServiceDeps } from "./service";
-import type { BuildingStore, CreatureStore } from "./store";
+import type { BuildingStore, CreatureStore, GalleryStore, JobKind } from "./store";
 import { createBlobStore } from "./store.blob";
 
 const FRAME_BATCH_VCPUS = 8;
@@ -51,7 +55,9 @@ function debugSink(directory: string) {
     try {
       mkdirSync(directory, { recursive: true });
       for (const candidate of outcome.candidates) {
-        if (candidate.png) writeFileSync(join(directory, `${jobId}-${candidate.name}.png`), candidate.png);
+        if (candidate.png) {
+          writeFileSync(join(directory, `${jobId}-${candidate.name}.png`), candidate.png);
+        }
       }
       const summary = {
         jobId,
@@ -78,7 +84,9 @@ function debugSink(directory: string) {
 /** What every deployed job needs of the real world, with the sandbox's settings, or null when generation is not configured. */
 function createSharedJobDeps(config: CreatureConfig) {
   const { mubitApiKey, snapshotId } = config;
-  if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) return null;
+  if (!generationAvailable(config) || mubitApiKey === null || snapshotId === null) {
+    return null;
+  }
   const expectedBundleSha = runnerBundleSha(readRunnerFiles(pipelineDirectory()));
   const deps = {
     now: () => new Date(),
@@ -86,7 +94,7 @@ function createSharedJobDeps(config: CreatureConfig) {
     render: (request: RenderRequest, signal?: AbortSignal) =>
       renderSafely(request, { snapshotId, expectedBundleSha }, signal),
     entropy: randomEntropy,
-    budgetMilliseconds: JOB_BUDGET_SECONDS * 1000,
+    budgetMilliseconds: JOB_BUDGET_SECONDS * MILLISECONDS_PER_SECOND,
     candidates: config.candidates,
     ...(config.debugDirectory ? { onOutcome: debugSink(config.debugDirectory) } : {}),
   };
@@ -96,7 +104,9 @@ function createSharedJobDeps(config: CreatureConfig) {
 /** The deployed creature job's dependencies, or null when generation is not configured. */
 function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | null {
   const shared = createSharedJobDeps(config);
-  if (!shared) return null;
+  if (!shared) {
+    return null;
+  }
   return {
     ...shared.deps,
     store,
@@ -114,7 +124,9 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
 /** The deployed building job's dependencies, or null when generation is not configured. */
 function createBuildingJobDeps(config: CreatureConfig, store: BuildingStore): BuildingJobDeps | null {
   const shared = createSharedJobDeps(config);
-  if (!shared) return null;
+  if (!shared) {
+    return null;
+  }
   return {
     ...shared.deps,
     store,
@@ -127,6 +139,21 @@ function createBuildingJobDeps(config: CreatureConfig, store: BuildingStore): Bu
 }
 
 /** `schedule` runs work after the response has gone out: `after` from next/server in a route. */
+// runs a job of either kind, when generation is set up for it
+async function runJob(config: CreatureConfig, store: GalleryStore, jobId: string, kind: JobKind) {
+  if (kind === "building") {
+    const buildingDeps = createBuildingJobDeps(config, store);
+    if (buildingDeps) {
+      await runBuildingJob(buildingDeps, jobId);
+    }
+    return;
+  }
+  const jobDeps = createJobDeps(config, store);
+  if (jobDeps) {
+    await runCreatureJob(jobDeps, jobId);
+  }
+}
+
 export function createServiceDeps(schedule: (work: () => Promise<unknown>) => void): ServiceDeps {
   // ENV holds null, not undefined, for an unset item; the reader treats both as unset
   const config = readCreatureConfig(ENV);
@@ -140,13 +167,7 @@ export function createServiceDeps(schedule: (work: () => Promise<unknown>) => vo
     startJob: (jobId, kind) =>
       schedule(async () => {
         try {
-          if (kind === "building") {
-            const buildingDeps = createBuildingJobDeps(config, store);
-            if (buildingDeps) await runBuildingJob(buildingDeps, jobId);
-          } else {
-            const jobDeps = createJobDeps(config, store);
-            if (jobDeps) await runCreatureJob(jobDeps, jobId);
-          }
+          await runJob(config, store, jobId, kind);
         } catch (error) {
           // a job that cannot even start (a file missing from the deployment, say) must not sit "queued" holding the slot
           console.error(

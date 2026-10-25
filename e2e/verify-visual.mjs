@@ -7,7 +7,9 @@
 //   verify-out/sheet.png      contact sheet    verify-out/report.json      checks and diffs
 // Exit code 1 when a check fails. --headless runs without a window; the report then says the pass was not visual.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
 import { chromium, devices, webkit } from "playwright";
+
 import { creatureSchema } from "../src/game/creature.ts";
 import {
   CREATURE_ALL_DIRECTIONS,
@@ -32,7 +34,9 @@ const BASE_URL = argument("--url", "http://localhost:3000");
 const UPDATE = process.argv.includes("--update");
 const HEADLESS = process.argv.includes("--headless");
 const OUT = "verify-out";
-for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) mkdirSync(directory, { recursive: true });
+for (const directory of [OUT, `${OUT}/latest`, `${OUT}/baseline`]) {
+  mkdirSync(directory, { recursive: true });
+}
 
 // The creature API is stubbed on every page and context: the verifier never touches Mubit or the network. The fixture
 // creature's sprite is a committed one (the satyr), served from public/sprites. sea.mode picks the answer to
@@ -55,8 +59,9 @@ const SEA_CREATURE = {
 if (
   SEA_CREATURE.name.length !== creatureSchema.shape.name.maxLength ||
   SEA_CREATURE.lore.length !== creatureSchema.shape.lore.maxLength
-)
+) {
   throw new Error("the sea fixture must hold the longest name and lore the creature contract allows");
+}
 const SEA_SPRITE = readFileSync("public/sprites/satyr.png");
 const creaturePoseName = (cell) => `${cell.animation}${cell.frame + 1}`;
 // "sequence": three creatures made one after another. sea.made of them are finished; asking with `seen` answers with a
@@ -100,7 +105,7 @@ const animatedFixture = (frames) => {
   const stillCell = layout.cells.find(
     (cell) => cell.direction === "se" && cell.animation === "idle" && cell.frame === 0,
   );
-  for (let row = 0; row < CREATURE_FRAME_SIZE; row++)
+  for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
     idle.data.set(
       atlas.data.subarray(
         ((stillCell.y + row) * atlas.width + stillCell.x) * 4,
@@ -108,6 +113,7 @@ const animatedFixture = (frames) => {
       ),
       row * CREATURE_FRAME_SIZE * 4,
     );
+  }
   return { atlas: encodePng(atlas), sprite: encodePng(idle) };
 };
 const ANIMATED_FIXTURE = animatedFixture(CREATURE_ALL_DIRECTIONS);
@@ -121,49 +127,68 @@ const SEA_LEGACY = {
 const LEGACY_FIXTURE = animatedFixture(CREATURE_FRAME_COUNTS);
 const animatedMode = () => sea.mode === "animated" || sea.mode === "animated-legacy";
 const fixtureOf = () => (sea.mode === "animated-legacy" ? LEGACY_FIXTURE : ANIMATED_FIXTURE);
+// the sea's answer to /next, by mode: what it has ready, is making, or that it has nothing
+function answerNext(route, seen) {
+  sea.asked.push(seen);
+  if (sea.mode === "sequence") {
+    const unmet = SEQUENCE.slice(0, sea.made).find((creature) => !seen.includes(creature.id));
+    if (unmet) {
+      return route.fulfill({ json: { kind: "ready", creature: unmet } });
+    }
+    if (seen.length < SEQUENCE.length) {
+      return route.fulfill({ json: { kind: "generating", jobId: `job-seq-${seen.length}` } });
+    }
+    return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+  }
+  if (sea.mode === "animated") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
+  }
+  if (sea.mode === "animated-legacy") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_LEGACY } });
+  }
+  if (sea.mode === "ready" || sea.mode === "broken") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
+  }
+  if (sea.mode === "generating") {
+    return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
+  }
+  return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+}
+
+// a job's progress: through sea.steps, done with the sequence's next creature, or done once sea.jobsDone is set
+function answerJob(route, pathname) {
+  const jobId = pathname.split("/").pop();
+  const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
+  const sequenced = SEQUENCE[Number(jobId.replace("job-seq-", ""))];
+  if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced)) {
+    return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
+  }
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: the scenarios set sea.jobsDone between requests
+  if (sea.jobsDone) {
+    return route.fulfill({
+      json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
+    });
+  }
+  return route.fulfill({ json: { jobId, step, updatedAt: SEA_CREATURE.createdAt } });
+}
+
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
-  if (pathname.endsWith("/atlas.png"))
+  if (pathname.endsWith("/atlas.png")) {
     return animatedMode()
       ? route.fulfill({ status: 200, contentType: "image/png", body: fixtureOf().atlas })
       : route.fulfill({ status: 404, json: { error: "not found" } });
-  if (pathname.endsWith("/sprite.png"))
-    return sea.mode === "broken"
-      ? route.abort()
-      : route.fulfill({
-          status: 200,
-          contentType: "image/png",
-          body: animatedMode() ? fixtureOf().sprite : SEA_SPRITE,
-        });
+  }
+  if (pathname.endsWith("/sprite.png")) {
+    const body = animatedMode() ? fixtureOf().sprite : SEA_SPRITE;
+    return sea.mode === "broken" ? route.abort() : route.fulfill({ status: 200, contentType: "image/png", body });
+  }
   if (pathname.endsWith("/next")) {
-    const seen = JSON.parse(request.postData() ?? "{}").seen;
-    sea.asked.push(seen);
-    if (sea.mode === "sequence") {
-      const unmet = SEQUENCE.slice(0, sea.made).find((creature) => !seen.includes(creature.id));
-      if (unmet) return route.fulfill({ json: { kind: "ready", creature: unmet } });
-      if (seen.length < SEQUENCE.length)
-        return route.fulfill({ json: { kind: "generating", jobId: `job-seq-${seen.length}` } });
-      return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
-    }
-    if (sea.mode === "animated") return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
-    if (sea.mode === "animated-legacy") return route.fulfill({ json: { kind: "ready", creature: SEA_LEGACY } });
-    if (sea.mode === "ready" || sea.mode === "broken")
-      return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
-    if (sea.mode === "generating") return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
-    return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+    return answerNext(route, JSON.parse(request.postData() ?? "{}").seen);
   }
   if (pathname.includes("/jobs/")) {
-    const jobId = pathname.split("/").pop();
-    const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
-    const sequenced = SEQUENCE[Number(jobId.replace("job-seq-", ""))];
-    if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced))
-      return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
-    if (sea.jobsDone)
-      return route.fulfill({
-        json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
-      });
-    return route.fulfill({ json: { jobId, step, updatedAt: SEA_CREATURE.createdAt } });
+    return answerJob(route, pathname);
   }
   return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
 }
@@ -189,14 +214,16 @@ const PLAZA_PICTURE = (() => {
 const PLAZA_SPRITE = encodePng(PLAZA_PICTURE);
 const PLAZA_BUILDING = (() => {
   let [left, top, right, bottom] = [128, 128, 0, 0];
-  for (let row = 0; row < 128; row++)
-    for (let column = 0; column < 128; column++)
+  for (let row = 0; row < 128; row++) {
+    for (let column = 0; column < 128; column++) {
       if (PLAZA_PICTURE.data[(row * 128 + column) * 4 + 3] > 0) {
         left = Math.min(left, column);
         right = Math.max(right, column);
         top = Math.min(top, row);
         bottom = Math.max(bottom, row);
       }
+    }
+  }
   return {
     id: "0000aaaa-fountain-house-verifier",
     name: "Treasury of the Sea-Captains of Lychnos", // a name as long as the contract allows (40) and a real one would be
@@ -208,16 +235,18 @@ const PLAZA_BUILDING = (() => {
     createdAt: "2026-10-25T09:00:00.000Z",
   };
 })();
-if (PLAZA_BUILDING.name.length < 38 || PLAZA_BUILDING.name.length > 40)
+if (PLAZA_BUILDING.name.length < 38 || PLAZA_BUILDING.name.length > 40) {
   throw new Error("the building fixture must hold a name as long as the building contract allows");
+}
 const plaza = { mode: "none", asked: [] };
 async function servePlaza(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
-  if (pathname.endsWith("/sprite.png"))
+  if (pathname.endsWith("/sprite.png")) {
     return plaza.mode === "broken"
       ? route.abort()
       : route.fulfill({ status: 200, contentType: "image/png", body: PLAZA_SPRITE });
+  }
   if (pathname.endsWith("/next")) {
     plaza.asked.push(JSON.parse(request.postData() ?? "{}").seen);
     return plaza.mode === "ready" || plaza.mode === "broken"
@@ -241,6 +270,27 @@ const stubSea = async (target) => {
 //   "fallback": the rules' decision with fallback "timeout"; "down": the connection fails
 const DIRECTOR_LINE = "The tide withdraws, and Lychnos sleeps a little.";
 const director = { mode: "off", asked: [], uploads: [], hold: null, decision: null };
+// The model's decision on the rules' one. The real route eases only after an engaged night (src/game/engagement.ts);
+// "eager" is a server that eases anyway and claims the night was engaged, which the game must not take on its word.
+function modelDecision(rules, playId) {
+  const eager = director.mode === "eager";
+  const eases = eager || !rules.engagement || rules.engagement === "engaged";
+  const eased = {
+    tide: Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100),
+    mix: { satyr: 1, cyclops: 0.6, harpy: 1.5 },
+    creatureShare: 0.2,
+  };
+  const held = { tide: rules.rulesTide, mix: { satyr: 1, cyclops: 1, harpy: 1.5 }, creatureShare: 0.25 };
+  return {
+    ...rules,
+    source: "mubit",
+    ...(eases ? eased : held),
+    line: DIRECTOR_LINE,
+    playId,
+    ...(eager ? { engagement: "engaged" } : {}),
+  };
+}
+
 async function serveDirector(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
@@ -255,22 +305,14 @@ async function serveDirector(route) {
       .frame()
       .page()
       .evaluate(() => window.lampwarden.legacy().director);
-    if (director.mode === "late") await director.hold;
-    if (director.mode === "down") return await route.abort();
+    if (director.mode === "late") {
+      await director.hold;
+    }
+    if (director.mode === "down") {
+      return await route.abort();
+    }
     if (director.mode === "answer" || director.mode === "late" || director.mode === "eager") {
-      // The real route eases only after an engaged night (src/game/engagement.ts); "eager" is a server that eases anyway and
-      // claims the night was engaged, which the game must not take on its word.
-      const eases = director.mode === "eager" || !rules.engagement || rules.engagement === "engaged";
-      director.decision = {
-        ...rules,
-        source: "mubit",
-        tide: eases ? Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100) : rules.rulesTide,
-        mix: eases ? { satyr: 1, cyclops: 0.6, harpy: 1.5 } : { satyr: 1, cyclops: 1, harpy: 1.5 },
-        creatureShare: eases ? 0.2 : 0.25,
-        line: DIRECTOR_LINE,
-        playId,
-        ...(director.mode === "eager" ? { engagement: "engaged" } : {}),
-      };
+      director.decision = modelDecision(rules, playId);
       return await route.fulfill({ json: { decision: director.decision } });
     }
     return await route.fulfill({
@@ -324,15 +366,19 @@ const lab = await browser.newPage(); // blank page used to decode and compare PN
 const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));
 page.on("console", (message) => {
-  if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) errors.push(message.text());
+  if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
+    errors.push(message.text());
+  }
 });
 page.on("response", (response) => {
-  if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
+  if (response.status() >= 400) {
+    errors.push(`HTTP ${response.status()} ${response.url()}`);
+  }
 });
 
 const shots = [];
 const checks = [];
-const check = (scene, name, passed, detail) => checks.push({ scene, name, ok: !!passed, detail });
+const check = (scene, name, passed, detail) => checks.push({ scene, name, ok: Boolean(passed), detail });
 
 // --- helpers ------------------------------------------------------------------------------------------------
 const settle = () =>
@@ -348,8 +394,11 @@ async function freeze() {
 }
 async function shoot(name, whole = false) {
   const file = `${OUT}/latest/${name}.png`;
-  if (whole) await page.screenshot({ path: file });
-  else await page.locator(".stage").screenshot({ path: file });
+  if (whole) {
+    await page.screenshot({ path: file });
+  } else {
+    await page.locator(".stage").screenshot({ path: file });
+  }
   shots.push(name);
   return readFileSync(file).toString("base64");
 }
@@ -368,8 +417,9 @@ const luminance = (encoded, boxes) =>
       return boxes.map(([x, y, width, height]) => {
         const data = context.getImageData(Math.round(x), Math.round(y), width, height).data;
         let total = 0;
-        for (let index = 0; index < data.length; index += 4)
+        for (let index = 0; index < data.length; index += 4) {
           total += 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
+        }
         return total / (data.length / 4);
       });
     },
@@ -419,7 +469,9 @@ const diff = (first, second, masks = []) =>
       };
       const firstImage = await load(first);
       const secondImage = await load(second);
-      if (firstImage.width !== secondImage.width || firstImage.height !== secondImage.height) return 1;
+      if (firstImage.width !== secondImage.width || firstImage.height !== secondImage.height) {
+        return 1;
+      }
       let changed = 0;
       let masked = 0;
       for (let index = 0; index < firstImage.data.length; index += 4) {
@@ -434,8 +486,9 @@ const diff = (first, second, masks = []) =>
           Math.abs(firstImage.data[index] - secondImage.data[index]) > 24 ||
           Math.abs(firstImage.data[index + 1] - secondImage.data[index + 1]) > 24 ||
           Math.abs(firstImage.data[index + 2] - secondImage.data[index + 2]) > 24
-        )
+        ) {
           changed++;
+        }
       }
       return changed / (firstImage.data.length / 4 - masked);
     },
@@ -478,8 +531,9 @@ const boxDiff = (first, second, [x, y, width, height], masks = []) =>
             Math.abs(firstData[index + 1] - secondData[index + 1]) +
             Math.abs(firstData[index + 2] - secondData[index + 2]) >
           30
-        )
+        ) {
           changed++;
+        }
       }
       return changed / Math.max(1, firstData.length / 4 - masked);
     },
@@ -510,9 +564,13 @@ const changedColour = (first, second, [x, y, width, height]) =>
           Math.abs(firstData[index] - secondData[index]) +
           Math.abs(firstData[index + 1] - secondData[index + 1]) +
           Math.abs(firstData[index + 2] - secondData[index + 2]);
-        if (change <= 40) continue;
+        if (change <= 40) {
+          continue;
+        }
         count++;
-        for (let channel = 0; channel < 3; channel++) sum[channel] += firstData[index + channel];
+        for (let channel = 0; channel < 3; channel++) {
+          sum[channel] += firstData[index + channel];
+        }
       }
       return { colour: sum.map((value) => value / Math.max(1, count)), count };
     },
@@ -532,8 +590,11 @@ const meanColour = (encoded, [x, y, width, height]) =>
       context.drawImage(image, 0, 0);
       const data = context.getImageData(Math.round(x), Math.round(y), width, height).data;
       const sum = [0, 0, 0];
-      for (let index = 0; index < data.length; index += 4)
-        for (let channel = 0; channel < 3; channel++) sum[channel] += data[index + channel];
+      for (let index = 0; index < data.length; index += 4) {
+        for (let channel = 0; channel < 3; channel++) {
+          sum[channel] += data[index + channel];
+        }
+      }
       return sum.map((value) => value / (data.length / 4));
     },
     { encoded, x, y, width, height },
@@ -562,9 +623,13 @@ const changedWithin = (first, second, maskOn = null, maskOff = null) =>
       let footprint = 0;
       let changed = 0;
       for (let index = 0; index < firstData.length; index += 4) {
-        if (onData && !apart(onData, offData, index)) continue;
+        if (onData && !apart(onData, offData, index)) {
+          continue;
+        }
         footprint++;
-        if (apart(firstData, secondData, index)) changed++;
+        if (apart(firstData, secondData, index)) {
+          changed++;
+        }
       }
       return { footprint, changed };
     },
@@ -581,11 +646,15 @@ const showLayers = (labels, shown) =>
           node.renderable = shown;
           matched++;
         }
-        for (const child of node.children ?? []) visit(child);
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       visit(window.lampwarden.app().stage);
       // a label the scene no longer gives would leave the layer showing and the checks passing for the wrong reason
-      if (matched === 0) throw new Error(`no layer is labelled ${labels.join(" or ")}`);
+      if (matched === 0) {
+        throw new Error(`no layer is labelled ${labels.join(" or ")}`);
+      }
     },
     { labels, shown },
   );
@@ -618,7 +687,9 @@ const WEAPON_SHOP_SEED = (() => {
   for (let seed = 1; ; seed++) {
     const probe = { ...newLegacy(seed), offerSeed: seed };
     openShop(probe);
-    if (probe.offers.includes("blade") && probe.offers.includes("quiver")) return seed;
+    if (probe.offers.includes("blade") && probe.offers.includes("quiver")) {
+      return seed;
+    }
   }
 })();
 const seedWeaponShop = () =>
@@ -679,8 +750,9 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
       const [top, bottom] = [...document.querySelectorAll(".scroll .roller")].map((roller) =>
         roller.getBoundingClientRect(),
       );
-      if (!element || !body || !windowElement || !top || !bottom)
+      if (!element || !body || !windowElement || !top || !bottom) {
         return { unrolled: false, unreachable: ["no scroll"] };
+      }
       const onScreen = (box) =>
         box.left >= -1 && box.top >= -1 && box.right <= viewportWidth + 1 && box.bottom <= viewportHeight + 1;
       const parchment = windowElement.getBoundingClientRect();
@@ -695,8 +767,9 @@ async function checkTitleScroll(tag, viewportWidth, viewportHeight) {
         line.scrollIntoView({ block: "nearest" });
         const box = line.getBoundingClientRect();
         const shown = body.getBoundingClientRect();
-        if (!onScreen(box) || box.top < shown.top - 1 || box.bottom > shown.bottom + 1)
+        if (!onScreen(box) || box.top < shown.top - 1 || box.bottom > shown.bottom + 1) {
           unreachable.push(line.textContent.trim().slice(0, 24) || line.className);
+        }
       }
       body.scrollTop = 0;
       return {
@@ -755,7 +828,9 @@ async function checkPress(tag, name, locator, disabled = false) {
 async function checkCodePress(tag, name, press, pressedElement, release) {
   await press();
   const during = await page.evaluate(pressedElement);
-  await (release ?? (() => {}))();
+  if (release) {
+    await release();
+  }
   await page.waitForTimeout(250);
   const after = await page.evaluate(pressedElement);
   check(tag, name, during === true && after === false, `while pressed ${during}, after ${after}`);
@@ -776,15 +851,32 @@ async function checkScrollFits(tag) {
 // A creature's name and lore are shown whole wherever the announcement appears (title, dawn, heir; desktop and phone):
 // the text is the full string, nothing ellipsizes or line-clamps it, neither element holds more than it shows, and
 // both lie inside the panel
+// what is wrong with how one part of the announcement is shown, if anything
+function textProblems(part, found, expected) {
+  if (!found) {
+    return [`no ${part}`];
+  }
+  return [
+    [found.text !== expected, `${part} reads "${found.text.slice(0, 30)}"`],
+    [found.ellipsis, `${part} has an ellipsis`],
+    [found.clamped, `${part} is line-clamped`],
+    [found.holdsMore, `${part} holds more than it shows`],
+    [!found.inside, `${part} spills out of the panel`],
+  ].flatMap(([wrong, problem]) => (wrong ? [problem] : []));
+}
 async function checkCreatureText(tag, screen, creature) {
   await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
   const shown = await page.evaluate(() => {
     const panel = document.querySelector('.sea[data-state="ready"]');
-    if (!panel) return null;
+    if (!panel) {
+      return null;
+    }
     const panelBox = panel.getBoundingClientRect();
     const read = (selector) => {
       const element = panel.querySelector(selector);
-      if (!element) return null;
+      if (!element) {
+        return null;
+      }
       const style = getComputedStyle(element);
       const box = element.getBoundingClientRect();
       return {
@@ -804,21 +896,10 @@ async function checkCreatureText(tag, screen, creature) {
     };
     return { name: read(".sea-name"), lore: read(".sea-lore") };
   });
-  const problems = [];
-  for (const [part, expected] of [
-    ["name", creature.name],
-    ["lore", creature.lore],
-  ]) {
-    const found = shown?.[part];
-    if (!found) problems.push(`no ${part}`);
-    else {
-      if (found.text !== expected) problems.push(`${part} reads "${found.text.slice(0, 30)}"`);
-      if (found.ellipsis) problems.push(`${part} has an ellipsis`);
-      if (found.clamped) problems.push(`${part} is line-clamped`);
-      if (found.holdsMore) problems.push(`${part} holds more than it shows`);
-      if (!found.inside) problems.push(`${part} spills out of the panel`);
-    }
-  }
+  const problems = [
+    ...textProblems("name", shown?.name, creature.name),
+    ...textProblems("lore", shown?.lore, creature.lore),
+  ];
   check(
     tag,
     `${screen}: the creature's whole name and lore are shown`,
@@ -833,7 +914,9 @@ async function checkBuildingText(tag, screen, building) {
   await page.waitForSelector('.raised[data-state="ready"]', { timeout: 5000 });
   const shown = await page.evaluate(() => {
     const line = document.querySelector('.raised[data-state="ready"]');
-    if (!line) return null;
+    if (!line) {
+      return null;
+    }
     const style = getComputedStyle(line);
     const box = line.getBoundingClientRect();
     const frame = (line.closest(".scroll-body") ?? line.closest(".panel") ?? document.body).getBoundingClientRect();
@@ -850,18 +933,17 @@ async function checkBuildingText(tag, screen, building) {
       lines: Math.round(box.height / Number.parseFloat(style.lineHeight)),
     };
   });
-  const problems = [];
-  if (!shown) problems.push("no line");
-  else {
-    if (shown.text !== `Raised on the plaza tonight: ${building.name}`)
-      problems.push(`reads "${shown.text.slice(0, 40)}"`);
-    if (shown.name !== building.name) problems.push("the name is not whole");
-    if (shown.ellipsis) problems.push("an ellipsis");
-    if (shown.clamped) problems.push("line-clamped");
-    if (shown.clips) problems.push("one line that clips");
-    if (shown.holdsMore) problems.push("holds more than it shows");
-    if (!shown.inside) problems.push("spills out of its frame");
-  }
+  const problems = shown
+    ? [
+        [shown.text !== `Raised on the plaza tonight: ${building.name}`, `reads "${shown.text.slice(0, 40)}"`],
+        [shown.name !== building.name, "the name is not whole"],
+        [shown.ellipsis, "an ellipsis"],
+        [shown.clamped, "line-clamped"],
+        [shown.clips, "one line that clips"],
+        [shown.holdsMore, "holds more than it shows"],
+        [!shown.inside, "spills out of its frame"],
+      ].flatMap(([wrong, problem]) => (wrong ? [problem] : []))
+    : ["no line"];
   check(
     tag,
     `${screen}: the building's whole name is shown`,
@@ -923,12 +1005,18 @@ async function checkPhoneText(tag, screen) {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const element = node.parentElement;
-      if (!node.textContent.trim() || !element) continue;
+      if (!node.textContent.trim() || !element) {
+        continue;
+      }
       const box = element.getBoundingClientRect();
       const style = getComputedStyle(element);
-      if (box.width === 0 || box.height === 0 || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+      if (box.width === 0 || box.height === 0 || style.visibility === "hidden" || Number(style.opacity) === 0) {
+        continue;
+      }
       const size = Number.parseFloat(style.fontSize);
-      if (size < 16) found.push(`${size}px "${node.textContent.trim().slice(0, 24)}"`);
+      if (size < 16) {
+        found.push(`${size}px "${node.textContent.trim().slice(0, 24)}"`);
+      }
     }
     return found;
   });
@@ -953,10 +1041,15 @@ async function checkTraitIcons(tag, name, selector, expectedCount) {
   const problems = found.flatMap((element) => {
     const label = Object.keys(TRAIT_ICONS).find((trait) => element.text.includes(trait));
     const [icon] = element.icons;
-    if (!label) return [`no trait in "${element.text.slice(0, 30)}"`];
-    if (element.icons.length !== 1 || icon.name !== TRAIT_ICONS[label])
+    if (!label) {
+      return [`no trait in "${element.text.slice(0, 30)}"`];
+    }
+    if (element.icons.length !== 1 || icon.name !== TRAIT_ICONS[label]) {
       return [`${label}: icons ${element.icons.map((shown) => shown.name).join(",") || "none"}`];
-    if (!icon.hidden || icon.drawn < 20) return [`${label}: hidden ${icon.hidden}, ${icon.drawn} pixels`];
+    }
+    if (!icon.hidden || icon.drawn < 20) {
+      return [`${label}: hidden ${icon.hidden}, ${icon.drawn} pixels`];
+    }
     return [];
   });
   check(
@@ -996,11 +1089,17 @@ const drawnProps = () =>
         // a live building is drawn from the gallery's sprite
         const liveId = /\/api\/buildings\/([a-z0-9-]+)\/sprite\.png$/.exec(label)?.[1];
         const key = keys.find((name) => label.endsWith(`/sprites/${name}.png`)) ?? (liveId && `building/${liveId}`);
-        if (key && node.visible !== false) found.push([key, Math.round(node.x), Math.round(node.y)]);
-        for (const child of node.children ?? []) visit(child);
+        if (key && node.visible !== false) {
+          found.push([key, Math.round(node.x), Math.round(node.y)]);
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       const app = window.lampwarden.app();
-      if (app) visit(app.stage);
+      if (app) {
+        visit(app.stage);
+      }
       return found;
     }, PROP_KEYS)
     .then((found) => found.sort(byKeyThenPlace));
@@ -1022,34 +1121,57 @@ const sameProps = (drawn, expected) =>
 const propSprites = new Map();
 // A sprite's painted pixels in the rows of its base (src/scene/extent.ts), by their offset from the anchor, read from the
 // committed picture: the check below looks at pixels, not at the numbers the placer was given.
+// the painted pixels of a 128 px picture within `band` rows above its anchor row, by their offset from the anchor
+function paintedBase(image, anchorRow, band) {
+  const pixels = [];
+  for (let row = 0; row < 128; row++) {
+    if (row - anchorRow < -band) {
+      continue;
+    }
+    for (let column = 0; column < 128; column++) {
+      if (image.data[(row * 128 + column) * 4 + 3] > 0) {
+        pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
+      }
+    }
+  }
+  return pixels;
+}
 function basePixelsOf(key) {
   let pixels = propSprites.get(key);
   if (!pixels) {
     const live = key.startsWith("building/"); // the fixture building: its picture is made in code
     const image = live ? PLAZA_PICTURE : decodePng(readFileSync(`public/sprites/${key}.png`));
     const anchorRow = (live ? PLAZA_ANCHOR_Y : anchorYFor(key)) * 128;
-    pixels = [];
-    for (let row = 0; row < 128; row++)
-      if (row - anchorRow >= -(key.startsWith("building/") ? 28 : baseBandOf(key)))
-        for (let column = 0; column < 128; column++)
-          if (image.data[(row * 128 + column) * 4 + 3] > 0) pixels.push([column - 64 + 0.5, row - anchorRow + 0.5]);
+    pixels = paintedBase(image, anchorRow, live ? 28 : baseBandOf(key));
     propSprites.set(key, pixels);
   }
   return pixels;
+}
+// how many of a land prop's base pixels are off the plaza, and how many on it but within its margin of the rim
+function baseAgainstRim(key, x, y) {
+  const margin = key === "wall" ? 4 : 8;
+  let off = 0;
+  let near = 0;
+  for (const [offsetX, offsetY] of basePixelsOf(key)) {
+    if (!onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY))) {
+      off++;
+    } else if (plazaInset(x + offsetX, y + offsetY) < margin - 1) {
+      near++;
+    }
+  }
+  return { off, near };
 }
 // the land props with a painted pixel of their base off the plaza, or less than their margin in from its rim
 function propsOffPlaza(props) {
   const problems = [];
   for (const [key, x, y] of props) {
-    if (BOAT_KEYS.includes(key) || key === "zeus-statue") continue;
-    const margin = key === "wall" ? 4 : 8;
-    let off = 0;
-    let near = 0;
-    for (const [offsetX, offsetY] of basePixelsOf(key)) {
-      if (!onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY))) off++;
-      else if (plazaInset(x + offsetX, y + offsetY) < margin - 1) near++;
+    if (BOAT_KEYS.includes(key) || key === "zeus-statue") {
+      continue;
     }
-    if (off || near) problems.push(`${key}@${x},${y}: ${off} pixels off the plaza, ${near} within the margin`);
+    const { off, near } = baseAgainstRim(key, x, y);
+    if (off > 0 || near > 0) {
+      problems.push(`${key}@${x},${y}: ${off} pixels off the plaza, ${near} within the margin`);
+    }
   }
   return problems;
 }
@@ -1057,11 +1179,15 @@ function propsOffPlaza(props) {
 function boatsOnStone(props) {
   const problems = [];
   for (const [key, x, y] of props) {
-    if (!BOAT_KEYS.includes(key)) continue;
+    if (!BOAT_KEYS.includes(key)) {
+      continue;
+    }
     const onStone = basePixelsOf(key).filter(([offsetX, offsetY]) =>
       onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY)),
     ).length;
-    if (onStone) problems.push(`${key}@${x},${y}: ${onStone} pixels on the plaza`);
+    if (onStone) {
+      problems.push(`${key}@${x},${y}: ${onStone} pixels on the plaza`);
+    }
   }
   return problems;
 }
@@ -1158,8 +1284,11 @@ const HERO_SEXES = ["male", "female"];
 // the looks that follow one another, as runs: [{ hash, from }], from in ms after the start
 const runsOf = (trail, index) => {
   const runs = [];
-  for (const sample of trail)
-    if (runs.at(-1)?.hash !== sample[index]) runs.push({ hash: sample[index], from: sample[0] });
+  for (const sample of trail) {
+    if (runs.at(-1)?.hash !== sample[index]) {
+      runs.push({ hash: sample[index], from: sample[0] });
+    }
+  }
   return runs;
 };
 const heroSignatures = (target) =>
@@ -1194,7 +1323,9 @@ async function openHeroPage(reducedMotion) {
       await heroPage.clock.pauseAt((await heroPage.evaluate(() => Date.now())) + 100 * attempt);
       break;
     } catch (error) {
-      if (attempt >= 5 || !String(error).includes("to the past")) throw error;
+      if (attempt >= 5 || !String(error).includes("to the past")) {
+        throw error;
+      }
     }
   }
   return { context, heroPage };
@@ -1231,7 +1362,9 @@ async function checkHeroCards() {
   // the swing, with the page's clock stepped
   const { context, heroPage } = await openHeroPage(false);
   const expected = {};
-  for (const sex of HERO_SEXES) expected[sex] = await heroPage.evaluate((sex) => window.heroProbe.expected(sex), sex);
+  for (const sex of HERO_SEXES) {
+    expected[sex] = await heroPage.evaluate((sex) => window.heroProbe.expected(sex), sex);
+  }
   const resting = await heroSignatures(heroPage);
   check(
     "hero-cards",
@@ -1307,11 +1440,17 @@ const setPropsShown = (shown) =>
     ([keys, visible]) => {
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        if (keys.some((name) => label.endsWith(`/sprites/${name}.png`))) node.visible = visible;
-        for (const child of node.children ?? []) visit(child);
+        if (keys.some((name) => label.endsWith(`/sprites/${name}.png`))) {
+          node.visible = visible;
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       const app = window.lampwarden.app();
-      if (app) visit(app.stage);
+      if (app) {
+        visit(app.stage);
+      }
     },
     [PROP_KEYS.filter((key) => key !== "zeus-statue"), shown],
   );
@@ -1324,7 +1463,9 @@ async function checkBridge(scene, label, picture, seed) {
   const problems = [];
   for (const [x, y] of bridged) {
     const [red, , blue] = await meanColour(picture, [x - 2, y - 1, 4, 3]);
-    if (blue - red > 12) problems.push(`${x},${y}: red ${red.toFixed(0)}, blue ${blue.toFixed(0)}`);
+    if (blue - red > 12) {
+      problems.push(`${x},${y}: red ${red.toFixed(0)}, blue ${blue.toFixed(0)}`);
+    }
   }
   const last = boards.at(-1);
   const against = last ? shoreDistanceOf(last[0], last[1]) : Number.POSITIVE_INFINITY;
@@ -1341,11 +1482,17 @@ const heroTextures = () =>
     const found = [];
     const visit = (node) => {
       const source = node.texture?.source?.label ?? "";
-      if (source.includes("/hero/")) found.push(source.slice(source.indexOf("/hero/") + 6));
-      for (const child of node.children ?? []) visit(child);
+      if (source.includes("/hero/")) {
+        found.push(source.slice(source.indexOf("/hero/") + 6));
+      }
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
     };
     const app = window.lampwarden.app();
-    if (app) visit(app.stage);
+    if (app) {
+      visit(app.stage);
+    }
     return found;
   });
 
@@ -1493,7 +1640,7 @@ check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).t
       const found = [];
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        if (label.startsWith(`/sprites/${kind}-frames.png#`) && node.visible && !node.destroyed)
+        if (label.startsWith(`/sprites/${kind}-frames.png#`) && node.visible && !node.destroyed) {
           found.push({
             direction: label.split("#")[1].split("/")[0],
             pose: label.split("/").pop(),
@@ -1501,10 +1648,15 @@ check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).t
             x: node.position.x,
             y: node.position.y,
           });
-        for (const child of node.children ?? []) visit(child);
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       const app = window.lampwarden.app();
-      if (app) visit(app.stage);
+      if (app) {
+        visit(app.stage);
+      }
       return found;
     }, kind);
   const standMonster = (kind, patch) =>
@@ -1612,7 +1764,9 @@ check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).t
     const frame = (await handMadeFrames("satyr"))[0];
     seen.push(`${way}:${frame?.direction}${frame?.flipped ? "'" : ""}`);
     allWays = allWays && frame?.direction === drawn && frame?.flipped === mirrored && frame?.pose === "walk4";
-    if (["e", "sw", "n"].includes(way)) wayShots[way] = await shoot(`03b-satyr-walks-${way}`);
+    if (["e", "sw", "n"].includes(way)) {
+      wayShots[way] = await shoot(`03b-satyr-walks-${way}`);
+    }
   }
   check("hand-made", "the satyr walks facing each of the eight ways", allWays, seen.join(" "));
   const apart = await boxDiff(wayShots.e, wayShots.n, handMadeBox);
@@ -1628,7 +1782,9 @@ check("combat", "no stray strokes across the sky", sky < 0.001, `${(sky * 100).t
   await settle();
   const satyrPlain = await shoot("03b-satyr-walk");
   await page.evaluate(() => {
-    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.25;
+    }
   });
   await settle();
   const satyrFlash = await shoot("03b-satyr-flash");
@@ -1765,7 +1921,9 @@ await page.evaluate(() => {
   const state = window.lampwarden.state();
   state.monsters = [];
   state.shots = [];
-  for (const lamp of state.lamps) lamp.lit = true;
+  for (const lamp of state.lamps) {
+    lamp.lit = true;
+  }
   state.lamps[1].relight = 0;
   state.hero.animation = "idle";
   state.hero.frameTime = 0;
@@ -2023,7 +2181,9 @@ await page.evaluate(() => {
   const wardenAt = [300, 450];
   await page.evaluate(([x, y]) => {
     const state = window.lampwarden.state();
-    for (const lamp of state.lamps) lamp.lit = false;
+    for (const lamp of state.lamps) {
+      lamp.lit = false;
+    }
     state.monsters = [];
     state.shots = [];
     state.hero.x = x;
@@ -2037,7 +2197,7 @@ await page.evaluate(() => {
       ([satyrX, satyrY]) => {
         const state = window.lampwarden.state();
         state.monsters = [];
-        if (satyrX !== null)
+        if (satyrX !== null) {
           state.monsters.push({
             id: state.nextId++,
             kind: "satyr",
@@ -2050,6 +2210,7 @@ await page.evaluate(() => {
             attackCooldown: 99,
             hurt: 0,
           });
+        }
       },
       [x, y],
     );
@@ -2144,7 +2305,9 @@ await page.evaluate(() => {
   await page.evaluate(() => {
     const state = window.lampwarden.state();
     state.elapsed = 0;
-    for (const lamp of state.lamps) lamp.lit = true;
+    for (const lamp of state.lamps) {
+      lamp.lit = true;
+    }
     state.hero.x = 560;
     state.hero.y = 360;
   });
@@ -2159,13 +2322,20 @@ const woundedSprites = () =>
     const found = { flash: [], vignette: [] };
     const visit = (node) => {
       const label = node.texture?.source?.label ?? "";
-      if (node.visible && node.alpha > 0 && label.startsWith("flash:") && label.includes("/hero/"))
+      if (node.visible && node.alpha > 0 && label.startsWith("flash:") && label.includes("/hero/")) {
         found.flash.push({ label, x: node.x, y: node.y, scaleX: node.scale.x });
-      if (node.visible && node.alpha > 0 && label.startsWith("vignette/")) found.vignette.push(label);
-      for (const child of node.children ?? []) visit(child);
+      }
+      if (node.visible && node.alpha > 0 && label.startsWith("vignette/")) {
+        found.vignette.push(label);
+      }
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
     };
     const app = window.lampwarden.app();
-    if (app) visit(app.stage);
+    if (app) {
+      visit(app.stage);
+    }
     return found;
   });
 // runs the sim at a tenth speed until the warden has been hit and his hurt has run down to `limit`, then stops it;
@@ -2184,7 +2354,9 @@ const runHurtTo = (limit) =>
         if (state.hero.hits > 0 && state.hero.hurt <= limit) {
           scene.setPaused(true);
           resolve();
-        } else requestAnimationFrame(watch);
+        } else {
+          requestAnimationFrame(watch);
+        }
       };
       watch();
     });
@@ -2337,9 +2509,12 @@ const placeClawer = (heroX, heroY) =>
       let found = null;
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        if (node.visible && label.includes("/hero/") && !label.startsWith("flash:"))
+        if (node.visible && label.includes("/hero/") && !label.startsWith("flash:")) {
           found = { name: label.slice(label.indexOf("/hero/") + 6), mirrored: node.scale.x < 0 };
-        for (const child of node.children ?? []) visit(child);
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       visit(window.lampwarden.app().stage);
       return found;
@@ -2351,14 +2526,18 @@ const placeClawer = (heroX, heroY) =>
       const visit = (node) => {
         for (const instruction of node.context?.instructions ?? []) {
           const steps = instruction.data?.path?.instructions;
-          if (instruction.action !== "fill" || !steps || steps.length < 10) continue;
+          if (instruction.action !== "fill" || !steps || steps.length < 10) {
+            continue;
+          }
           const [centreX, centreY] = steps[0].data;
           const rim = steps.slice(1, -1).map((step) => step.data);
           const meanX = rim.reduce((total, [x]) => total + x, 0) / rim.length - centreX;
           const meanY = rim.reduce((total, [, y]) => total + y, 0) / rim.length - centreY;
           angle = (Math.atan2(meanY * 2, meanX) * 180) / Math.PI;
         }
-        for (const child of node.children ?? []) visit(child);
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       visit(window.lampwarden.app().stage);
       return angle;
@@ -2379,7 +2558,9 @@ const placeClawer = (heroX, heroY) =>
     state.monsters = [];
     state.shots = [];
     state.spawnTimer = 1e9;
-    for (const lamp of state.lamps) lamp.lit = true;
+    for (const lamp of state.lamps) {
+      lamp.lit = true;
+    }
     window.lampwarden.scene().setPaused(false);
   });
   const facings = [];
@@ -2442,13 +2623,14 @@ const placeClawer = (heroX, heroY) =>
       clip: { x: stage.x + 480 - 60, y: stage.y + 450 - 110, width: 120, height: 130 },
     });
   }
-  for (const facing of facings)
+  for (const facing of facings) {
     check(
       "hero-facing",
       `facing ${facing.name}: walks, strikes and stands in that direction's frames`,
       facing.ok,
       facing.detail,
     );
+  }
   check(
     "hero-facing",
     "the swing's wedge is centred on the direction shown, in all eight",
@@ -2477,7 +2659,9 @@ const placeClawer = (heroX, heroY) =>
 await setPropsShown(true);
 await page.evaluate(() => {
   const state = window.lampwarden.state();
-  for (const lamp of state.lamps) lamp.lit = true;
+  for (const lamp of state.lamps) {
+    lamp.lit = true;
+  }
   state.elapsed = state.length * 0.97;
 });
 await settle();
@@ -2570,7 +2754,9 @@ check(
 );
 await seedWeaponShop();
 await page.evaluate(() => {
-  for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+  for (const lamp of window.lampwarden.state().lamps) {
+    lamp.lit = false;
+  }
 });
 await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
 await freeze();
@@ -2768,7 +2954,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   // the d-pad walks the title's buttons to a hero card and A chooses it: the daughter, then the son again
   const focusHeroCard = async (sex, direction) => {
     for (let move = 0; move < 8; move++) {
-      if (await page.evaluate((sex) => document.activeElement?.dataset?.sex === sex, sex)) return true;
+      if (await page.evaluate((sex) => document.activeElement?.dataset?.sex === sex, sex)) {
+        return true;
+      }
       await tapButton(direction);
     }
     return page.evaluate((sex) => document.activeElement?.dataset?.sex === sex, sex);
@@ -3130,11 +3318,14 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const seaPage = await seaContext.newPage();
   seaPage.on("pageerror", (error) => errors.push(`sea: ${error}`));
   seaPage.on("console", (message) => {
-    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
       errors.push(`sea: ${message.text()}`);
+    }
   });
   seaPage.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`sea: HTTP ${response.status()} ${response.url()}`);
+    if (response.status() >= 400) {
+      errors.push(`sea: HTTP ${response.status()} ${response.url()}`);
+    }
   });
   const mainPage = page;
   page = seaPage;
@@ -3167,11 +3358,17 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     page.evaluate(() => {
       let found = 0;
       const visit = (node) => {
-        if ((node.texture?.source?.label ?? "").includes("/api/creatures/") && node.visible && !node.destroyed) found++;
-        for (const child of node.children ?? []) visit(child);
+        if ((node.texture?.source?.label ?? "").includes("/api/creatures/") && node.visible && !node.destroyed) {
+          found++;
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       const app = window.lampwarden.app();
-      if (app) visit(app.stage);
+      if (app) {
+        visit(app.stage);
+      }
       return found;
     });
   // the dawn screen, reached the way the earlier scenarios do
@@ -3303,7 +3500,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       `dawn ${nightNumber - 1} announces ${coming.name}`,
       (await text(".panel .sea")).join(" ").includes(coming.name),
     );
-    if (nightNumber === 3) await shoot("16b-sea-dawn-second");
+    if (nightNumber === 3) {
+      await shoot("16b-sea-dawn-second");
+    }
     await page.getByRole("button", { name: /Into night/ }).click();
     await page.waitForSelector('[data-phase="night"]');
     await freeze();
@@ -3340,7 +3539,11 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       loaded: portrait?.getAttribute("data-loaded") === "1",
       scale: Number(portrait?.getAttribute("data-scale") ?? 0),
       // drawn at a whole multiple of the cropped figure, and big enough to read
-      whole: !!portrait && !!box && box.width === portrait.width * Number(portrait.dataset.scale) && box.height >= 48,
+      whole:
+        Boolean(portrait) &&
+        Boolean(box) &&
+        box.width === portrait.width * Number(portrait.dataset.scale) &&
+        box.height >= 48,
       height: box?.height ?? 0,
     };
   });
@@ -3383,7 +3586,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       state.spawnTimer = 0;
       state.elapsed = Math.max(state.elapsed, 9);
       state.hero.health = state.hero.maxHealth;
-      for (const lamp of state.lamps) lamp.lit = true;
+      for (const lamp of state.lamps) {
+        lamp.lit = true;
+      }
       window.lampwarden.scene().setPaused(false);
     });
     await page.waitForTimeout(100);
@@ -3412,12 +3617,16 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   check("sea-night", "the creature is drawn where it stands", drawnShare > 0.08, `${(drawnShare * 100).toFixed(0)}%`);
   // the white flash after a blow, then the red tint of the hurt monster
   await page.evaluate(() => {
-    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.25;
+    }
   });
   await settle();
   const flashShot = await shoot("19-sea-flash");
   await page.evaluate(() => {
-    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.1;
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.1;
+    }
   });
   await settle();
   const tintShot = await shoot("20-sea-hurt");
@@ -3467,7 +3676,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
   await startFromTitle();
   await page.evaluate(() => {
-    for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+    for (const lamp of window.lampwarden.state().lamps) {
+      lamp.lit = false;
+    }
     window.lampwarden.scene().setPaused(false);
   });
   await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
@@ -3506,7 +3717,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       state.spawnTimer = 0;
       state.elapsed = Math.max(state.elapsed, 9);
       state.hero.health = state.hero.maxHealth;
-      for (const lamp of state.lamps) lamp.lit = true;
+      for (const lamp of state.lamps) {
+        lamp.lit = true;
+      }
       window.lampwarden.scene().setPaused(false);
     });
     await page.waitForTimeout(100);
@@ -3521,8 +3734,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       const state = window.lampwarden.state();
       window.lampwarden.scene().setPaused(true);
       state.monsters = state.monsters.filter((monster) => monster.kind === "creature").slice(0, 1);
-      for (const monster of state.monsters)
+      for (const monster of state.monsters) {
         Object.assign(monster, { x: 600, y: 400, hurt: 0, stun: 0, snuff: 0, attackCooldown: 0, age: 0 }, patch);
+      }
       state.hero.x = 300;
       state.hero.y = 330;
       state.puffs = [];
@@ -3533,7 +3747,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       const found = [];
       const visit = (node) => {
         const label = node.texture?.source?.label ?? "";
-        if (label.startsWith(`/api/creatures/${id}/`) && node.visible && !node.destroyed)
+        if (label.startsWith(`/api/creatures/${id}/`) && node.visible && !node.destroyed) {
           found.push({
             pose: label.split("/").pop(),
             direction: label.split("#")[1]?.split("/")[0],
@@ -3541,10 +3755,15 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
             // the painted shadow is cut out and the pixels kept, which is what the lamps' rim light needs
             shadowless: node.texture.source.resource instanceof Uint8Array,
           });
-        for (const child of node.children ?? []) visit(child);
+        }
+        for (const child of node.children ?? []) {
+          visit(child);
+        }
       };
       const app = window.lampwarden.app();
-      if (app) visit(app.stage);
+      if (app) {
+        visit(app.stage);
+      }
       return found;
     }, id);
   const creatureFrames = () => creatureFramesOf(SEA_ANIMATED.id);
@@ -3619,7 +3838,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     }, ground);
     await settle();
     facing[way] = (await creatureFrames())[0];
-    if (["e", "sw", "n"].includes(way)) wayShots[way] = await shoot(`28a-sea-animated-walks-${way}`);
+    if (["e", "sw", "n"].includes(way)) {
+      wayShots[way] = await shoot(`28a-sea-animated-walks-${way}`);
+    }
   }
   check(
     "sea-animated",
@@ -3676,7 +3897,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await freeze();
   const animatedPlain = await shoot("26-sea-animated-plain");
   await page.evaluate(() => {
-    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.25;
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.25;
+    }
   });
   await settle();
   const animatedFlash = await shoot("27-sea-animated-flash");
@@ -3691,7 +3914,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     `${animatedPlainLight[0].toFixed(0)} → ${animatedFlashLight[0].toFixed(0)}`,
   );
   await page.evaluate(() => {
-    for (const monster of window.lampwarden.state().monsters) monster.hurt = 0.1;
+    for (const monster of window.lampwarden.state().monsters) {
+      monster.hurt = 0.1;
+    }
   });
   await settle();
   const animatedTint = await shoot("28-sea-animated-hurt");
@@ -3730,7 +3955,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
       state.spawnTimer = 0;
       state.elapsed = Math.max(state.elapsed, 9);
       state.hero.health = state.hero.maxHealth;
-      for (const lamp of state.lamps) lamp.lit = true;
+      for (const lamp of state.lamps) {
+        lamp.lit = true;
+      }
       window.lampwarden.scene().setPaused(false);
     });
     await page.waitForTimeout(100);
@@ -3789,11 +4016,14 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const plazaPage = await plazaContext.newPage();
   plazaPage.on("pageerror", (error) => errors.push(`plaza: ${error}`));
   plazaPage.on("console", (message) => {
-    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
       errors.push(`plaza: ${message.text()}`);
+    }
   });
   plazaPage.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`plaza: HTTP ${response.status()} ${response.url()}`);
+    if (response.status() >= 400) {
+      errors.push(`plaza: HTTP ${response.status()} ${response.url()}`);
+    }
   });
   const mainPage = page;
   page = plazaPage;
@@ -3918,19 +4148,24 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   check(
     "plaza-night",
     "the live building is drawn, once, instead of the committed one",
-    slot.length === 1 && !!placed,
+    slot.length === 1 && Boolean(placed),
     JSON.stringify(slot),
   );
   check("plaza-night", "no line in the night", (await page.locator(".raised").count()) === 0);
   const anchored = await page.evaluate((id) => {
     let anchorY = null;
     const visit = (node) => {
-      if ((node.texture?.source?.label ?? "").includes(`/api/buildings/${id}/sprite.png`) && node.visible)
+      if ((node.texture?.source?.label ?? "").includes(`/api/buildings/${id}/sprite.png`) && node.visible) {
         anchorY = node.anchor?.y ?? null;
-      for (const child of node.children ?? []) visit(child);
+      }
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
     };
     const app = window.lampwarden.app();
-    if (app) visit(app.stage);
+    if (app) {
+      visit(app.stage);
+    }
     return anchorY;
   }, PLAZA_BUILDING.id);
   check(
@@ -4055,11 +4290,14 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const directorPage = await directorContext.newPage();
   directorPage.on("pageerror", (error) => errors.push(`director: ${error}`));
   directorPage.on("console", (message) => {
-    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
       errors.push(`director: ${message.text()}`);
+    }
   });
   directorPage.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`director: HTTP ${response.status()} ${response.url()}`);
+    if (response.status() >= 400) {
+      errors.push(`director: HTTP ${response.status()} ${response.url()}`);
+    }
   });
   const mainPage = page;
   page = directorPage;
@@ -4255,7 +4493,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
 
   // 25 an answer that comes after the next night began is ignored
   director.mode = "late";
-  let release = () => {};
+  let release = () => {
+    // replaced by the hold promise below
+  };
   director.hold = new Promise((resolve) => {
     release = resolve;
   });
@@ -4315,7 +4555,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await startNight(/Into night/);
   const tideBeforeLoss = (await snapshot()).legacyTide;
   await page.evaluate(() => {
-    for (const lamp of window.lampwarden.state().lamps) lamp.lit = false;
+    for (const lamp of window.lampwarden.state().lamps) {
+      lamp.lit = false;
+    }
     window.lampwarden.scene().setPaused(false);
   });
   await page.waitForSelector('[data-phase="heir"]', { timeout: 5000 });
@@ -4346,14 +4588,17 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   await welcomeContext.addInitScript(() => {
     window.titleBeforeOpening = false;
     new MutationObserver(() => {
-      if (document.querySelector(".scroll") && !document.querySelector(".opening")) window.titleBeforeOpening = true;
+      if (document.querySelector(".scroll") && !document.querySelector(".opening")) {
+        window.titleBeforeOpening = true;
+      }
     }).observe(document, { childList: true, subtree: true });
   });
   const welcomePage = await welcomeContext.newPage();
   welcomePage.on("pageerror", (error) => errors.push(`welcome: ${error}`));
   welcomePage.on("console", (message) => {
-    if (message.type() === "error" && !message.text().startsWith("Failed to load resource"))
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) {
       errors.push(`welcome: ${message.text()}`);
+    }
   });
   const mainPage = page;
   page = welcomePage;
@@ -4442,7 +4687,9 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   const linesSeen = [0, 1, 2];
   for (let poll = 0; poll < 300 && (await phaseNow()) === "opening"; poll++) {
     const line = await page.evaluate(() => Number(document.querySelector("[data-opening]")?.dataset.opening ?? -1));
-    if (line >= 0 && linesSeen.at(-1) !== line) linesSeen.push(line);
+    if (line >= 0 && linesSeen.at(-1) !== line) {
+      linesSeen.push(line);
+    }
     await page.waitForTimeout(100);
   }
   const afterOpening = await phaseNow();
@@ -4477,7 +4724,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
   );
   await page.waitForTimeout(300);
   await page.keyboard.press("Escape");
-  await page.waitForSelector('[data-phase="title"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForSelector('[data-phase="title"]', { timeout: 3000 }).catch(() => undefined);
   check(
     "welcome-opening",
     "Watch the opening plays it again, and Escape skips it",
@@ -4640,7 +4887,7 @@ check("replay", "replay bar shown", (await text(".replaybar")).join("").includes
     () => false,
   );
   await page.getByRole("button", { name: "Skip practice" }).click();
-  await page.waitForSelector('[data-phase="night"]', { timeout: 5000 }).catch(() => {});
+  await page.waitForSelector('[data-phase="night"]', { timeout: 5000 }).catch(() => undefined);
   check(
     "welcome-practice",
     "Practise first opens the practice, and Skip practice leaves it for the night",
@@ -4764,7 +5011,9 @@ for (const [tag, device, sex] of [
   const hiddenPoints = await page.evaluate(() => {
     const canvas = document.querySelector(".stage canvas");
     const stageBox = document.querySelector(".stage")?.getBoundingClientRect();
-    if (!canvas || !stageBox) return ["no canvas"];
+    if (!canvas || !stageBox) {
+      return ["no canvas"];
+    }
     const canvasBox = canvas.getBoundingClientRect();
     const toScreen = ([x, y]) => [
       canvasBox.left + (x * canvasBox.width) / 960,
@@ -4793,7 +5042,9 @@ for (const [tag, device, sex] of [
   const zoom = await page.evaluate(
     ({ width, height }) => {
       const canvas = document.querySelector(".stage canvas");
-      if (!canvas) return 0;
+      if (!canvas) {
+        return 0;
+      }
       const cssPixelsPerCanvasPixel = canvas.getBoundingClientRect().width / 960;
       const wholeCanvasFit = Math.min(width, height * 1.6) / 960;
       return cssPixelsPerCanvasPixel / wholeCanvasFit;
@@ -4803,7 +5054,9 @@ for (const [tag, device, sex] of [
   check(tag, "playfield shown closer than the whole canvas", zoom > 1.15, `${zoom.toFixed(3)}x the whole-canvas fit`);
   const coveredPoints = await page.evaluate(() => {
     const canvas = document.querySelector(".stage canvas");
-    if (!canvas) return ["no canvas"];
+    if (!canvas) {
+      return ["no canvas"];
+    }
     const canvasBox = canvas.getBoundingClientRect();
     const controls = [...document.querySelectorAll(".stick, .tbtn")].map((element) => element.getBoundingClientRect());
     const state = window.lampwarden.state();
@@ -4910,7 +5163,9 @@ for (const [tag, device, sex] of [
     const upgrade = page.locator(".btn.up").nth(index);
     await upgrade.scrollIntoViewIfNeeded();
     const bounds = await upgrade.boundingBox();
-    if (bounds && inView(bounds, viewportWidth, viewportHeight)) reachable++;
+    if (bounds && inView(bounds, viewportWidth, viewportHeight)) {
+      reachable++;
+    }
   }
   const continueButton = page.getByRole("button", { name: /Into night/ });
   await continueButton.scrollIntoViewIfNeeded();
@@ -4929,7 +5184,9 @@ for (const [tag, device, sex] of [
     await page.waitForSelector('[data-phase="replayRefused"]', { timeout: 15000 });
     await page.evaluate(() => window.lampwarden.scene().freezeClock(1.25));
     await settle();
-    if (tag !== "phone-land-daughter") await shoot(`${tag}-5-replay-refused`, true);
+    if (tag !== "phone-land-daughter") {
+      await shoot(`${tag}-5-replay-refused`, true);
+    }
     const back = page.getByRole("button", { name: "Back to the title" });
     await back.scrollIntoViewIfNeeded();
     const backBounds = await back.boundingBox();
@@ -4969,7 +5226,9 @@ for (const [tag, device, sex] of [
   await page.waitForSelector('[data-phase="title"]', { timeout: 5000 });
   // a tap while the title scroll unrolls only completes it
   await page.waitForSelector('.scroll[data-stage="done"]', { timeout: 10000 });
-  if (sex === "female") await page.locator('.hero-card[data-sex="female"]').tap();
+  if (sex === "female") {
+    await page.locator('.hero-card[data-sex="female"]').tap();
+  }
   const practise = page.getByRole("button", { name: "Practise first" });
   await practise.scrollIntoViewIfNeeded();
   await practise.tap();
@@ -5003,12 +5262,15 @@ await webkitBrowser.close();
 const diffs = {};
 for (const name of shots) {
   const baseline = `${OUT}/baseline/${name}.png`;
-  if (existsSync(baseline))
+  if (existsSync(baseline)) {
     diffs[name] = await diff(
       readFileSync(`${OUT}/latest/${name}.png`).toString("base64"),
       readFileSync(baseline).toString("base64"),
     );
-  if (UPDATE || !existsSync(baseline)) copyFileSync(`${OUT}/latest/${name}.png`, baseline);
+  }
+  if (UPDATE || !existsSync(baseline)) {
+    copyFileSync(`${OUT}/latest/${name}.png`, baseline);
+  }
 }
 const sheet = await browser.newPage({ viewport: { width: 1940, height: 800 }, deviceScaleFactor: 1 });
 const cells = shots
@@ -5025,14 +5287,18 @@ await sheet.screenshot({ path: `${OUT}/sheet.png`, fullPage: true });
 const failed = checks.filter((entry) => !entry.ok);
 const report = { url: BASE_URL, visual: !HEADLESS, at: new Date().toISOString(), checks, diffs, failed: failed.length };
 writeFileSync(`${OUT}/report.json`, JSON.stringify(report, null, 1));
-for (const entry of checks)
+for (const entry of checks) {
   console.log(
     `${entry.ok ? "ok  " : "FAIL"} ${entry.scene.padEnd(12)} ${entry.name}${entry.detail ? `  (${entry.detail})` : ""}`,
   );
+}
 console.log(
   `\n${HEADLESS ? "HEADLESS (not a visual pass)" : "headed"} · ${checks.length - failed.length}/${checks.length} checks · sheet: ${OUT}/sheet.png`,
 );
-for (const [name, share] of Object.entries(diffs))
-  if (share > 0.01) console.log(`changed vs baseline: ${name} ${(share * 100).toFixed(1)}%`);
+for (const [name, share] of Object.entries(diffs)) {
+  if (share > 0.01) {
+    console.log(`changed vs baseline: ${name} ${(share * 100).toFixed(1)}%`);
+  }
+}
 await browser.close();
 process.exit(failed.length ? 1 : 0);

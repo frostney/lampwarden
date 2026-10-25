@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { createMubitClient, type FetchImplementation } from "./mubit";
 
 const TEST_KEY = "test-key-not-a-secret";
@@ -18,8 +19,12 @@ function clientWith(responses: Array<Response | Error>, promptCaching?: boolean)
   const fetchImplementation: FetchImplementation = async (url, init) => {
     requests.push({ url, init });
     const next = responses.shift();
-    if (next === undefined) throw new Error("unexpected extra request");
-    if (next instanceof Error) throw next;
+    if (next === undefined) {
+      throw new Error("unexpected extra request");
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
     return next;
   };
   const client = createMubitClient({
@@ -163,7 +168,9 @@ describe("Mubit abort", () => {
       fetchImplementation: (_url, init) =>
         new Promise<Response>((_resolve, reject) => {
           const signal = init.signal;
-          if (!signal) throw new Error("the request carries no signal");
+          if (!signal) {
+            throw new Error("the request carries no signal");
+          }
           seen.push(signal);
           signal.addEventListener("abort", () => reject(new Error("the operation was aborted")), { once: true });
         }),

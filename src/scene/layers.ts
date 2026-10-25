@@ -1,7 +1,9 @@
 // What the scene looks like, in plain Pixi: textures, the ground, props, the night tint and the strokes redrawn every
 // frame (the lights are in light.ts). src/components/Scene.tsx puts these on screen with @pixi/react and keeps them in step
 // with the sim.
+
 import { Assets, type Graphics, Rectangle, Texture } from "pixi.js";
+
 import { buildingSpritePath, type RecordedBuilding } from "../game/building";
 import { type Archetype, creatureSpritePath } from "../game/creature";
 import {
@@ -28,6 +30,7 @@ import {
   type State,
   SWING_HALF_ARC,
 } from "../game/sim";
+import { band } from "../lib/band";
 import {
   anchorYFor,
   assetList,
@@ -58,6 +61,52 @@ export type TextureMap = Record<string, Texture>;
 // a loaded texture by key; an unknown key shows nothing, as Pixi does for a sprite without a texture
 export const textureFor = (textures: TextureMap, key: string): Texture => textures[key] ?? Texture.EMPTY;
 
+// The scenery loads sprite by sprite: one that will not load is missing, and sceneryTextureKey draws the building's
+// hand-written sprite in its place.
+async function loadScenery(textures: TextureMap) {
+  await Promise.all(
+    sceneryAssetList().map(async (asset) => {
+      try {
+        textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
+      } catch {
+        // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
+        console.warn(`scenery sprite ${asset.alias} did not load`);
+      }
+    }),
+  );
+}
+
+// The wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been.
+function cutHeroFrames(textures: TextureMap) {
+  for (const sex of SEXES) {
+    const atlas = textures[heroAtlasKey(sex)];
+    if (!atlas) {
+      continue;
+    }
+    const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
+    const cut = cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells);
+    // a browser that will not give up the atlas's pixels still draws the frames, with their painted shadow and no rim
+    for (const cell of cells) {
+      textures[cell.key] =
+        cut?.get(cell.key) ??
+        new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
+    }
+  }
+}
+
+// A lamp's painted shadow lies on the ground, so it is a texture of its own, drawn under every sprite (Scene.tsx).
+function splitLampShadows(textures: TextureMap) {
+  for (const key of LAMP_KEYS) {
+    const lamp = textures[key];
+    const split = lamp && splitPaintedShadow(lamp);
+    if (!split) {
+      continue;
+    }
+    textures[key] = split.body;
+    textures[paintedShadowKey(key)] = split.shadow;
+  }
+}
+
 let textureCache: Promise<TextureMap> | null = null;
 export function loadTextures(): Promise<TextureMap> {
   textureCache ??= (async () => {
@@ -66,33 +115,13 @@ export function loadTextures(): Promise<TextureMap> {
     const textures: TextureMap = {};
     for (const asset of assets) {
       const texture = loaded[asset.alias];
-      if (!texture) continue;
+      if (!texture) {
+        continue;
+      }
       textures[asset.alias] = prepared(asset.alias, texture);
     }
-    // the scenery loads sprite by sprite: one that will not load is missing, and sceneryTextureKey draws the building's
-    // hand-written sprite in its place
-    await Promise.all(
-      sceneryAssetList().map(async (asset) => {
-        try {
-          textures[asset.alias] = prepared(asset.alias, await Assets.load<Texture>(asset));
-        } catch {
-          // left out of the map: the building's hand-written sprite is drawn instead, and a decoration draws nothing
-          console.warn(`scenery sprite ${asset.alias} did not load`);
-        }
-      }),
-    );
-    // the wardens' frames are cut out of one atlas a sex, each its own texture named as its file would have been
-    for (const sex of SEXES) {
-      const atlas = textures[heroAtlasKey(sex)];
-      if (!atlas) continue;
-      const cells = heroFrames(sex).map((frame) => ({ ...frame, label: `/sprites/${frame.key}.png` }));
-      const cut = cutCharacterFrames(atlas, HERO_FRAME_SIZE, cells);
-      // a browser that will not give up the atlas's pixels still draws the frames, with their painted shadow and no rim
-      for (const cell of cells)
-        textures[cell.key] =
-          cut?.get(cell.key) ??
-          new Texture({ source: atlas.source, frame: new Rectangle(cell.x, cell.y, HERO_FRAME_SIZE, HERO_FRAME_SIZE) });
-    }
+    await loadScenery(textures);
+    cutHeroFrames(textures);
     // the hand-made monsters' frames, from every direction, each its own texture cut out of one atlas a monster; one that
     // will not load leaves the monster its single sprite
     await Promise.all(
@@ -103,20 +132,17 @@ export function loadTextures(): Promise<TextureMap> {
         ),
       ),
     );
-    // a lamp's painted shadow lies on the ground, so it is a texture of its own, drawn under every sprite (Scene.tsx)
-    for (const key of LAMP_KEYS) {
-      const lamp = textures[key];
-      const split = lamp && splitPaintedShadow(lamp);
-      if (!split) continue;
-      textures[key] = split.body;
-      textures[paintedShadowKey(key)] = split.shadow;
-    }
+    splitLampShadows(textures);
     // the vignette's pictures are painted now, not in the frame of the first blow
-    for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) vignetteTexture(strength);
+    for (let strength = 1; strength <= VIGNETTE_STRENGTHS; strength++) {
+      vignetteTexture(strength);
+    }
     for (const kind of Object.keys(MONSTER)) {
       const base = textures[kind];
       const white = base && silhouette(base);
-      if (white) textures[flashKey(kind)] = white;
+      if (white) {
+        textures[flashKey(kind)] = white;
+      }
     }
     return textures;
   })().catch((error: unknown) => {
@@ -166,34 +192,42 @@ const slidFrames = new Map<string, readonly [number, number]>();
 export function loadCreatureTextures(id: string, frames?: CreatureFrames | null): Promise<TextureMap | null> {
   let load = creatureLoads.get(id);
   if (!load) {
-    load = (async () => {
-      try {
-        const key = creatureKey(id);
-        const loaded: Texture = await Assets.load({
-          alias: key,
-          src: creatureSpritePath(id),
-          data: { scaleMode: "nearest" },
-        });
-        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
-          return null;
-        const texture = prepared(key, loaded);
-        const textures: TextureMap = { [key]: texture };
-        const white = silhouette(texture);
-        if (white) textures[flashKey(key)] = white;
-        if (frames !== null)
-          Object.assign(
-            textures,
-            await loadSheet(key, `creature-atlas/${id}`, creatureAtlasPath(id), frames ? [frames] : REPLAY_LAYOUTS),
-          );
-        return textures;
-      } catch {
-        creatureLoads.delete(id); // a later night may try again
-        return null;
-      }
-    })();
+    load = loadCreature(id, frames);
     creatureLoads.set(id, load);
   }
   return load;
+}
+
+// A creature's sprite, its flash and its frames; null, and forgotten so that a later night may try again, when the sprite
+// will not load or is not the size a creature's sprite is.
+async function loadCreature(id: string, frames: CreatureFrames | null | undefined): Promise<TextureMap | null> {
+  try {
+    const key = creatureKey(id);
+    const loaded: Texture = await Assets.load({
+      alias: key,
+      src: creatureSpritePath(id),
+      data: { scaleMode: "nearest" },
+    });
+    if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE) {
+      return null;
+    }
+    const texture = prepared(key, loaded);
+    const textures: TextureMap = { [key]: texture };
+    const white = silhouette(texture);
+    if (white) {
+      textures[flashKey(key)] = white;
+    }
+    if (frames !== null) {
+      Object.assign(
+        textures,
+        await loadSheet(key, `creature-atlas/${id}`, creatureAtlasPath(id), frames ? [frames] : REPLAY_LAYOUTS),
+      );
+    }
+    return textures;
+  } catch {
+    creatureLoads.delete(id); // a later night may try again
+    return null;
+  }
 }
 
 // What a replay, which does not know the creature's record, looks for: an atlas of every direction, or one of a single row.
@@ -227,7 +261,9 @@ async function cutSheet(
     const size = creatureAtlasLayout(candidate);
     return atlas.source.pixelWidth === size.width && atlas.source.pixelHeight === size.height;
   });
-  if (!frames) return {};
+  if (!frames) {
+    return {};
+  }
   atlas.source.scaleMode = "nearest";
   const layout = creatureAtlasLayout(frames);
   const cells = layout.cells.map((cell) => ({
@@ -240,15 +276,18 @@ async function cutSheet(
   const textures: TextureMap = {};
   for (const [index, cell] of cells.entries()) {
     const shift = layout.cells[index]?.shift;
-    if (shift && (shift[0] !== 0 || shift[1] !== 0)) slidFrames.set(cell.key, shift);
+    if (shift && (shift[0] !== 0 || shift[1] !== 0)) {
+      slidFrames.set(cell.key, shift);
+    }
   }
-  for (const cell of cells)
+  for (const cell of cells) {
     textures[cell.key] =
       cut?.get(cell.key) ??
       new Texture({
         source: atlas.source,
         frame: new Rectangle(cell.x, cell.y, CREATURE_FRAME_SIZE, CREATURE_FRAME_SIZE),
       });
+  }
   animatedSheets.set(sheet, frames);
   return textures;
 }
@@ -275,8 +314,9 @@ export function loadBuildingTexture(building: Pick<RecordedBuilding, "id" | "anc
           src: buildingSpritePath(building.id),
           data: { scaleMode: "nearest" },
         });
-        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE)
+        if (loaded.source.pixelWidth !== CREATURE_SPRITE_SIZE || loaded.source.pixelHeight !== CREATURE_SPRITE_SIZE) {
           return null;
+        }
         buildingAnchors.set(key, building.anchorY);
         return { [key]: prepared(key, loaded) };
       } catch {
@@ -303,25 +343,31 @@ export function standInTextures(textures: TextureMap, creatureId: string, archet
   const standIn: TextureMap = {};
   const sprite = textures[handMade];
   const flash = textures[flashKey(handMade)];
-  if (sprite) standIn[key] = sprite;
-  if (flash) standIn[flashKey(key)] = flash;
+  if (sprite) {
+    standIn[key] = sprite;
+  }
+  if (flash) {
+    standIn[flashKey(key)] = flash;
+  }
   return standIn;
 }
 
 // Where a monster kind's sprite lives tonight and where its feet touch the ground: the one lookup the scene makes for
 // any monster, so a creature is a monster like the others. `key` names its texture; the flash is flashKey(key).
 export function monsterLook(state: Pick<State, "creature">, kind: MonsterKind): { key: string; anchorY: number } {
-  if (kind === "creature" && state.creature)
+  if (kind === "creature" && state.creature) {
     return { key: creatureKey(state.creature.id), anchorY: state.creature.anchorY };
+  }
   const handMade = kind === "creature" ? "satyr" : kind;
   return { key: handMade, anchorY: anchorYFor(handMade) };
 }
 
 // The frames a monster has tonight: its sheet's key and what is in it, when its atlas loaded (a creature's, or a hand-made
 // monster's), else nothing and the monster keeps its one sprite.
+const creatureSheetKey = (state: Pick<State, "creature">) => (state.creature ? creatureKey(state.creature.id) : null);
+const sheetKindKey = (kind: MonsterKind) => (isSheetKind(kind) ? kind : null);
 function sheetOf(state: Pick<State, "creature">, kind: MonsterKind): { key: string; frames: CreatureFrames } | null {
-  const key =
-    kind === "creature" ? (state.creature ? creatureKey(state.creature.id) : null) : isSheetKind(kind) ? kind : null;
+  const key = kind === "creature" ? creatureSheetKey(state) : sheetKindKey(kind);
   const frames = key === null ? undefined : animatedSheets.get(key);
   return key !== null && frames ? { key, frames } : null;
 }
@@ -338,7 +384,9 @@ export interface MonsterPicture {
 
 function picture(key: string, mirrored: boolean): MonsterPicture {
   const slid = slidFrames.get(key);
-  if (!slid) return { key, mirrored, offsetX: 0, offsetY: 0 };
+  if (!slid) {
+    return { key, mirrored, offsetX: 0, offsetY: 0 };
+  }
   // a mirrored sprite is flipped about its anchor, so the slide across turns round with it
   return { key, mirrored, offsetX: mirrored ? slid[0] : -slid[0], offsetY: -slid[1] };
 }
@@ -355,7 +403,9 @@ export function monsterPicture(
   const look = monsterLook(state, monster.kind);
   const facingCentre = monster.x > CENTRE_X;
   const sheet = sheetOf(state, monster.kind);
-  if (!sheet) return picture(look.key, facingCentre);
+  if (!sheet) {
+    return picture(look.key, facingCentre);
+  }
   const { animation, frame } = creatureFrameOf(monster, state.hero, sheet.frames);
   const view = sheet.frames.directions
     ? heroView(monsterOctant(monster, state.hero))
@@ -375,7 +425,9 @@ export function ghostPicture(
   const look = monsterLook(state, ghost.monster);
   const facingCentre = ghost.x > CENTRE_X;
   const sheet = sheetOf(state, ghost.monster);
-  if (!sheet) return picture(look.key, facingCentre);
+  if (!sheet) {
+    return picture(look.key, facingCentre);
+  }
   const held = { x: 0, y: 0, age: ghost.monsterAge, snuff: 0, attackCooldown: 0, stun: 1 };
   const { frame } = creatureFrameOf(held, { x: 0, y: 0 }, sheet.frames);
   const view = sheet.frames.directions ? heroView(facingOctant) : { drawn: STILL_DIRECTION, mirrored: facingCentre };
@@ -394,11 +446,15 @@ export function monsterFlashTexture(textures: TextureMap, spriteKey: string): Te
 const heroSilhouettes = new WeakMap<Texture, Texture | null>();
 export function heroFlashTexture(textures: TextureMap, key: string): Texture | null {
   const base = textures[key];
-  if (!base) return null;
+  if (!base) {
+    return null;
+  }
   let white = heroSilhouettes.get(base);
   if (white === undefined) {
     white = silhouette(base);
-    if (white) white.source.label = `flash:${base.source.label}`;
+    if (white) {
+      white.source.label = `flash:${base.source.label}`;
+    }
     heroSilhouettes.set(base, white);
   }
   return white;
@@ -412,15 +468,21 @@ function silhouette(texture: Texture): Texture | null {
   // at alpha a is (a, a, a, a)
   if (resource instanceof Uint8Array) {
     const white = new Uint8Array(resource.length);
-    for (let index = 0; index < resource.length; index += 4) white.fill(resource[index + 3] ?? 0, index, index + 4);
+    for (let index = 0; index < resource.length; index += 4) {
+      white.fill(resource[index + 3] ?? 0, index, index + 4);
+    }
     return bufferTexture(white, texture.source.pixelWidth, texture.source.pixelHeight);
   }
-  if (!(resource instanceof HTMLImageElement || resource instanceof ImageBitmap)) return null;
+  if (!(resource instanceof HTMLImageElement || resource instanceof ImageBitmap)) {
+    return null;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = resource.width;
   canvas.height = resource.height;
   const context = canvas.getContext("2d");
-  if (!context) return null;
+  if (!context) {
+    return null;
+  }
   context.drawImage(resource, 0, 0);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
   for (let index = 0; index < pixels.data.length; index += 4) {
@@ -444,7 +506,8 @@ export function drawGround(graphics: Graphics) {
       const tileX = CENTRE_X + (column - row) * 32;
       const tileY = CENTRE_Y - PLAZA_HALF_HEIGHT + (column + row) * 16 + 16;
       const edge = row === 0 || column === 0 || row === PLAZA_TILES - 1 || column === PLAZA_TILES - 1;
-      const colour = edge ? 0xb89a6a : (row + column) % 2 === 0 ? 0xe3d3a8 : 0xd6c394;
+      const checker = (row + column) % 2 === 0 ? 0xe3d3a8 : 0xd6c394;
+      const colour = edge ? 0xb89a6a : checker;
       graphics
         .poly([tileX, tileY - 16, tileX + 32, tileY, tileX, tileY + 16, tileX - 32, tileY])
         .fill(colour)
@@ -512,7 +575,9 @@ function mixColours(fromColour: number, toColour: number, amount: number) {
 // night tint (multiplied over the world below the sky; the sea and ground carry it on a container, each sprite on its own
 // so lamp light can bring a character back up): deep blue, warming to dawn over the last fifth of the night
 export function nightTint(progress: number) {
-  if (progress < 0.8) return 0x46559a;
+  if (progress < 0.8) {
+    return 0x46559a;
+  }
   const dawning = (progress - 0.8) / 0.2;
   return dawning < 0.6
     ? mixColours(0x46559a, 0xd08a7a, dawning / 0.6)
@@ -584,7 +649,9 @@ function progressRing(graphics: Graphics, x: number, y: number, radius: number, 
 // land in
 export function drawSweep(graphics: Graphics, state: State) {
   const hero = state.hero;
-  if (hero.animation !== "melee") return;
+  if (hero.animation !== "melee") {
+    return;
+  }
   const reach = state.rules.meleeReach;
   const centreX = Math.round(hero.x);
   const centreY = Math.round(hero.y);
@@ -630,7 +697,9 @@ const WOUND_SPARK_COLOURS = [0xffb0a0, 0xe84040, 0x9a1c28];
 // The impact burst of a blow, pixel squares only: a white four-armed flash for the first three frames, then sparks
 // that fly along the blow, shrink and cool from white to gold (a blow on the warden: from pink to dark red).
 function drawImpact(graphics: Graphics, puff: Puff) {
-  if (puff.age > IMPACT_TIME) return;
+  if (puff.age > IMPACT_TIME) {
+    return;
+  }
   const centreX = Math.round(puff.x);
   const centreY = Math.round(puff.y);
   if (puff.age < 0.05) {
@@ -640,7 +709,15 @@ function drawImpact(graphics: Graphics, puff: Puff) {
   }
   const progress = puff.age / IMPACT_TIME;
   const wound = puff.kind === "hurt";
-  const size = (progress < 0.4 ? 4 : progress < 0.75 ? 3 : 2) + (wound ? 1 : 0);
+  const size =
+    band(
+      progress,
+      [
+        [0.4, 4],
+        [0.75, 3],
+      ],
+      2,
+    ) + (wound ? 1 : 0);
   const colours = wound ? WOUND_SPARK_COLOURS : SPARK_COLOURS;
   const colour = colours[Math.min(colours.length - 1, Math.floor(progress * colours.length))] ?? 0xffffff;
   const base = Math.atan2(puff.directionY / 2, puff.directionX);
@@ -658,7 +735,9 @@ function drawImpact(graphics: Graphics, puff: Puff) {
 export function drawGroundMarks(graphics: Graphics, state: State, clock: number) {
   const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
   for (const lamp of state.lamps) {
-    if (lamp.lit) continue;
+    if (lamp.lit) {
+      continue;
+    }
     graphics.ellipse(lamp.x, lamp.y, 26, 13).stroke({ width: 2, color: 0xffd27a, alpha: 0.35 + 0.4 * pulse });
   }
 }
@@ -667,13 +746,7 @@ export function drawGroundMarks(graphics: Graphics, state: State, clock: number)
 // the puffs of a blow, a lamp's relight progress and a monster's snuff progress over their heads, and health pips.
 export function drawMarks(graphics: Graphics, state: State) {
   const rules = state.rules;
-  for (const shot of state.shots) {
-    // a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
-    for (const [behind, alpha] of TRAIL)
-      graphics
-        .rect(Math.round(shot.x - shot.velocityX * behind), Math.round(shot.y - shot.velocityY * behind), 1, 1)
-        .fill({ color: 0xfff2c0, alpha });
-  }
+  drawTrails(graphics, state);
   for (const puff of state.puffs) {
     if (puff.kind === "hit" || puff.kind === "hurt") {
       drawImpact(graphics, puff);
@@ -684,18 +757,41 @@ export function drawMarks(graphics: Graphics, state: State) {
       .circle(Math.round(puff.x), Math.round(puff.y), radius)
       .stroke({ width: 3, color: PUFF_COLOURS[puff.kind], alpha: 1 - puff.age / 0.5 });
   }
-  for (const lamp of state.lamps)
-    if (!lamp.lit && lamp.relight > 0)
+  for (const lamp of state.lamps) {
+    if (!lamp.lit && lamp.relight > 0) {
       progressRing(graphics, lamp.x, lamp.y - 70, 9, lamp.relight / rules.relight, 0xffe6a0);
+    }
+  }
   for (const monster of state.monsters) {
     // clawing a lamp: red progress over it
-    if (monster.snuff <= 0) continue;
+    if (monster.snuff <= 0) {
+      continue;
+    }
     const done = monster.snuff / (monsterStats(state, monster.kind).snuff * rules.snuffMultiplier);
     progressRing(graphics, monster.x, monster.y - 74, 8, done, 0xff5a4a);
   }
+  drawHealthPips(graphics, state);
+}
+
+// a short motion trail behind each projectile sprite (see the Projectiles layer in Scene.tsx)
+function drawTrails(graphics: Graphics, state: State) {
+  for (const shot of state.shots) {
+    for (const [behind, alpha] of TRAIL) {
+      graphics
+        .rect(Math.round(shot.x - shot.velocityX * behind), Math.round(shot.y - shot.velocityY * behind), 1, 1)
+        .fill({ color: 0xfff2c0, alpha });
+    }
+  }
+}
+
+// a pip for each blow a monster can still take, over the ones that take more than one
+function drawHealthPips(graphics: Graphics, state: State) {
   for (const monster of state.monsters) {
-    if (monsterStats(state, monster.kind).health <= 1) continue;
-    for (let pip = 0; pip < monster.health; pip++)
+    if (monsterStats(state, monster.kind).health <= 1) {
+      continue;
+    }
+    for (let pip = 0; pip < monster.health; pip++) {
       graphics.rect(monster.x - 8 + pip * 6, monster.y - 84, 4, 3).fill(0xff5a4a);
+    }
   }
 }

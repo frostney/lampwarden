@@ -1,6 +1,8 @@
 // What a director's decision does to a night, and that the night still replays exactly from a recording that carries it.
 import { describe, expect, test } from "bun:test";
-import { clampProposal, type Director, EVEN_MIX } from "./director";
+
+import { clampProposal } from "./director";
+import { type Director, EVEN_MIX } from "./director-decision";
 import { applyDirector, type Legacy, newLegacy, parseLegacy, setRulesDirector } from "./legacy";
 import { type Play, Recorder } from "./recording";
 import { legacyOf, quantise, STEP, verifyPlay } from "./replay";
@@ -36,7 +38,9 @@ function decisionFor(
     night,
     PLAY_ID,
   );
-  if (!decision) throw new Error("no decision");
+  if (!decision) {
+    throw new Error("no decision");
+  }
   return decision;
 }
 
@@ -45,7 +49,9 @@ function legacyUnder(night: number, rulesTide: number, decision: Director | null
   const legacy = newLegacy(1);
   legacy.night = night;
   setRulesDirector(legacy, rulesTide, night - 1, PLAY_ID);
-  if (decision && !applyDirector(legacy, decision)) throw new Error("decision not applied");
+  if (decision && !applyDirector(legacy, decision)) {
+    throw new Error("decision not applied");
+  }
   return legacy;
 }
 
@@ -60,16 +66,20 @@ function botInput(state: State): Input {
       nearest = monster;
     }
   }
-  if (!nearest) return NO_INPUT;
-  if (nearestDistance < state.rules.meleeReach - 8)
+  if (!nearest) {
+    return NO_INPUT;
+  }
+  if (nearestDistance < state.rules.meleeReach - 8) {
     return {
       ...NO_INPUT,
       melee: true,
       moveX: (nearest.x - hero.x) / nearestDistance,
       moveY: ((nearest.y - hero.y) * 2) / nearestDistance,
     };
-  if (hero.shotCooldown <= 0 && nearestDistance > 180)
+  }
+  if (hero.shotCooldown <= 0 && nearestDistance > 180) {
     return { ...NO_INPUT, ranged: true, aim: { x: nearest.x + 0.37, y: nearest.y - bodyHeight(state, nearest.kind) } };
+  }
   return { ...NO_INPUT, moveX: Math.sign(nearest.x - hero.x), moveY: Math.sign(nearest.y - hero.y) };
 }
 
@@ -105,12 +115,15 @@ function spawnedKinds(legacy: Legacy, seeds: number[]): Record<MonsterKind, numb
     const seen = new Set<number>();
     while (!state.outcome) {
       step(state, STEP, NO_INPUT);
-      for (const monster of state.monsters)
+      for (const monster of state.monsters) {
         if (!seen.has(monster.id)) {
           seen.add(monster.id);
           counts[monster.kind]++;
         }
-      for (const lamp of state.lamps) lamp.lit = true; // lamps never fall, so the night runs its length
+      }
+      for (const lamp of state.lamps) {
+        lamp.lit = true; // lamps never fall, so the night runs its length
+      }
       state.monsters = []; // and the sea never fills to its cap, so it keeps sending at its own pace
     }
   }

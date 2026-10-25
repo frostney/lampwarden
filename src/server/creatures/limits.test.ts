@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { visitorAddress, visitorKey } from "./limits";
 
 const SALT = "a-long-enough-test-salt-0123456789";
@@ -18,8 +19,9 @@ describe("visitorAddress", () => {
       "2001:db8:1:2::",
       "[2001:db8:1:2::7]",
       "2001:db8:1:2:3:4:5:6%eth0",
-    ])
+    ]) {
       expect(visitorAddress(address)).toBe(prefix);
+    }
   });
 
   test("expands :: wherever it sits", () => {

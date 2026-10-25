@@ -1,8 +1,10 @@
 "use client";
+
 // The Pixi scene as @pixi/react components, rendered inside Game's <Application>. The tree mirrors the scene graph and
 // re-renders only when its structure changes: a night starts, a monster spawns or dies. Everything that moves is
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
+
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
   Container,
@@ -28,6 +30,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import { bindKeyboard, type Controls, consumePresses, liveInput, release, shootAt } from "@/game/controls";
 import { holdGamepad, newGamepadMemory, pollGamepadForPlay } from "@/game/gamepad";
 import { STEP } from "@/game/replay";
@@ -44,11 +47,15 @@ import {
   type Monster,
   type MonsterKind,
   monsterStats,
+  type Puff,
+  SCREEN_PER_GROUND_Y,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
   step,
 } from "@/game/sim";
+import { ignore } from "@/lib/ignore";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 import { heroKey, heroView, octantOf, type Sex } from "@/scene/assets";
 import type { Layout, Placed } from "@/scene/decor";
 import {
@@ -116,6 +123,29 @@ const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the scene 
 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
+// the longest a frame may advance the night, in seconds: a tab that stalls does not jump the night ahead
+const LONGEST_FRAME = 0.05;
+
+// Runs every fixed 60 Hz sim step the accumulated time holds, so a recorded night replays exactly. A strike or a shot is
+// one press: it goes into the first step and is consumed.
+function runSteps(
+  progress: { stepIndex: number; accumulated: number },
+  state: State,
+  controls: Controls,
+  driver: Driver | null,
+) {
+  let input = liveInput(controls, state.hero);
+  while (progress.accumulated >= STEP && !state.outcome) {
+    step(state, STEP, driver ? driver(progress.stepIndex, input, state) : input);
+    progress.stepIndex++;
+    progress.accumulated -= STEP;
+    if (input.melee || input.ranged) {
+      consumePresses(controls);
+      input = { ...input, melee: false, ranged: false };
+    }
+  }
+}
+
 // What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
 export interface Night {
   state: State;
@@ -149,7 +179,9 @@ interface SceneShared {
 const SceneContext = createContext<SceneShared | null>(null);
 function useScene(): SceneShared {
   const shared = useContext(SceneContext);
-  if (!shared) throw new Error("Scene entities must be rendered inside <Scene>");
+  if (!shared) {
+    throw new Error("Scene entities must be rendered inside <Scene>");
+  }
   return shared;
 }
 
@@ -159,7 +191,7 @@ function useFrame(update: () => void) {
   useTick(update);
 }
 
-const noDraw = () => {}; // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
+const noDraw = ignore; // `draw` is required on pixiGraphics; per-frame layers redraw from useFrame instead
 
 export const Scene = memo(function Scene({
   night,
@@ -203,29 +235,24 @@ export const Scene = memo(function Scene({
     priority: UPDATE_PRIORITY.HIGH,
     callback: useCallback(
       (ticker: Ticker) => {
-        const elapsedSeconds = Math.min(ticker.deltaMS / 1000, 0.05);
+        const elapsedSeconds = Math.min(ticker.deltaMS / MILLISECONDS_PER_SECOND, LONGEST_FRAME);
         const settings = live.current;
         clock.current = settings.frozenClock ?? clock.current + elapsedSeconds;
         const state = night.state;
         const progress = run.current;
         if (!settings.paused) {
           // a button already down as the night (re)starts, the one that pressed Resume included, is not a press
-          if (wasPaused.current) holdGamepad(gamepadMemory.current);
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: a ref the tick sets below, read again on the next tick
+          if (wasPaused.current) {
+            holdGamepad(gamepadMemory.current);
+          }
           wasPaused.current = false;
-          // fixed 60 Hz sim step, so a recorded night replays exactly
           progress.accumulated += elapsedSeconds * settings.speed;
           pollGamepadForPlay(controls, state, gamepadMemory.current);
-          let input = liveInput(controls, state.hero);
-          while (progress.accumulated >= STEP && !state.outcome) {
-            step(state, STEP, night.driver ? night.driver(progress.stepIndex, input, state) : input);
-            progress.stepIndex++;
-            progress.accumulated -= STEP;
-            if (input.melee || input.ranged) {
-              consumePresses(controls);
-              input = { ...input, melee: false, ranged: false };
-            }
-          }
-        } else wasPaused.current = true;
+          runSteps(progress, state, controls, night.driver);
+        } else {
+          wasPaused.current = true;
+        }
         lightCharacters(state, lighting, clock.current);
         settings.onTick(state);
       },
@@ -267,20 +294,20 @@ export const Scene = memo(function Scene({
         </World>
         <Strokes draw={groundMarks} label="ground-marks" />
         <Shadows state={state} />
-        <pixiContainer sortableChildren>
-          <Props state={state} props={decor.props} />
+        <pixiContainer sortableChildren={true}>
+          <Props props={decor.props} state={state} />
           {decor.boats.map((boat) => (
-            <Boat key={`${boat.key}@${boat.x},${boat.y}`} state={state} boat={boat} />
+            <Boat boat={boat} key={`${boat.key}@${boat.x},${boat.y}`} state={state} />
           ))}
-          <Hero state={state} sex={night.sex} />
+          <Hero sex={night.sex} state={state} />
           {state.lamps.map((lamp) => (
-            <StandingLamp key={`lamp@${lamp.x},${lamp.y}`} state={state} lamp={lamp} radius={state.rules.lightRadius} />
+            <StandingLamp key={`lamp@${lamp.x},${lamp.y}`} lamp={lamp} radius={state.rules.lightRadius} state={state} />
           ))}
           <Monsters state={state} />
         </pixiContainer>
       </pixiContainer>
-      <Projectiles state={state} sex={night.sex} />
-      <Flashes state={state} sex={night.sex} />
+      <Projectiles sex={night.sex} state={state} />
+      <Flashes sex={night.sex} state={state} />
       <Strokes draw={marks} label="marks" />
       <ScreenShake state={state} />
       <WoundVignette state={state} />
@@ -298,19 +325,27 @@ function Sky({ state }: { state: State }) {
   useFrame(
     useCallback(() => {
       const progress = nightProgress(state);
-      if (sky.current) sky.current.texture = skyTexture(progress);
+      if (sky.current) {
+        sky.current.texture = skyTexture(progress);
+      }
       TWINKLES.forEach((twinkle, index) => {
         const sprite = twinkleSprites.current[index];
-        if (!sprite) return;
+        if (!sprite) {
+          return;
+        }
         const piece = twinkleFrame(twinkle, clock.current, progress);
         sprite.visible = piece !== null;
-        if (piece) place(sprite, piece, twinkle.x, twinkle.y);
+        if (piece) {
+          place(sprite, piece, twinkle.x, twinkle.y);
+        }
       });
       const lamp = lighthouse.current;
       if (lamp) {
         const piece = lighthouseFrame(clock.current, progress);
         lamp.visible = piece !== null;
-        if (piece) place(lamp, piece, LIGHTHOUSE_LAMP.x, LIGHTHOUSE_LAMP.y);
+        if (piece) {
+          place(lamp, piece, LIGHTHOUSE_LAMP.x, LIGHTHOUSE_LAMP.y);
+        }
       }
     }, [state, clock]),
   );
@@ -336,7 +371,9 @@ function World({ state, children }: { state: State; children: ReactNode }) {
   const ref = useRef<Container>(null);
   useFrame(
     useCallback(() => {
-      if (ref.current) ref.current.tint = nightTint(nightProgress(state));
+      if (ref.current) {
+        ref.current.tint = nightTint(nightProgress(state));
+      }
     }, [state]),
   );
   return <pixiContainer ref={ref}>{children}</pixiContainer>;
@@ -349,10 +386,12 @@ function MoonGlitter() {
   useFrame(
     useCallback(() => {
       const texture = moonGlitterFrame(clock.current);
-      if (ref.current && texture) ref.current.texture = texture;
+      if (ref.current && texture) {
+        ref.current.texture = texture;
+      }
     }, [clock]),
   );
-  return <pixiSprite ref={ref} x={MOON_GLITTER.x} y={MOON_GLITTER.y} blendMode="add" />;
+  return <pixiSprite blendMode="add" ref={ref} x={MOON_GLITTER.x} y={MOON_GLITTER.y} />;
 }
 
 // The sea, all of it painted once in src/scene/water.ts: the still depths, the swell tiled over the canvas and drifting
@@ -385,7 +424,9 @@ function Water({ ripples }: { ripples: Layout["ripples"] }) {
       patches.forEach(({ patch }, index) => {
         const sprite = patchSprites.current[index];
         const texture = patch.frames[frame];
-        if (sprite && texture) sprite.texture = texture;
+        if (sprite && texture) {
+          sprite.texture = texture;
+        }
       });
     }, [clock, water, patches]),
   );
@@ -393,11 +434,11 @@ function Water({ ripples }: { ripples: Layout["ripples"] }) {
     <pixiContainer>
       <pixiSprite texture={water.base} y={HORIZON_Y} />
       <pixiTilingSprite
+        height={STAGE_HEIGHT - water.swellTop}
         ref={swell}
         texture={water.swell[0] ?? Texture.EMPTY}
-        y={water.swellTop}
         width={STAGE_WIDTH}
-        height={STAGE_HEIGHT - water.swellTop}
+        y={water.swellTop}
       />
       {patches.map(({ key, patch }, index) => (
         <pixiSprite
@@ -427,7 +468,9 @@ function Props({ state, props }: { state: State; props: readonly Placed[] }) {
       const night = tintOf(state);
       props.forEach(({ key, x, y }, index) => {
         const sprite = sprites.current[index];
-        if (sprite) sprite.tint = isLitProp(key) ? lightProp(state, x, y, clock.current) : night;
+        if (sprite) {
+          sprite.tint = isLitProp(key) ? lightProp(state, x, y, clock.current) : night;
+        }
       });
     }, [state, props, clock]),
   );
@@ -436,12 +479,12 @@ function Props({ state, props }: { state: State; props: readonly Placed[] }) {
     const drawn = sceneryTextureKey(textures, key);
     return (
       <pixiSprite
+        anchor={anchor(drawn)}
         key={`${key}@${x},${y}`}
         ref={(sprite: Sprite | null) => {
           sprites.current[index] = sprite;
         }}
         texture={textureFor(textures, drawn)}
-        anchor={anchor(drawn)}
         x={x}
         y={y}
         zIndex={y}
@@ -456,16 +499,18 @@ function Boat({ state, boat }: { state: State; boat: Placed }) {
   const ref = useRef<Sprite>(null);
   useFrame(
     useCallback(() => {
-      if (!ref.current) return;
-      ref.current.y = boat.y + Math.sin(clock.current * 1.5) * 4;
+      if (!ref.current) {
+        return;
+      }
+      ref.current.y = boat.y + Math.sin(clock.current * BOAT_BOB.rate) * BOAT_BOB.height;
       ref.current.tint = tintOf(state);
     }, [clock, state, boat]),
   );
   return (
     <pixiSprite
+      anchor={anchor(boat.key)}
       ref={ref}
       texture={textureFor(textures, boat.key)}
-      anchor={anchor(boat.key)}
       x={boat.x}
       y={boat.y}
       zIndex={boat.y}
@@ -476,24 +521,36 @@ function Boat({ state, boat }: { state: State; boat: Placed }) {
 // Puts a character's rim over it: the hard warm pixels along the edge that faces the lamp, a sprite of its own over the
 // character's (it must not take the night's tint), mirrored with the character.
 function showRim(rim: Sprite | null, sprite: Sprite, texture: Texture, spec: RimSpec | null) {
-  if (!rim) return;
+  if (!rim) {
+    return;
+  }
   const rimOver = spec
     ? rimTexture(texture, sprite.scale.x < 0 ? mirroredOctant(spec.direction) : spec.direction)
     : null;
   rim.visible = spec !== null && rimOver !== null;
-  if (!spec || !rimOver) return;
+  if (!spec || !rimOver) {
+    return;
+  }
   rim.texture = rimOver;
   rim.alpha = spec.alpha;
   rim.position.copyFrom(sprite.position);
   rim.scale.x = sprite.scale.x;
-  rim.zIndex = sprite.zIndex + 0.001;
+  rim.zIndex = sprite.zIndex + JUST_ABOVE;
 }
 
+const JUST_ABOVE = 0.001; // a z-index step that puts a sprite over another without passing the next one
+// a boat rocks `height` px up and down, `rate` radians a second
+const BOAT_BOB = { rate: 1.5, height: 4 };
+
 // multiplies two tints, as one lands on top of the other
+const CHANNEL = { max: 255, red: 16, green: 8, blue: 0 };
 function multiplyTints(first: number, second: number) {
-  const mixed = (shift: number) => Math.round((((first >> shift) & 255) * ((second >> shift) & 255)) / 255) << shift;
-  return mixed(16) | mixed(8) | mixed(0);
+  const mixed = (shift: number) =>
+    Math.round((((first >> shift) & CHANNEL.max) * ((second >> shift) & CHANNEL.max)) / CHANNEL.max) << shift;
+  return mixed(CHANNEL.red) | mixed(CHANNEL.green) | mixed(CHANNEL.blue);
 }
+// the red a wounded warden and a wounded monster flash over their light
+const WOUNDED_TINT = { hero: 0xff8080, monster: 0xff7070 };
 
 const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
   const { textures, lighting } = useScene();
@@ -506,25 +563,27 @@ const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
       // the five drawn directions, the other three mirrored (src/scene/assets.ts)
       const view = heroView(hero.octant);
       const texture = textures[heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn)];
-      if (!sprite || !texture) return;
+      if (!sprite || !texture) {
+        return;
+      }
       const light = lighting.get(hero) ?? DARK_CHARACTER;
       sprite.texture = texture;
       sprite.position.set(Math.round(hero.x), Math.round(hero.y));
       sprite.zIndex = hero.y;
       sprite.scale.x = view.mirrored ? -1 : 1;
-      sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, 0xff8080) : light.tint;
+      sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, WOUNDED_TINT.hero) : light.tint;
       showRim(rim.current, sprite, texture, light.rim);
     }, [textures, lighting, hero, sex]),
   );
   return (
     <>
       <pixiSprite
-        ref={ref}
-        label="warden"
-        texture={textureFor(textures, heroKey(sex, "idle", 0, "s"))}
         anchor={anchor("hero")}
+        label="warden"
+        ref={ref}
+        texture={textureFor(textures, heroKey(sex, "idle", 0, "s"))}
       />
-      <pixiSprite ref={rim} label="warden-rim" anchor={anchor("hero")} visible={false} />
+      <pixiSprite anchor={anchor("hero")} label="warden-rim" ref={rim} visible={false} />
     </>
   );
 });
@@ -535,8 +594,8 @@ const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
 function StandingLamp({ state, lamp, radius }: { state: State; lamp: Lamp; radius: number }) {
   return (
     <pixiContainer label="lamp" zIndex={lamp.y}>
-      <LampPost state={state} lamp={lamp} />
-      <LampGlow state={state} lamp={lamp} radius={radius} />
+      <LampPost lamp={lamp} state={state} />
+      <LampGlow lamp={lamp} radius={radius} state={state} />
     </pixiContainer>
   );
 }
@@ -551,9 +610,9 @@ function LampShadows({ state }: { state: State }) {
     <pixiContainer label="lamp-shadows">
       {state.lamps.map((lamp) => (
         <pixiSprite
+          anchor={anchor("lamp-lit")}
           key={`shadow@${lamp.x},${lamp.y}`}
           texture={shadow}
-          anchor={anchor("lamp-lit")}
           x={lamp.x}
           y={lamp.y}
         />
@@ -568,18 +627,22 @@ const LampPost = memo(function LampPost({ state, lamp }: { state: State; lamp: L
   useFrame(
     useCallback(() => {
       const texture = textures[lamp.lit ? "lamp-lit" : "lamp-unlit"];
-      if (!ref.current) return;
-      if (texture) ref.current.texture = texture;
+      if (!ref.current) {
+        return;
+      }
+      if (texture) {
+        ref.current.texture = texture;
+      }
       // lit by the other lamps' pools and the warden's light; its own pool is what its warm foot is for (LampGlow)
       ref.current.tint = lightProp(state, lamp.x, lamp.y, clock.current, lamp);
     }, [textures, state, lamp, clock]),
   );
   return (
     <pixiSprite
-      ref={ref}
-      label="lamp-post"
-      texture={textureFor(textures, "lamp-lit")}
       anchor={anchor("lamp-lit")}
+      label="lamp-post"
+      ref={ref}
+      texture={textureFor(textures, "lamp-lit")}
       x={lamp.x}
       y={lamp.y}
     />
@@ -591,7 +654,9 @@ function Monsters({ state }: { state: State }) {
   const [shown, setShown] = useState({ state, list: state.monsters.slice() });
   // a new night replaces the list in the same render, so the last night's monsters are never drawn over it
   const current = shown.state === state ? shown : { state, list: state.monsters.slice() };
-  if (current !== shown) setShown(current);
+  if (current !== shown) {
+    setShown(current);
+  }
   const lastHandedToReact = useRef(current.list); // so a pending render is not asked for twice
   useLayoutEffect(() => {
     lastHandedToReact.current = current.list;
@@ -600,7 +665,9 @@ function Monsters({ state }: { state: State }) {
     useCallback(() => {
       const monsters = state.monsters;
       const handed = lastHandedToReact.current;
-      if (monsters.length === handed.length && monsters.every((monster, index) => monster === handed[index])) return;
+      if (monsters.length === handed.length && monsters.every((monster, index) => monster === handed[index])) {
+        return;
+      }
       lastHandedToReact.current = monsters.slice();
       setShown({ state, list: lastHandedToReact.current });
     }, [state]),
@@ -616,7 +683,9 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
-      if (!sprite) return;
+      if (!sprite) {
+        return;
+      }
       const light = lighting.get(monster) ?? DARK_CHARACTER;
       // a monster with frames shows the one its animation is at, from the way it faces; any other, its one sprite
       const picture = monsterPicture(state, monster, textures);
@@ -626,16 +695,18 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
       );
       sprite.zIndex = monster.y;
       sprite.scale.x = picture.mirrored ? -1 : 1;
-      sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
+      sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, WOUNDED_TINT.monster) : light.tint;
       const texture = textureFor(textures, picture.key);
-      if (sprite.texture !== texture) sprite.texture = texture;
+      if (sprite.texture !== texture) {
+        sprite.texture = texture;
+      }
       showRim(rim.current, sprite, texture, light.rim);
     }, [monster, state, textures, lighting]),
   );
   return (
     <>
-      <pixiSprite ref={ref} label="monster" texture={textureFor(textures, look.key)} anchor={anchorAt(look.anchorY)} />
-      <pixiSprite ref={rim} label="monster-rim" anchor={anchorAt(look.anchorY)} visible={false} />
+      <pixiSprite anchor={anchorAt(look.anchorY)} label="monster" ref={ref} texture={textureFor(textures, look.key)} />
+      <pixiSprite anchor={anchorAt(look.anchorY)} label="monster-rim" ref={rim} visible={false} />
     </>
   );
 });
@@ -645,8 +716,9 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
 function lightCharacters(state: State, lighting: Lighting, clock: number) {
   lighting.clear();
   lighting.set(state.hero, lightCharacter(state, state.hero.x, state.hero.y, false, clock, "self"));
-  for (const monster of state.monsters)
+  for (const monster of state.monsters) {
     lighting.set(monster, lightCharacter(state, monster.x, monster.y, monsterStats(state, monster.kind).fly, clock));
+  }
 }
 
 // The characters' shadows on the ground: under every sprite and over the lamps' pools, so a figure stands in front of its
@@ -658,11 +730,15 @@ function Shadows({ state }: { state: State }) {
   useFrame(
     useCallback(() => {
       const container = layer.current;
-      if (!container) return;
+      if (!container) {
+        return;
+      }
       let used = 0;
       const cast = (character: object, x: number, y: number) => {
         for (const shadow of lighting.get(character)?.shadows ?? []) {
-          if (shadow.alpha <= 0) continue;
+          if (shadow.alpha <= 0) {
+            continue;
+          }
           let sprite = sprites.current[used];
           if (!sprite) {
             sprite = new Sprite();
@@ -676,10 +752,14 @@ function Shadows({ state }: { state: State }) {
         }
       };
       cast(state.hero, state.hero.x, state.hero.y);
-      for (const monster of state.monsters) cast(monster, monster.x, monster.y);
+      for (const monster of state.monsters) {
+        cast(monster, monster.x, monster.y);
+      }
       for (let index = used; index < sprites.current.length; index++) {
         const sprite = sprites.current[index];
-        if (sprite) sprite.visible = false;
+        if (sprite) {
+          sprite.visible = false;
+        }
       }
     }, [state, lighting]),
   );
@@ -692,12 +772,14 @@ function Strokes({ draw, label }: { draw: (graphics: Graphics) => void; label: s
   useFrame(
     useCallback(() => {
       const graphics = ref.current;
-      if (!graphics) return;
+      if (!graphics) {
+        return;
+      }
       graphics.clear();
       draw(graphics);
     }, [draw]),
   );
-  return <pixiGraphics ref={ref} label={label} draw={noDraw} />;
+  return <pixiGraphics draw={noDraw} label={label} ref={ref} />;
 }
 
 // The lights that lie on the ground, added over the night tint: the moon's path, the warden's own light and the lamps'
@@ -706,7 +788,9 @@ function GroundLights({ state, children }: { state: State; children: ReactNode }
   const ref = useRef<Container>(null);
   useFrame(
     useCallback(() => {
-      if (ref.current) ref.current.alpha = lightsAlpha(nightProgress(state));
+      if (ref.current) {
+        ref.current.alpha = lightsAlpha(nightProgress(state));
+      }
     }, [state]),
   );
   return <pixiContainer ref={ref}>{children}</pixiContainer>;
@@ -725,13 +809,15 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
-      if (!sprite) return;
-      const centerX = Math.round(hero.x),
-        centerY = Math.round(hero.y) - HERO_LIGHT.rise;
+      if (!sprite) {
+        return;
+      }
+      const centerX = Math.round(hero.x);
+      const centerY = Math.round(hero.y) - HERO_LIGHT.rise;
       place(sprite, heroLight(centerX, centerY, clock.current), centerX, centerY);
     }, [hero, clock]),
   );
-  return <pixiSprite ref={ref} blendMode="add" />;
+  return <pixiSprite blendMode="add" ref={ref} />;
 });
 
 // A lit lamp's light on the ground, precomputed in src/scene/light.ts: the pool and the glints on the stone and the sea.
@@ -739,37 +825,47 @@ const HeroLight = memo(function HeroLight({ hero }: { hero: HeroState }) {
 const LampPool = memo(function LampPool({ lamp, radius }: { lamp: Lamp; radius: number }) {
   const { clock } = useScene();
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
-  const group = useRef<Container>(null),
-    pool = useRef<Sprite>(null);
+  const group = useRef<Container>(null);
+  const pool = useRef<Sprite>(null);
   const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
-      const groupContainer = group.current,
-        poolSprite = pool.current;
-      if (!groupContainer || !poolSprite) return;
+      const groupContainer = group.current;
+      const poolSprite = pool.current;
+      if (!groupContainer || !poolSprite) {
+        return;
+      }
       groupContainer.visible = lamp.lit;
-      if (!lamp.lit) return;
+      if (!lamp.lit) {
+        return;
+      }
       const poolPiece = light.pools[lampFlicker(light, clock.current)];
-      if (poolPiece) place(poolSprite, poolPiece, light.poolX, light.poolY);
+      if (poolPiece) {
+        place(poolSprite, poolPiece, light.poolX, light.poolY);
+      }
       light.glints.forEach((glint, index) => {
         const sprite = glintSprites.current[index];
-        if (!sprite) return;
+        if (!sprite) {
+          return;
+        }
         const frame = glintFrame(glint, clock.current);
         sprite.visible = frame !== null;
-        if (frame) place(sprite, frame, glint.x, glint.y);
+        if (frame) {
+          place(sprite, frame, glint.x, glint.y);
+        }
       });
     }, [lamp, light, clock]),
   );
   return (
     <pixiContainer ref={group}>
-      <pixiSprite ref={pool} blendMode="add" />
+      <pixiSprite blendMode="add" ref={pool} />
       {light.glints.map((glint, index) => (
         <pixiSprite
+          blendMode="add"
           key={`${glint.x},${glint.y}`}
           ref={(sprite: Sprite | null) => {
             glintSprites.current[index] = sprite;
           }}
-          blendMode="add"
         />
       ))}
     </pixiContainer>
@@ -784,48 +880,60 @@ const LampGlow = memo(function LampGlow({ state, lamp, radius }: { state: State;
   const lantern = lanternGlow(textureFor(textures, "lamp-lit"));
   const light = useMemo(() => lampLight(lamp.x, lamp.y, radius), [lamp.x, lamp.y, radius]);
   const foot = lampFoot(textureFor(textures, "lamp-lit"));
-  const group = useRef<Container>(null),
-    halo = useRef<Sprite>(null),
-    footSprite = useRef<Sprite>(null);
+  const group = useRef<Container>(null);
+  const halo = useRef<Sprite>(null);
+  const footSprite = useRef<Sprite>(null);
   const glintSprites = useRef<(Sprite | null)[]>([]);
   useFrame(
     useCallback(() => {
-      const groupContainer = group.current,
-        haloSprite = halo.current;
-      if (!groupContainer || !haloSprite) return;
+      const groupContainer = group.current;
+      const haloSprite = halo.current;
+      if (!groupContainer || !haloSprite) {
+        return;
+      }
       groupContainer.visible = lamp.lit;
-      if (!lamp.lit) return;
+      if (!lamp.lit) {
+        return;
+      }
       groupContainer.alpha = lightsAlpha(nightProgress(state));
-      if (footSprite.current) footSprite.current.tint = lampFootTint(state);
+      if (footSprite.current) {
+        footSprite.current.tint = lampFootTint(state);
+      }
       const haloPiece = light.halos[lampFlicker(light, clock.current)];
-      if (haloPiece) place(haloSprite, haloPiece, light.haloX, light.haloY);
+      if (haloPiece) {
+        place(haloSprite, haloPiece, light.haloX, light.haloY);
+      }
       light.brassGlints.forEach((glint, index) => {
         const sprite = glintSprites.current[index];
-        if (!sprite) return;
+        if (!sprite) {
+          return;
+        }
         const frame = glintFrame(glint, clock.current);
         sprite.visible = frame !== null;
-        if (frame) place(sprite, frame, glint.x, glint.y);
+        if (frame) {
+          place(sprite, frame, glint.x, glint.y);
+        }
       });
     }, [state, lamp, light, clock]),
   );
   return (
-    <pixiContainer ref={group} label="lamp-glow">
+    <pixiContainer label="lamp-glow" ref={group}>
       <pixiSprite ref={footSprite} texture={foot.texture} x={lamp.x + foot.offsetX} y={lamp.y + foot.offsetY} />
-      <pixiSprite ref={halo} blendMode="add" />
+      <pixiSprite blendMode="add" ref={halo} />
       <pixiSprite
+        alpha={0.45}
+        blendMode="add"
         texture={lantern.texture}
         x={lamp.x + lantern.offsetX}
         y={lamp.y + lantern.offsetY}
-        blendMode="add"
-        alpha={0.45}
       />
       {light.brassGlints.map((glint, index) => (
         <pixiSprite
+          blendMode="add"
           key={`${glint.x},${glint.y}`}
           ref={(sprite: Sprite | null) => {
             glintSprites.current[index] = sprite;
           }}
-          blendMode="add"
         />
       ))}
     </pixiContainer>
@@ -841,7 +949,9 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
   useFrame(
     useCallback(() => {
       const container = layer.current;
-      if (!container) return;
+      if (!container) {
+        return;
+      }
       const kind = projectileFor(sex);
       const inFlight = new Set<number>();
       for (const shot of state.shots) {
@@ -849,7 +959,7 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
         let sprite = spritesByShot.current.get(shot.id);
         if (!sprite) {
           sprite = new Sprite(textures.stone);
-          sprite.anchor.set(0.5);
+          sprite.anchor.set(MIDDLE);
           container.addChild(sprite);
           spritesByShot.current.set(shot.id, sprite);
         }
@@ -857,13 +967,85 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
         sprite.position.set(Math.round(shot.x), Math.round(shot.y));
       }
       for (const [shotId, sprite] of spritesByShot.current) {
-        if (inFlight.has(shotId)) continue;
+        if (inFlight.has(shotId)) {
+          continue;
+        }
         sprite.destroy();
         spritesByShot.current.delete(shotId);
       }
     }, [state, sex, textures]),
   );
   return <pixiContainer ref={layer} />;
+}
+
+// One frame of pooled sprites: `show` places the sprite for a key (made on its first use, facing the plaza's middle) and
+// `end` destroys the ones the frame did not show.
+function spriteFrame(container: Container, sprites: Map<string, Sprite>) {
+  const shown = new Set<string>();
+  const show = (
+    key: string,
+    texture: Texture,
+    anchorPoint: { x: number; y: number },
+    x: number,
+    y: number,
+    alpha: number,
+  ) => {
+    shown.add(key);
+    let sprite = sprites.get(key);
+    if (!sprite) {
+      sprite = new Sprite(texture);
+      sprite.anchor.copyFrom(anchorPoint);
+      sprite.scale.x = x > CENTRE_X ? -1 : 1;
+      container.addChild(sprite);
+      sprites.set(key, sprite);
+    }
+    sprite.texture = texture;
+    sprite.position.set(Math.round(x), Math.round(y));
+    sprite.alpha = alpha;
+    return sprite;
+  };
+  const end = () => {
+    for (const [key, sprite] of sprites) {
+      if (shown.has(key)) {
+        continue;
+      }
+      sprite.destroy();
+      sprites.delete(key);
+    }
+  };
+  return { show, end };
+}
+
+// The warden's white silhouette: the same frame, place and mirroring as his own sprite (Hero).
+function flashHero(frame: ReturnType<typeof spriteFrame>, hero: HeroState, sex: Sex, textures: TextureMap) {
+  const view = heroView(hero.octant);
+  const white = heroFlashTexture(
+    textures,
+    heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
+  );
+  if (white) {
+    frame.show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
+  }
+}
+
+// A killed monster's silhouette flies `distance` px (times its recoil), and fades out over the last `fade` of its time.
+const GHOST_FLIGHT = { distance: 30, fadeFrom: 0.4, fade: 0.6 };
+const MIDDLE = 0.5; // an anchor at a sprite's middle
+
+// Where a killed monster's silhouette is, flung back along the blow, and how far it has faded.
+function flungGhost(state: State, puff: Puff, ghost: NonNullable<Puff["ghost"]>) {
+  const progress = puff.age / GHOST_TIME;
+  // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
+  const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
+  const travel = GHOST_FLIGHT.distance * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
+  return {
+    x: ghost.x + puff.directionX * travel,
+    y:
+      ghost.y +
+      puff.directionY * travel * SCREEN_PER_GROUND_Y +
+      monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
+    alpha: progress < GHOST_FLIGHT.fadeFrom ? 1 : 1 - (progress - GHOST_FLIGHT.fadeFrom) / GHOST_FLIGHT.fade,
+  };
 }
 
 // The white silhouettes of a blow, above the night tint so they read as a flash and not as another shade of blue: a
@@ -877,30 +1059,10 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
   useFrame(
     useCallback(() => {
       const container = layer.current;
-      if (!container) return;
-      const shown = new Set<string>();
-      const show = (
-        key: string,
-        texture: Texture,
-        anchorPoint: { x: number; y: number },
-        x: number,
-        y: number,
-        alpha: number,
-      ) => {
-        shown.add(key);
-        let sprite = sprites.current.get(key);
-        if (!sprite) {
-          sprite = new Sprite(texture);
-          sprite.anchor.copyFrom(anchorPoint);
-          sprite.scale.x = x > CENTRE_X ? -1 : 1;
-          container.addChild(sprite);
-          sprites.current.set(key, sprite);
-        }
-        sprite.texture = texture;
-        sprite.position.set(Math.round(x), Math.round(y));
-        sprite.alpha = alpha;
-        return sprite;
-      };
+      if (!container) {
+        return;
+      }
+      const frame = spriteFrame(container, sprites.current);
       // a monster's white silhouette: its own look, which is the creature's on a night that has one
       // (a monster with frames flashes the frame it is on, turned the way it is)
       const showMonster = (
@@ -913,7 +1075,7 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
       ) => {
         const look = monsterLook(state, kind);
         // the frame is put where the monster's own sprite is, slid back as it is
-        show(
+        frame.show(
           key,
           monsterFlashTexture(textures, picture.key),
           anchorAt(look.anchorY),
@@ -922,8 +1084,8 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
           alpha,
         ).scale.x = picture.mirrored ? -1 : 1;
       };
-      for (const monster of state.monsters)
-        if (monster.hurt > HURT_TIME - FLASH_TIME)
+      for (const monster of state.monsters) {
+        if (monster.hurt > HURT_TIME - FLASH_TIME) {
           showMonster(
             `monster${monster.id}`,
             monster.kind,
@@ -932,38 +1094,27 @@ function Flashes({ state, sex }: { state: State; sex: Sex }) {
             monster.y + monsterBob(state, monster.kind, monster.age),
             1,
           );
-      const hero = state.hero;
-      if (hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
-        // the same frame, place and mirroring as the warden's own sprite (Hero)
-        const view = heroView(hero.octant);
-        const white = heroFlashTexture(
-          textures,
-          heroKey(sex, hero.animation, heroFrame(hero.animation, hero.frameTime), view.drawn),
-        );
-        if (white) show("hero", white, anchor("hero"), hero.x, hero.y, 1).scale.x = view.mirrored ? -1 : 1;
+        }
+      }
+      if (state.hero.hurt > HERO_HURT_TIME - HERO_FLASH_TIME) {
+        flashHero(frame, state.hero, sex, textures);
       }
       for (const puff of state.puffs) {
         const ghost = puff.ghost;
-        if (!ghost || puff.age >= GHOST_TIME) continue;
-        const progress = puff.age / GHOST_TIME;
-        // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
-        const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-        const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
-        showMonster(
-          `puff${puff.id}`,
-          ghost.monster,
-          // it faces the blow that killed it
-          ghostPicture(state, ghost, octantOf(-puff.directionX, -puff.directionY), textures),
-          ghost.x + puff.directionX * travel,
-          ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
-          progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
-        );
+        if (ghost && puff.age < GHOST_TIME) {
+          const flung = flungGhost(state, puff, ghost);
+          showMonster(
+            `puff${puff.id}`,
+            ghost.monster,
+            // it faces the blow that killed it
+            ghostPicture(state, ghost, octantOf(-puff.directionX, -puff.directionY), textures),
+            flung.x,
+            flung.y,
+            flung.alpha,
+          );
+        }
       }
-      for (const [key, sprite] of sprites.current) {
-        if (shown.has(key)) continue;
-        sprite.destroy();
-        sprites.current.delete(key);
-      }
+      frame.end();
     }, [state, textures, sex]),
   );
   return <pixiContainer ref={layer} />;
@@ -988,11 +1139,16 @@ function useReducedMotion(): RefObject<boolean> {
 // longer: it throws the picture four pixels. Each runs on the sim's clock, so it holds still while paused, and neither
 // runs for a player who asks for reduced motion.
 const KILL_SHAKE = { time: 0.12, amplitude: 2 };
+const SHAKE_UP_EVERY = 3;
 const WOUND_SHAKE = { time: 0.22, amplitude: 4 };
 const NO_SHAKE = { startedAt: Number.NEGATIVE_INFINITY, time: 0, amplitude: 0 };
 // how hard a shake throws the picture `age` seconds in: its full amplitude for the first half, half of it for the rest
-const shakeAmplitude = (shake: { time: number; amplitude: number }, age: number) =>
-  age > shake.time ? 0 : age < shake.time / 2 ? shake.amplitude : shake.amplitude / 2;
+function shakeAmplitude(shake: { time: number; amplitude: number }, age: number) {
+  if (age > shake.time) {
+    return 0;
+  }
+  return age < shake.time / 2 ? shake.amplitude : shake.amplitude / 2;
+}
 function ScreenShake({ state }: { state: State }) {
   const { app } = useApplication();
   const reducedMotion = useReducedMotion();
@@ -1012,7 +1168,7 @@ function ScreenShake({ state }: { state: State }) {
   useFrame(
     useCallback(() => {
       // a new night starts the count again
-      if (memory.current.state !== state)
+      if (memory.current.state !== state) {
         memory.current = {
           state,
           kills: state.stats.kills,
@@ -1020,14 +1176,21 @@ function ScreenShake({ state }: { state: State }) {
           shake: NO_SHAKE,
           elapsed: state.elapsed,
         };
+      }
       const remembered = memory.current;
       // a blow replaces a shake that is weaker than it is at that moment
       const start = (shake: { time: number; amplitude: number }) => {
         const current = shakeAmplitude(remembered.shake, state.elapsed - remembered.shake.startedAt);
-        if (shake.amplitude >= current) remembered.shake = { ...shake, startedAt: state.elapsed };
+        if (shake.amplitude >= current) {
+          remembered.shake = { ...shake, startedAt: state.elapsed };
+        }
       };
-      if (state.stats.kills > remembered.kills) start(KILL_SHAKE);
-      if (state.hero.hits > remembered.hits) start(WOUND_SHAKE);
+      if (state.stats.kills > remembered.kills) {
+        start(KILL_SHAKE);
+      }
+      if (state.hero.hits > remembered.hits) {
+        start(WOUND_SHAKE);
+      }
       remembered.kills = state.stats.kills;
       remembered.hits = state.hero.hits;
       const { startedAt, time } = remembered.shake;
@@ -1040,7 +1203,8 @@ function ScreenShake({ state }: { state: State }) {
       }
       const strength = shakeAmplitude(remembered.shake, age);
       const tick = Math.floor(age * 60);
-      app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % 3 === 0 ? -1 : 1);
+      // across every other frame, and up a pixel every third
+      app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % SHAKE_UP_EVERY === 0 ? -1 : 1);
     }, [state, app, reducedMotion]),
   );
   return null;
@@ -1056,15 +1220,18 @@ function WoundVignette({ state }: { state: State }) {
   useFrame(
     useCallback(() => {
       const sprite = ref.current;
-      if (!sprite) return;
+      if (!sprite) {
+        return;
+      }
       const hurt = state.hero.hurt;
-      const texture = vignetteTexture(
-        reducedMotion.current ? (hurt > 0 ? 2 : 0) : vignetteStrength(hurt, HERO_HURT_TIME),
-      );
+      const stillStrength = hurt > 0 ? 2 : 0; // reduced motion: a steady vignette while hurt, no pulse
+      const texture = vignetteTexture(reducedMotion.current ? stillStrength : vignetteStrength(hurt, HERO_HURT_TIME));
       sprite.visible = texture !== null;
-      if (texture) sprite.texture = texture;
+      if (texture) {
+        sprite.texture = texture;
+      }
       sprite.position.set(-app.stage.position.x, -app.stage.position.y);
     }, [state, app, reducedMotion]),
   );
-  return <pixiSprite ref={ref} visible={false} eventMode="none" />;
+  return <pixiSprite eventMode="none" ref={ref} visible={false} />;
 }

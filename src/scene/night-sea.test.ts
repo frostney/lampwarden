@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { NIGHT_SEA } from "./layers";
 
 const hex = (colour: number) => `#${colour.toString(16).padStart(6, "0")}`;

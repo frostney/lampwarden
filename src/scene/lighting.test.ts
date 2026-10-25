@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { newLegacy } from "../game/legacy";
 import { type Lamp, newNight, type State } from "../game/sim";
 import { sceneryAssetList } from "./assets";
@@ -73,7 +74,9 @@ describe("lamp tint", () => {
     expect(lampTint(nightTint, 0)).toBe(nightTint);
     for (const amount of [0.2, 0.5, 1]) {
       const tint = lampTint(nightTint, amount);
-      for (const shift of [16, 8, 0]) expect((tint >> shift) & 255).toBeGreaterThanOrEqual((nightTint >> shift) & 255);
+      for (const shift of [16, 8, 0]) {
+        expect((tint >> shift) & 255).toBeGreaterThanOrEqual((nightTint >> shift) & 255);
+      }
     }
     expect(lampTint(0xffffff, 1)).toBe(0xffffff);
   });
@@ -189,7 +192,9 @@ describe("the warden's light", () => {
   test("moves in whole steps, like the lamps' light", () => {
     const state = wardenAlone();
     const steps = new Set<number>();
-    for (let x = 480; x < 545; x += 1) steps.add(monsterAt(state, x, 380).tint);
+    for (let x = 480; x < 545; x += 1) {
+      steps.add(monsterAt(state, x, 380).tint);
+    }
     expect(steps.size).toBeGreaterThan(2);
     expect(steps.size).toBeLessThanOrEqual(5);
   });
@@ -298,20 +303,30 @@ describe("which props are lit", () => {
   const SMALL = ["zeus-statue", "stall", "olive", "olive-young", "broken-column", "votive-altar", "amphora-stack"];
 
   test("the statue, the stall, the trees and the decorations are; the buildings and the boats keep the night's tint", () => {
-    for (const key of SMALL) expect(isLitProp(key)).toBe(true);
-    for (const key of BUILDINGS_AND_BOATS) expect(isLitProp(key)).toBe(false);
+    for (const key of SMALL) {
+      expect(isLitProp(key)).toBe(true);
+    }
+    for (const key of BUILDINGS_AND_BOATS) {
+      expect(isLitProp(key)).toBe(false);
+    }
   });
 
   test("every prop a night's layout can place, and every scenery sprite, is one or the other", () => {
     const known = new Set([...SMALL, ...BUILDINGS_AND_BOATS]);
     for (const kind of DECOR) {
       expect(known.has(kind.key)).toBe(true);
-      if (kind.replacedBy) expect(known.has(kind.replacedBy.key)).toBe(true);
+      if (kind.replacedBy) {
+        expect(known.has(kind.replacedBy.key)).toBe(true);
+      }
     }
-    for (const asset of sceneryAssetList()) expect(known.has(asset.alias)).toBe(true);
+    for (const asset of sceneryAssetList()) {
+      expect(known.has(asset.alias)).toBe(true);
+    }
     for (let seed = 1; seed <= 40; seed++) {
       const layout = decorFor(seed);
-      for (const placed of [...layout.props, ...layout.boats]) expect(known.has(placed.key)).toBe(true);
+      for (const placed of [...layout.props, ...layout.boats]) {
+        expect(known.has(placed.key)).toBe(true);
+      }
     }
   });
 });

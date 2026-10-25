@@ -2,10 +2,13 @@
 // still serves); a malformed limit falls back to its default.
 import { z } from "zod";
 
+const LIMIT_MAX = 100_000; // the most any limit read from the environment may be
+
 /** The routes that start jobs run this long; a job that has not moved for this long reads as failed. */
 export const JOB_MAX_DURATION_SECONDS = 300;
 /** A job gives up this long before the function would be killed, so it can still record that it failed. */
-export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - 30;
+const JOB_MARGIN_SECONDS = 30;
+export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - JOB_MARGIN_SECONDS;
 
 // A normal session starts a job per night (the game asks for the next night's creature as a night begins). A night lasts
 // 28 to 64 s, so a quick player (no time at the dawn panel) starts a job every half minute to a minute: 12 an hour can be
@@ -49,10 +52,11 @@ export const positiveInteger = (fallback: number) =>
     .string()
     .regex(/^[0-9]+$/)
     .transform(Number)
-    .pipe(z.number().int().min(1).max(100_000))
+    .pipe(z.number().int().min(1).max(LIMIT_MAX))
     .catch(fallback);
 
 const prefixPattern = /^[a-z0-9][a-z0-9/_-]{0,60}$/;
+const BUILDING_PREFIX_KEPT = 50; // characters of a custom creature prefix the building prefix is made from
 const prefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BLOB_PREFIX);
 
 /**
@@ -63,7 +67,9 @@ const prefixSchema = z.string().regex(prefixPattern).catch(DEFAULT_BLOB_PREFIX);
  */
 function buildingPrefixOf(creaturePrefix: string, explicit: string | null): string {
   const derived =
-    creaturePrefix === DEFAULT_BLOB_PREFIX ? DEFAULT_BUILDING_BLOB_PREFIX : `${creaturePrefix.slice(0, 50)}-buildings`;
+    creaturePrefix === DEFAULT_BLOB_PREFIX
+      ? DEFAULT_BUILDING_BLOB_PREFIX
+      : `${creaturePrefix.slice(0, BUILDING_PREFIX_KEPT)}-buildings`;
   const chosen = explicit !== null && prefixPattern.test(explicit) ? explicit : derived;
   return chosen === creaturePrefix ? derived : chosen;
 }

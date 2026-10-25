@@ -73,8 +73,12 @@ function lampToRelight(state: State): Lamp | null {
     .sort((first, second) => first.distance - second.distance);
   const away = byDistance.filter(({ distance }) => distance >= RELIGHT_WALK);
   const chosen = away.find(({ lamp }) => !lamp.lit) ?? away[0] ?? byDistance.at(-1);
-  if (!chosen) return null;
-  if (chosen.lamp.lit) snuff(state, chosen.lamp);
+  if (!chosen) {
+    return null;
+  }
+  if (chosen.lamp.lit) {
+    snuff(state, chosen.lamp);
+  }
   return chosen.lamp;
 }
 
@@ -84,44 +88,69 @@ export function stagePractice(practice: Practice) {
   spare(state, practice.lamp);
   const since = state.elapsed - practice.since;
   const side = rimAngleOf(state.hero.x, state.hero.y);
-  const slain = state.stats.kills - practice.kills;
   switch (practice.lesson) {
     case "move":
-      if (ground(practice.startX, practice.startY, state.hero.x, state.hero.y) >= WALK) begin(practice, "strike");
+      if (ground(practice.startX, practice.startY, state.hero.x, state.hero.y) >= WALK) {
+        begin(practice, "strike");
+      }
       return;
     case "strike":
     case "shoot":
-      if (practice.summoned === 0) {
-        if (since < SUMMON_DELAY) return;
-        // the satyr comes ashore on the warden's side, to walk up to; the harpy on the far side, to shoot at
-        summon(
-          state,
-          practice.lesson === "strike" ? "satyr" : "harpy",
-          practice.lesson === "strike" ? side : side + Math.PI,
-        );
-        practice.summoned = 1;
-        return;
-      }
-      if (slain >= 1 && state.monsters.length === 0)
-        begin(practice, practice.lesson === "strike" ? "shoot" : "relight");
+      stageFight(practice, since, side);
       return;
     case "relight":
-      if (!practice.lamp) {
-        practice.lamp = lampToRelight(state);
-        return;
-      }
-      if (practice.lamp.lit) begin(practice, "hold");
+      stageRelight(practice);
       return;
-    case "hold": {
-      const entry = WAVE[practice.summoned];
-      if (entry && since >= SUMMON_DELAY + WAVE_GAP * practice.summoned) {
-        summon(state, entry.kind, side + Math.PI * entry.turn);
-        practice.summoned++;
-      }
-      if (practice.summoned === WAVE.length && state.monsters.length === 0) begin(practice, "done");
+    case "hold":
+      stageHold(practice, since, side);
       return;
-    }
     case "done":
       return;
+  }
+}
+
+// the strike and shoot lessons: one creature to slay, then on to the next lesson
+function stageFight(practice: Practice, since: number, side: number) {
+  const { state } = practice;
+  if (practice.summoned === 0) {
+    if (since < SUMMON_DELAY) {
+      return;
+    }
+    // the satyr comes ashore on the warden's side, to walk up to; the harpy on the far side, to shoot at
+    summon(
+      state,
+      practice.lesson === "strike" ? "satyr" : "harpy",
+      practice.lesson === "strike" ? side : side + Math.PI,
+    );
+    practice.summoned = 1;
+    return;
+  }
+  const slain = state.stats.kills - practice.kills;
+  if (slain >= 1 && state.monsters.length === 0) {
+    begin(practice, practice.lesson === "strike" ? "shoot" : "relight");
+  }
+}
+
+// the relight lesson: a lamp goes out, and is learned once it is lit again
+function stageRelight(practice: Practice) {
+  if (!practice.lamp) {
+    practice.lamp = lampToRelight(practice.state);
+    return;
+  }
+  if (practice.lamp.lit) {
+    begin(practice, "hold");
+  }
+}
+
+// the last lesson: a wave to hold the plaza against
+function stageHold(practice: Practice, since: number, side: number) {
+  const { state } = practice;
+  const entry = WAVE[practice.summoned];
+  if (entry && since >= SUMMON_DELAY + WAVE_GAP * practice.summoned) {
+    summon(state, entry.kind, side + Math.PI * entry.turn);
+    practice.summoned++;
+  }
+  if (practice.summoned === WAVE.length && state.monsters.length === 0) {
+    begin(practice, "done");
   }
 }

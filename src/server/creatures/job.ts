@@ -5,8 +5,11 @@
 //
 // The job's shell (job-shell.ts) reports to the store at every step and ends every failure as a short fixed reason; no
 // model output and no stack trace is ever stored, returned or logged. A building job (../buildings/job.ts) shares it.
+
 import type { CreatureJob } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+import { ignore } from "@/lib/ignore";
+
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import {
   type BatchRenderer,
@@ -24,7 +27,7 @@ import {
 } from "../../../pipeline/loop";
 import type { MubitClient } from "../../../pipeline/mubit";
 import type { Renderer } from "../../../pipeline/render-types";
-import { anchorYFromBbox, galleryId, runJobShell } from "./job-shell";
+import { anchorYFromBbox, galleryId, type JobContext, judgedEvent, runJobShell } from "./job-shell";
 import type { CreatureStore } from "./store";
 
 const NAME_HISTORY = 60;
@@ -91,65 +94,85 @@ export async function runCreatureJob(deps: JobDeps, jobId: string): Promise<Crea
         pose: "",
         generatorPrompt: deps.prompts.generator,
         verifierPrompt: deps.prompts.verifier,
-        store: { logCall: job.onCall, saveAttemptCode: () => {}, saveAttemptPng: () => {} },
-        print: () => {},
+        store: { logCall: job.onCall, saveAttemptCode: ignore, saveAttemptPng: ignore },
+        print: ignore,
         onStage: (stage: LoopStage) => job.report(stage),
       },
       { id, category: "creature", text: written.brief.brief },
       deps.candidates,
       isAccepted,
     );
-    if (job.ended()) return;
-    if (!outcome) return job.fail("no sprite could be drawn");
+    if (job.ended()) {
+      return;
+    }
+    if (!outcome) {
+      return job.fail("no sprite could be drawn");
+    }
     const accepted = isAccepted(outcome.winner);
     deps.onOutcome?.({ jobId, id, brief: written.brief, accepted, outcome });
-    job.log({
-      event: "creature-job-judged",
-      jobId,
-      accepted,
-      candidate_scores: outcome.row.candidate_scores,
-      first_score: outcome.row.first_score,
-      fixed_score: outcome.row.fixed_score,
-      final: outcome.row.final,
-      flags: outcome.winner.stats.flags,
-    });
-    if (!accepted) return job.fail("the sprite was not good enough");
+    job.log(judgedEvent("creature-job", jobId, accepted, outcome));
+    if (!accepted) {
+      return job.fail("the sprite was not good enough");
+    }
 
     // The judged sprite is one still. Its code is drawn again in every pose; if that fails (a pose that does not render,
     // a builder that ignores its pose), the next best accepted candidate gets the same chance.
     await job.report("rendering");
-    let animated: Animated | null = null;
-    const tried: FrameSetFailure["kind"][] = [];
     const framesStarted = Date.now();
-    let batches = 0;
-    for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
-      if (job.ended()) return; // timed out while rendering: do not put a creature in the gallery for a job that failed
-      const frameSet = await renderFrameSet(renderBatch, candidate.code, canvasOfStill(candidate.stats));
-      batches += frameSet.batches;
-      tried.push(...frameSet.earlier);
-      if (frameSet.ok) {
-        animated = { candidate, frames: frameSet.frames, atlas: frameSet.atlas };
-        break;
-      }
-      tried.push(frameSet.kind);
+    const { animated, tried, batches } = await animate(job, renderBatch, outcome);
+    if (job.ended()) {
+      return; // timed out while rendering: do not put a creature in the gallery for a job that failed
     }
-    if (job.ended()) return;
-    job.log({
-      event: "creature-job-frames",
-      jobId,
-      animated: animated !== null,
-      refused: tried,
-      directions: animated?.frames.directions?.length ?? (animated ? 1 : 0),
-      batches,
-      milliseconds: Date.now() - framesStarted,
-      atlasBytes: animated?.atlas.length ?? 0,
-    });
-    if (!animated) return job.fail("it could not be animated");
+    job.log(framesEvent(jobId, animated, tried, batches, Date.now() - framesStarted));
+    if (!animated) {
+      return job.fail("it could not be animated");
+    }
 
     const creature = buildCreature(id, written.brief, animated.candidate, animated.frames, deps.now());
     await deps.store.putCreature(creature, animated.candidate.png, animated.candidate.code, animated.atlas, job.signal);
     await job.conclude({ creature });
   });
+}
+
+// what the log says of the frames: whether they came, what was refused on the way, and what it cost
+const framesEvent = (
+  jobId: string,
+  animated: Animated | null,
+  refused: FrameSetFailure["kind"][],
+  batches: number,
+  milliseconds: number,
+) => ({
+  event: "creature-job-frames",
+  jobId,
+  animated: animated !== null,
+  refused,
+  directions: animated?.frames.directions?.length ?? (animated ? 1 : 0),
+  batches,
+  milliseconds,
+  atlasBytes: animated?.atlas.length ?? 0,
+});
+
+// Draws the best accepted candidate in every pose, and the next best if that fails; stops when the job ends.
+async function animate(
+  job: JobContext<CreatureFailure>,
+  renderBatch: BatchRenderer,
+  outcome: CandidateOutcome,
+): Promise<{ animated: Animated | null; tried: FrameSetFailure["kind"][]; batches: number }> {
+  const tried: FrameSetFailure["kind"][] = [];
+  let batches = 0;
+  for (const candidate of acceptedCandidates(outcome).slice(0, FRAME_ATTEMPTS)) {
+    if (job.ended()) {
+      break;
+    }
+    const frameSet = await renderFrameSet(renderBatch, candidate.code, canvasOfStill(candidate.stats));
+    batches += frameSet.batches;
+    tried.push(...frameSet.earlier);
+    if (frameSet.ok) {
+      return { animated: { candidate, frames: frameSet.frames, atlas: frameSet.atlas }, tried, batches };
+    }
+    tried.push(frameSet.kind);
+  }
+  return { animated: null, tried, batches };
 }
 
 /** An accepted sprite with the code that drew it. */

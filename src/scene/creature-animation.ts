@@ -47,16 +47,21 @@ export function creatureFrameOf(
   counts: CreatureFrames = CREATURE_FRAME_COUNTS,
 ): CreatureFrameChoice {
   // clawing a lamp: the attack frames, round and round while the lamp is being put out
-  if (monster.snuff > 0) return { animation: "attack", frame: loopFrame(monster.snuff, "attack", counts) };
+  if (monster.snuff > 0) {
+    return { animation: "attack", frame: loopFrame(monster.snuff, "attack", counts) };
+  }
   // the blow on the warden: the attack frames once, from the moment of the blow
   const sinceBlow = CLAW_COOLDOWN - monster.attackCooldown;
   const blowLasts = counts.attack / CREATURE_FRAMES_PER_SECOND.attack;
-  if (monster.attackCooldown > 0 && sinceBlow < blowLasts)
+  if (monster.attackCooldown > 0 && sinceBlow < blowLasts) {
     return {
       animation: "attack",
       frame: Math.min(counts.attack - 1, Math.floor(sinceBlow * CREATURE_FRAMES_PER_SECOND.attack)),
     };
+  }
   const waiting = monster.stun > 0 || ground(monster.x, monster.y, hero.x, hero.y) < CLAW_REACH;
-  if (waiting) return { animation: "idle", frame: loopFrame(monster.age, "idle", counts) };
+  if (waiting) {
+    return { animation: "idle", frame: loopFrame(monster.age, "idle", counts) };
+  }
   return { animation: "walk", frame: loopFrame(monster.age, "walk", counts) };
 }

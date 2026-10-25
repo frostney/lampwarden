@@ -19,8 +19,12 @@ export function flashPressed(button: HTMLElement) {
 // Enter and Space on a focused button press it; returns the unbind function
 export function bindKeyboardPress(): () => void {
   const keyDown = (event: KeyboardEvent) => {
-    if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
-    if (event.target instanceof HTMLButtonElement && !event.target.disabled) flashPressed(event.target);
+    if (event.repeat || (event.key !== "Enter" && event.key !== " ")) {
+      return;
+    }
+    if (event.target instanceof HTMLButtonElement && !event.target.disabled) {
+      flashPressed(event.target);
+    }
   };
   window.addEventListener("keydown", keyDown);
   return () => window.removeEventListener("keydown", keyDown);

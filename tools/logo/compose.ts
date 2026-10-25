@@ -1,6 +1,7 @@
 // Lays out the logo (the oil-lamp emblem stacked over the wordmark) and everything derived from it: favicons, the
 // Apple touch icon and the social card.
 
+import { band } from "../../src/lib/band";
 import type { TextMask } from "./glyphs";
 import { drawGrid, extrude, glow, gridImage, outline, PixelImage, pad, textImage } from "./image";
 import { colours, glowRings, gridColours, stars, wordmarkRows } from "./palette";
@@ -63,13 +64,14 @@ export const appleTouchIcon = (): PixelImage => emblemIcon(180, 5, [15, 11, 8, 5
  * inside the safe zone (the circle whose diameter is 80% of the width): the emblem at 4x on 192 px and 10x on 512 px,
  * whose box corners (empty, the lamp is not square) lie at the circle's edge or inside it.
  */
+const MANIFEST_ICON_SCALES = { 192: { any: 5, maskable: 4 }, 512: { any: 14, maskable: 10 } };
 export const manifestIcon = (size: 192 | 512, maskable: boolean): PixelImage =>
-  emblemIcon(size, size === 192 ? (maskable ? 4 : 5) : maskable ? 10 : 14, [15, 11, 8, 5]);
+  emblemIcon(size, MANIFEST_ICON_SCALES[size][maskable ? "maskable" : "any"], [15, 11, 8, 5]);
 
 /** 1200 x 630 social card: the logo at the largest integer scale that fits, the tagline under it, and stars. */
 export function socialCard(logoImage: PixelImage, tagline: TextMask): PixelImage {
-  const cardWidth = 1200,
-    cardHeight = 630;
+  const cardWidth = 1200;
+  const cardHeight = 630;
   const card = new PixelImage(cardWidth, cardHeight, colours.night);
   const taglineImage = textImage(tagline, [colours.cream]);
   const logoScale = Math.max(
@@ -95,10 +97,21 @@ export function socialCard(logoImage: PixelImage, tagline: TextMask): PixelImage
     const brightness = random();
     const insideX = x > logoLeft - clearance && x < logoLeft + logoImage.width * logoScale + clearance;
     const insideY = y > logoTop - clearance && y < logoTop + blockHeight + clearance;
-    if (insideX && insideY) continue;
-    const colour = brightness < 0.25 ? stars.bright : brightness < 0.6 ? stars.dim : stars.blue;
+    if (insideX && insideY) {
+      continue;
+    }
+    const colour = band(
+      brightness,
+      [
+        [0.25, stars.bright],
+        [0.6, stars.dim],
+      ],
+      stars.blue,
+    );
     for (let offsetY = 0; offsetY < taglineScale; offsetY++) {
-      for (let offsetX = 0; offsetX < taglineScale; offsetX++) card.blendOver(x + offsetX, y + offsetY, colour);
+      for (let offsetX = 0; offsetX < taglineScale; offsetX++) {
+        card.blendOver(x + offsetX, y + offsetY, colour);
+      }
     }
   }
 

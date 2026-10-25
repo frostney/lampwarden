@@ -20,9 +20,12 @@
 //   creature.ts  a creature's stats from its archetype and modifiers, and the recorded subset the replay builds from
 //   replay.ts    STEP, quantise, Replayer and the headless verification
 //   assets.ts    FRAMES and FRAMES_PER_SECOND, which time the warden's animations inside the sim
+
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { compareCodeUnits } from "../../src/lib/compare";
 
 export const SIM_SOURCES = [
   "src/game/sim.ts",
@@ -39,7 +42,7 @@ const FINGERPRINT_LENGTH = 12;
 /** The fingerprint of `sources` (paths relative to `rootDirectory`): independent of order and of line endings. */
 export function simFingerprint(rootDirectory: string, sources: readonly string[] = SIM_SOURCES): string {
   const hash = createHash("sha256");
-  for (const source of [...sources].sort()) {
+  for (const source of [...sources].sort(compareCodeUnits)) {
     const text = readFileSync(join(rootDirectory, source), "utf8").replaceAll("\r\n", "\n");
     hash.update(`${source}\0${text}\0`);
   }

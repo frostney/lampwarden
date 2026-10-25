@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { newOpening, OPENING_LINES, stageOpening } from "./opening";
 import { STEP } from "./replay";
 import { litCount, step } from "./sim";
@@ -10,14 +11,16 @@ function playOpening(sex: "male" | "female") {
   let fewestLit = litCount(opening.state);
   while (!opening.ended && opening.state.elapsed < 60) {
     step(opening.state, STEP, stageOpening(opening));
-    if (lines.at(-1)?.line !== opening.line) lines.push({ line: opening.line, at: opening.state.elapsed });
+    if (lines.at(-1)?.line !== opening.line) {
+      lines.push({ line: opening.line, at: opening.state.elapsed });
+    }
     fewestLit = Math.min(fewestLit, litCount(opening.state));
   }
   return { opening, lines, fewestLit };
 }
 
 describe("the opening scene", () => {
-  for (const sex of ["male", "female"] as const)
+  for (const sex of ["male", "female"] as const) {
     test(`tells its lines in order and ends on a quiet plaza (${sex})`, () => {
       const { opening, lines, fewestLit } = playOpening(sex);
       expect(opening.ended).toBe(true);
@@ -35,6 +38,7 @@ describe("the opening scene", () => {
       expect(litCount(opening.state)).toBe(opening.state.lamps.length);
       expect(opening.state.outcome).toBeNull();
     });
+  }
 
   test("plays the same every time: the plaza and what happens on it come from a fixed seed", () => {
     const first = playOpening("male");

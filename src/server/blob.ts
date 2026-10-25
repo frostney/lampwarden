@@ -1,8 +1,11 @@
 // What the server's Blob stores share (the director's, the play uploads'): a write that only the first caller wins, and
 // the ledger of marks the rate limits count. Private store, BLOB_READ_WRITE_TOKEN.
 import { BlobNotFoundError, BlobPreconditionFailedError } from "@vercel/blob";
+
 import { blobGetText, blobHead, blobList, blobPut } from "./blob-client";
 import type { StartLedger } from "./creatures/limits";
+
+const MARK_SUFFIX = 8; // characters of a UUID that keep two marks made in the same millisecond apart
 
 const dayOf = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -12,7 +15,9 @@ export async function listPathnames(prefix: string): Promise<string[]> {
   let cursor: string | undefined;
   do {
     const page = await blobList({ prefix, ...(cursor ? { cursor } : {}) });
-    for (const blob of page.blobs) pathnames.push(blob.pathname);
+    for (const blob of page.blobs) {
+      pathnames.push(blob.pathname);
+    }
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);
   return pathnames;
@@ -52,7 +57,9 @@ export async function replaceIfUnchanged(
     await blobPut(pathname, body, { access: "private", contentType, addRandomSuffix: false, ifMatch: version });
     return true;
   } catch (error) {
-    if (error instanceof BlobPreconditionFailedError) return false;
+    if (error instanceof BlobPreconditionFailedError) {
+      return false;
+    }
     throw error;
   }
 }
@@ -72,7 +79,7 @@ export function createBlobLedger(root: string): StartLedger & {
 
   return {
     async record(visitor, id, markedAt) {
-      const name = `${markedAt.getTime()}-${id}-${crypto.randomUUID().slice(0, 8)}`;
+      const name = `${markedAt.getTime()}-${id}-${crypto.randomUUID().slice(0, MARK_SUFFIX)}`;
       await Promise.all([
         writeMark(`${visitorPrefix(visitor, dayOf(markedAt))}${name}`),
         writeMark(`${root}/day/${dayOf(markedAt)}/${name}`),
@@ -85,7 +92,9 @@ export function createBlobLedger(root: string): StartLedger & {
       for (const day of days) {
         for (const pathname of await listPathnames(visitorPrefix(visitor, day))) {
           const markedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
-          if (markedAt >= since.getTime() && markedAt <= until.getTime()) marked.push(new Date(markedAt));
+          if (markedAt >= since.getTime() && markedAt <= until.getTime()) {
+            marked.push(new Date(markedAt));
+          }
         }
       }
       return marked.sort((first, second) => first.getTime() - second.getTime());

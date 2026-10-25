@@ -4,6 +4,7 @@
 // loop.ts's own steps (`generate`, `renderAndVerify`, `correctionMessage`) with the system prompts untouched, so the
 // calls land in the same Mubit tasks as every other sprite. Model, renderer and store are injected; this module touches
 // no file and imports nothing from node:fs.
+import { bestIndexBy } from "../src/lib/best";
 import type { Sex } from "../src/scene/assets";
 import {
   heroBrief,
@@ -59,6 +60,7 @@ export interface HeroAttempt {
   accepted: boolean;
 }
 
+const ISSUES_PER_FRAME = 3; // a frame's issues the fix turn is told about
 const mean = (scores: readonly number[]) => scores.reduce((total, score) => total + score, 0) / (scores.length || 1);
 
 function judgedFrameOf(frame: RepresentativeFrame, attempt: Attempt): JudgedFrame {
@@ -95,7 +97,7 @@ export async function judgeHeroCode(
   const frames = REPRESENTATIVE_FRAMES(sex);
   const shownCode = source.kind === "model" ? source.code : "";
   const staticIssues = source.kind === "model" ? heroCodeIssues(sex, source.code) : [];
-  if (staticIssues.length > 0)
+  if (staticIssues.length > 0) {
     return {
       name,
       code: shownCode,
@@ -115,6 +117,7 @@ export async function judgeHeroCode(
       score: 0,
       accepted: false,
     };
+  }
   const attempts = await Promise.all(
     frames.map((frame) => {
       const code = source.kind === "model" ? source.code : source.codeFor(frame);
@@ -134,7 +137,9 @@ export async function judgeHeroCode(
   );
   const judged = attempts.map((attempt, index) => {
     const frame = frames[index];
-    if (!frame) throw new Error("a frame without a spec");
+    if (!frame) {
+      throw new Error("a frame without a spec");
+    }
     return judgedFrameOf(frame, attempt);
   });
   return {
@@ -156,7 +161,7 @@ export function attemptVerdict(attempt: HeroAttempt): Verdict {
   );
   const issues = attempt.staticIssues.concat(
     failing.flatMap((frame) =>
-      frame.issues.slice(0, 3).map((issue) => `${frame.pose} from the ${frame.direction}: ${issue}`),
+      frame.issues.slice(0, ISSUES_PER_FRAME).map((issue) => `${frame.pose} from the ${frame.direction}: ${issue}`),
     ),
   );
   return {
@@ -227,12 +232,12 @@ export async function runHeroLoop(
       }),
     ),
   );
-  let bestIndex = 0;
-  for (const [index, attempt] of candidates.entries())
-    if (attempt.score > (candidates[bestIndex]?.score ?? 0)) bestIndex = index;
+  const bestIndex = bestIndexBy(candidates, (attempt) => attempt.score);
   const first = candidates[bestIndex];
   const chosen = drawn[bestIndex];
-  if (!first || !chosen) return null;
+  if (!first || !chosen) {
+    return null;
+  }
   const candidateScores = candidates.map((attempt) => attempt.score);
   print(`hero-${sex} | candidates ${JSON.stringify(candidateScores)} | accepted=${first.accepted}`);
   const attempts: HeroAttempt[] = [...candidates];

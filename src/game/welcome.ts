@@ -2,6 +2,7 @@
 // apart from the legacy (it outlives a bloodline: starting a new one does not teach the watch again) and from any night.
 // Either one counts as shown once it was seen through or skipped; the title can show both again.
 import { z } from "zod";
+
 import type { Legacy } from "./legacy";
 
 const KEY = "lampwarden:welcome:v1";
@@ -12,7 +13,9 @@ export type Welcome = z.infer<typeof welcomeSchema>;
 export function loadWelcome(): Welcome {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-    if (raw) return welcomeSchema.parse(JSON.parse(raw));
+    if (raw) {
+      return welcomeSchema.parse(JSON.parse(raw));
+    }
   } catch {
     /* corrupt or unavailable storage: nothing has been shown yet */
   }

@@ -3,6 +3,8 @@
 // timeline that the balance analysis can read without replaying anything. Nothing here decides how a night plays out
 // (that is the sim and replay.ts), so editing this file does not change the sim fingerprint (tools/sim-fingerprint).
 import { z } from "zod";
+
+import { MILLISECONDS_PER_SECOND } from "../lib/units";
 import type { RecordedBuilding } from "./building";
 import type { RecordedCreature } from "./creature";
 import type { Legacy } from "./legacy";
@@ -44,7 +46,9 @@ export interface Play {
   replay?: { endsMatch: boolean } | undefined; // filled in when a recording is verified by replay
 }
 
-const randomId = () => Math.random().toString(36).slice(2, 10);
+const BASE_36 = 36;
+const ISO_TO_SECONDS = 19; // "2026-10-24T16:11:46", the start of an ISO time
+const randomId = () => Math.random().toString(BASE_36).slice(2, 10);
 function sessionId(): string {
   try {
     let session = localStorage.getItem("lampwarden:session");
@@ -65,12 +69,17 @@ export class Recorder {
   private hiddenSince: number | null = null;
   // the tab's visibility, kept for the night: a hidden tab is the one way a night is paused
   private readonly onVisibility = () => {
-    if (document.visibilityState === "hidden") this.hiddenSince ??= performance.now();
-    else this.closeHidden();
+    if (document.visibilityState === "hidden") {
+      this.hiddenSince ??= performance.now();
+    } else {
+      this.closeHidden();
+    }
   };
   private closeHidden() {
-    if (this.hiddenSince === null) return;
-    this.hiddenSeconds += (performance.now() - this.hiddenSince) / 1000;
+    if (this.hiddenSince === null) {
+      return;
+    }
+    this.hiddenSeconds += (performance.now() - this.hiddenSince) / MILLISECONDS_PER_SECOND;
     this.hiddenSince = null;
   }
   constructor(
@@ -78,17 +87,19 @@ export class Recorder {
     seed: number,
     build: string,
     creature: RecordedCreature | null = null,
-    sim: string | undefined = undefined,
+    sim?: string,
     building: RecordedBuilding | null = null,
   ) {
     if (typeof document !== "undefined") {
-      if (document.visibilityState === "hidden") this.hiddenSince = performance.now();
+      if (document.visibilityState === "hidden") {
+        this.hiddenSince = performance.now();
+      }
       document.addEventListener("visibilitychange", this.onVisibility);
     }
     const { night, generation, tide, levels, heir, director } = legacy;
     this.play = {
       v: 1,
-      id: `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${randomId()}`,
+      id: `${new Date().toISOString().slice(0, ISO_TO_SECONDS).replace(/[:T]/g, "-")}-${randomId()}`,
       session: sessionId(),
       build,
       ...(sim ? { sim } : {}),
@@ -107,7 +118,7 @@ export class Recorder {
   // call once per sim step with the input about to be applied; state is the state after steps 0..stepIndex-1
   input(stepIndex: number, input: Input, state: State) {
     this.play.steps = stepIndex + 1;
-    if (stepIndex > 0 && stepIndex % 60 === 0)
+    if (stepIndex > 0 && stepIndex % 60 === 0) {
       this.play.timeline.push([
         stepIndex / 60,
         state.stats.kills,
@@ -116,6 +127,7 @@ export class Recorder {
         state.monsters.length,
         state.stats.lampsLost,
       ]);
+    }
     const row: InputRow = [
       stepIndex,
       input.moveX,
@@ -136,15 +148,20 @@ export class Recorder {
   // pagehide sends once. Unlike finish() it leaves the recorder listening, so a night that goes on keeps its hidden time.
   private snapshotSteps = 0;
   snapshot(state: State): Play | null {
-    if (this.play.steps === 0 || this.play.steps === this.snapshotSteps) return null;
+    if (this.play.steps === 0 || this.play.steps === this.snapshotSteps) {
+      return null;
+    }
     this.snapshotSteps = this.play.steps;
-    const openSeconds = this.hiddenSince === null ? 0 : (performance.now() - this.hiddenSince) / 1000;
+    const openSeconds =
+      this.hiddenSince === null ? 0 : (performance.now() - this.hiddenSince) / MILLISECONDS_PER_SECOND;
     this.play.hiddenSeconds = Math.round((this.hiddenSeconds + openSeconds) * 10) / 10;
     return this.summarise(state);
   }
   finish(state: State): Play {
     this.closeHidden();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVisibility);
+    }
     this.play.hiddenSeconds = Math.round(this.hiddenSeconds * 10) / 10;
     return this.summarise(state);
   }
@@ -207,12 +224,16 @@ function saveQueue(storage: PlayStorage, queue: QueuedPlay[]) {
 // Keeps a play for a later try. A play with this id already waiting is replaced (a snapshot gives way to the finished
 // night); past the bounds the oldest waiting plays are dropped.
 export function queuePlay(storage: PlayStorage, queued: QueuedPlay) {
-  if (queued.body.length > MAX_PLAY_CHARS) return;
+  if (queued.body.length > MAX_PLAY_CHARS) {
+    return;
+  }
   const queue = [...queuedPlays(storage).filter((waiting) => waiting.id !== queued.id), queued];
   let chars = queue.reduce((total, waiting) => total + waiting.body.length, 0);
   while (queue.length > MAX_QUEUED_PLAYS || chars > MAX_QUEUED_CHARS) {
     const dropped = queue.shift();
-    if (!dropped) break;
+    if (!dropped) {
+      break;
+    }
     chars -= dropped.body.length;
   }
   saveQueue(storage, queue);
@@ -221,7 +242,9 @@ export function queuePlay(storage: PlayStorage, queued: QueuedPlay) {
 export function unqueuePlay(storage: PlayStorage, id: string) {
   const queue = queuedPlays(storage);
   const remaining = queue.filter((waiting) => waiting.id !== id);
-  if (remaining.length !== queue.length) saveQueue(storage, remaining);
+  if (remaining.length !== queue.length) {
+    saveQueue(storage, remaining);
+  }
 }
 
 // Sends the waiting plays oldest first, skipping the ids in `skip` (plays on their way right now). A play that went
@@ -233,9 +256,13 @@ export async function flushQueue(
   skip: { has(id: string): boolean } = new Set(),
 ) {
   for (const queued of queuedPlays(storage)) {
-    if (skip.has(queued.id)) continue;
+    if (skip.has(queued.id)) {
+      continue;
+    }
     const result = await send(queued);
-    if (result === "retry") return;
+    if (result === "retry") {
+      return;
+    }
     unqueuePlay(storage, queued.id);
   }
 }
@@ -251,6 +278,10 @@ function localStorageOrNull(): PlayStorage | null {
 // the visual verifier's nights are not real plays, so they are never uploaded or queued (a stubbed server answers them)
 export const isVerifying = () => new URLSearchParams(location.search).has("verify");
 
+// statuses worth sending the night again for: a timeout, too early, too many requests, and any fault of the server's
+const RETRY_STATUSES = { timeout: 408, tooEarly: 425, tooMany: 429 };
+const SERVER_ERROR = 500;
+
 async function fetchPlay(body: string, keepalive: boolean): Promise<UploadResult> {
   const response = await fetch("/api/plays", {
     method: "POST",
@@ -258,8 +289,10 @@ async function fetchPlay(body: string, keepalive: boolean): Promise<UploadResult
     body,
     keepalive: keepalive && body.length < KEEPALIVE_LIMIT,
   });
-  if (response.ok) return "sent";
-  return response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500
+  if (response.ok) {
+    return "sent";
+  }
+  return Object.values(RETRY_STATUSES).includes(response.status) || response.status >= SERVER_ERROR
     ? "retry"
     : "rejected";
 }
@@ -270,7 +303,9 @@ async function post(queued: QueuedPlay, leaving: boolean): Promise<UploadResult>
   try {
     if (leaving && queued.body.length >= KEEPALIVE_LIMIT) {
       const beacon = new Blob([queued.body], { type: "application/json" });
-      if (navigator.sendBeacon("/api/plays", beacon)) return "retry";
+      if (navigator.sendBeacon("/api/plays", beacon)) {
+        return "retry";
+      }
     }
     return await fetchPlay(queued.body, leaving);
   } catch {
@@ -282,8 +317,11 @@ async function post(queued: QueuedPlay, leaving: boolean): Promise<UploadResult>
 const inFlight = new Map<string, number>();
 function sending(id: string, change: 1 | -1) {
   const count = (inFlight.get(id) ?? 0) + change;
-  if (count > 0) inFlight.set(id, count);
-  else inFlight.delete(id);
+  if (count > 0) {
+    inFlight.set(id, count);
+  } else {
+    inFlight.delete(id);
+  }
 }
 
 // the body of the latest upload of each id still on its way
@@ -293,22 +331,33 @@ const newest = new Map<string, string>();
 // and after the next play that does. `leaving`: the page is hiding or going away, so the play is queued first, since
 // the request may not finish.
 export async function upload(play: Play, leaving = false): Promise<boolean> {
-  if (isVerifying()) return true;
+  if (isVerifying()) {
+    return true;
+  }
   const storage = localStorageOrNull();
   const queued: QueuedPlay = { id: play.id, body: JSON.stringify(play) };
-  if (storage && leaving) queuePlay(storage, queued);
+  if (storage && leaving) {
+    queuePlay(storage, queued);
+  }
   sending(queued.id, 1);
   newest.set(queued.id, queued.body);
   const result = await post(queued, leaving);
   sending(queued.id, -1);
   const stale = newest.get(queued.id) !== queued.body; // a later upload of this night owns its queue entry
-  if (!stale) newest.delete(queued.id);
+  if (!stale) {
+    newest.delete(queued.id);
+  }
   if (storage) {
     if (!stale) {
-      if (result === "retry") queuePlay(storage, queued);
-      else unqueuePlay(storage, queued.id);
+      if (result === "retry") {
+        queuePlay(storage, queued);
+      } else {
+        unqueuePlay(storage, queued.id);
+      }
     }
-    if (result === "sent") void flushQueue(storage, (waiting) => post(waiting, false), inFlight); // the caller does not wait
+    if (result === "sent") {
+      flushQueue(storage, (waiting) => post(waiting, false), inFlight).catch(reportError); // the caller does not wait
+    }
   }
   return result === "sent";
 }
@@ -316,6 +365,8 @@ export async function upload(play: Play, leaving = false): Promise<boolean> {
 // On a load: sends the plays that earlier pages could not.
 export async function resendQueuedPlays() {
   const storage = localStorageOrNull();
-  if (!storage || isVerifying()) return;
+  if (!storage || isVerifying()) {
+    return;
+  }
   await flushQueue(storage, (waiting) => post(waiting, false), inFlight);
 }

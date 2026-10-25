@@ -63,7 +63,9 @@ export function shuffle<Item>(list: Item[], random: () => number) {
     const other = Math.floor(random() * (index + 1));
     const current = list[index];
     const swapped = list[other];
-    if (current === undefined || swapped === undefined) continue;
+    if (current === undefined || swapped === undefined) {
+      continue;
+    }
     list[index] = swapped;
     list[other] = current;
   }

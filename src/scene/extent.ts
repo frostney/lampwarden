@@ -38,9 +38,11 @@ export function convexHull(points: readonly Point[]): Point[] {
     const half: Point[] = [];
     for (const point of ordered) {
       while (half.length >= 2) {
-        const before = half[half.length - 2];
-        const last = half[half.length - 1];
-        if (!before || !last || cross(before, last, point) > 0) break;
+        const before = half.at(-2);
+        const last = half.at(-1);
+        if (!before || !last || cross(before, last, point) > 0) {
+          break;
+        }
         half.pop();
       }
       half.push(point);
@@ -49,6 +51,47 @@ export function convexHull(points: readonly Point[]): Point[] {
     return half;
   };
   return [...chain(sorted), ...chain([...sorted].reverse())];
+}
+
+// grows a box to take in the pixel whose top left is (x, y)
+function growBox(box: Box, x: number, y: number) {
+  box.left = Math.min(box.left, x);
+  box.right = Math.max(box.right, x + 1);
+  box.top = Math.min(box.top, y);
+  box.bottom = Math.max(box.bottom, y + 1);
+}
+
+// adds the four corners of the pixel whose top left is (x, y) to a set of points, keyed so that each is there once
+function addCorners(points: Map<number, Point>, x: number, y: number) {
+  for (const [cornerX, cornerY] of [
+    [x, y],
+    [x + 1, y],
+    [x, y + 1],
+    [x + 1, y + 1],
+  ] as const) {
+    points.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
+  }
+}
+
+// A painted pixel at (x, y) from the anchor: a solid one grows the sprite's box, and within `band` of the base its
+// corners go into the painted points (and the solid ones, if it is solid).
+function notePixel(
+  measured: { painted: Map<number, Point>; solid: Map<number, Point>; sprite: Box },
+  x: number,
+  y: number,
+  isSolid: boolean,
+  band: number,
+) {
+  if (isSolid) {
+    growBox(measured.sprite, x, y);
+  }
+  if (y < -band) {
+    return;
+  }
+  addCorners(measured.painted, x, y);
+  if (isSolid) {
+    addCorners(measured.solid, x, y);
+  }
 }
 
 // Measures an RGBA picture of SPRITE_SIZE square (premultiplied or not: only alpha is read) drawn at `anchorY`.
@@ -62,28 +105,13 @@ export function measureSprite(rgba: ArrayLike<number>, anchorY: number, band = B
     top: Number.POSITIVE_INFINITY,
     bottom: Number.NEGATIVE_INFINITY,
   };
-  for (let row = 0; row < SPRITE_SIZE; row++)
+  for (let row = 0; row < SPRITE_SIZE; row++) {
     for (let column = 0; column < SPRITE_SIZE; column++) {
       const alpha = rgba[(row * SPRITE_SIZE + column) * 4 + 3] ?? 0;
-      if (alpha === 0) continue;
-      const x = column - SPRITE_SIZE / 2;
-      const y = row - anchorRow;
-      if (alpha >= SOLID_ALPHA) {
-        sprite.left = Math.min(sprite.left, x);
-        sprite.right = Math.max(sprite.right, x + 1);
-        sprite.top = Math.min(sprite.top, y);
-        sprite.bottom = Math.max(sprite.bottom, y + 1);
-      }
-      if (y < -band) continue;
-      for (const [cornerX, cornerY] of [
-        [x, y],
-        [x + 1, y],
-        [x, y + 1],
-        [x + 1, y + 1],
-      ] as const) {
-        painted.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
-        if (alpha >= SOLID_ALPHA) solid.set(cornerY * 1000 + cornerX, [cornerX, cornerY]);
+      if (alpha !== 0) {
+        notePixel({ painted, solid, sprite }, column - SPRITE_SIZE / 2, row - anchorRow, alpha >= SOLID_ALPHA, band);
       }
     }
+  }
   return { hull: convexHull([...painted.values()]), solid: convexHull([...solid.values()]), band, sprite };
 }

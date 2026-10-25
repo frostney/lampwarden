@@ -2,6 +2,7 @@
 // answer that came over the network (parsed, never trusted; any failure is null) and following a generation job until it
 // is done.
 import type { z } from "zod";
+
 import type { JobStep } from "./creature";
 
 export const REQUEST_TIMEOUT = 8000; // ms: the server answers from its gallery or starts a job, never waits for one
@@ -19,7 +20,7 @@ export async function readAnswer<Schema extends z.ZodType>(
 }
 
 const POLL_INTERVAL = 2000; // ms between looks at a job
-const GIVE_UP_AFTER = 5 * 60_000; // ms: a night is long over by then
+const GIVE_UP_AFTER = 300_000; // ms, five minutes: a night is long over by then
 const MISSES_ALLOWED = 3; // answers in a row that may fail before the job is let go
 
 export interface WaitOptions {
@@ -46,16 +47,24 @@ export async function followUntilDone<Made>(
   let misses = 0;
   while (isCurrent() && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    if (!isCurrent()) return null;
+    if (!isCurrent()) {
+      return null;
+    }
     const job = await follow();
     if (!job) {
       misses++;
-      if (misses >= MISSES_ALLOWED) return null;
+      if (misses >= MISSES_ALLOWED) {
+        return null;
+      }
       continue;
     }
     misses = 0;
-    if (job.step === "done") return job.made ?? null;
-    if (job.step === "failed") return null;
+    if (job.step === "done") {
+      return job.made ?? null;
+    }
+    if (job.step === "failed") {
+      return null;
+    }
     onStep(job.step);
   }
   return null;

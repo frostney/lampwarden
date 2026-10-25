@@ -13,12 +13,15 @@ export const PORTRAIT = { width: 80, height: 94, top: 14 } as const;
 export function solidColumns(pixels: ArrayLike<number>, width: number, height: number) {
   let first = width;
   let last = -1;
-  for (let row = 0; row < height; row++)
+  for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
-      if ((pixels[(row * width + column) * 4 + 3] ?? 0) < OPAQUE) continue;
+      if ((pixels[(row * width + column) * 4 + 3] ?? 0) < OPAQUE) {
+        continue;
+      }
       first = Math.min(first, column);
       last = Math.max(last, column);
     }
+  }
   return last < 0 ? null : { first, last };
 }
 

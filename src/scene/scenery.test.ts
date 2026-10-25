@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { z } from "zod";
+
 import { isAccepted } from "../../pipeline/loop";
 import { decodePng } from "../../tools/logo/png";
 import { anchorYFromBbox } from "../server/creatures/job-shell";
@@ -38,14 +40,17 @@ function opaqueBbox(name: string): string {
   let top = png.height;
   let right = -1;
   let bottom = -1;
-  for (let y = 0; y < png.height; y++)
+  for (let y = 0; y < png.height; y++) {
     for (let x = 0; x < png.width; x++) {
-      if ((png.data[(y * png.width + x) * 4 + 3] ?? 0) < OPAQUE) continue;
+      if ((png.data[(y * png.width + x) * 4 + 3] ?? 0) < OPAQUE) {
+        continue;
+      }
       left = Math.min(left, x);
       right = Math.max(right, x);
       top = Math.min(top, y);
       bottom = Math.max(bottom, y);
     }
+  }
   return `${left},${top},${right},${bottom}`;
 }
 
@@ -55,7 +60,9 @@ describe("the scenery", () => {
     for (const key of SCENERY_KEYS) {
       const row = manifest[key];
       expect(row?.source).toBe("mubit");
-      if (!row) continue;
+      if (!row) {
+        continue;
+      }
       expect(row.gen).toMatch(/^mreq_/);
       expect(row.verify?.length).toBeGreaterThan(0);
       const stats = {
@@ -83,7 +90,9 @@ describe("the scenery", () => {
       const bbox = opaqueBbox(key);
       expect(row?.bbox).toBe(bbox);
       expect(anchorYFor(key)).toBe(anchorYFromBbox(bbox));
-      if (row?.source === "mubit") expect(row.anchor_y).toBe(anchorYFromBbox(bbox));
+      if (row?.source === "mubit") {
+        expect(row.anchor_y).toBe(anchorYFromBbox(bbox));
+      }
     }
   });
 
@@ -100,6 +109,8 @@ describe("the scenery", () => {
     // a decoration has nothing to fall back on: its key stays, and it draws nothing
     expect(sceneryKeyFor("votive-altar", () => false)).toBe("votive-altar");
     // the scenery is loaded sprite by sprite, so it is not in the list whose failure fails the whole load
-    for (const key of SCENERY_KEYS) expect(required).not.toContain(key);
+    for (const key of SCENERY_KEYS) {
+      expect(required).not.toContain(key);
+    }
   });
 });

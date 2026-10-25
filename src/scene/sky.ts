@@ -4,8 +4,11 @@
 // DAWN_STAGES steps that warm it towards morning in step with nightTint. A few stars twinkle, the lighthouse blinks
 // and the moon lays a broken path of light on the far sea; those are small textures picked from the scene clock (frozen
 // by the visual verifier, so its frames are deterministic).
+
 import type { Texture } from "pixi.js";
+
 import { STAGE_WIDTH } from "../game/sim";
+import { band } from "../lib/band";
 import { bayerThreshold, bufferTexture, hashUnit, hexRgb, putPixel, type Rgb, seededRandom } from "./paint";
 import { HORIZON_Y } from "./water";
 
@@ -20,7 +23,9 @@ const mix = (start: Rgb, end: Rgb, amount: number): Rgb => [
 const DAWN_STAGES = 10;
 // 0 all night; 1 to DAWN_STAGES over the last fifth of the night, when nightTint warms
 function skyStage(progress: number): number {
-  if (progress < 0.8) return 0;
+  if (progress < 0.8) {
+    return 0;
+  }
   return Math.min(DAWN_STAGES, 1 + Math.floor(((progress - 0.8) / 0.2) * DAWN_STAGES));
 }
 const dawnAmount = (stage: number) => stage / DAWN_STAGES;
@@ -44,7 +49,9 @@ function bandAt(x: number, y: number): number {
   const jittered = y + Math.round((bayerThreshold(x, y) - 0.5) * 4);
   let band = 0;
   BAND_TOPS.forEach((top, index) => {
-    if (jittered >= top) band = index;
+    if (jittered >= top) {
+      band = index;
+    }
   });
   return band;
 }
@@ -64,7 +71,15 @@ const STARS: readonly Star[] = (() => {
     // thinner towards the horizon, where the haze is
     const y = 2 + Math.floor(random() ** 1.5 * (HORIZON_Y - 14));
     const roll = random();
-    return { x, y, level: roll < 0.6 ? 1 : roll < 0.9 ? 2 : 3 };
+    const level = band(
+      roll,
+      [
+        [0.6, 1],
+        [0.9, 2],
+      ],
+      3,
+    );
+    return { x, y, level };
   });
 })();
 // stars dim a level, then go, as the dawn comes
@@ -118,7 +133,9 @@ function heightAlong(points: readonly (readonly [number, number])[], x: number):
   for (let index = 1; index < points.length; index++) {
     const start = points[index - 1];
     const end = points[index];
-    if (!start || !end || x < start[0] || x > end[0]) continue;
+    if (!start || !end || x < start[0] || x > end[0]) {
+      continue;
+    }
     const along = (x - start[0]) / (end[0] - start[0]);
     const height = Math.round(start[1] + (end[1] - start[1]) * along);
     // a rocky edge: a pixel higher in places
@@ -161,22 +178,38 @@ export const LIGHTHOUSE_LAMP = { x: LIGHTHOUSE.x, y: lighthouseBase() - LIGHTHOU
 
 // --- painting a stage ------------------------------------------------------------------------------------------
 
+type Plot = (x: number, y: number, colour: Rgb) => void;
+
 function paintSky(stage: number): Texture {
   const width = STAGE_WIDTH;
   const height = HORIZON_Y;
   const pixels = new Uint8Array(width * height * 4);
   const bands = bandsFor(stage);
-  const horizonBand = bands[bands.length - 1] ?? [0, 0, 0];
-  const plot = (x: number, y: number, colour: Rgb) => {
-    if (x >= 0 && x < width && y >= 0 && y < height) putPixel(pixels, width, x, y, colour);
+  const horizonBand = bands.at(-1) ?? [0, 0, 0];
+  const plot: Plot = (x, y, colour) => {
+    if (x >= 0 && x < width && y >= 0 && y < height) {
+      putPixel(pixels, width, x, y, colour);
+    }
   };
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) plot(x, y, bands[bandAt(x, y)] ?? horizonBand);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      plot(x, y, bands[bandAt(x, y)] ?? horizonBand);
+    }
+  }
+  paintStars(plot, stage);
+  const amount = dawnAmount(stage);
+  paintMoon(plot, bands[bandAt(MOON.x, MOON.y)] ?? horizonBand, amount);
+  paintLand(plot, horizonBand, amount);
+  return bufferTexture(pixels, width, height);
+}
 
-  // stars
+function paintStars(plot: Plot, stage: number) {
   for (const star of STARS) {
     const level = starLevelAt(star, stage);
     const colour = STAR_LEVELS[level - 1];
-    if (!colour) continue;
+    if (!colour) {
+      continue;
+    }
     plot(star.x, star.y, colour);
     const dim = STAR_LEVELS[level - 2];
     if (level === 3 && dim && star.x % 3 === 0) {
@@ -186,48 +219,68 @@ function paintSky(stage: number): Texture {
       plot(star.x, star.y + 1, dim);
     }
   }
+}
 
-  // the moon: a crescent lit from the right, its dark side a shade over the sky, and a dithered halo
-  const amount = dawnAmount(stage);
-  const skyAtMoon = bands[bandAt(MOON.x, MOON.y)] ?? horizonBand;
+// the moon: a crescent lit from the right, its dark side a shade over the sky, and a dithered halo
+function paintMoon(plot: Plot, skyAtMoon: Rgb, amount: number) {
   const lit = mix(MOON_LIT, skyAtMoon, amount * 0.6);
   const edge = mix(MOON_EDGE, skyAtMoon, amount * 0.6);
   const earthshine = mix(skyAtMoon, MOON_EDGE, 0.12);
   const halo = mix(skyAtMoon, MOON_EDGE, 0.2 * (1 - amount));
   const reach = MOON.radius + 4;
-  for (let y = MOON.y - reach; y <= MOON.y + reach; y++)
+  for (let y = MOON.y - reach; y <= MOON.y + reach; y++) {
     for (let x = MOON.x - reach; x <= MOON.x + reach; x++) {
-      const distance = Math.hypot(x + 0.5 - MOON.x, y + 0.5 - MOON.y);
-      if (distance > MOON.radius) {
-        if (distance <= MOON.radius + 3 && bayerThreshold(x, y) < (MOON.radius + 3.5 - distance) / 4) plot(x, y, halo);
-        continue;
+      const colour = moonPixel(x, y, { lit, edge, earthshine, halo });
+      if (colour) {
+        plot(x, y, colour);
       }
-      const shadowed = Math.hypot(x + 0.5 - (MOON.x - MOON.shadowShift), y + 0.5 - (MOON.y - 1)) <= MOON.radius;
-      if (shadowed) plot(x, y, earthshine);
-      else plot(x, y, distance > MOON.radius - 1.2 ? edge : lit);
     }
+  }
+}
 
-  // the land: the headland nearer and darker, the far island and the rocks hazier
+// what the moon paints at (x, y): its lit face and edge, the earthshine on its dark side, a dithered halo, or nothing
+function moonPixel(x: number, y: number, inks: { lit: Rgb; edge: Rgb; earthshine: Rgb; halo: Rgb }): Rgb | null {
+  const distance = Math.hypot(x + 0.5 - MOON.x, y + 0.5 - MOON.y);
+  if (distance > MOON.radius) {
+    const inHalo = distance <= MOON.radius + 3 && bayerThreshold(x, y) < (MOON.radius + 3.5 - distance) / 4;
+    return inHalo ? inks.halo : null;
+  }
+  const shadowed = Math.hypot(x + 0.5 - (MOON.x - MOON.shadowShift), y + 0.5 - (MOON.y - 1)) <= MOON.radius;
+  if (shadowed) {
+    return inks.earthshine;
+  }
+  return distance > MOON.radius - 1.2 ? inks.edge : inks.lit;
+}
+
+// the land: the headland nearer and darker, the far island and the rocks hazier, with the lighthouse and the temple
+function paintLand(plot: Plot, horizonBand: Rgb, amount: number) {
   const near = mix(horizonBand, hexRgb(0x02040c), 0.72 - 0.22 * amount);
   const far = mix(horizonBand, hexRgb(0x02040c), 0.45 - 0.15 * amount);
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < STAGE_WIDTH; x++) {
     const headland = heightAlong(HEADLAND, x);
     const rocks = heightAlong(RIGHT_ROCKS, x);
     const island = Math.max(...FAR_ISLANDS.map((points) => heightAlong(points, x)));
-    for (let rise = 1; rise <= Math.max(headland, rocks); rise++) plot(x, HORIZON_Y - rise, near);
-    for (let rise = 1; rise <= island; rise++) plot(x, HORIZON_Y - rise, far);
+    for (let rise = 1; rise <= Math.max(headland, rocks); rise++) {
+      plot(x, HORIZON_Y - rise, near);
+    }
+    for (let rise = 1; rise <= island; rise++) {
+      plot(x, HORIZON_Y - rise, far);
+    }
   }
   const lighthouseFoot = lighthouseBase();
   LIGHTHOUSE_ROWS.forEach(([left, right], index) => {
-    for (let offset = left; offset <= right; offset++) plot(LIGHTHOUSE.x + offset, lighthouseFoot - index, near);
+    for (let offset = left; offset <= right; offset++) {
+      plot(LIGHTHOUSE.x + offset, lighthouseFoot - index, near);
+    }
   });
   const templeFoot = HORIZON_Y - Math.max(...FAR_ISLANDS.map((points) => heightAlong(points, TEMPLE.x)));
   TEMPLE_ROWS.forEach((row, index) => {
     [...row].forEach((cell, offset) => {
-      if (cell === "#") plot(TEMPLE.x - 6 + offset, templeFoot - index, far);
+      if (cell === "#") {
+        plot(TEMPLE.x - 6 + offset, templeFoot - index, far);
+      }
     });
   });
-  return bufferTexture(pixels, width, height);
 }
 
 const skies = new Map<number, Texture>();
@@ -257,7 +310,9 @@ function patternPiece(rows: readonly string[], inks: Partial<Record<string, Rgb>
   rows.forEach((row, rowIndex) => {
     [...row].forEach((character, column) => {
       const ink = inks[character];
-      if (ink) putPixel(pixels, width, column, rowIndex, ink);
+      if (ink) {
+        putPixel(pixels, width, column, rowIndex, ink);
+      }
     });
   });
   return {
@@ -307,7 +362,9 @@ export const TWINKLES: readonly Twinkle[] = (() => {
 })();
 // a twinkling star's shape now, or nothing once the dawn has put the stars out
 export function twinkleFrame(twinkle: Twinkle, clock: number, progress: number): SkyPiece | null {
-  if (dawnAmount(skyStage(progress)) >= 0.5) return null;
+  if (dawnAmount(skyStage(progress)) >= 0.5) {
+    return null;
+  }
   const shape =
     TWINKLE_SEQUENCE[(Math.floor(clock * TWINKLE_FPS) + twinkle.phase) % TWINKLE_SEQUENCE.length] ?? "speck";
   return skyPieces().twinkles[shape];
@@ -337,7 +394,9 @@ const LAMP_SEQUENCE: readonly (keyof typeof LAMP_PATTERNS)[] = [
 ];
 const LAMP_FPS = 5;
 export function lighthouseFrame(clock: number, progress: number): SkyPiece | null {
-  if (dawnAmount(skyStage(progress)) >= 0.8) return null;
+  if (dawnAmount(skyStage(progress)) >= 0.8) {
+    return null;
+  }
   return skyPieces().lamp[LAMP_SEQUENCE[Math.floor(clock * LAMP_FPS) % LAMP_SEQUENCE.length] ?? "glow"];
 }
 
@@ -350,19 +409,25 @@ const GLITTER_HEIGHT = 34;
 export const MOON_GLITTER = { x: MOON.x - (GLITTER_WIDTH - 1) / 2, y: HORIZON_Y + 1 };
 const GLITTER_DIM = hexRgb(0x1c2032);
 const GLITTER_BRIGHT = hexRgb(0x4a5068);
+// one streak of a glitter row: its length and where it is centred come from the row, the streak and the frame
+function paintGlitterStreak(pixels: Uint8Array, row: number, streak: number, frame: number, halfWidth: number) {
+  const length = 2 + Math.floor(hashUnit(row, frame * 3 + streak) * (2 + row / 6));
+  const centre = Math.round((GLITTER_WIDTH - 1) / 2 + (hashUnit(row + streak * 31, frame * 5) * 2 - 1) * halfWidth);
+  for (let step = 0; step < length; step++) {
+    const x = centre - Math.floor(length / 2) + step;
+    if (x >= 0 && x < GLITTER_WIDTH) {
+      putPixel(pixels, GLITTER_WIDTH, x, row, step === 0 || step === length - 1 ? GLITTER_DIM : GLITTER_BRIGHT);
+    }
+  }
+}
+
 function paintGlitter(frame: number): Texture {
   const pixels = new Uint8Array(GLITTER_WIDTH * GLITTER_HEIGHT * 4);
   for (let row = 1; row < GLITTER_HEIGHT; row += 2) {
     const halfWidth = 3 + (row / GLITTER_HEIGHT) * 17;
     for (let streak = 0; streak < 2; streak++) {
-      const roll = hashUnit(row * 7 + streak, frame);
-      if (roll < 0.25) continue;
-      const length = 2 + Math.floor(hashUnit(row, frame * 3 + streak) * (2 + row / 6));
-      const centre = Math.round((GLITTER_WIDTH - 1) / 2 + (hashUnit(row + streak * 31, frame * 5) * 2 - 1) * halfWidth);
-      for (let step = 0; step < length; step++) {
-        const x = centre - Math.floor(length / 2) + step;
-        if (x < 0 || x >= GLITTER_WIDTH) continue;
-        putPixel(pixels, GLITTER_WIDTH, x, row, step === 0 || step === length - 1 ? GLITTER_DIM : GLITTER_BRIGHT);
+      if (hashUnit(row * 7 + streak, frame) >= 0.25) {
+        paintGlitterStreak(pixels, row, streak, frame, halfWidth);
       }
     }
   }

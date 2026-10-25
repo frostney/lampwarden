@@ -13,9 +13,13 @@
 //   <buildingPrefix>/records/<id>.json, sprites/<id>.png|.ts, starts/...
 import { BlobError, BlobPreconditionFailedError } from "@vercel/blob";
 import { z } from "zod";
+
 import { buildingSchema } from "@/game/building";
 import { JOB_STEPS } from "@/game/creature";
 import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
+import { compareCodeUnits } from "@/lib/compare";
+import { HTTP_OK } from "@/lib/units";
+
 import { listPathnames, readWithVersion } from "../blob";
 import { blobGet, blobPut } from "../blob-client";
 import type { GalleryStore, RunningLock, StoredJob } from "./store";
@@ -68,7 +72,9 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     schema: Schema,
   ): Promise<z.output<Schema> | null> {
     const stored = await readText(pathname);
-    if (!stored) return null;
+    if (!stored) {
+      return null;
+    }
     try {
       const parsed = schema.safeParse(JSON.parse(stored.text));
       return parsed.success ? parsed.data : null;
@@ -79,7 +85,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
 
   async function streamOf(pathname: string) {
     const blob = await blobGet(pathname, { access: "private" });
-    return blob?.statusCode === 200 ? blob.stream : null;
+    return blob?.statusCode === HTTP_OK ? blob.stream : null;
   }
 
   /** The ids of the records under a `records/` prefix, newest first. */
@@ -88,7 +94,7 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
       .filter((pathname) => pathname.endsWith(".json"))
       .map((pathname) => pathname.slice(recordsPrefix.length, -".json".length))
       .filter((id) => RECORD_ID.test(id));
-    return ids.sort().reverse();
+    return ids.sort(compareCodeUnits).reverse();
   }
 
   async function startsBetween(
@@ -102,7 +108,9 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
     for (const day of days) {
       for (const pathname of await listPathnames(visitorStarts(visitor, day))) {
         const startedAt = Number(/\/(\d+)-[^/]+$/.exec(pathname)?.[1]);
-        if (startedAt >= since.getTime() && startedAt <= until.getTime()) starts.push(new Date(startedAt));
+        if (startedAt >= since.getTime() && startedAt <= until.getTime()) {
+          starts.push(new Date(startedAt));
+        }
       }
     }
     return starts.sort((first, second) => first.getTime() - second.getTime());
@@ -149,7 +157,9 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
 
     async getJob(jobId) {
       const parsed = await readRecord(path.job(jobId), jobSchema);
-      if (!parsed) return null;
+      if (!parsed) {
+        return null;
+      }
       const { creature, building, error, kind, ...rest } = parsed;
       return {
         ...rest,
@@ -172,7 +182,9 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
 
     async readRunning(): Promise<RunningLock | null> {
       const stored = await readText(path.running);
-      if (!stored) return null;
+      if (!stored) {
+        return null;
+      }
       try {
         return { jobId: runningSchema.parse(JSON.parse(stored.text)).jobId, version: stored.etag };
       } catch {
@@ -197,8 +209,12 @@ export function createBlobStore(prefix: string, buildingPrefix: string): Gallery
         );
         return true;
       } catch (error) {
-        if (error instanceof BlobPreconditionFailedError) return false;
-        if (previous === null && error instanceof BlobError && /already exists/i.test(error.message)) return false;
+        if (error instanceof BlobPreconditionFailedError) {
+          return false;
+        }
+        if (previous === null && error instanceof BlobError && /already exists/i.test(error.message)) {
+          return false;
+        }
         throw error;
       }
     },

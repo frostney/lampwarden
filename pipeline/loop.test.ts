@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { CLEAN_STATS, fakeModel, fakeRenderer, fenced, GOOD_CODE, spritePng, verdictJson } from "./fakes";
 import { type LoopCore, type LoopStage, runLoop } from "./loop";
 import type { CallRecord } from "./mubit";
@@ -64,7 +65,9 @@ describe("runLoop with an injected store", () => {
   test("a stage callback that throws ends the loop", async () => {
     const { loop, renderer } = core([fenced(GOOD_CODE), verdictJson(8)]);
     loop.onStage = (stage) => {
-      if (stage === "rendering") throw new Error("job ended");
+      if (stage === "rendering") {
+        throw new Error("job ended");
+      }
     };
     await expect(runLoop(loop, brief)).rejects.toThrow("job ended");
     expect(renderer.requests).toEqual([]);

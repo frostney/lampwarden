@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { creatureFrameOf, sheetFrameKey } from "./creature-animation";
 
 const FAR_HERO = { x: 900, y: 900 };

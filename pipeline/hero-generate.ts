@@ -12,7 +12,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { z } from "zod";
+
+import { hundredths } from "../src/lib/round";
 import { HERO_ANIMATIONS, SEXES, type Sex } from "../src/scene/assets";
 import { countOption } from "./cli-options";
 import { createFileStore } from "./file-store";
@@ -29,6 +32,7 @@ const PIPELINE_DIRECTORY = import.meta.dir;
 const ATLAS_ATTEMPTS = 2;
 /** A new warden replaces one the model already wrote only by this much: the verifier's score on one render is noisy. */
 const REPLACEMENT_MARGIN = 0.25;
+const DEFAULT_CANDIDATES = 3;
 
 const { values } = parseArgs({
   options: {
@@ -38,15 +42,18 @@ const { values } = parseArgs({
     manifest: { type: "string", default: join(HERO_DIRECTORY, "..", "manifest.json") },
   },
 });
-const candidateCount = countOption("candidates", values.candidates, 3);
+const candidateCount = countOption("candidates", values.candidates, DEFAULT_CANDIDATES);
 const sexes = SEXES.filter((sex) => !values.sex || values.sex === sex);
-if (sexes.length === 0) throw new Error(`--sex is male or female, not ${values.sex}`);
+if (sexes.length === 0) {
+  throw new Error(`--sex is male or female, not ${values.sex}`);
+}
 checkoutSandboxOptions(); // fail now, not at the first render, when the snapshot id is missing
 const apiKey = process.env.MUBIT_API_KEY;
-if (!apiKey)
+if (!apiKey) {
   throw new Error(
     "MUBIT_API_KEY is not set (export it in your shell, or resolve it from .env.local; see docs/tooling.md)",
   );
+}
 const outputDirectory = resolve(values.out);
 mkdirSync(outputDirectory, { recursive: true });
 const runsDirectory = join(PIPELINE_DIRECTORY, "runs");
@@ -72,7 +79,7 @@ const core: LoopCore = {
 
 const attemptSummary = (attempt: HeroAttempt) => ({
   name: attempt.name,
-  score: Math.round(attempt.score * 100) / 100,
+  score: hundredths(attempt.score),
   accepted: attempt.accepted,
   static_issues: attempt.staticIssues,
   frames: attempt.frames.map((frame) => ({
@@ -102,11 +109,11 @@ function recordInManifest(sex: Sex, outcome: HeroLoopOutcome, winner: HeroAttemp
     session: outcome.session,
     kept: winner.name,
     final: winner.name.endsWith("-fixed") ? "fixed" : "first",
-    score: Math.round(winner.score * 100) / 100,
+    score: hundredths(winner.score),
     passed: winner.frames.every((frame) => frame.pass),
-    current_score: Math.round(current.score * 100) / 100,
-    candidate_scores: outcome.candidateScores.map((score) => Math.round(score * 100) / 100),
-    fixed_score: outcome.fixedScore === null ? null : Math.round(outcome.fixedScore * 100) / 100,
+    current_score: hundredths(current.score),
+    candidate_scores: outcome.candidateScores.map(hundredths),
+    fixed_score: outcome.fixedScore === null ? null : hundredths(outcome.fixedScore),
     frames: winner.frames.map((frame) => ({
       pose: frame.pose,
       direction: frame.direction,
@@ -161,7 +168,9 @@ for (const sex of sexes) {
           kind: "script",
           codeFor: (frame) => {
             const code = deterministic.get(`${sex}_${poseOf(frame)}_${frame.direction}`);
-            if (!code) throw new Error(`no deterministic build for ${poseOf(frame)} ${frame.direction}`);
+            if (!code) {
+              throw new Error(`no deterministic build for ${poseOf(frame)} ${frame.direction}`);
+            }
             return code;
           },
         },
@@ -197,7 +206,7 @@ for (const sex of sexes) {
       1,
     ),
   );
-  for (const attempt of outcome.attempts)
+  for (const attempt of outcome.attempts) {
     console.log(
       `  ${attempt.name}: mean ${attempt.score.toFixed(2)} accepted ${attempt.accepted}`,
       attempt.frames
@@ -206,6 +215,7 @@ for (const sex of sexes) {
         )
         .join(" "),
     );
+  }
   // the attempts that could replace the current warden, best first (the winner leads); each gets its atlas rendered
   const eligible = [outcome.winner, ...outcome.attempts.filter((attempt) => attempt !== outcome.winner)]
     .filter((attempt) => attempt.accepted && attempt.score > bar)

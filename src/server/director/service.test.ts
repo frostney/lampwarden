@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { directorSchema, type FallbackReason, LINE_MAX, rulesDirector } from "@/game/director";
+
+import type { FallbackReason } from "@/game/director";
+import { directorSchema, LINE_MAX, rulesDirector } from "@/game/director-decision";
+
 import { createMubitClient, type FetchImplementation, MUBIT_MESSAGES_URL, MUBIT_MODEL } from "../../../pipeline/mubit";
 import { visitorKey } from "../creatures/limits";
 import { readDirectorConfig } from "./config";
 import { FIXTURE_PLAY_ID, lostNightTwo } from "./fixture";
 import { decisionLogSchema } from "./log";
-import { CALL_WINDOW_MILLISECONDS, type DirectorDeps, decide } from "./service";
+import { CALL_WINDOW_MILLISECONDS, type DirectorDeps, type DirectorResult, decide } from "./service";
 import { createMemoryStore, type MemoryDirectorStore } from "./store.memory";
 
 const SALT = "a-long-enough-test-salt-0123456789";
@@ -41,7 +44,9 @@ function setup(env: Record<string, string> = {}, respond?: (sent: Sent) => Promi
       body: JSON.parse(String(init.body)),
     };
     sent.push(record);
-    if (respond) return respond(record);
+    if (respond) {
+      return respond(record);
+    }
     return Response.json(
       {
         content: [{ type: "text", text: JSON.stringify(modelReply()) }],
@@ -84,7 +89,9 @@ const ask = (address = "203.0.113.7", playId = FIXTURE_PLAY_ID) => decide(world.
 describe("a decision from the model", () => {
   test("is clamped and returned with the source mubit", async () => {
     const result = await ask();
-    if (result.kind !== "decision") throw new Error("no decision");
+    if (result.kind !== "decision") {
+      throw new Error("no decision");
+    }
     expect(result.fallback).toBeNull();
     expect(result.decision).toMatchObject({
       source: "mubit",
@@ -118,7 +125,9 @@ describe("a decision from the model", () => {
     );
     world.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
     const result = await ask();
-    if (result.kind !== "decision") throw new Error("no decision");
+    if (result.kind !== "decision") {
+      throw new Error("no decision");
+    }
     expect(result.decision.source).toBe("mubit");
     expect(result.decision.tide).toBe(1.09); // 0.94 + 0.15
     expect(result.decision.mix).toEqual({ satyr: 0.5, cyclops: 2, harpy: 0.5 });
@@ -130,7 +139,9 @@ describe("a decision from the model", () => {
   test("goes to Mubit as the brief says: the url, the model, no temperature, a cached prompt, the play's session as user", async () => {
     await ask();
     const [request] = world.sent;
-    if (!request) throw new Error("no request");
+    if (!request) {
+      throw new Error("no request");
+    }
     expect(request.url).toBe(MUBIT_MESSAGES_URL);
     expect(request.body.model).toBe(MUBIT_MODEL);
     expect(request.body).not.toHaveProperty("temperature");
@@ -201,7 +212,9 @@ describe("a decision from the model", () => {
 describe("the rules answer when the model cannot", () => {
   const rulesAnswer = async (reason: FallbackReason) => {
     const result = await ask();
-    if (result.kind !== "decision") throw new Error("no decision");
+    if (result.kind !== "decision") {
+      throw new Error("no decision");
+    }
     expect(result.fallback).toBe(reason);
     expect(result.decision).toEqual(rulesDirector(0.94, 2, FIXTURE_PLAY_ID, "engaged"));
     return result;
@@ -255,11 +268,12 @@ describe("the rules answer when the model cannot", () => {
       const id = `2026-10-24-16-11-4${count}-aaaaaaa${count}`;
       world.store.plays.set(id, lostNightTwo({ id }));
     }
-    const results = [];
-    for (let count = 0; count < 3; count++)
+    const results: DirectorResult[] = [];
+    for (let count = 0; count < 3; count++) {
       results.push(
         await decide(world.deps, { playId: `2026-10-24-16-11-4${count}-aaaaaaa${count}`, ip: "203.0.113.7" }),
       );
+    }
     expect(results.map((result) => (result.kind === "decision" ? result.fallback : "no-play"))).toEqual([
       null,
       null,
@@ -278,11 +292,12 @@ describe("the rules answer when the model cannot", () => {
       const id = `2026-10-24-16-11-4${count}-bbbbbbb${count}`;
       world.store.plays.set(id, lostNightTwo({ id }));
     }
-    const answers = [];
-    for (let count = 0; count < 3; count++)
+    const answers: DirectorResult[] = [];
+    for (let count = 0; count < 3; count++) {
       answers.push(
         await decide(world.deps, { playId: `2026-10-24-16-11-4${count}-bbbbbbb${count}`, ip: `192.0.2.${count}` }),
       );
+    }
     expect(answers.map((result) => (result.kind === "decision" ? result.fallback : "no-play"))).toEqual([
       null,
       null,
@@ -321,7 +336,9 @@ describe("the play it is asked about", () => {
     const store: MemoryDirectorStore = world.store;
     const getPlay = store.getPlay;
     store.getPlay = async (playId) => {
-      if (playId === late && ++looks === 3) store.plays.set(late, lostNightTwo({ id: late }));
+      if (playId === late && ++looks === 3) {
+        store.plays.set(late, lostNightTwo({ id: late }));
+      }
       return getPlay(playId);
     };
     const result = await decide(world.deps, { playId: late, ip: null });
@@ -352,7 +369,9 @@ describe("a night nobody played", () => {
     world = setup({}, easing);
     world.store.plays.set(play.id, play);
     const result = await decide(world.deps, { playId: play.id, ip: "203.0.113.7" });
-    if (result.kind !== "decision") throw new Error("no decision");
+    if (result.kind !== "decision") {
+      throw new Error("no decision");
+    }
     return result.decision;
   };
 
@@ -429,7 +448,9 @@ describe("a night nobody played", () => {
 describe("the correction loop", () => {
   test("the next night's call carries the earlier decision, how it played out, and what the model said about it", async () => {
     const first = await ask();
-    if (first.kind !== "decision") throw new Error("no decision");
+    if (first.kind !== "decision") {
+      throw new Error("no decision");
+    }
     const nextId = "2026-10-24-16-30-00-nextnight";
     world.store.plays.set(
       nextId,
@@ -449,7 +470,9 @@ describe("the correction loop", () => {
     await ask(); // the fixture's session decides FIXTURE_PLAY_ID, and its log holds the model's reasoning
     const stranger = "2026-10-24-16-40-00-stranger1";
     const earlier = world.store.decisions.get(FIXTURE_PLAY_ID);
-    if (!earlier) throw new Error("no log");
+    if (!earlier) {
+      throw new Error("no log");
+    }
     world.store.plays.set(
       stranger,
       lostNightTwo({ id: stranger, night: 3, session: "someoneelse", director: earlier.decision }),
@@ -469,7 +492,9 @@ describe("the correction loop", () => {
     other.store.plays.set(FIXTURE_PLAY_ID, lostNightTwo());
     await decide(other.deps, { playId: FIXTURE_PLAY_ID, ip: "192.0.2.1" });
     const firstLog = other.store.decisions.get(FIXTURE_PLAY_ID);
-    if (!firstLog) throw new Error("no log");
+    if (!firstLog) {
+      throw new Error("no log");
+    }
     const getDecision = world.store.getDecision;
     let reads = 0;
     world.store.getDecision = async (playId) => (++reads === 1 ? getDecision(playId) : firstLog);

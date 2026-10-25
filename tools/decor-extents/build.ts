@@ -4,6 +4,7 @@
 //        bun tools/decor-extents/build.ts --check    write nothing; fail when the committed table is not a fresh measurement
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { measurePlacedSprites, repositoryRoot } from "./measure";
 
 const measured = measurePlacedSprites();
@@ -24,7 +25,9 @@ const formatted = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=$
   cwd: repositoryRoot,
   stdin: Buffer.from(source),
 });
-if (!formatted.success) throw new Error(`biome could not format ${targetPath}: ${formatted.stderr.toString()}`);
+if (!formatted.success) {
+  throw new Error(`biome could not format ${targetPath}: ${formatted.stderr.toString()}`);
+}
 const fresh = formatted.stdout.toString();
 const target = join(repositoryRoot, targetPath);
 if (process.argv.includes("--check")) {

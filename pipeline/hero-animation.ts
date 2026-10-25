@@ -25,7 +25,8 @@ export interface FrameBuild {
 // The kit's `facing` for a direction, in degrees: 0 faces +u (screen down-right, the ground's south-east), 90 faces +v
 // (down-left), so east, 45 degrees counter-clockwise of south-east, is -45. A direction turns facing by 45 degrees a step
 // and south-east is the second of them.
-export const kitFacing = (direction: DrawnDirection) => (DIRECTIONS.indexOf(direction) - 1) * 45;
+const FACING_STEP = 45; // degrees
+export const kitFacing = (direction: DrawnDirection) => (DIRECTIONS.indexOf(direction) - 1) * FACING_STEP;
 
 /** The name of one frame's build, as the scene's keys have it (`male_walk3_se`; the scene prefixes `hero/`). */
 export const heroFrameName = (sex: Sex, animation: HeroAnimation, index: number, direction: DrawnDirection) =>

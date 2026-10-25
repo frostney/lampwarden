@@ -38,7 +38,8 @@ import {
 } from "../src/game/sim";
 import { humanBot } from "./human-bot";
 
-function bot(state: State): Input {
+// the monster nearest the warden, and how far it is (infinitely far when there is none)
+function nearestMonster(state: State): { nearest: Monster | null; nearestDistance: number } {
   const hero = state.hero;
   let nearest: Monster | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
@@ -49,6 +50,28 @@ function bot(state: State): Input {
       nearest = monster;
     }
   }
+  return { nearest, nearestDistance };
+}
+
+// the threat: the monster closest to a lit lamp
+function threatOf(state: State): Monster | null {
+  let threat: Monster | null = null;
+  let threatDistance = Number.POSITIVE_INFINITY;
+  for (const monster of state.monsters) {
+    for (const lamp of state.lamps.filter((each) => each.lit)) {
+      const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
+      if (distance < threatDistance) {
+        threatDistance = distance;
+        threat = monster;
+      }
+    }
+  }
+  return threat;
+}
+
+function bot(state: State): Input {
+  const hero = state.hero;
+  const { nearest, nearestDistance } = nearestMonster(state);
   if (nearest && nearestDistance < state.rules.meleeReach - 8) {
     // swing towards the monster: a direction held with the strike turns the warden to face it
     const towardX = nearest.x - hero.x;
@@ -58,20 +81,7 @@ function bot(state: State): Input {
   const dark = state.lamps
     .filter((lamp) => !lamp.lit)
     .sort((first, second) => ground(first.x, first.y, hero.x, hero.y) - ground(second.x, second.y, hero.x, hero.y))[0];
-  // threat: the monster closest to a lit lamp
-  let threat: Monster | null = null;
-  let threatDistance = Number.POSITIVE_INFINITY;
-  for (const monster of state.monsters) {
-    for (const lamp of state.lamps) {
-      if (lamp.lit) {
-        const distance = ground(monster.x, monster.y, lamp.x, lamp.y);
-        if (distance < threatDistance) {
-          threatDistance = distance;
-          threat = monster;
-        }
-      }
-    }
-  }
+  const threat = threatOf(state);
   const goal = dark && nearestDistance > 120 ? { x: dark.x, y: dark.y } : (threat ?? nearest);
   if (threat && hero.shotCooldown <= 0 && ground(threat.x, threat.y, hero.x, hero.y) > 180) {
     return { ...NO_INPUT, ranged: true, aim: { x: threat.x, y: threat.y - bodyHeight(state, threat.kind) } };
@@ -93,6 +103,12 @@ function bot(state: State): Input {
 type Policy = "idle" | "bot" | "novice" | "human";
 const REACTION: Record<Exclude<Policy, "human">, number> = { idle: 0.15, bot: 0.15, novice: 0.45 };
 
+// What a scripted policy does when it next thinks: ~150 ms reaction time (the novice's is 450 ms, and he never shoots).
+function scriptedInput(policy: Exclude<Policy, "human">, state: State): Input {
+  const input = policy === "idle" ? NO_INPUT : bot(state);
+  return policy === "novice" ? { ...input, ranged: false, aim: null } : input;
+}
+
 function playNight(legacy: Legacy, policy: Policy, seed: number, creature: NightCreature | null = null) {
   const state = newNight(legacy, seed, creature);
   let input = NO_INPUT;
@@ -107,11 +123,7 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
     } else if (policy !== "human") {
       think -= STEP;
       if (think <= 0) {
-        // ~150 ms reaction time (the novice's is 450 ms, and he never shoots)
-        input = policy === "idle" ? NO_INPUT : bot(state);
-        if (policy === "novice") {
-          input = { ...input, ranged: false, aim: null };
-        }
+        input = scriptedInput(policy, state);
         think = REACTION[policy];
       }
     }
@@ -124,8 +136,13 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
       input = { ...input, melee: false, ranged: false };
     }
   }
+  return nightResult(state, state.outcome, legacy, creatureAt);
+}
+
+// what a played night comes to; `creatureAt` is the second its creature first rose from the sea, if it did
+function nightResult(state: State, outcome: Outcome, legacy: Legacy, creatureAt: number | null) {
   return {
-    outcome: state.outcome,
+    outcome,
     time: state.elapsed,
     lit: litCount(state),
     kills: state.stats.kills,

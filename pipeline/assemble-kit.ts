@@ -19,6 +19,23 @@ const PARTS = [
 ];
 const SQUARE_SUFFIX = ") ** 2";
 
+/** The index of the parenthesis that opens the one closing at `closingIndex`, counting nested pairs on the way. */
+function openingParenthesis(source: string, closingIndex: number): number {
+  let depth = 0;
+  for (let index = closingIndex; index >= 0; index--) {
+    const character = source[index];
+    if (character === ")") {
+      depth++;
+    } else if (character === "(") {
+      depth--;
+    }
+    if (character === "(" && depth === 0) {
+      return index;
+    }
+  }
+  throw new Error(`no opening parenthesis for the square at offset ${closingIndex}`);
+}
+
 /** Replaces every `(expression) ** 2` with `sq(expression)`, finding the opening parenthesis by depth. */
 function rewriteSquares(source: string): string {
   const pieces: string[] = [];
@@ -29,23 +46,7 @@ function rewriteSquares(source: string): string {
       pieces.push(source.slice(copiedUpTo));
       return pieces.join("");
     }
-    let depth = 0;
-    let openingIndex = suffixStart;
-    for (;;) {
-      const character = source[openingIndex];
-      if (character === ")") {
-        depth++;
-      } else if (character === "(") {
-        depth--;
-        if (depth === 0) {
-          break;
-        }
-      }
-      openingIndex--;
-      if (openingIndex < 0) {
-        throw new Error(`no opening parenthesis for the square at offset ${suffixStart}`);
-      }
-    }
+    const openingIndex = openingParenthesis(source, suffixStart);
     pieces.push(source.slice(copiedUpTo, openingIndex), `sq${source.slice(openingIndex, suffixStart + 1)}`);
     copiedUpTo = suffixStart + SQUARE_SUFFIX.length;
   }

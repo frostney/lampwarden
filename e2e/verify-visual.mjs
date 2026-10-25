@@ -101,6 +101,48 @@ const ANIMATED_FIXTURE = (() => {
   }
   return { atlas: encodePng(atlas), sprite: encodePng(idle) };
 })();
+// the sea's answer to /next, by mode: what it has ready, is making, or that it has nothing
+function answerNext(route, seen) {
+  sea.asked.push(seen);
+  if (sea.mode === "sequence") {
+    const unmet = SEQUENCE.slice(0, sea.made).find((creature) => !seen.includes(creature.id));
+    if (unmet) {
+      return route.fulfill({ json: { kind: "ready", creature: unmet } });
+    }
+    if (seen.length < SEQUENCE.length) {
+      return route.fulfill({ json: { kind: "generating", jobId: `job-seq-${seen.length}` } });
+    }
+    return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+  }
+  if (sea.mode === "animated") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
+  }
+  if (sea.mode === "ready" || sea.mode === "broken") {
+    return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
+  }
+  if (sea.mode === "generating") {
+    return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
+  }
+  return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+}
+
+// a job's progress: through sea.steps, done with the sequence's next creature, or done once sea.jobsDone is set
+function answerJob(route, pathname) {
+  const jobId = pathname.split("/").pop();
+  const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
+  const sequenced = SEQUENCE[Number(jobId.replace("job-seq-", ""))];
+  if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced)) {
+    return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
+  }
+  // biome-ignore lint/suspicious/noUnnecessaryConditions: the scenarios set sea.jobsDone between requests
+  if (sea.jobsDone) {
+    return route.fulfill({
+      json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
+    });
+  }
+  return route.fulfill({ json: { jobId, step, updatedAt: SEA_CREATURE.createdAt } });
+}
+
 async function serveSea(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
@@ -110,52 +152,14 @@ async function serveSea(route) {
       : route.fulfill({ status: 404, json: { error: "not found" } });
   }
   if (pathname.endsWith("/sprite.png")) {
-    return sea.mode === "broken"
-      ? route.abort()
-      : route.fulfill({
-          status: 200,
-          contentType: "image/png",
-          body: sea.mode === "animated" ? ANIMATED_FIXTURE.sprite : SEA_SPRITE,
-        });
+    const body = sea.mode === "animated" ? ANIMATED_FIXTURE.sprite : SEA_SPRITE;
+    return sea.mode === "broken" ? route.abort() : route.fulfill({ status: 200, contentType: "image/png", body });
   }
   if (pathname.endsWith("/next")) {
-    const seen = JSON.parse(request.postData() ?? "{}").seen;
-    sea.asked.push(seen);
-    if (sea.mode === "sequence") {
-      const unmet = SEQUENCE.slice(0, sea.made).find((creature) => !seen.includes(creature.id));
-      if (unmet) {
-        return route.fulfill({ json: { kind: "ready", creature: unmet } });
-      }
-      if (seen.length < SEQUENCE.length) {
-        return route.fulfill({ json: { kind: "generating", jobId: `job-seq-${seen.length}` } });
-      }
-      return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
-    }
-    if (sea.mode === "animated") {
-      return route.fulfill({ json: { kind: "ready", creature: SEA_ANIMATED } });
-    }
-    if (sea.mode === "ready" || sea.mode === "broken") {
-      return route.fulfill({ json: { kind: "ready", creature: SEA_CREATURE } });
-    }
-    if (sea.mode === "generating") {
-      return route.fulfill({ json: { kind: "generating", jobId: "job-verify" } });
-    }
-    return route.fulfill({ json: { kind: "none", reason: "unavailable" } });
+    return answerNext(route, JSON.parse(request.postData() ?? "{}").seen);
   }
   if (pathname.includes("/jobs/")) {
-    const jobId = pathname.split("/").pop();
-    const step = sea.steps[Math.min(sea.polls++, sea.steps.length - 1)];
-    const sequenced = SEQUENCE[Number(jobId.replace("job-seq-", ""))];
-    if (sea.mode === "sequence" && sequenced && sea.made > SEQUENCE.indexOf(sequenced)) {
-      return route.fulfill({ json: { jobId, step: "done", creature: sequenced, updatedAt: sequenced.createdAt } });
-    }
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: the scenarios set sea.jobsDone between requests
-    if (sea.jobsDone) {
-      return route.fulfill({
-        json: { jobId, step: "done", creature: SEA_CREATURE, updatedAt: SEA_CREATURE.createdAt },
-      });
-    }
-    return route.fulfill({ json: { jobId, step, updatedAt: SEA_CREATURE.createdAt } });
+    return answerJob(route, pathname);
   }
   return route.fulfill({ status: 404, json: { error: "not part of the verifier's stub" } });
 }
@@ -171,6 +175,27 @@ const stubSea = (target) => target.route("**/api/creatures/**", serveSea);
 //   "fallback": the rules' decision with fallback "timeout"; "down": the connection fails
 const DIRECTOR_LINE = "The tide withdraws, and Lychnos sleeps a little.";
 const director = { mode: "off", asked: [], uploads: [], hold: null, decision: null };
+// The model's decision on the rules' one. The real route eases only after an engaged night (src/game/engagement.ts);
+// "eager" is a server that eases anyway and claims the night was engaged, which the game must not take on its word.
+function modelDecision(rules, playId) {
+  const eager = director.mode === "eager";
+  const eases = eager || !rules.engagement || rules.engagement === "engaged";
+  const eased = {
+    tide: Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100),
+    mix: { satyr: 1, cyclops: 0.6, harpy: 1.5 },
+    creatureShare: 0.2,
+  };
+  const held = { tide: rules.rulesTide, mix: { satyr: 1, cyclops: 1, harpy: 1.5 }, creatureShare: 0.25 };
+  return {
+    ...rules,
+    source: "mubit",
+    ...(eases ? eased : held),
+    line: DIRECTOR_LINE,
+    playId,
+    ...(eager ? { engagement: "engaged" } : {}),
+  };
+}
+
 async function serveDirector(route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
@@ -192,19 +217,7 @@ async function serveDirector(route) {
       return await route.abort();
     }
     if (director.mode === "answer" || director.mode === "late" || director.mode === "eager") {
-      // The real route eases only after an engaged night (src/game/engagement.ts); "eager" is a server that eases anyway and
-      // claims the night was engaged, which the game must not take on its word.
-      const eases = director.mode === "eager" || !rules.engagement || rules.engagement === "engaged";
-      director.decision = {
-        ...rules,
-        source: "mubit",
-        tide: eases ? Math.max(0.6, Math.round((rules.rulesTide - 0.1) * 100) / 100) : rules.rulesTide,
-        mix: eases ? { satyr: 1, cyclops: 0.6, harpy: 1.5 } : { satyr: 1, cyclops: 1, harpy: 1.5 },
-        creatureShare: eases ? 0.2 : 0.25,
-        line: DIRECTOR_LINE,
-        playId,
-        ...(director.mode === "eager" ? { engagement: "engaged" } : {}),
-      };
+      director.decision = modelDecision(rules, playId);
       return await route.fulfill({ json: { decision: director.decision } });
     }
     return await route.fulfill({
@@ -735,6 +748,19 @@ async function checkScrollFits(tag) {
 // A creature's name and lore are shown whole wherever the announcement appears (title, dawn, heir; desktop and phone):
 // the text is the full string, nothing ellipsizes or line-clamps it, neither element holds more than it shows, and
 // both lie inside the panel
+// what is wrong with how one part of the announcement is shown, if anything
+function textProblems(part, found, expected) {
+  if (!found) {
+    return [`no ${part}`];
+  }
+  return [
+    [found.text !== expected, `${part} reads "${found.text.slice(0, 30)}"`],
+    [found.ellipsis, `${part} has an ellipsis`],
+    [found.clamped, `${part} is line-clamped`],
+    [found.holdsMore, `${part} holds more than it shows`],
+    [!found.inside, `${part} spills out of the panel`],
+  ].flatMap(([wrong, problem]) => (wrong ? [problem] : []));
+}
 async function checkCreatureText(tag, screen, creature) {
   await page.waitForSelector('.sea[data-state="ready"]', { timeout: 5000 });
   const shown = await page.evaluate(() => {
@@ -767,32 +793,10 @@ async function checkCreatureText(tag, screen, creature) {
     };
     return { name: read(".sea-name"), lore: read(".sea-lore") };
   });
-  const problems = [];
-  for (const [part, expected] of [
-    ["name", creature.name],
-    ["lore", creature.lore],
-  ]) {
-    const found = shown?.[part];
-    if (!found) {
-      problems.push(`no ${part}`);
-    } else {
-      if (found.text !== expected) {
-        problems.push(`${part} reads "${found.text.slice(0, 30)}"`);
-      }
-      if (found.ellipsis) {
-        problems.push(`${part} has an ellipsis`);
-      }
-      if (found.clamped) {
-        problems.push(`${part} is line-clamped`);
-      }
-      if (found.holdsMore) {
-        problems.push(`${part} holds more than it shows`);
-      }
-      if (!found.inside) {
-        problems.push(`${part} spills out of the panel`);
-      }
-    }
-  }
+  const problems = [
+    ...textProblems("name", shown?.name, creature.name),
+    ...textProblems("lore", shown?.lore, creature.lore),
+  ];
   check(
     tag,
     `${screen}: the creature's whole name and lore are shown`,
@@ -984,6 +988,20 @@ function basePixelsOf(key) {
   }
   return pixels;
 }
+// how many of a land prop's base pixels are off the plaza, and how many on it but within its margin of the rim
+function baseAgainstRim(key, x, y) {
+  const margin = key === "wall" ? 4 : 8;
+  let off = 0;
+  let near = 0;
+  for (const [offsetX, offsetY] of basePixelsOf(key)) {
+    if (!onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY))) {
+      off++;
+    } else if (plazaInset(x + offsetX, y + offsetY) < margin - 1) {
+      near++;
+    }
+  }
+  return { off, near };
+}
 // the land props with a painted pixel of their base off the plaza, or less than their margin in from its rim
 function propsOffPlaza(props) {
   const problems = [];
@@ -991,16 +1009,7 @@ function propsOffPlaza(props) {
     if (BOAT_KEYS.includes(key) || key === "zeus-statue") {
       continue;
     }
-    const margin = key === "wall" ? 4 : 8;
-    let off = 0;
-    let near = 0;
-    for (const [offsetX, offsetY] of basePixelsOf(key)) {
-      if (!onPlaza(Math.floor(x + offsetX), Math.floor(y + offsetY))) {
-        off++;
-      } else if (plazaInset(x + offsetX, y + offsetY) < margin - 1) {
-        near++;
-      }
-    }
+    const { off, near } = baseAgainstRim(key, x, y);
     if (off > 0 || near > 0) {
       problems.push(`${key}@${x},${y}: ${off} pixels off the plaza, ${near} within the margin`);
     }

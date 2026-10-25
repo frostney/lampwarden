@@ -70,6 +70,30 @@ const opaquePixels = (rgba: Uint8Array) => {
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
+/** One rendered frame as a picture of the frame's size with a figure in it, or why it is not one. */
+function framePicture(result: RenderResult | undefined, pose: string): PixelImage | FrameSetFailure {
+  if (!result?.ok) {
+    return { ok: false, kind: "render", reason: `${pose} did not render: ${result?.error ?? "no result"}` };
+  }
+  let picture: PixelImage;
+  try {
+    picture = decodePng(Buffer.from(result.png));
+  } catch {
+    return { ok: false, kind: "picture", reason: `${pose} is not a PNG` };
+  }
+  if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE) {
+    return {
+      ok: false,
+      kind: "picture",
+      reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
+    };
+  }
+  if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
+    return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
+  }
+  return picture;
+}
+
 /** Checks a batch's results and packs them into an atlas, or says why they are not a usable animation. */
 export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResult {
   const layout = creatureAtlasLayout(CREATURE_FRAME_COUNTS);
@@ -79,26 +103,9 @@ export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResu
   const atlas = new PixelImage(layout.width, layout.height);
   const walking: Uint8Array[] = [];
   for (const [index, cell] of layout.cells.entries()) {
-    const result = results[index];
-    const pose = creaturePoseName(cell.animation, cell.frame);
-    if (!result?.ok) {
-      return { ok: false, kind: "render", reason: `${pose} did not render: ${result?.error ?? "no result"}` };
-    }
-    let picture: PixelImage;
-    try {
-      picture = decodePng(Buffer.from(result.png));
-    } catch {
-      return { ok: false, kind: "picture", reason: `${pose} is not a PNG` };
-    }
-    if (picture.width !== CREATURE_FRAME_SIZE || picture.height !== CREATURE_FRAME_SIZE) {
-      return {
-        ok: false,
-        kind: "picture",
-        reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
-      };
-    }
-    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
-      return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
+    const picture = framePicture(results[index], creaturePoseName(cell.animation, cell.frame));
+    if (!(picture instanceof PixelImage)) {
+      return picture;
     }
     for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
       const from = row * CREATURE_FRAME_SIZE * 4;

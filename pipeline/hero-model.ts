@@ -14,7 +14,7 @@ import {
   HERO_FRAME_SIZE,
   type Sex,
 } from "../src/scene/assets";
-import type { PixelImage } from "../tools/logo/image";
+import { PixelImage } from "../tools/logo/image";
 import { decodePng } from "../tools/logo/png";
 import { type FrameBuild, HERO_WEAPONS, heroFrameName, kitFacing } from "./hero-animation";
 import { packHeroAtlas } from "./hero-atlas";
@@ -197,60 +197,81 @@ export function assembleHeroAtlas(
   }
   const frames = new Map<string, Uint8Array>();
   for (const [index, build] of builds.entries()) {
-    const result = results[index];
-    if (!result?.ok) {
-      return { ok: false, kind: "render", reason: `${build.name} did not render: ${result?.error ?? "no result"}` };
-    }
-    let picture: PixelImage;
-    try {
-      picture = decodePng(Buffer.from(result.png));
-    } catch {
-      return { ok: false, kind: "picture", reason: `${build.name} is not a PNG` };
-    }
-    if (picture.width !== HERO_FRAME_SIZE || picture.height !== HERO_FRAME_SIZE) {
-      return {
-        ok: false,
-        kind: "picture",
-        reason: `${build.name} is ${picture.width}x${picture.height}, not ${HERO_FRAME_SIZE} px square`,
-      };
-    }
-    if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
-      return { ok: false, kind: "blank", reason: `${build.name} is empty: the pose draws no figure` };
+    const picture = heroFramePicture(results[index], build.name);
+    if (!(picture instanceof PixelImage)) {
+      return picture;
     }
     frames.set(`hero/${build.name}`, picture.data);
   }
   for (const direction of DRAWN_DIRECTIONS) {
-    const frame = (animation: (typeof HERO_ANIMATIONS)[number], index: number) =>
-      frames.get(`hero/${heroFrameName(sex, animation, index, direction)}`);
-    const walking = Array.from({ length: FRAMES.walk }, (_, index) => frame("walk", index));
-    const [firstStep, ...laterSteps] = walking;
-    if (firstStep && laterSteps.every((step) => step && sameBytes(step, firstStep))) {
-      return {
-        ok: false,
-        kind: "static",
-        reason: `the walk frames seen from ${direction} are all the same picture: the builder ignores its pose`,
-      };
-    }
-    const standing = frame("idle", 0);
-    for (const animation of ["melee", "ranged"] as const) {
-      const strike = Array.from({ length: FRAMES[animation] }, (_, index) => frame(animation, index));
-      if (standing && strike.every((step) => step && sameBytes(step, standing))) {
-        return {
-          ok: false,
-          kind: "attack",
-          reason: `the ${animation} frames seen from ${direction} are all the standing picture: the attack is not drawn`,
-        };
-      }
-    }
-    const meleeMiddle = frame("melee", 2);
-    const rangedMiddle = frame("ranged", 2);
-    if (meleeMiddle && rangedMiddle && sameBytes(meleeMiddle, rangedMiddle)) {
-      return {
-        ok: false,
-        kind: "attack",
-        reason: `the melee and ranged attacks seen from ${direction} are the same picture: one weapon is not drawn`,
-      };
+    const refusal = directionRefusal(sex, direction, frames);
+    if (refusal) {
+      return refusal;
     }
   }
   return { ok: true, atlas: packHeroAtlas(sex, frames), frames };
+}
+
+/** One rendered frame as a picture of the frame's size with a figure in it, or why it is not one. */
+function heroFramePicture(result: RenderResult | undefined, name: string): PixelImage | HeroAtlasRefusal {
+  if (!result?.ok) {
+    return { ok: false, kind: "render", reason: `${name} did not render: ${result?.error ?? "no result"}` };
+  }
+  let picture: PixelImage;
+  try {
+    picture = decodePng(Buffer.from(result.png));
+  } catch {
+    return { ok: false, kind: "picture", reason: `${name} is not a PNG` };
+  }
+  if (picture.width !== HERO_FRAME_SIZE || picture.height !== HERO_FRAME_SIZE) {
+    return {
+      ok: false,
+      kind: "picture",
+      reason: `${name} is ${picture.width}x${picture.height}, not ${HERO_FRAME_SIZE} px square`,
+    };
+  }
+  if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
+    return { ok: false, kind: "blank", reason: `${name} is empty: the pose draws no figure` };
+  }
+  return picture;
+}
+
+/** Why the frames seen from one direction are not a usable warden (no walk, no attack, one weapon), or null. */
+function directionRefusal(
+  sex: Sex,
+  direction: (typeof DRAWN_DIRECTIONS)[number],
+  frames: ReadonlyMap<string, Uint8Array>,
+): HeroAtlasRefusal | null {
+  const frame = (animation: (typeof HERO_ANIMATIONS)[number], index: number) =>
+    frames.get(`hero/${heroFrameName(sex, animation, index, direction)}`);
+  const walking = Array.from({ length: FRAMES.walk }, (_, index) => frame("walk", index));
+  const [firstStep, ...laterSteps] = walking;
+  if (firstStep && laterSteps.every((step) => step && sameBytes(step, firstStep))) {
+    return {
+      ok: false,
+      kind: "static",
+      reason: `the walk frames seen from ${direction} are all the same picture: the builder ignores its pose`,
+    };
+  }
+  const standing = frame("idle", 0);
+  for (const animation of ["melee", "ranged"] as const) {
+    const strike = Array.from({ length: FRAMES[animation] }, (_, index) => frame(animation, index));
+    if (standing && strike.every((step) => step && sameBytes(step, standing))) {
+      return {
+        ok: false,
+        kind: "attack",
+        reason: `the ${animation} frames seen from ${direction} are all the standing picture: the attack is not drawn`,
+      };
+    }
+  }
+  const meleeMiddle = frame("melee", 2);
+  const rangedMiddle = frame("ranged", 2);
+  if (meleeMiddle && rangedMiddle && sameBytes(meleeMiddle, rangedMiddle)) {
+    return {
+      ok: false,
+      kind: "attack",
+      reason: `the melee and ranged attacks seen from ${direction} are the same picture: one weapon is not drawn`,
+    };
+  }
+  return null;
 }

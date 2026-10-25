@@ -166,6 +166,37 @@ const playBot = ({ milliseconds, syncGpu }) =>
     let lastShot = 0;
     let lastMelee = 0;
     const begin = performance.now();
+    // the stick towards the nearest dark lamp, else the nearest monster, else the middle; the night is kept going
+    const steer = (state) => {
+      const hero = state.hero;
+      hero.health = hero.maxHealth; // keep the night going; this is a frame-time test, not a balance test
+      state.elapsed = Math.min(state.elapsed, state.length - 1); // a night is short: it must not reach dawn mid-run
+      const dark = state.lamps.filter((lamp) => !lamp.lit);
+      const targets = [dark, state.monsters, [{ x: 480, y: 330 }]].find((candidates) => candidates.length > 0);
+      const distanceTo = (target) => Math.hypot(target.x - hero.x, (target.y - hero.y) * 2);
+      const best = targets.reduce((nearest, target) => (distanceTo(target) < distanceTo(nearest) ? target : nearest));
+      const bestDistance = distanceTo(best);
+      const reach = bestDistance > 24 ? 1 : 0;
+      scene.stick(
+        ((best.x - hero.x) / (bestDistance || 1)) * reach,
+        (((best.y - hero.y) * 2) / (bestDistance || 1)) * reach,
+      );
+    };
+    // steering every 100 ms, a shot every 450 and a swing every 700, as a player's hands would
+    const drive = (state, now) => {
+      if (now - lastSteer > 100) {
+        lastSteer = now;
+        steer(state);
+      }
+      if (now - lastShot > 450) {
+        lastShot = now;
+        scene.press("ranged");
+      }
+      if (now - lastMelee > 700) {
+        lastMelee = now;
+        scene.press("melee");
+      }
+    };
     const frame = (now) => {
       if (previous) {
         deltas.push(now - previous);
@@ -173,36 +204,7 @@ const playBot = ({ milliseconds, syncGpu }) =>
       previous = now;
       const state = hook.state();
       if (state && !state.outcome) {
-        if (now - lastSteer > 100) {
-          lastSteer = now;
-          const hero = state.hero;
-          hero.health = hero.maxHealth; // keep the night going; this is a frame-time test, not a balance test
-          state.elapsed = Math.min(state.elapsed, state.length - 1); // a night is short: it must not reach dawn mid-run
-          const dark = state.lamps.filter((lamp) => !lamp.lit);
-          const targets = [dark, state.monsters, [{ x: 480, y: 330 }]].find((candidates) => candidates.length > 0);
-          let best = targets[0];
-          let bestDistance = Number.POSITIVE_INFINITY;
-          for (const target of targets) {
-            const distance = Math.hypot(target.x - hero.x, (target.y - hero.y) * 2);
-            if (distance < bestDistance) {
-              best = target;
-              bestDistance = distance;
-            }
-          }
-          const reach = bestDistance > 24 ? 1 : 0;
-          scene.stick(
-            ((best.x - hero.x) / (bestDistance || 1)) * reach,
-            (((best.y - hero.y) * 2) / (bestDistance || 1)) * reach,
-          );
-        }
-        if (now - lastShot > 450) {
-          lastShot = now;
-          scene.press("ranged");
-        }
-        if (now - lastMelee > 700) {
-          lastMelee = now;
-          scene.press("melee");
-        }
+        drive(state, now);
       }
       if (now - begin < milliseconds) {
         requestAnimationFrame(frame);

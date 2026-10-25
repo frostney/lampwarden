@@ -4,6 +4,7 @@
 // loop.ts's own steps (`generate`, `renderAndVerify`, `correctionMessage`) with the system prompts untouched, so the
 // calls land in the same Mubit tasks as every other sprite. Model, renderer and store are injected; this module touches
 // no file and imports nothing from node:fs.
+import { bestIndexBy } from "../src/lib/best";
 import type { Sex } from "../src/scene/assets";
 import {
   heroBrief,
@@ -230,12 +231,7 @@ export async function runHeroLoop(
       }),
     ),
   );
-  let bestIndex = 0;
-  for (const [index, attempt] of candidates.entries()) {
-    if (attempt.score > (candidates[bestIndex]?.score ?? 0)) {
-      bestIndex = index;
-    }
-  }
+  const bestIndex = bestIndexBy(candidates, (attempt) => attempt.score);
   const first = candidates[bestIndex];
   const chosen = drawn[bestIndex];
   if (!first || !chosen) {

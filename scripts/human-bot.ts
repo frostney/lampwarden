@@ -7,7 +7,7 @@
 // sim's randomness is untouched.
 import { type Controls, shootAt } from "../src/game/controls";
 import { nextRandom } from "../src/game/random";
-import { bodyHeight, ground, type MonsterKind, type State } from "../src/game/sim";
+import { bodyHeight, ground, type Lamp, type MonsterKind, type State } from "../src/game/sim";
 import { octantOf, octantVector, offsetFromOctant } from "../src/scene/assets";
 
 // What makes this warden human. Times are seconds, distances ground px, angles degrees.
@@ -98,6 +98,27 @@ export interface HumanBot {
   act: (state: State, controls: Controls, deltaTime: number) => void;
 }
 
+// the movement keys that walk the warden along an octant
+function keysForOctant(octant: number): string[] {
+  const [x, y] = octantVector(octant);
+  const horizontal = Math.round(x);
+  const vertical = Math.round(y);
+  const keys: string[] = [];
+  if (horizontal > 0) {
+    keys.push("d");
+  }
+  if (horizontal < 0) {
+    keys.push("a");
+  }
+  if (vertical > 0) {
+    keys.push("s");
+  }
+  if (vertical < 0) {
+    keys.push("w");
+  }
+  return keys;
+}
+
 export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
   // its own stream: a different constant from the sim's seed, so the two never run in step
   let randomState = (seed ^ 0x5bd1e995) | 0;
@@ -169,22 +190,8 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     for (const key of ["a", "d", "w", "s"]) {
       controls.keys.delete(key);
     }
-    if (octant !== null) {
-      const [x, y] = octantVector(octant);
-      const horizontal = Math.round(x);
-      const vertical = Math.round(y);
-      if (horizontal > 0) {
-        controls.keys.add("d");
-      }
-      if (horizontal < 0) {
-        controls.keys.add("a");
-      }
-      if (vertical > 0) {
-        controls.keys.add("s");
-      }
-      if (vertical < 0) {
-        controls.keys.add("w");
-      }
+    for (const key of octant === null ? [] : keysForOctant(octant)) {
+      controls.keys.add(key);
     }
     if (octant !== heading) {
       heading = octant;
@@ -232,89 +239,99 @@ export function humanBot(seed: number, traits: HumanTraits = HUMAN): HumanBot {
     return chosen ?? null;
   };
 
-  const think = (state: State, controls: Controls) => {
-    const hero = state.hero;
-    const seen = seenNow(state);
-
-    // lamps: a dark one gets a plan when the warden first sees it dark, and loses it when it is lit again
+  // lamps: a dark one gets a plan when the warden first sees it dark, and loses it when it is lit again
+  const planLamps = (state: State, seenDark: readonly boolean[]) => {
     state.lamps.forEach((lamp, index) => {
       if (lamp.lit) {
         plans.delete(index);
-      } else if (seen.dark[index] && !plans.has(index)) {
+      } else if (seenDark[index] && !plans.has(index)) {
         plans.set(index, {
           startAt: clock + between(traits.relightLateMin, traits.relightLateMax),
           ignore: random() < traits.relightIgnore,
         });
       }
     });
+  };
 
+  // whether the warden's hands are idle this thought: still in a lapse or a hesitation, or just falling into one
+  const paused = () => {
     if (clock < pausedUntil) {
-      hold(controls, null);
-      return;
+      return true;
     }
     if (random() < traits.lapsePerSecond * clumsiness * traits.thinkInterval) {
       pausedUntil = clock + between(traits.lapseMin, traits.lapseMax);
-      hold(controls, null);
-      return;
+      return true;
     }
     if (random() < traits.hesitationPerSecond * clumsiness * traits.thinkInterval) {
       pausedUntil = clock + between(traits.hesitationMin, traits.hesitationMax);
-      hold(controls, null);
-      return;
+      return true;
     }
+    return false;
+  };
 
-    const busy = hero.animation === "melee" || hero.animation === "ranged" || hero.stun > 0;
-    const target = chooseTarget(state, seen.monsters);
-    const targetDistance = target ? ground(target.x, target.y, hero.x, hero.y) : Number.POSITIVE_INFINITY;
-    let dueLamp: { x: number; y: number } | null = null;
-    let dueDistance = Number.POSITIVE_INFINITY;
+  // the nearest dark lamp whose plan has come due (and is not to be ignored), and how far it is
+  const dueLamp = (state: State): { lamp: Lamp; distance: number } | null => {
+    let due: { lamp: Lamp; distance: number } | null = null;
     state.lamps.forEach((lamp, index) => {
       const plan = plans.get(index);
       if (!plan || plan.ignore || plan.startAt > clock || lamp.lit) {
         return;
       }
-      const distance = ground(lamp.x, lamp.y, hero.x, hero.y);
-      if (distance < dueDistance) {
-        dueDistance = distance;
-        dueLamp = lamp;
+      const distance = ground(lamp.x, lamp.y, state.hero.x, state.hero.y);
+      if (distance < (due?.distance ?? Number.POSITIVE_INFINITY)) {
+        due = { lamp, distance };
       }
     });
+    return due;
+  };
+
+  const think = (state: State, controls: Controls) => {
+    const hero = state.hero;
+    const seen = seenNow(state);
+
+    planLamps(state, seen.dark);
+    if (paused()) {
+      hold(controls, null);
+      return;
+    }
+
+    const target = chooseTarget(state, seen.monsters);
+    const targetDistance = target ? ground(target.x, target.y, hero.x, hero.y) : Number.POSITIVE_INFINITY;
+    const due = dueLamp(state);
 
     const fighting = target !== null && targetDistance < traits.engageRange;
-    if (!fighting && dueLamp) {
-      const lamp: { x: number; y: number } = dueLamp;
-      if (dueDistance < RELIGHT_STANDING) {
-        hold(controls, null);
-      } else {
-        hold(controls, octantTowards(state, lamp.x, lamp.y, 0));
-      }
+    if (!fighting && due) {
+      hold(controls, due.distance < RELIGHT_STANDING ? null : octantTowards(state, due.lamp.x, due.lamp.y, 0));
       return;
     }
     if (target) {
-      // far off: a shot, if the hands are free and the mind is made up
-      if (!busy && targetDistance > traits.shotRange && hero.shotCooldown <= 0 && random() < traits.shotChance) {
-        const originY = hero.y - 40;
-        const bodyY = target.y - bodyHeight(state, target.kind);
-        const angle =
-          Math.atan2(bodyY - originY, target.x - hero.x) + gaussian() * traits.aimError * clumsiness * DEGREES;
-        const length = Math.hypot(target.x - hero.x, bodyY - originY);
-        shootAt(controls, hero.x + Math.cos(angle) * length, originY + Math.sin(angle) * length);
-        return;
-      }
-      hold(controls, octantTowards(state, target.x, target.y, targetBias));
-      // near enough, and the direction held long enough to have turned him to it: strike, holding it
-      if (!busy && targetDistance < state.rules.meleeReach - reachMargin && clock - headingSince >= turnDelay) {
-        controls.melee = true;
-        headingSince = clock;
-        turnDelay = newTurnDelay();
-      }
+      engage(state, controls, target, targetDistance);
       return;
     }
     // nothing to do: drift back to the middle
-    if (ground(HOME.x, HOME.y, hero.x, hero.y) > 60) {
-      hold(controls, octantTowards(state, HOME.x, HOME.y, 0));
-    } else {
-      hold(controls, null);
+    const home = ground(HOME.x, HOME.y, hero.x, hero.y) > 60 ? octantTowards(state, HOME.x, HOME.y, 0) : null;
+    hold(controls, home);
+  };
+
+  // at a target: a shot when it is far off, if the hands are free and the mind is made up; else walk at it and strike
+  const engage = (state: State, controls: Controls, target: Seen, targetDistance: number) => {
+    const hero = state.hero;
+    const busy = hero.animation === "melee" || hero.animation === "ranged" || hero.stun > 0;
+    if (!busy && targetDistance > traits.shotRange && hero.shotCooldown <= 0 && random() < traits.shotChance) {
+      const originY = hero.y - 40;
+      const bodyY = target.y - bodyHeight(state, target.kind);
+      const angle =
+        Math.atan2(bodyY - originY, target.x - hero.x) + gaussian() * traits.aimError * clumsiness * DEGREES;
+      const length = Math.hypot(target.x - hero.x, bodyY - originY);
+      shootAt(controls, hero.x + Math.cos(angle) * length, originY + Math.sin(angle) * length);
+      return;
+    }
+    hold(controls, octantTowards(state, target.x, target.y, targetBias));
+    // near enough, and the direction held long enough to have turned him to it: strike, holding it
+    if (!busy && targetDistance < state.rules.meleeReach - reachMargin && clock - headingSince >= turnDelay) {
+      controls.melee = true;
+      headingSince = clock;
+      turnDelay = newTurnDelay();
     }
   };
 

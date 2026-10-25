@@ -2,8 +2,10 @@
 // best-of. The model, the renderer and the store (where call logs and attempts go) are injected, so tests drive the
 // loop with a fake fetch and a fake renderer, and a Vercel function runs it without a filesystem: this module imports
 // nothing from node:fs. sprite-loop.ts is the command line's file-backed wrapper around it.
+
 import { z } from "zod";
 
+import { bestIndexBy } from "../src/lib/best";
 import { rejectionReason } from "./build-code";
 import type { CallRecord, ContentBlock, ModelCall, ModelMessage, MubitClient } from "./mubit";
 import { RENDERED_WITH, type Renderer, type RenderRequest, type RenderResult, type RenderStats } from "./render-types";
@@ -575,12 +577,7 @@ export async function runCandidateLoop(
   );
   const records = attempts.map((attempt) => recordOf(attempt, false));
   // the best candidate; ties go to the lower-numbered one
-  let bestIndex = 0;
-  for (const [index, attempt] of attempts.entries()) {
-    if ((attempt.verdict.score ?? 0) > (attempts[bestIndex]?.verdict.score ?? 0)) {
-      bestIndex = index;
-    }
-  }
+  const bestIndex = bestIndexBy(attempts, (attempt) => attempt.verdict.score ?? 0);
   const first = attempts[bestIndex];
   const chosen = drawn[bestIndex];
   if (!first || !chosen) {

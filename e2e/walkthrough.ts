@@ -202,6 +202,59 @@ const argument = (name: string) => {
   return index > 0 ? process.argv[index + 1] : undefined;
 };
 
+// A footage segment: its frames, for as long as it runs or its caption is spoken, whichever is longer. Its last frame is
+// kept in `stillsDirectory` for the pull request's before and after shots.
+function footagePart(
+  segment: FootageSegment,
+  frames: string,
+  made: { caption: string; narration: string; spoken: number; output: string; stillsDirectory: string },
+) {
+  const names = readdirSync(frames).sort();
+  const last = names.at(-1);
+  if (last) {
+    copyFileSync(join(frames, last), join(made.stillsDirectory, `${segment.id}.png`));
+  }
+  const duration = Math.max(segment.seconds, made.spoken);
+  assembleSegment(
+    ["-framerate", "30", "-i", join(frames, "%04d.png")],
+    made.caption,
+    made.narration,
+    duration,
+    made.output,
+  );
+  console.log(`${segment.id}: ${names.length} frames, ${duration.toFixed(1)} s`);
+  return { path: made.output, duration };
+}
+
+// A still segment: its image held for as long as its caption is spoken.
+function stillPart(segment: StillSegment, caption: string, narration: string, spoken: number, output: string) {
+  const image = resolve(segment.image);
+  if (!existsSync(image)) {
+    throw new Error(`no image at ${image}`);
+  }
+  assembleSegment(
+    ["-loop", "1", "-framerate", "30", "-t", spoken.toFixed(3), "-i", image],
+    caption,
+    narration,
+    spoken,
+    output,
+  );
+  console.log(`${segment.id}: still, ${spoken.toFixed(1)} s`);
+  return { path: output, duration: spoken };
+}
+
+// Opens the game afresh at `url` with a clean save and the clock held, once `waitFor` (if given) is on the page.
+async function openGame(gamePage: Page, url: string, waitFor: string | undefined) {
+  await gamePage.clock.install();
+  await gamePage.goto(url);
+  await gamePage.evaluate(() => localStorage.clear());
+  await gamePage.reload();
+  if (waitFor) {
+    await gamePage.waitForSelector(waitFor);
+  }
+  await pauseClock(gamePage);
+}
+
 async function main() {
   const scriptPath = process.argv.slice(2).find((value) => value.endsWith(".ts") || value.endsWith(".mjs"));
   if (!scriptPath) {
@@ -234,42 +287,15 @@ async function main() {
       const spoken = durationOf(narration) + NARRATION_TAIL;
       const output = join(workDirectory, `${segment.id}.mp4`);
       if (isStill(segment)) {
-        const image = resolve(segment.image);
-        if (!existsSync(image)) {
-          throw new Error(`no image at ${image}`);
-        }
-        assembleSegment(
-          ["-loop", "1", "-framerate", "30", "-t", spoken.toFixed(3), "-i", image],
-          caption,
-          narration,
-          spoken,
-          output,
-        );
-        parts.push({ path: output, duration: spoken });
-        console.log(`${segment.id}: still, ${spoken.toFixed(1)} s`);
+        parts.push(stillPart(segment, caption, narration, spoken, output));
         continue;
       }
       if (segment.url || !loaded) {
-        await gamePage.clock.install();
-        await gamePage.goto(segment.url ?? walkthrough.url);
-        await gamePage.evaluate(() => localStorage.clear());
-        await gamePage.reload();
-        if (segment.waitFor) {
-          await gamePage.waitForSelector(segment.waitFor);
-        }
-        await pauseClock(gamePage);
+        await openGame(gamePage, segment.url ?? walkthrough.url, segment.waitFor);
         loaded = true;
       }
       const frames = await captureFootage(gamePage, segment, workDirectory);
-      const names = readdirSync(frames).sort();
-      const last = names.at(-1);
-      if (last) {
-        copyFileSync(join(frames, last), join(stillsDirectory, `${segment.id}.png`));
-      }
-      const duration = Math.max(segment.seconds, spoken);
-      assembleSegment(["-framerate", "30", "-i", join(frames, "%04d.png")], caption, narration, duration, output);
-      parts.push({ path: output, duration });
-      console.log(`${segment.id}: ${names.length} frames, ${duration.toFixed(1)} s`);
+      parts.push(footagePart(segment, frames, { caption, narration, spoken, output, stillsDirectory }));
     }
   } finally {
     await browser.close();

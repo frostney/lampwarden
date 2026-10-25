@@ -73,8 +73,8 @@ function predictorFor(filter: number | undefined, left: number, above: number, a
   return 0;
 }
 
-/** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
-export function decodePng(bytes: Buffer): PixelImage {
+/** A PNG's size from its header and its compressed image data, from its chunks. */
+function readChunks(bytes: Buffer): { width: number; height: number; compressed: Buffer[] } {
   let width = 0;
   let height = 0;
   const compressed: Buffer[] = [];
@@ -93,6 +93,12 @@ export function decodePng(bytes: Buffer): PixelImage {
       compressed.push(contents);
     }
   }
+  return { width, height, compressed };
+}
+
+/** Decodes a non-interlaced 8-bit RGBA PNG, the only kind this generator writes. */
+export function decodePng(bytes: Buffer): PixelImage {
+  const { width, height, compressed } = readChunks(bytes);
   const filtered = inflateSync(Buffer.concat(compressed));
   const image = new PixelImage(width, height);
   const stride = width * 4;

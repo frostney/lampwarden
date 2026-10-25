@@ -20,6 +20,7 @@ import {
 import { STEP } from "../src/game/replay";
 import {
   bodyHeight,
+  creatureFrom,
   dawnBonus,
   ground,
   type Input,
@@ -30,6 +31,7 @@ import {
   newNight,
   nextTide,
   nightCreature,
+  nightLength,
   type Outcome,
   type State,
   step,
@@ -91,6 +93,7 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
   let input = NO_INPUT;
   let think = 0;
   const controls = newControls();
+  let creatureAt: number | null = null; // the second the night's creature first rises from the sea
   const human = policy === "human" ? humanBot(seed) : null;
   while (!state.outcome) {
     if (human) {
@@ -106,6 +109,8 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
       }
     }
     step(state, STEP, input);
+    if (creatureAt === null && state.monsters.some((monster) => monster.kind === "creature"))
+      creatureAt = state.elapsed;
     if (input.melee || input.ranged) {
       consumePresses(controls);
       input = { ...input, melee: false, ranged: false };
@@ -121,6 +126,7 @@ function playNight(legacy: Legacy, policy: Policy, seed: number, creature: Night
     healthLost: state.stats.hpLost,
     lampsLost: state.stats.lampsLost,
     nextTide: nextTide(legacy.tide, state),
+    creatureAt,
   };
 }
 
@@ -222,7 +228,9 @@ const SCENARIOS = [
   [1, 1],
   [2, 1],
   [3, 1.1],
+  [4, 1.1],
   [5, 1.2],
+  [6, 1.2],
   [7, 1.4],
 ] as const;
 for (const policy of POLICIES) {
@@ -329,7 +337,7 @@ for (const policy of POLICIES) {
 
 // Creatures from the sea: the same seeded nights with one creature of each archetype, neutral and with every modifier at
 // its extreme either way. The first row is the same nights with no creature, to read the others against; the creature
-// joins about one spawn in four from 8 s in, at most two alive.
+// joins about one spawn in four from a fifth of the night in (creatureFrom), at most two alive.
 const NEUTRAL: Modifiers = { speed: 0, toughness: 0, bite: 0, snuffing: 0 };
 const STRONGEST: Modifiers = { speed: 1, toughness: 1, bite: 1, snuffing: 1 };
 const WEAKEST: Modifiers = { speed: -1, toughness: -1, bite: -1, snuffing: -1 };
@@ -363,4 +371,28 @@ for (const [night, tide] of withCreatures ? CREATURE_SCENARIOS : []) {
       `  night ${night} tide ${tide} ${label.padEnd(17)}: dawn ${percent("dawn").padStart(3)}%  dark ${percent("dark").padStart(3)}%  fallen ${percent("fallen").padStart(3)}%  | lamps ${average((result) => result.lit)}, kills ${average((result) => result.kills)}, health lost ${average((result) => result.healthLost)}, oil ${average((result) => result.oil)}, income ${average((result) => result.income)}`,
     );
   }
+}
+
+// When the creature arrives: the same seeded nights on every night of the line, with a neutral skulker. The share of
+// nights it rises at all, and the second it first does (of the nights where it does), against the second it may start.
+if (withCreatures) {
+  console.log(`\nwhen the creature arrives (neutral skulker, ${runs} nights each, the same seeds as above):`);
+  const skulker = nightCreature({
+    id: "balance-arrival",
+    archetype: "skulker",
+    modifiers: NEUTRAL,
+    anchorY: 0.8,
+  });
+  for (const policy of ["bot", "human"] as const)
+    for (const [night, tide] of SCENARIOS) {
+      const results = Array.from({ length: runs }, (_, run) =>
+        play(night, tide, policy, night * 100_000 + run, skulker),
+      );
+      const came = results.flatMap((result) => (result.creatureAt === null ? [] : [result.creatureAt]));
+      const first = came.length ? (came.reduce((total, second) => total + second, 0) / came.length).toFixed(1) : "-";
+      const dawn = ((100 * results.filter((result) => result.outcome === "dawn").length) / runs).toFixed(0);
+      console.log(
+        `  ${policy.padEnd(5)} night ${night} (${nightLength(night)} s, may start at ${creatureFrom(nightLength(night)).toFixed(1)} s): the creature comes in ${((100 * came.length) / runs).toFixed(0).padStart(3)}% of nights, first at ${first} s | dawn ${dawn}%`,
+      );
+    }
 }

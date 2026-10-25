@@ -37,7 +37,7 @@ src/
     sim.ts           one night: lamps, monsters, warden, shots, relighting, outcome, dawn bonus, the tide the rules pick (rulesTide) and the live director's mix and creature share; every
                      blow (the melee arc, stun, knockback, the puffs that carry impact bursts and killed monsters' ghosts);
                      a monster's blow on the warden (his hit-stop, knockback and mercy frames); the night's creature from
-                     the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from 8 s in,
+                     the sea (kind "creature": its stats via monsterStats, sent with a share of the spawns from a fifth of the night in (creatureFrom),
                      drawn from rand(state) only when it can come)
     replay.ts        fixed step, input quantisation, Replayer and headless verification of recorded plays (replay.test.ts:
                      determinism); covered by the sim fingerprint (see Sim fingerprint)

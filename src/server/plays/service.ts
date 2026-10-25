@@ -7,16 +7,17 @@
 // and for the whole site per UTC day, by the salted address hash the director and the creature routes use; without a
 // salt (local development) every upload is accepted.
 import { z } from "zod";
+import { nightLength } from "@/game/sim";
 import type { StartLimits } from "../creatures/config";
 import { checkStartLimits, visitorKey } from "../creatures/limits";
 import type { PlayStore } from "./store";
 
 /**
- * A night lasts at least 40 s, so one player sends at most about 90 nights an hour, each as one first write (a snapshot
- * and the finished night of a night are one id, and only its first write counts); 120 leaves room for retries and for
- * several players behind one address.
+ * A night lasts at least 16 s (night 1), so one player sends at most 225 nights an hour, each as one first write (a
+ * snapshot and the finished night of a night are one id, and only its first write counts); a third more leaves room for
+ * retries and for several players behind one address. (It was 120 when a night lasted 40 s or more.)
  */
-export const UPLOADS_PER_VISITOR_PER_HOUR = 120;
+export const UPLOADS_PER_VISITOR_PER_HOUR = Math.ceil(((3600 / nightLength(1)) * 4) / 3);
 /** Every upload is kept, so the site's daily total is capped: more than any day of real play, far less than a flood. */
 export const UPLOADS_PER_DAY = 3000;
 

@@ -13,7 +13,7 @@ slows monsters to 70 percent of their speed. A night ends three ways:
 - "dark": every lamp is dark. The player loses the night.
 - "fallen": the warden's health reached zero. The player loses the night.
 - "abandoned": the player left before it ended. This is weak evidence; hold near the rules.
-A night is 40 seconds long on night 1 and 6 seconds longer for each night after, up to 76 seconds. When a warden falls, an
+A night is 16 seconds long on night 1 and 6 seconds longer for each night after, up to 52 seconds. When a warden falls, an
 heir takes over and the night counter starts again at 1, but the tide and the bloodline's upgrades carry on.
 
 Monsters (the hand-made kinds):
@@ -22,17 +22,19 @@ Monsters (the hand-made kinds):
   that empties a health bar and snuffs a lamp fastest.
 - harpy: speed 76, flies, 1 health, claw 6 damage, puts a lamp out after 3.2 s. Fast and light; it is thrown far by blows.
 Every monster is 5 percent bolder (faster) for each night after the first. The sea may also send one "creature from the
-sea", a monster made by a model for this line of wardens; it joins some nights, from 8 seconds in, at most two alive at once.
+sea", a monster made by a model for this line of wardens; it joins some nights, from a fifth of the night in, at most two alive at once.
 
-How many come: a new monster rises every 2.3 / (tide x (1 + 0.3 x (night - 1))) seconds, and no more than
-round((3 + 1.6 x night) x tide) are alive at once. So at tide 1.0, night 2 is a monster every 1.8 s and six alive at most;
+How many come: a new monster rises every 1.3 / (tide x (1 + q)) seconds, where q is 0.12 x (night - 1) up to night 3 and
+0.24 + 0.3 x (night - 3) after it, and no more than round((3 + 1.6 x night) x tide) are alive at once. So at tide 1.0,
+night 2 is a monster every 1.2 s and six alive at most;
 raising the tide by 0.1 adds about a tenth to both. Between kinds, the spawner picks by weight: satyr 1, harpy
 0.4 + 0.1 x night, cyclops 0.15 + 0.1 x night (night 2 and later). Your "mix" multiplies those weights.
 
 # What real people do
 
-Do not judge by a perfect player. Real people kill about 8 monsters a minute on night 1 and about 4 a minute on night 2
-(a scripted bot kills 24 to 31). New players lose night 2 often: monsters pile up (five to seven alive by 15 seconds), the
+Do not judge by a perfect player. Real people recorded on the earlier, longer nights killed about 8 monsters a night on
+night 1 and about 4 on night 2 (a scripted bot kills 24 to 31 a minute on those nights and 35 or more on the short ones; the human-paced bot about 24
+a minute on nights 1 to 3 now). New players lose night 2 often: monsters pile up (five to seven alive by 15 seconds), the
 warden is a hundred or two hundred pixels from a lamp when it goes dark, and health collapses when several monsters reach
 him at once. Kills per minute below about 6 mean the player is struggling with the crowd, not idle; kills per minute above
 about 15 on a late night means the player is comfortable.

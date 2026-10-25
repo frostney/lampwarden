@@ -83,7 +83,15 @@ honest client: one that fabricates its inputs, or leaves the field out, is judge
 The two clauses of `idle` are needed: one recorded night moves for only 13% of it but strikes and shoots 26 times a
 minute, a warden who stands his ground and fights, and is engaged.
 
-**The nine recorded plays** (a test reads them where they exist; they are not committed):
+**Short nights.** A night now lasts 16 s on night 1 and 22, 28, 34, 40, 46 and 52 s after it, so the rule is read on a
+few seconds of play. The thresholds are shares and rates, so they scale, and they were checked on 16 s nights (tests in
+`engagement.test.ts`): two blows in 16 s is 7.5 a minute, engaged without moving; one blow, or none, standing still is
+idle; "paused" needs more than half of the real time away, which on night 1 is more than 16 s hidden (the 10 s floor
+only matters on a night that is itself short of 10 s, which the game never plays). `rulesTide`'s kill rate is kills per
+real minute of the night with no floor of a minute (it was `max(1, seconds / 60)`, which on a night under a minute read
+a night's kills, not a rate; that is what made "fast" mean 20 kills in the night, out of reach of a 16 s night).
+
+**The nine recorded plays** (played on the earlier 40 s night 1; a test reads them where they exist; they are not committed):
 
 | play (night, outcome) | simulated | moving | strikes + shots | a minute | kind                                  |
 | --------------------- | --------- | ------ | --------------- | -------- | ------------------------------------- |
@@ -220,6 +228,25 @@ The bounds are wide enough to matter where a warden is near the edge (bot, night
 makes him fall in 27% of nights against 6%) and do little far from it. A mix that cuts cyclops and harpies mostly moves
 losses from "fallen" to "dark" for the novice: fewer heavy claws, but the satyrs left still snuff lamps.
 
+### On the shorter nights (25 Oct 2026)
+
+The same stubs after the nights were cut to 16 to 52 s and the sea made quicker (`SPAWN_INTERVAL` 2.3 to 1.3, oil chance
+0.3 to 0.5), 200 seeded nights each, dawn rate, against the table above (human-paced bot and perfect bot; the rules' tide
+fixed per night as in the first column):
+
+| warden | night (rules' tide) | rules | eased | pushed |
+| ------ | ------------------- | ----- | ----- | ------ |
+| human  | 1 (1)               | 98%   | 100%  | 97%    |
+| human  | 2 (1)               | 84%   | 85%   | 74%    |
+| human  | 3 (1.1)             | 56%   | 70%   | 39%    |
+| human  | 5 (1.2)             | 1%    | 5%    | 1%     |
+| bot    | 5 (1.2)             | 33%   | 77%   | 12%    |
+
+(Before: human 81 / 64 / 43 / 1 with eased 82 / 73 / 59 / 5 and pushed 77 / 54 / 28 / 0; bot night 5 82 / 99 / 36.) The
+bounds still move a person's night about as far as before, 14 points either way on night 3, and the perfect bot with no
+upgrades is harder at night 5 than it was (33% against 82%); in a campaign, with the upgrades it buys, it holds night 5 in
+70% of lines against 80% before.
+
 ## Latency by reply shape
 
 Measured on 24 Oct 2026 for the owner's choice between a longer timeout and a shorter reply. Three system prompt
@@ -298,7 +325,7 @@ earlier reasoning only from the same session.)
   made, so a visitor who has not yet called it is not refused early anyway. Answering "limited" before the lookup would
   need a new answer shape (an error, which the game already treats as the rules'); not done.
 - The claim above stops a burst for one play. Calls for different plays by one visitor at the same moment can still all
-  pass the hourly check before any of them is marked; each needs a stored play, and uploads are limited to 120 an hour
+  pass the hourly check before any of them is marked; each needs a stored play, and uploads are limited to 300 an hour
   per visitor (`src/server/plays/service.ts`: `UPLOADS_PER_VISITOR_PER_HOUR`) and 3000 a UTC day for the site, by the
   same salt (without one, as in local development, uploads are not limited; only the first write of an id counts). An
   upload under an id already stored answers 200 and keeps the more complete recording: it replaces the stored one (by

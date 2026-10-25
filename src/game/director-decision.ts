@@ -7,6 +7,8 @@ import { z } from "zod";
 
 /** The director may move the tide this far from the one the rules would pick. */
 export const TIDE_SPAN = 0.15;
+// what a stored decision may stray past a bound by: its numbers were rounded to hundredths before they were stored
+const ROUNDING = 1e-9;
 export const TIDE_MIN = 0.6;
 export const TIDE_MAX = 2;
 export const MIX_MIN = 0.5;
@@ -75,17 +77,17 @@ export const directorSchema = z
       .optional(),
     engagement: z.enum(ENGAGEMENTS).optional(),
   })
-  .refine((director) => Math.abs(director.tide - director.rulesTide) <= TIDE_SPAN + 1e-9, {
+  .refine((director) => Math.abs(director.tide - director.rulesTide) <= TIDE_SPAN + ROUNDING, {
     message: "the tide strays too far from the rules' tide",
   })
   .refine(
     (director) =>
       mayEase(director.engagement) ||
-      (director.tide >= director.rulesTide - 1e-9 &&
+      (director.tide >= director.rulesTide - ROUNDING &&
         director.mix.satyr >= 1 &&
         director.mix.cyclops >= 1 &&
         director.mix.harpy >= 1 &&
-        director.creatureShare >= DEFAULT_CREATURE_SHARE - 1e-9),
+        director.creatureShare >= DEFAULT_CREATURE_SHARE - ROUNDING),
     { message: "a night that was not engaged is not eased" },
   );
 

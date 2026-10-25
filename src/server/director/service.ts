@@ -7,6 +7,7 @@
 import { clampProposal, type FallbackReason, parseProposal } from "@/game/director";
 import { type Director, directorFrom, rulesDirector } from "@/game/director-decision";
 import { engagementOf } from "@/game/engagement";
+import { HTTP_TOO_MANY_REQUESTS } from "@/lib/units";
 
 import { type ModelCall, type MubitClient, shortSha } from "../../../pipeline/mubit";
 import { checkStartLimits, visitorKey } from "../creatures/limits";
@@ -84,7 +85,7 @@ async function previousReasoning(deps: DirectorDeps, play: StoredPlay): Promise<
 }
 
 function failureReason(status: number | null, error: string | null | undefined): FallbackReason {
-  if (status === 429) {
+  if (status === HTTP_TOO_MANY_REQUESTS) {
     return "rate-limited"; // Mubit's own throttle, told apart from a fault in the logs
   }
   return error && /timeout|abort/i.test(error) ? "timeout" : "error";

@@ -228,7 +228,10 @@ describe("a night's decorations", () => {
   });
 
   test("keep their boats on the sea, off the stone and its walls, and on the canvas", () => {
-    const boats = (layout: Layout) => [...layout.boats, ...layout.props.filter((placed) => placed.key === "galley-dock")];
+    const boats = (layout: Layout) => [
+      ...layout.boats,
+      ...layout.props.filter((placed) => placed.key === "galley-dock"),
+    ];
     for (const { seed, placed: boat, pixel } of pixelsAcross(layouts, boats, false)) {
       const message = `seed ${seed}: ${boat.key} at ${boat.x},${boat.y}, pixel ${pixel.x},${pixel.y}`;
       if (pixel.x < 0 || pixel.x > 960 || pixel.y > 600) {

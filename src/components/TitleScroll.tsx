@@ -22,9 +22,17 @@ interface ScrollSize {
   width: number; // parchment width in art pixels
 }
 
+// the screen px of room from which the art is drawn at twice and three times its size
+const SCALE_FROM = { double: 260, triple: 880 };
+const LARGEST_SCALE = 3;
+
 const instantly = () =>
   new URLSearchParams(location.search).has("verify") || matchMedia("(prefers-reduced-motion: reduce)").matches;
-const easeInOut = (fraction: number) => (fraction < 0.5 ? 4 * fraction ** 3 : 1 - (-2 * fraction + 2) ** 3 / 2);
+// eases in and out on a cubic: slow to start, quick through the middle, slow to stop
+const CUBIC = 3;
+const HALFWAY = 0.5;
+const easeInOut = (fraction: number) =>
+  fraction < HALFWAY ? (2 * fraction) ** CUBIC / 2 : 1 - (2 - 2 * fraction) ** CUBIC / 2;
 
 function paint(
   canvas: HTMLCanvasElement | null,
@@ -73,10 +81,10 @@ export function TitleScroll({ children }: { children: ReactNode }) {
       const scale = band<1 | 2 | 3>(
         room,
         [
-          [260, 1],
-          [880, 2],
+          [SCALE_FROM.double, 1],
+          [SCALE_FROM.triple, 2],
         ],
-        3,
+        LARGEST_SCALE,
       );
       const width = Math.min(MAX_ART_WIDTH[scale], Math.floor(room / scale) - 2 * ROLLER_OVERHANG);
       setSize((previous) => (previous?.scale === scale && previous.width === width ? previous : { scale, width }));
@@ -94,7 +102,7 @@ export function TitleScroll({ children }: { children: ReactNode }) {
       return;
     }
     scroll.style.setProperty("--scale", String(size.scale));
-    scroll.style.setProperty("--portrait", String(size.scale >= 3 ? 2 : 1));
+    scroll.style.setProperty("--portrait", String(size.scale >= LARGEST_SCALE ? 2 : 1));
     const rollerWidth = size.width + 2 * ROLLER_OVERHANG;
     const rollerHeight = ROLLER_HEIGHT + ROLLER_SHADOW;
     paint(topRollerRef.current, rollerWidth, rollerHeight, (pixels) => paintRoller(pixels, rollerWidth, 0, true));

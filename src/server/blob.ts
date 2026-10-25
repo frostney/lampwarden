@@ -2,7 +2,11 @@
 // the ledger of marks the rate limits count. Private store, BLOB_READ_WRITE_TOKEN.
 import { BlobNotFoundError, BlobPreconditionFailedError, get, head, list, put } from "@vercel/blob";
 
+import { HTTP_OK } from "@/lib/units";
+
 import type { StartLedger } from "./creatures/limits";
+
+const MARK_SUFFIX = 8; // characters of a UUID that keep two marks made in the same millisecond apart
 
 const dayOf = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -40,7 +44,7 @@ export async function putIfAbsent(pathname: string, body: string, contentType: s
 /** The text of the blob at `pathname` and its version (the ETag), or null when there is none. */
 export async function readWithVersion(pathname: string): Promise<{ text: string; version: string } | null> {
   const blob = await get(pathname, { access: "private", useCache: false });
-  if (blob?.statusCode !== 200) {
+  if (blob?.statusCode !== HTTP_OK) {
     return null;
   }
   return { text: await new Response(blob.stream).text(), version: blob.blob.etag };
@@ -79,7 +83,7 @@ export function createBlobLedger(root: string): StartLedger & {
 
   return {
     async record(visitor, id, markedAt) {
-      const name = `${markedAt.getTime()}-${id}-${crypto.randomUUID().slice(0, 8)}`;
+      const name = `${markedAt.getTime()}-${id}-${crypto.randomUUID().slice(0, MARK_SUFFIX)}`;
       await Promise.all([
         writeMark(`${visitorPrefix(visitor, dayOf(markedAt))}${name}`),
         writeMark(`${root}/day/${dayOf(markedAt)}/${name}`),

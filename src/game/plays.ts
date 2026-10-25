@@ -1,8 +1,10 @@
 // Recorded plays: what the API routes that store and serve them share.
 import { z } from "zod";
 
+import { SECONDS_PER_DAY } from "../lib/units";
 import { SEXES } from "../scene/assets";
 import { recordedCreatureSchema } from "./creature";
+import { TIDE_MAX, TIDE_MIN } from "./director-decision";
 import { TRAITS, type TraitId } from "./legacy";
 import type { Play } from "./recording";
 import { nightLength } from "./sim";
@@ -56,19 +58,21 @@ const traitId = z.custom<TraitId>((value) => typeof value === "string" && Object
 // replay accepts, so a play that would not replay is refused at the door, and one that is stored replays without
 // crashing. `legacy.levels` and `legacy.director` are read leniently by legacyOf, as plays from before an upgrade or the
 // director lack them.
+// how long a play's strings may be, in characters
+const PLAY_TEXT = { session: 80, build: 40, startedAt: 40, heirName: 40 };
 export const playSchema = z.object({
   v: z.literal(1),
   id: z.string().regex(PLAY_ID),
-  session: z.string().max(80),
-  build: z.string().max(40),
+  session: z.string().max(PLAY_TEXT.session),
+  build: z.string().max(PLAY_TEXT.build),
   sim: z.string().regex(SIM_FINGERPRINT).optional(), // the sim the night was played on; plays from before have none
-  startedAt: z.string().max(40),
+  startedAt: z.string().max(PLAY_TEXT.startedAt),
   seed: z.number().int(),
   legacy: z.object({
     night: z.number().int().min(1),
     generation: z.number().int().min(1),
-    tide: z.number().min(0.6).max(2),
-    heir: z.object({ name: z.string().max(40), sex: z.enum(SEXES), trait: traitId }),
+    tide: z.number().min(TIDE_MIN).max(TIDE_MAX),
+    heir: z.object({ name: z.string().max(PLAY_TEXT.heirName), sex: z.enum(SEXES), trait: traitId }),
     levels: z.record(z.string(), z.number()),
     director: z.unknown().optional(),
   }),
@@ -87,6 +91,6 @@ export const playSchema = z.object({
     maxHp: z.number(),
     lit: count,
   }),
-  hiddenSeconds: z.number().min(0).max(86_400).optional(), // seconds the tab was hidden in the night; plays from before have none
+  hiddenSeconds: z.number().min(0).max(SECONDS_PER_DAY).optional(), // seconds the tab was hidden in the night; plays from before have none
   replay: z.object({ endsMatch: z.boolean() }).optional(), // filled in when a recording is verified by replay
 }) satisfies z.ZodType<Play>;

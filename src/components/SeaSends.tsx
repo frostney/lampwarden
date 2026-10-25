@@ -61,6 +61,8 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
 // at the largest whole multiple that fits the panel, keeping every pixel square.
 const PORTRAIT_HEIGHT = 72;
 const OPAQUE = 128;
+const RGBA = 4; // bytes a pixel
+const ALPHA = 3; // the alpha byte of a pixel
 
 // The box around a picture's opaque pixels, or null when it has none.
 function opaqueBounds({ data, width, height }: ImageData) {
@@ -70,7 +72,7 @@ function opaqueBounds({ data, width, height }: ImageData) {
   let bottom = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if ((data[(y * width + x) * 4 + 3] ?? 0) >= OPAQUE) {
+      if ((data[(y * width + x) * RGBA + ALPHA] ?? 0) >= OPAQUE) {
         left = Math.min(left, x);
         right = Math.max(right, x);
         top = Math.min(top, y);

@@ -2,6 +2,7 @@
 // network. The routes in src/app/api/creatures are thin: they validate the request, call one of these, and shape the
 // response.
 import type { CreatureJob, NextCreatureRequest, NextCreatureResponse } from "@/game/creature";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 
 import { type CreatureConfig, generationAvailable } from "./config";
 import { checkStartLimits, visitorKey } from "./limits";
@@ -27,7 +28,7 @@ const isFinished = (job: CreatureJob) => job.step === "done" || job.step === "fa
 
 /** A job that is neither done nor failed but has not moved for longer than `maxDuration` can only be dead. */
 function isStale(job: CreatureJob, now: Date, maxDurationSeconds: number): boolean {
-  return !isFinished(job) && now.getTime() - Date.parse(job.updatedAt) > maxDurationSeconds * 1000;
+  return !isFinished(job) && now.getTime() - Date.parse(job.updatedAt) > maxDurationSeconds * MILLISECONDS_PER_SECOND;
 }
 
 /** The job as a client should see it: a stale one is reported as failed. */

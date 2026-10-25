@@ -467,8 +467,7 @@ class Placement {
   // the kind a group of `listed` is: a live building takes the building slot; otherwise a group is sometimes the listed
   // sprite's replacement
   private kindFor(listed: DecorKind): DecorKind {
-    const replaced =
-      listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
+    const replaced = listed.replacedBy && this.random() < listed.replacedBy.chance ? listed.replacedBy.key : listed.key;
     const key = this.live && listed.slot === "building" ? this.live.key : replaced;
     return key === listed.key ? listed : { ...listed, key };
   }

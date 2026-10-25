@@ -21,7 +21,8 @@ export const CREATURE_FRAME_SIZE = 128;
 /** The builder's pose names for a frame (`walk3`), which is also the render's name: `idle1`..`idle4`, `walk1`..`walk6`, `attack1`..`attack5`. */
 export const creaturePoseName = (animation: CreatureAnimation, frame: number) => `${animation}${frame + 1}`;
 
-const frameCount = z.number().int().min(1).max(8);
+const MAX_FRAMES = 8; // in one animation
+const frameCount = z.number().int().min(1).max(MAX_FRAMES);
 export const creatureFramesSchema = z.object({ idle: frameCount, walk: frameCount, attack: frameCount });
 export type CreatureFrames = z.infer<typeof creatureFramesSchema>;
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 import {
   FRAMES,
   FRAMES_PER_SECOND,
@@ -65,7 +66,7 @@ export function HeroPortrait({
     let handle = 0;
     const step = (now: number) => {
       began ??= now;
-      const frame = Math.floor(((now - began) * FRAMES_PER_SECOND.melee) / 1000);
+      const frame = Math.floor(((now - began) * FRAMES_PER_SECOND.melee) / MILLISECONDS_PER_SECOND);
       if (frame >= FRAMES.melee) {
         draw("idle", 0);
         return;

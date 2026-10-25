@@ -14,6 +14,7 @@ import { z } from "zod";
 import { type CreatureJob, JOB_STEPS } from "@/game/creature";
 import { type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { compareCodeUnits } from "@/lib/compare";
+import { HTTP_OK } from "@/lib/units";
 
 import type { CreatureStore, RunningLock } from "./store";
 
@@ -58,7 +59,7 @@ export function createBlobStore(prefix: string): CreatureStore {
   async function readText(pathname: string): Promise<{ text: string; etag: string } | null> {
     // mutable blobs are read from origin: a CDN copy could be a step behind
     const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== 200) {
+    if (blob?.statusCode !== HTTP_OK) {
       return null;
     }
     return { text: await new Response(blob.stream).text(), etag: blob.blob.etag };
@@ -92,12 +93,12 @@ export function createBlobStore(prefix: string): CreatureStore {
 
     async getSprite(id) {
       const blob = await get(path.sprite(id), { access: "private" });
-      return blob?.statusCode === 200 ? blob.stream : null;
+      return blob?.statusCode === HTTP_OK ? blob.stream : null;
     },
 
     async getAtlas(id) {
       const blob = await get(path.atlas(id), { access: "private" });
-      return blob?.statusCode === 200 ? blob.stream : null;
+      return blob?.statusCode === HTTP_OK ? blob.stream : null;
     },
 
     async putCreature(creature: CreatureRecord, png, code, atlas) {

@@ -60,7 +60,7 @@ function followJob(jobId: string): Promise<JobAnswer | null> {
 }
 
 const POLL_INTERVAL = 2000; // ms between looks at a job
-const GIVE_UP_AFTER = 5 * 60_000; // ms: a night is long over by then
+const GIVE_UP_AFTER = 300_000; // ms, five minutes: a night is long over by then
 const MISSES_ALLOWED = 3; // answers in a row that may fail before the job is let go
 
 interface WaitOptions {

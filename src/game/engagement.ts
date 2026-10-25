@@ -50,7 +50,8 @@ export interface Engagement {
 }
 
 const tenth = (value: number) => Math.round(value * 10) / 10;
-const hundredth = (value: number) => Math.round(value * 100) / 100;
+const HUNDRED = 100;
+const hundredth = (value: number) => Math.round(value * HUNDRED) / HUNDRED;
 
 /**
  * The classification, in order: left (the night did not finish, so it says nothing about how hard it was), paused (most of

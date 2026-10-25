@@ -268,7 +268,13 @@
       }
     },
     {
-      "includes": ["src/scene/**", "tools/logo/**", "src/components/Icon.tsx", "e2e/verify-visual.mjs"],
+      "includes": [
+        "src/scene/**",
+        "tools/logo/**",
+        "src/components/Icon.tsx",
+        "e2e/verify-visual.mjs",
+        "src/components/HowToPlay.tsx"
+      ],
       "linter": {
         "rules": {
           "style": {

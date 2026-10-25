@@ -4,6 +4,7 @@
 // (that is the sim and replay.ts), so editing this file does not change the sim fingerprint (tools/sim-fingerprint).
 import { z } from "zod";
 
+import { MILLISECONDS_PER_SECOND } from "../lib/units";
 import type { RecordedCreature } from "./creature";
 import type { Legacy } from "./legacy";
 import { type Input, litCount, type State } from "./sim";
@@ -41,7 +42,9 @@ export interface Play {
   replay?: { endsMatch: boolean } | undefined; // filled in when a recording is verified by replay
 }
 
-const randomId = () => Math.random().toString(36).slice(2, 10);
+const BASE_36 = 36;
+const ISO_TO_SECONDS = 19; // "2026-10-24T16:11:46", the start of an ISO time
+const randomId = () => Math.random().toString(BASE_36).slice(2, 10);
 function sessionId(): string {
   try {
     let session = localStorage.getItem("lampwarden:session");
@@ -72,7 +75,7 @@ export class Recorder {
     if (this.hiddenSince === null) {
       return;
     }
-    this.hiddenSeconds += (performance.now() - this.hiddenSince) / 1000;
+    this.hiddenSeconds += (performance.now() - this.hiddenSince) / MILLISECONDS_PER_SECOND;
     this.hiddenSince = null;
   }
   constructor(legacy: Legacy, seed: number, build: string, creature: RecordedCreature | null = null, sim?: string) {
@@ -85,7 +88,7 @@ export class Recorder {
     const { night, generation, tide, levels, heir, director } = legacy;
     this.play = {
       v: 1,
-      id: `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${randomId()}`,
+      id: `${new Date().toISOString().slice(0, ISO_TO_SECONDS).replace(/[:T]/g, "-")}-${randomId()}`,
       session: sessionId(),
       build,
       ...(sim ? { sim } : {}),
@@ -137,7 +140,8 @@ export class Recorder {
       return null;
     }
     this.snapshotSteps = this.play.steps;
-    const openSeconds = this.hiddenSince === null ? 0 : (performance.now() - this.hiddenSince) / 1000;
+    const openSeconds =
+      this.hiddenSince === null ? 0 : (performance.now() - this.hiddenSince) / MILLISECONDS_PER_SECOND;
     this.play.hiddenSeconds = Math.round((this.hiddenSeconds + openSeconds) * 10) / 10;
     return this.summarise(state);
   }
@@ -262,6 +266,10 @@ function localStorageOrNull(): PlayStorage | null {
 // the visual verifier's nights are not real plays, so they are never uploaded or queued (a stubbed server answers them)
 const isVerifying = () => new URLSearchParams(location.search).has("verify");
 
+// statuses worth sending the night again for: a timeout, too early, too many requests, and any fault of the server's
+const RETRY_STATUSES = { timeout: 408, tooEarly: 425, tooMany: 429 };
+const SERVER_ERROR = 500;
+
 async function fetchPlay(body: string, keepalive: boolean): Promise<UploadResult> {
   const response = await fetch("/api/plays", {
     method: "POST",
@@ -272,7 +280,7 @@ async function fetchPlay(body: string, keepalive: boolean): Promise<UploadResult
   if (response.ok) {
     return "sent";
   }
-  return response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500
+  return Object.values(RETRY_STATUSES).includes(response.status) || response.status >= SERVER_ERROR
     ? "retry"
     : "rejected";
 }

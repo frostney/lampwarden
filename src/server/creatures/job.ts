@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { CreatureJob, JobStep } from "@/game/creature";
 import { type CreatureFrames, type CreatureRecord, creatureRecordSchema } from "@/game/creature-frames";
 import { ignore } from "@/lib/ignore";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 
 import { type CreatureBrief, writeCreatureBrief } from "../../../pipeline/creature-brief";
 import { type BatchRenderer, bindBatchRenderSignal, renderFrameSet } from "../../../pipeline/creature-frames";
@@ -50,26 +51,31 @@ type JobFailure =
 export function anchorYFromBbox(bbox: string): number {
   const lowestRow = Number(bbox.split(",")[3]);
   if (!Number.isFinite(lowestRow)) {
-    return 0.85;
+    return ANCHOR.unknown;
   }
-  const anchor = Math.round(((lowestRow + 1 - SHADOW_ROWS) / FRAME) * 100) / 100;
-  return Math.min(1, Math.max(0.5, anchor));
+  const anchor = Math.round(((lowestRow + 1 - SHADOW_ROWS) / FRAME) * ANCHOR.precision) / ANCHOR.precision;
+  return Math.min(1, Math.max(ANCHOR.highest, anchor));
 }
+// an anchor is in hundredths of the frame, at least halfway down it; one that cannot be read is taken as most are
+const ANCHOR = { precision: 100, highest: 0.5, unknown: 0.85 };
+
+// an id's parts, in characters: its time (base 36), the slug of its name, and the whole id; and the entropy's
+const ID_PARTS = { base: 36, time: 8, slug: 40, whole: 80, entropy: 6 };
 
 const slugOf = (name: string) =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
+    .slice(0, ID_PARTS.slug);
 
 /** Ids start with their creation time in seconds (base 36, fixed width), so sorting them sorts by age. */
 export function creatureId(now: Date, name: string, entropy: string): string {
-  const seconds = Math.floor(now.getTime() / 1000)
-    .toString(36)
-    .padStart(8, "0");
+  const seconds = Math.floor(now.getTime() / MILLISECONDS_PER_SECOND)
+    .toString(ID_PARTS.base)
+    .padStart(ID_PARTS.time, "0");
   const slug = slugOf(name) || "creature";
-  return `${seconds}-${slug}-${entropy}`.slice(0, 80).replace(/-+$/, "");
+  return `${seconds}-${slug}-${entropy}`.slice(0, ID_PARTS.whole).replace(/-+$/, "");
 }
 
 const verdictSummarySchema = z.object({ score: z.number().nullable(), pass: z.boolean() });
@@ -310,5 +316,5 @@ async function namesOfNewestCreatures(store: CreatureStore): Promise<string[]> {
 
 /** A random hex string for ids that must not collide (not a secret). */
 export function randomEntropy(): string {
-  return createHash("sha256").update(crypto.randomUUID()).digest("hex").slice(0, 6);
+  return createHash("sha256").update(crypto.randomUUID()).digest("hex").slice(0, ID_PARTS.entropy);
 }

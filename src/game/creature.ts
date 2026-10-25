@@ -47,11 +47,16 @@ export function creatureStats(archetype: Archetype, modifiers: Modifiers): Creat
 
 const modifierSchema = z.union([z.literal(-1), z.literal(0), z.literal(1)]);
 
+// how long a creature's words may be, in characters
+const WORDS = { name: 40, leastText: 8, lore: 160, brief: 400 };
+// its feet stand at least halfway down its frame
+const LOWEST_ANCHOR = 0.5;
+
 export const creatureSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{8,80}$/),
-  name: z.string().min(2).max(40), // "Brine hound"
-  lore: z.string().min(8).max(160), // one line shown before the night it comes
-  brief: z.string().min(8).max(400), // the sprite brief the generator drew from
+  name: z.string().min(2).max(WORDS.name), // "Brine hound"
+  lore: z.string().min(WORDS.leastText).max(WORDS.lore), // one line shown before the night it comes
+  brief: z.string().min(WORDS.leastText).max(WORDS.brief), // the sprite brief the generator drew from
   archetype: z.enum(ARCHETYPES),
   modifiers: z.object({
     speed: modifierSchema,
@@ -59,7 +64,7 @@ export const creatureSchema = z.object({
     bite: modifierSchema,
     snuffing: modifierSchema,
   }),
-  anchorY: z.number().min(0.5).max(1), // where its feet touch the ground, as a fraction of the 128 px frame
+  anchorY: z.number().min(LOWEST_ANCHOR).max(1), // where its feet touch the ground, as a fraction of the 128 px frame
   score: z.number().min(0).max(10), // the verifier's score for the accepted sprite
   createdAt: z.string(), // ISO time
 });
@@ -88,7 +93,8 @@ export const creatureJobPath = (jobId: string) => `${CREATURE_API}/jobs/${jobId}
 
 // POST /api/creatures/next: the newest gallery creature this player hasn't met. When there is none, the server may
 // start making one (within its rate limits) and answers with the job to poll.
-export const nextCreatureRequestSchema = z.object({ seen: z.array(z.string()).max(500) });
+const SEEN_MAX = 500; // creatures a line can have met, and far more than the gallery holds
+export const nextCreatureRequestSchema = z.object({ seen: z.array(z.string()).max(SEEN_MAX) });
 export type NextCreatureRequest = z.infer<typeof nextCreatureRequestSchema>;
 
 export const JOB_STEPS = ["queued", "writing", "drawing", "rendering", "judging", "fixing", "done", "failed"] as const;

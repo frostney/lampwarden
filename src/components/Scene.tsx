@@ -40,8 +40,8 @@ import {
   type Lamp,
   type Monster,
   type MonsterKind,
-  type Puff,
   monsterStats,
+  type Puff,
   STAGE_HEIGHT,
   STAGE_WIDTH,
   type State,
@@ -52,6 +52,7 @@ import {
 // written straight to the Pixi objects through refs from memoised useTick callbacks; the sim itself steps at a fixed
 // 60 Hz in a higher-priority tick, so every other callback (and Pixi's render) sees the stepped state.
 import { ignore } from "@/lib/ignore";
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
 import { heroKey, heroView, type Sex } from "@/scene/assets";
 import type { Layout, Placed } from "@/scene/decor";
 import {
@@ -119,6 +120,9 @@ const STAGE_AREA = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT); // the scene 
 // Chooses the input for one sim step: live play passes `live` through (and records it), a replay ignores it.
 export type Driver = (stepIndex: number, live: Input, state: State) => Input;
 // What the scene shows: one night's state, whose warden it is, and who drives it. A new Night is a new scene structure.
+// the longest a frame may advance the night, in seconds: a tab that stalls does not jump the night ahead
+const LONGEST_FRAME = 0.05;
+
 // Runs every fixed 60 Hz sim step the accumulated time holds, so a recorded night replays exactly. A strike or a shot is
 // one press: it goes into the first step and is consumed.
 function runSteps(
@@ -222,7 +226,7 @@ export const Scene = memo(function Scene({
     priority: UPDATE_PRIORITY.HIGH,
     callback: useCallback(
       (ticker: Ticker) => {
-        const elapsedSeconds = Math.min(ticker.deltaMS / 1000, 0.05);
+        const elapsedSeconds = Math.min(ticker.deltaMS / MILLISECONDS_PER_SECOND, LONGEST_FRAME);
         const settings = live.current;
         clock.current = settings.frozenClock ?? clock.current + elapsedSeconds;
         const state = night.state;
@@ -481,7 +485,7 @@ function Boat({ state, boat }: { state: State; boat: Placed }) {
       if (!ref.current) {
         return;
       }
-      ref.current.y = boat.y + Math.sin(clock.current * 1.5) * 4;
+      ref.current.y = boat.y + Math.sin(clock.current * BOAT_BOB.rate) * BOAT_BOB.height;
       ref.current.tint = tintOf(state);
     }, [clock, state, boat]),
   );
@@ -514,14 +518,22 @@ function showRim(rim: Sprite | null, sprite: Sprite, texture: Texture, spec: Rim
   rim.alpha = spec.alpha;
   rim.position.copyFrom(sprite.position);
   rim.scale.x = sprite.scale.x;
-  rim.zIndex = sprite.zIndex + 0.001;
+  rim.zIndex = sprite.zIndex + JUST_ABOVE;
 }
 
+const JUST_ABOVE = 0.001; // a z-index step that puts a sprite over another without passing the next one
+// a boat rocks `height` px up and down, `rate` radians a second
+const BOAT_BOB = { rate: 1.5, height: 4 };
+
 // multiplies two tints, as one lands on top of the other
+const CHANNEL = { max: 255, red: 16, green: 8, blue: 0 };
 function multiplyTints(first: number, second: number) {
-  const mixed = (shift: number) => Math.round((((first >> shift) & 255) * ((second >> shift) & 255)) / 255) << shift;
-  return mixed(16) | mixed(8) | mixed(0);
+  const mixed = (shift: number) =>
+    Math.round((((first >> shift) & CHANNEL.max) * ((second >> shift) & CHANNEL.max)) / CHANNEL.max) << shift;
+  return mixed(CHANNEL.red) | mixed(CHANNEL.green) | mixed(CHANNEL.blue);
 }
+// the red a wounded warden and a wounded monster flash over their light
+const WOUNDED_TINT = { hero: 0xff8080, monster: 0xff7070 };
 
 const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
   const { textures, lighting } = useScene();
@@ -542,7 +554,7 @@ const Hero = memo(function Hero({ state, sex }: { state: State; sex: Sex }) {
       sprite.position.set(Math.round(hero.x), Math.round(hero.y));
       sprite.zIndex = hero.y;
       sprite.scale.x = view.mirrored ? -1 : 1;
-      sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, 0xff8080) : light.tint;
+      sprite.tint = hero.hurt > 0 ? multiplyTints(light.tint, WOUNDED_TINT.hero) : light.tint;
       showRim(rim.current, sprite, texture, light.rim);
     }, [textures, lighting, hero, sex]),
   );
@@ -661,7 +673,7 @@ const MonsterSprite = memo(function MonsterSprite({ monster, state }: { monster:
       sprite.position.set(Math.round(monster.x), Math.round(monster.y + monsterBob(state, monster.kind, monster.age)));
       sprite.zIndex = monster.y;
       sprite.scale.x = monster.x > CENTRE_X ? -1 : 1;
-      sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, 0xff7070) : light.tint;
+      sprite.tint = monster.hurt > 0 ? multiplyTints(light.tint, WOUNDED_TINT.monster) : light.tint;
       // a creature with frames shows the one its animation is at; any other monster, its one sprite
       const texture = textureFor(textures, monsterTextureKey(state, monster, textures));
       if (sprite.texture !== texture) {
@@ -926,7 +938,7 @@ function Projectiles({ state, sex }: { state: State; sex: Sex }) {
         let sprite = spritesByShot.current.get(shot.id);
         if (!sprite) {
           sprite = new Sprite(textures.stone);
-          sprite.anchor.set(0.5);
+          sprite.anchor.set(MIDDLE);
           container.addChild(sprite);
           spritesByShot.current.set(shot.id, sprite);
         }
@@ -995,16 +1007,24 @@ function flashHero(frame: ReturnType<typeof spriteFrame>, hero: HeroState, sex: 
   }
 }
 
+// A killed monster's silhouette flies `distance` px (times its recoil), and fades out over the last `fade` of its time.
+const GHOST_FLIGHT = { distance: 30, fadeFrom: 0.4, fade: 0.6 };
+const SCREEN_PER_GROUND_Y = 0.5; // the ground is foreshortened 2:1
+const MIDDLE = 0.5; // an anchor at a sprite's middle
+
 // Where a killed monster's silhouette is, flung back along the blow, and how far it has faded.
 function flungGhost(state: State, puff: Puff, ghost: NonNullable<Puff["ghost"]>) {
   const progress = puff.age / GHOST_TIME;
   // it hangs for the first two frames, like the hit-stop of a monster that survives, then flies
   const flight = Math.max(0, (puff.age - 2 / 60) / (GHOST_TIME - 2 / 60));
-  const travel = 30 * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
+  const travel = GHOST_FLIGHT.distance * monsterStats(state, ghost.monster).recoil * (1 - (1 - flight) ** 2);
   return {
     x: ghost.x + puff.directionX * travel,
-    y: ghost.y + puff.directionY * travel * 0.5 + monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
-    alpha: progress < 0.4 ? 1 : 1 - (progress - 0.4) / 0.6,
+    y:
+      ghost.y +
+      puff.directionY * travel * SCREEN_PER_GROUND_Y +
+      monsterBob(state, ghost.monster, ghost.monsterAge + puff.age),
+    alpha: progress < GHOST_FLIGHT.fadeFrom ? 1 : 1 - (progress - GHOST_FLIGHT.fadeFrom) / GHOST_FLIGHT.fade,
   };
 }
 
@@ -1083,6 +1103,7 @@ function useReducedMotion(): RefObject<boolean> {
 // longer: it throws the picture four pixels. Each runs on the sim's clock, so it holds still while paused, and neither
 // runs for a player who asks for reduced motion.
 const KILL_SHAKE = { time: 0.12, amplitude: 2 };
+const SHAKE_UP_EVERY = 3;
 const WOUND_SHAKE = { time: 0.22, amplitude: 4 };
 const NO_SHAKE = { startedAt: Number.NEGATIVE_INFINITY, time: 0, amplitude: 0 };
 // how hard a shake throws the picture `age` seconds in: its full amplitude for the first half, half of it for the rest
@@ -1146,7 +1167,8 @@ function ScreenShake({ state }: { state: State }) {
       }
       const strength = shakeAmplitude(remembered.shake, age);
       const tick = Math.floor(age * 60);
-      app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % 3 === 0 ? -1 : 1);
+      // across every other frame, and up a pixel every third
+      app.stage.position.set(tick % 2 === 0 ? strength : -strength, tick % SHAKE_UP_EVERY === 0 ? -1 : 1);
     }, [state, app, reducedMotion]),
   );
   return null;

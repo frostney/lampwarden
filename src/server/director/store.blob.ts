@@ -8,6 +8,8 @@
 // The prefix is "director" in production; a live test uses another ("director-dev") so the real record stays clean.
 import { get, put } from "@vercel/blob";
 
+import { HTTP_OK } from "@/lib/units";
+
 import { createBlobLedger, putIfAbsent } from "../blob";
 import { type DecisionLog, decisionLogSchema } from "./log";
 import type { DirectorStore } from "./store";
@@ -22,7 +24,7 @@ export function createBlobStore(prefix: string, playsPrefix: string): DirectorSt
 
   async function readJson(pathname: string): Promise<unknown> {
     const blob = await get(pathname, { access: "private", useCache: false });
-    if (blob?.statusCode !== 200) {
+    if (blob?.statusCode !== HTTP_OK) {
       return null;
     }
     try {

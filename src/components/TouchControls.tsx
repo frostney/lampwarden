@@ -6,9 +6,12 @@ import { useRef } from "react";
 
 import { Icon, type IconName } from "@/components/Icon";
 import { ARMS } from "@/game/weapons";
+import { eightWayStep } from "@/lib/eight-way";
 import type { Sex } from "@/scene/assets";
 
 type Action = "melee" | "ranged";
+
+const STICK_DEADZONE = 0.3; // of the stick's radius: nearer the middle than this is no direction
 
 export function TouchControls({
   sex,
@@ -36,12 +39,11 @@ export function TouchControls({
     if (knob.current) {
       knob.current.style.transform = `translate(${x * scale}px, ${y * scale}px)`;
     }
-    if (length < radius * 0.3) {
+    if (length < radius * STICK_DEADZONE) {
       onStick(0, 0);
       return;
     }
-    const sector = Math.round(Math.atan2(y, x) / (Math.PI / 4)); // 8 sectors
-    onStick(Math.round(Math.cos((sector * Math.PI) / 4)), Math.round(Math.sin((sector * Math.PI) / 4)));
+    onStick(...eightWayStep(x, y));
   };
   const end = () => {
     activePointer.current = null;

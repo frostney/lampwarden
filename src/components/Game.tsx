@@ -148,13 +148,14 @@ const hudOf = (state: State, legacy: Legacy): Hud => ({
   oil: legacy.oil + state.oilEarned,
   dawn: Math.min(1, state.elapsed / state.length),
 });
+const DAWN_STEP = 0.01; // the night bar moves on at every hundredth of the night
 const sameHud = (first: Hud, second: Hud) =>
   first.health === second.health &&
   first.hits === second.hits &&
   first.lit === second.lit &&
   first.kills === second.kills &&
   first.oil === second.oil &&
-  Math.abs(first.dawn - second.dawn) < 0.01;
+  Math.abs(first.dawn - second.dawn) < DAWN_STEP;
 
 // What the replay panel says about how a replay ended: null is a night that was abandoned, so has no end to compare.
 function replayVerdict(endsMatch: boolean | null): string {
@@ -878,6 +879,10 @@ function NightOverlays({
   );
 }
 
+const PERCENT = 100;
+const FASTEST_REPLAY = 4;
+const REPLAY_SPEEDS = [1, 2, FASTEST_REPLAY];
+
 // The bars over a night: the warden, health and slain, the night's progress, the lamps, and the controls (or, for a
 // replay, its speed).
 function NightHud({
@@ -916,7 +921,7 @@ function NightHud({
           key={hud.hits}
           role="meter"
         >
-          <i style={{ width: `${(hud.health / hud.maxHealth) * 100}%` }} />
+          <i style={{ width: `${(hud.health / hud.maxHealth) * PERCENT}%` }} />
         </div>
         <div aria-label={`${hud.kills} slain, ${hud.oil} oil`} className="oilline" role="img">
           <Icon name="slain" size={16} /> {hud.kills} <Icon name="oil" size={16} /> {hud.oil}
@@ -931,12 +936,12 @@ function NightHud({
           aria-label="Night until dawn"
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={Math.round(hud.dawn * 100)}
-          aria-valuetext={`${Math.round(hud.dawn * 100)} percent of the night gone`}
+          aria-valuenow={Math.round(hud.dawn * PERCENT)}
+          aria-valuetext={`${Math.round(hud.dawn * PERCENT)} percent of the night gone`}
           className="bar dawnbar"
           role="progressbar"
         >
-          <i style={{ width: `${hud.dawn * 100}%` }} />
+          <i style={{ width: `${hud.dawn * PERCENT}%` }} />
         </div>
       </div>
       <div aria-label={`${hud.lit} of ${hud.lamps} lamps lit`} className="lamps" role="img">
@@ -956,7 +961,7 @@ function NightHud({
       ) : (
         <div className="help replaybar">
           REPLAY {replayId}
-          {[1, 2, 4].map((multiplier) => (
+          {REPLAY_SPEEDS.map((multiplier) => (
             <button
               className={`btn small ${speed === multiplier ? "on" : ""}`}
               key={multiplier}

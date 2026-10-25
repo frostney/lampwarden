@@ -53,7 +53,8 @@ export function cleanLine(text: string): string {
   return `${(lastSpace > LINE_MAX / 2 ? cut.slice(0, lastSpace) : cut).replace(/[ .,;:\-–—]+$/, "")}…`;
 }
 
-const hundredths = (value: number) => Math.round(value * 100) / 100;
+const HUNDRED = 100;
+const hundredths = (value: number) => Math.round(value * HUNDRED) / HUNDRED;
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
 /** The tides a decision may pick, given the one the rules picked: TIDE_SPAN either way, never outside TIDE_MIN..TIDE_MAX. */
@@ -67,8 +68,9 @@ export function tideRange(rulesTide: number, engagement?: EngagementKind): [numb
  * What a model may propose. Numbers are all that is trusted; the reasoning (one short sentence) is only recorded. A reply
  * that still carries an `expectedEffect` (the earlier, longer shape) parses too: the key is ignored.
  */
+const REASONING_MAX = 2000; // characters: one short sentence is asked for, and anything longer is not kept
 const proposalSchema = z.object({
-  reasoning: z.string().max(2000).catch(""),
+  reasoning: z.string().max(REASONING_MAX).catch(""),
   tide: z.number().finite(),
   mix: z.object({ satyr: z.number().finite(), cyclops: z.number().finite(), harpy: z.number().finite() }),
   creatureShare: z.number().finite(),

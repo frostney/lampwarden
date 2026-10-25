@@ -10,6 +10,8 @@ import { join } from "node:path";
 
 import { ENV } from "varlock/env";
 
+import { MILLISECONDS_PER_SECOND } from "@/lib/units";
+
 import { createMubitClient } from "../../../pipeline/mubit";
 import { renderBatchSafely, renderSafely } from "../../../pipeline/render-vercel-sandbox";
 import { readRunnerFiles, runnerBundleSha } from "../../../pipeline/runner-bundle";
@@ -84,7 +86,7 @@ function createJobDeps(config: CreatureConfig, store: CreatureStore): JobDeps | 
       verifier: readPrompt("verifier.md"),
     },
     entropy: randomEntropy,
-    budgetMilliseconds: JOB_BUDGET_SECONDS * 1000,
+    budgetMilliseconds: JOB_BUDGET_SECONDS * MILLISECONDS_PER_SECOND,
     candidates: config.candidates,
     ...(config.debugDirectory ? { onOutcome: debugSink(config.debugDirectory) } : {}),
   };

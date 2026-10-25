@@ -2,6 +2,7 @@
 // During a night the pad drives the warden: left stick or d-pad moves (8-way, like the touch stick, so recordings stay
 // small), A strikes, B / X / right trigger shoot (along the right stick when it is held, else at the nearest monster),
 // and getting hurt rumbles. In the menus the d-pad or left stick moves focus between buttons and A / Start presses.
+import { eightWayStep } from "../lib/eight-way";
 import { type Controls, press } from "./controls";
 import type { State } from "./sim";
 
@@ -65,14 +66,15 @@ function eightWay(horizontal: number, vertical: number): [number, number] {
   if (Math.hypot(horizontal, vertical) < STICK_DEADZONE) {
     return [0, 0];
   }
-  const sector = Math.round(Math.atan2(vertical, horizontal) / (Math.PI / 4));
-  return [Math.round(Math.cos((sector * Math.PI) / 4)), Math.round(Math.sin((sector * Math.PI) / 4))];
+  return eightWayStep(horizontal, vertical);
 }
 
 // The d-pad along one axis: 1 for the positive button, -1 for the negative one, 0 for neither or both.
 const padAxis = (gamepad: Gamepad, positive: number, negative: number) =>
   (isPressed(gamepad, positive) ? 1 : 0) - (isPressed(gamepad, negative) ? 1 : 0);
 
+const AIM_HEIGHT = 40; // where a shot leaves the warden, above his feet
+const SCREEN_PER_GROUND_Y = 0.5; // the ground is foreshortened 2:1
 // A shot: along the right stick when it is pushed, else the way the warden faces.
 function shootWithPad(controls: Controls, gamepad: Gamepad, state: State) {
   const aimHorizontal = gamepad.axes[2] ?? 0;
@@ -86,7 +88,7 @@ function shootWithPad(controls: Controls, gamepad: Gamepad, state: State) {
   controls.ranged = true;
   controls.aim = {
     x: Math.round(state.hero.x + (aimHorizontal / length) * AIM_DISTANCE),
-    y: Math.round(state.hero.y - 40 + (aimVertical / length) * AIM_DISTANCE * 0.5),
+    y: Math.round(state.hero.y - AIM_HEIGHT + (aimVertical / length) * AIM_DISTANCE * SCREEN_PER_GROUND_Y),
   };
 }
 
@@ -130,6 +132,8 @@ export function pollGamepadForPlay(controls: Controls, state: State, memory: Gam
   memory.wasHurt = hurt;
 }
 
+const MENU_REPEAT = { first: 350, held: 140 }; // ms before the first repeat of a held direction, and between the rest
+
 // Called once per frame outside a night: returns the menu action the pad asks for, if any.
 export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuAction | null {
   const gamepad = activeGamepad();
@@ -154,6 +158,6 @@ export function pollGamepadForMenu(memory: GamepadMemory, now: number): MenuActi
     return null;
   }
   // first move at once, then repeat while held
-  memory.menuRepeatAt = now + (memory.menuRepeatAt === 0 ? 350 : 140);
+  memory.menuRepeatAt = now + (memory.menuRepeatAt === 0 ? MENU_REPEAT.first : MENU_REPEAT.held);
   return direction > 0 ? "next" : "previous";
 }

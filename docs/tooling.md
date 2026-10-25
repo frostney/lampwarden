@@ -166,7 +166,7 @@ each. It checks pixels and the DOM (lit lanterns glow, dark lamps have no light 
 the scene brightens towards dawn, each upgrade has its icon, no console errors) and diffs every pass against the last
 approved one. Run it against `bun run build && bun run start`, then look at `verify-out/sheet.png` (git-ignored) after
 every change that can show on screen. `--update` approves the pass as the new baseline; `--headless` exists, but the
-report then says the pass was not visual. The creature, recording and director APIs are stubbed, so it never reaches Mubit. The game opened with
+report then says the pass was not visual. The creature, building, recording and director APIs are stubbed, so it never reaches Mubit. The building scenario (21c) stubs a recoloured committed house as the live building: the title line, the building drawn in the plaza's building slot at its record's anchor, its id recorded with the night and shown again on replay, and the committed plaza when its sprite will not load or a play has no building. The game opened with
 `?verify=1` does not upload its nights.
 
 The props stand differently every night (`src/scene/decor.ts`), so no check assumes where one is. It reads the prop sprites

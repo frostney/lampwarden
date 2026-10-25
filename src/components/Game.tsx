@@ -41,7 +41,7 @@ import {
   type UpgradeId,
   upgradeCost,
 } from "@/game/legacy";
-import { describeNight, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
+import { describeNight, playSchema, playVersion, RUNNING_SIM, replaysExactlyOn } from "@/game/plays";
 import { bindKeyboardPress, flashPressed } from "@/game/pressed";
 import { type Play, Recorder, resendQueuedPlays, upload } from "@/game/recording";
 import { creatureOf, legacyOf, Replayer, verifyPlay } from "@/game/replay";
@@ -60,6 +60,7 @@ import {
 } from "@/game/sim";
 import { ARMS, shopSex, upgradeView } from "@/game/weapons";
 import { SEXES, type Sex } from "@/scene/assets";
+import { decorFor } from "@/scene/decor";
 import { loadCreatureTextures, loadTextures, NIGHT_SEA, standInTextures, type TextureMap } from "@/scene/layers";
 
 // the canvas: 960x600 game pixels, scaled by CSS, no smoothing
@@ -180,7 +181,7 @@ export default function Game() {
   phaseRef.current = phase;
   const recorderRef = useRef<Recorder | null>(null);
   const [replay, setReplay] = useState<{ play: Play; endsMatch: boolean | null } | null>(null);
-  const [refusedPlay, setRefusedPlay] = useState<Play | null>(null); // a recording from another version of the sim
+  const [refusedPlay, setRefusedPlay] = useState<unknown>(null); // a recording from another version of the sim
   const [replayError, setReplayError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
   const { tonight, ask, withdraw } = useTonight();
@@ -371,41 +372,52 @@ export default function Game() {
     app.ticker.addOnce(() => requestAnimationFrame(() => setDrawn(true)));
   }, []);
 
-  // puts a night on stage
+  // Puts a night on stage. Its decorations are laid out from the seed the night starts from, which is still the sim's
+  // randomState here: no step has drawn from it, and a replay builds its state from the recorded seed, so it lays out the
+  // same plaza.
   const show = useCallback(
     (state: State, sex: Sex, driver: Driver | null = null, creatureTextures: TextureMap | null = null) => {
       stateRef.current = state;
-      setNight({ state, sex, driver, creatureTextures });
+      setNight({ state, sex, driver, creatureTextures, decor: decorFor(state.randomState) });
     },
     [],
   );
 
   const startReplay = useCallback(
     async (id: string) => {
-      let play: Play;
+      let fetched: unknown;
       try {
-        if (id === "last") play = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
+        if (id === "last") fetched = JSON.parse(localStorage.getItem("lampwarden:lastPlay") || "null");
         else {
           const response = await fetch(`/api/plays/${encodeURIComponent(id)}`);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          play = await response.json();
+          fetched = await response.json();
         }
-        if (play?.v !== 1) throw new Error("no recording");
-        if (play.creature !== undefined && !recordedCreatureSchema.safeParse(play.creature).success)
-          throw new Error("bad creature in the recording");
       } catch (error) {
         setReplayError(String(error));
         return;
       }
+      const version = playVersion.safeParse(fetched);
+      if (!version.success) {
+        setReplayError("there is no recording");
+        return;
+      }
       // A night replays exactly only on the sim it was played on. Another version (or one from before versions were
       // noted) would show a night nobody played, so it is described, not played.
-      if (!replaysExactlyOn(play, RUNNING_SIM)) {
-        setRefusedPlay(play);
+      if (!replaysExactlyOn(version.data, RUNNING_SIM)) {
+        setRefusedPlay(fetched);
         setReplayError(null);
         phaseRef.current = "replayRefused";
         setPhase("replayRefused");
         return;
       }
+      // a recording on this sim is replayed only whole: one that is damaged or was not made by the game is refused
+      const parsed = playSchema.safeParse(fetched);
+      if (!parsed.success) {
+        setReplayError("the recording is damaged and can't be replayed");
+        return;
+      }
+      const play = parsed.data;
       const replayLegacy = legacyOf(play);
       legacyRef.current = { ...legacyRef.current, ...replayLegacy }; // shown in the HUD only; never saved
       const creature = creatureOf(play);
@@ -759,7 +771,7 @@ export default function Game() {
             </button>
           </div>
         )}
-        {phase === "replayRefused" && refusedPlay && (
+        {phase === "replayRefused" && refusedPlay !== null && (
           <div className="panel" data-panel="replay-refused" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
             <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
               AN EARLIER VERSION
@@ -799,15 +811,19 @@ export default function Game() {
           />
         )}
         {replayError && (
-          <div className="panel" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
+          <div className="panel" data-panel="replay-error" role="dialog" aria-labelledby={PANEL_TITLE_ID}>
             <h2 className="logo small" id={PANEL_TITLE_ID} tabIndex={-1} ref={focusOnMount}>
               NO REPLAY
             </h2>
             <p>Could not load that replay: {replayError}</p>
+            <button type="button" className="btn big" onClick={() => location.assign("/")}>
+              Back to the title
+            </button>
           </div>
         )}
 
-        {phase === "title" && !loadFailure && (
+        {/* a replay that could not load says so in place of the title, which would otherwise cover it */}
+        {phase === "title" && !loadFailure && !replayError && (
           <TitleScroll>
             <div className="scroll-layout">
               <div className="scroll-intro">

@@ -1,5 +1,6 @@
 // GET /api/creatures/:id/sprite.png: a gallery creature's sprite from the private Blob store. Ids are unique and a
-// sprite never changes, so the response is cached for good.
+// sprite never changes, so the response is cached for good: in the browser by cache-control, and in Vercel's CDN by
+// cdn-cache-control, which the CDN ranks above cache-control (vercel.com/docs/caching/cache-control-headers).
 import { createServiceDeps } from "@/server/creatures/deps";
 
 const CREATURE_ID = /^[a-z0-9-]{8,80}$/;
@@ -12,7 +13,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     if (!sprite)
       return Response.json({ error: "not found" }, { status: 404, headers: { "cache-control": "no-store" } });
     return new Response(sprite, {
-      headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" },
+      headers: {
+        "content-type": "image/png",
+        "cache-control": "public, max-age=31536000, immutable",
+        "cdn-cache-control": "public, max-age=31536000, immutable",
+      },
     });
   } catch {
     return Response.json({ error: "unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });

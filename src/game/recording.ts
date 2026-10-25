@@ -17,7 +17,7 @@ export interface Play {
   id: string;
   session: string; // random per browser, no personal data
   build: string; // git sha of the deployment, when known
-  sim?: string; // fingerprint of the sim sources the night was played on (tools/sim-fingerprint); old plays have none
+  sim?: string | undefined; // fingerprint of the sim sources the night was played on (tools/sim-fingerprint); old plays have none
   startedAt: string;
   seed: number;
   // levels as recorded: a play from before an upgrade existed has no entry for it (level 0, see legacyOf). The director
@@ -27,7 +27,7 @@ export interface Play {
     director?: unknown;
   };
   // the creature from the sea that joined the night, when one did; a play from before creatures has none
-  creature?: RecordedCreature;
+  creature?: RecordedCreature | undefined;
   inputs: InputRow[];
   timeline: TimelineRow[];
   steps: number;
@@ -36,8 +36,8 @@ export interface Play {
   stats: State["stats"] & { oilEarned: number; hp: number; maxHp: number; lit: number };
   // Seconds the tab was hidden during the night (it stops the sim; src/game/engagement.ts reads it as time away). Plays from
   // before it was kept have none.
-  hiddenSeconds?: number;
-  replay?: { endsMatch: boolean }; // filled in when a recording is verified by replay
+  hiddenSeconds?: number | undefined;
+  replay?: { endsMatch: boolean } | undefined; // filled in when a recording is verified by replay
 }
 
 const randomId = () => Math.random().toString(36).slice(2, 10);

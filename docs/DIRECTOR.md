@@ -143,12 +143,23 @@ removed or its hidden time set, since no recorded night was idle or paused. Mode
   invalid JSON, or a reply with no line, the route answers `{decision (the rules'), fallback}` with `source: "rules"`.
   Only a play it cannot find is an HTTP error (404), which the game treats the same.
 - Asking again about a play the model decided returns the logged decision and calls nothing (a play whose call fell back
-  is asked again, and costs a limit mark each time). Two calls at once for one play both reach the model, but the first
-  decision logged stands. The model is shown its earlier reasoning only from a log of the same session.
+  is asked again, and costs a limit mark each time). The model is shown its earlier reasoning only from a log of the same
+  session.
+- One call to the model per play per minute. After the limits are read and before the call is marked, a call claims the play for the current minute
+  (`claims/<playId>-<minute>`, a blob put that fails if the blob exists); of several calls at the same moment one claims
+  it and goes on, and the others get the rules' decision with fallback `rate-limited` (a `director-busy` line in the
+  function's log) without reading the ledger or calling the model. The claim lapses with the minute, so a play whose
+  call fell back can be asked again, and one that never finished cannot lock a play out. Across a minute boundary a
+  second call can claim the next minute while the first is still running; the ledger below still counts both.
 - The whole decision has a 20 s deadline after the play is read; past it the rules answer.
 - Limits: 40 calls per visitor per hour and 2000 per UTC day, by the same salted IP hash the creature routes use
-  (`DIRECTOR_RATE_SALT`, else `CREATURE_RATE_SALT`, at least 16 characters; without a salt the model is off).
-  `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`.
+  (`DIRECTOR_RATE_SALT`, else `CREATURE_RATE_SALT`, at least 16 characters; without a salt the model is off; an IPv6
+  address counts as its /64, an IPv4-mapped one as the IPv4 address).
+  `DIRECTOR_MAX_CALLS_PER_VISITOR_PER_HOUR`, `DIRECTOR_MAX_CALLS_PER_DAY`. The call is marked (two tiny blobs, each
+  ending in a random suffix so two marks for one play in one millisecond cannot collide) after the limits pass and
+  before the model is asked; if it cannot be marked, the rules answer (`error`) and the model is not called.
+- The same limits do not cover `/api/plays`, the upload the director reads from: that route is limited on its own (see
+  "Not done, or to watch").
 - Logging: each decision is one blob, `<DIRECTOR_BLOB_PREFIX, default director>/decisions/<playId>.json`: the summary the
   model was told, the decision, the reasoning, the source and fallback reason, the Mubit request id
   (`x-middleware-request-id`), tokens and cache numbers, a hash of the prompt, and the time spent per stage. The same
@@ -277,11 +288,24 @@ earlier reasoning only from the same session.)
 
 - A play's positions are not recorded, so the model cannot be told how far the warden was from a lamp when it went dark.
   Replaying the play would give it, but a recording only replays on the build that made it.
-- The play is uploaded by the client, so its `legacy.director` (the previous decision) is client-supplied. It is validated
-  and clamped before it reaches the model and only ever shown to the model as data (the prompt says so), and the model's
-  output reaches players only as the clamped, plain, 90-character line.
-- Two calls at the same moment can both pass the limit check (the marks are counted, not locked), as the creature
-  routes' do.
+- The play is uploaded by the client and nothing replays it on the server, so everything in the summary (stats, timeline,
+  legacy, the previous decision in `legacy.director`) is the player's claim. The decision log marks this with
+  `replayed: false`. The previous decision is validated and clamped before it reaches the model and only ever shown to
+  the model as data (the prompt says so), and the model's output reaches players only as the clamped, plain,
+  90-character line.
+- The limits are read after the play is (a few blob reads, up to 1.4 s of waiting for a play that is not there), not before:
+  the answer is the rules' decision, which is worked out from the play, and the ledger only counts calls the model
+  made, so a visitor who has not yet called it is not refused early anyway. Answering "limited" before the lookup would
+  need a new answer shape (an error, which the game already treats as the rules'); not done.
+- The claim above stops a burst for one play. Calls for different plays by one visitor at the same moment can still all
+  pass the hourly check before any of them is marked; each needs a stored play, and uploads are limited to 120 an hour
+  per visitor (`src/server/plays/service.ts`: `UPLOADS_PER_VISITOR_PER_HOUR`) and 3000 a UTC day for the site, by the
+  same salt (without one, as in local development, uploads are not limited; only the first write of an id counts). An
+  upload under an id already stored answers 200 and keeps the more complete recording: it replaces the stored one (by
+  ETag, so a concurrent write is not overwritten) only when it has more steps, or ended the night the stored one did
+  not; a resend, or a stale snapshot of a night that finished, changes nothing. Past a limit the finished night of a
+  snapshot already stored still lands, and nothing else does. Whoever knows a play id can replace its recording with a
+  longer one: ids are random, and the recording is the player's word either way. The daily call ceiling bounds the spend either way.
 - The model call has 8 s; the slowest of the live run took 6.5 s, and none of 72 calls in the latency measurement above
   took longer than 7.4 s. If production latency is higher, calls fall back to the rules and the loop goes quiet. The two
   levers are a shorter reply (see "Latency by reply shape") and `MODEL_TIMEOUT_MILLISECONDS` in

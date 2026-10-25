@@ -83,13 +83,14 @@ honest client: one that fabricates its inputs, or leaves the field out, is judge
 The two clauses of `idle` are needed: one recorded night moves for only 13% of it but strikes and shoots 26 times a
 minute, a warden who stands his ground and fights, and is engaged.
 
-**Short nights.** A night now lasts 16 s on night 1 and 22, 28, 34, 40, 46 and 52 s after it, so the rule is read on a
-few seconds of play. The thresholds are shares and rates, so they scale, and they were checked on 16 s nights (tests in
-`engagement.test.ts`): two blows in 16 s is 7.5 a minute, engaged without moving; one blow, or none, standing still is
-idle; "paused" needs more than half of the real time away, which on night 1 is more than 16 s hidden (the 10 s floor
-only matters on a night that is itself short of 10 s, which the game never plays). `rulesTide`'s kill rate is kills per
-real minute of the night with no floor of a minute (it was `max(1, seconds / 60)`, which on a night under a minute read
-a night's kills, not a rate; that is what made "fast" mean 20 kills in the night, out of reach of a 16 s night).
+**Short nights.** A night lasts 28 s on night 1 and 34, 40, 46, 52, 58 and 64 s after it (it was 16 to 52 s for a day,
+and 40 to 76 s before that), so the rule is read on a few seconds of play. The thresholds are shares and rates, so they
+scale, and they were checked on 16 s nights, shorter than any the game plays now, and on 28 s (tests in `engagement.test.ts`): two blows
+in 16 s is 7.5 a minute, engaged without moving; one blow, or none, standing still is idle; "paused" needs more than half
+of the real time away, which on night 1 is now more than 28 s hidden (the 10 s floor only matters on a night that is
+itself short of 10 s, which the game never plays). `rulesTide`'s kill rate is kills per real minute of the night with no
+floor of a minute (it was `max(1, seconds / 60)`, which on a night under a minute read a night's kills, not a rate; that
+is what made "fast" mean 20 kills in the night, out of reach of a 16 s night).
 
 **The nine recorded plays** (played on the earlier 40 s night 1; a test reads them where they exist; they are not committed):
 
@@ -246,6 +247,24 @@ fixed per night as in the first column):
 bounds still move a person's night about as far as before, 14 points either way on night 3, and the perfect bot with no
 upgrades is harder at night 5 than it was (33% against 82%); in a campaign, with the upgrades it buys, it holds night 5 in
 70% of lines against 80% before.
+
+### On the longer nights (25 Oct 2026)
+
+The same stubs after night 1 was lengthened to 28 s (nights 28 to 64 s), `SPAWN_INTERVAL` 1.3 to 2.6 and the first
+monster brought from 2.5 s to 1 s, 200 seeded nights each, dawn rate, against the table above:
+
+| warden | night (rules' tide) | rules | eased | pushed |
+| ------ | ------------------- | ----- | ----- | ------ |
+| human  | 1 (1)               | 89%   | 89%   | 87%    |
+| human  | 2 (1)               | 78%   | 78%   | 71%    |
+| human  | 3 (1.1)             | 61%   | 74%   | 51%    |
+| human  | 5 (1.2)             | 7%    | 19%   | 1%     |
+| bot    | 5 (1.2)             | 96%   | 100%  | 80%    |
+
+The bounds move a person's night about as far as before: easing adds 13 points on night 3 and pushing takes 10 off. The
+perfect bot with no upgrades is easier at night 5 than on the 16 s nights (96% against 33%). Night 1 is not at 95%: the
+human-paced bot holds 87 to 94% of 28 s night 1s at every spawn gap from 2.3 to 6 s, because the nights it loses are
+those of a clumsy warden who does little for 20 s, and fewer monsters do not save him from the ones that come.
 
 ## Latency by reply shape
 

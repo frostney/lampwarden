@@ -8,8 +8,8 @@ export const JOB_MAX_DURATION_SECONDS = 300;
 export const JOB_BUDGET_SECONDS = JOB_MAX_DURATION_SECONDS - 30;
 
 // A normal session starts a job per night (the game asks for the next night's creature as a night begins). A night lasts
-// 16 to 52 s, so a quick player (no time at the dawn panel) starts a job every half minute or so: 12 an hour can be reached
-// within ten minutes, and the site's daily ceiling stays the cost control (one visitor can use at most 12 of its 40). Past it a
+// 28 to 64 s, so a quick player (no time at the dawn panel) starts a job every half minute to a minute: 12 an hour can be
+// reached in about ten minutes, and the site's daily ceiling stays the cost control (one visitor can use at most 12 of its 40). Past it a
 // visitor still meets what the gallery has.
 const DEFAULT_STARTS_PER_VISITOR_PER_HOUR = 12;
 const DEFAULT_STARTS_PER_DAY = 40;

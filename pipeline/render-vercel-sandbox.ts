@@ -45,6 +45,8 @@ const SANDBOX_JOB_DIRECTORY = "/vercel/sandbox/job";
 const DEFAULT_ITEM_DEADLINE_MILLISECONDS = 30_000;
 const DEFAULT_VCPUS = 1;
 const BOOT_AND_TRANSFER_MARGIN_MILLISECONDS = 60_000;
+const BATCH_GRACE_MILLISECONDS = 30_000; // past the batch's own deadline before it is given up on
+const ERROR_KEPT = 400; // characters of a failure kept
 const NO_NETWORK: NetworkPolicy = "deny-all";
 
 export interface RenderSandboxOptions {
@@ -224,12 +226,12 @@ export async function renderBatchSafely(
   try {
     return await withDeadline(
       renderBatchInSandbox(requests, options, batchSignal),
-      deadline + 30_000,
+      deadline + BATCH_GRACE_MILLISECONDS,
       "timed out",
       deadlineController,
     );
   } catch (error) {
-    const reason = `vercel sandbox: ${error instanceof Error ? error.message : String(error)}`.slice(0, 400);
+    const reason = `vercel sandbox: ${error instanceof Error ? error.message : String(error)}`.slice(0, ERROR_KEPT);
     return requests.map(() => ({ ok: false, error: reason }));
   }
 }

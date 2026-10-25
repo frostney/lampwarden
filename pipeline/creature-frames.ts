@@ -3,6 +3,7 @@
 // (src/game/creature-frames.ts has the layout). The generator writes `pose: POSE || 'idle'` into the builder call, and the
 // runner passes the pose in as POSE, so the same code draws every frame; a builder that ignores POSE draws the same figure in
 // every frame, which is caught here and refused, not shipped as an animation that does not move.
+
 import {
   CREATURE_FRAME_COUNTS,
   CREATURE_FRAME_SIZE,
@@ -10,6 +11,7 @@ import {
   creatureAtlasLayout,
   creaturePoseName,
 } from "../src/game/creature-frames";
+import { BYTES_PER_PIXEL, solidPixels } from "../src/lib/pixels";
 import { PixelImage } from "../tools/logo/image";
 import { decodePng, encodePng } from "../tools/logo/png";
 import { RENDER_ABORTED, type RenderRequest, type RenderResult } from "./render-types";
@@ -57,16 +59,6 @@ export function frameRequests(code: string): RenderRequest[] {
 /** A frame that draws less than this is a pose that drew nothing (a figure is hundreds of pixels). */
 const MIN_FIGURE_PIXELS = 100;
 
-const opaquePixels = (rgba: Uint8Array) => {
-  let count = 0;
-  for (let offset = 3; offset < rgba.length; offset += 4) {
-    if ((rgba[offset] ?? 0) > 200) {
-      count++;
-    }
-  }
-  return count;
-};
-
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
@@ -88,7 +80,7 @@ function framePicture(result: RenderResult | undefined, pose: string): PixelImag
       reason: `${pose} is ${picture.width}x${picture.height}, not ${CREATURE_FRAME_SIZE} px square`,
     };
   }
-  if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
+  if (solidPixels(picture.data) < MIN_FIGURE_PIXELS) {
     return { ok: false, kind: "blank", reason: `${pose} is empty: the pose draws no figure` };
   }
   return picture;
@@ -108,10 +100,10 @@ export function assembleFrameSet(results: readonly RenderResult[]): FrameSetResu
       return picture;
     }
     for (let row = 0; row < CREATURE_FRAME_SIZE; row++) {
-      const from = row * CREATURE_FRAME_SIZE * 4;
+      const from = row * CREATURE_FRAME_SIZE * BYTES_PER_PIXEL;
       atlas.data.set(
-        picture.data.subarray(from, from + CREATURE_FRAME_SIZE * 4),
-        ((cell.y + row) * atlas.width + cell.x) * 4,
+        picture.data.subarray(from, from + CREATURE_FRAME_SIZE * BYTES_PER_PIXEL),
+        ((cell.y + row) * atlas.width + cell.x) * BYTES_PER_PIXEL,
       );
     }
     if (cell.animation === "walk") {

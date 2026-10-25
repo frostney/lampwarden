@@ -12,7 +12,10 @@ import { RENDERED_WITH, type Renderer, type RenderRequest, type RenderResult, ty
 import { verifierImageBase64 } from "./verifier-image";
 
 const PASSING_SCORE = 7;
-const BORDERLINE_SCORES = [6, 7] as const;
+const BORDERLINE_LOW = 6;
+const BORDERLINE_SCORES = [BORDERLINE_LOW, PASSING_SCORE] as const;
+const PERCENT = 100;
+const UNPARSED_KEPT = 200; // characters of a reply that could not be read, kept for the log
 export const GENERATOR_MAX_TOKENS = 1500;
 const GENERATOR_RETRY_MAX_TOKENS = 4000;
 export const FIX_MAX_TOKENS = 3000;
@@ -153,7 +156,7 @@ export function parseVerdict(text: string | null): Verdict | null {
 }
 
 function verifierMessage(brief: string, code: string, stats: RenderStats, png: Uint8Array): ModelMessage {
-  const statsSummary = `bbox ${stats.bbox}, coverage ${formatFixed(100 * stats.coverage, 0)}%, parts ${stats.parts}, flags ${stats.flags}`;
+  const statsSummary = `bbox ${stats.bbox}, coverage ${formatFixed(PERCENT * stats.coverage, 0)}%, parts ${stats.parts}, flags ${stats.flags}`;
   const content: ContentBlock[] = [
     {
       type: "text",
@@ -186,7 +189,7 @@ async function verifyOnce(
     logFields,
     VERIFIER_MAX_TOKENS,
   );
-  const unparsed = (text || (typeof record.error === "string" ? record.error : "")).slice(0, 200);
+  const unparsed = (text || (typeof record.error === "string" ? record.error : "")).slice(0, UNPARSED_KEPT);
   const verdict = parseVerdict(text) ?? {
     pass: false,
     score: null,
@@ -280,10 +283,10 @@ export function engineFlagIssues(stats: RenderStats): string[] {
     issues.push(`sprite touches the canvas edge (bbox ${stats.bbox}): keep everything within |u|,|v|<=14 and z<=40`);
   }
   if (stats.flags.includes("too_small")) {
-    issues.push(`sprite covers only ${formatFixed(100 * stats.coverage, 1)}% of the canvas: make it bigger`);
+    issues.push(`sprite covers only ${formatFixed(PERCENT * stats.coverage, 1)}% of the canvas: make it bigger`);
   }
   if (stats.flags.includes("too_big")) {
-    issues.push(`sprite covers ${formatFixed(100 * stats.coverage, 0)}% of the canvas: make it smaller`);
+    issues.push(`sprite covers ${formatFixed(PERCENT * stats.coverage, 0)}% of the canvas: make it smaller`);
   }
   if (stats.flags.includes("too_short")) {
     issues.push("sprite is under 24 px tall: make it taller");
@@ -291,12 +294,22 @@ export function engineFlagIssues(stats: RenderStats): string[] {
   return issues;
 }
 
+const SESSION_BRIEF = 34; // characters of the brief a session's name carries
+
+/** The Mubit session a brief's calls group under: its id and the start of its text. */
+export const sessionOf = (id: string, text: string) =>
+  `lampwarden-${id}-${Array.from(text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
+    .slice(0, SESSION_BRIEF)
+    .join("")}`;
+
+const SLUG_LENGTH = 48;
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
+    .slice(0, SLUG_LENGTH);
 }
 
 /** A score as the fix prompt shows it: `None` without one, and an averaged score always with a decimal (`6.0`). */
@@ -385,9 +398,7 @@ export interface LoopOutcome {
 /** Runs the whole loop for one brief. Returns its manifest row and the winning attempt, or null when nothing renderable came out. */
 export async function runLoop(context: LoopCore, brief: Brief): Promise<LoopOutcome | null> {
   const print = context.print ?? console.log;
-  const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
-    .slice(0, 34)
-    .join("")}`;
+  const session = sessionOf(brief.id, brief.text);
   const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const messages: ModelMessage[] = [{ role: "user", content: `Brief: ${brief.text}` }];
   await context.onStage?.("drawing");
@@ -538,9 +549,7 @@ export async function runCandidateLoop(
 ): Promise<CandidateOutcome | null> {
   const print = context.print ?? console.log;
   const staging = reportingEachStageOnce(context);
-  const session = `lampwarden-${brief.id}-${Array.from(brief.text.replace(/[^\p{L}\p{N}_]+/gu, "-"))
-    .slice(0, 34)
-    .join("")}`;
+  const session = sessionOf(brief.id, brief.text);
   const logFields = { bid: brief.id, cat: brief.category, brief: brief.text, render: RENDERED_WITH };
   const spriteName = slugify(brief.id);
 

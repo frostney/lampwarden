@@ -12,6 +12,7 @@
 //
 // The recording is the client's, so this holds for an honest client: one that hides what it does, or leaves the field out,
 // is judged on what it sent.
+import { hundredths } from "../lib/round";
 import { type EngagementKind, mayEase } from "./director-decision";
 
 /** Moving for less of the night than this, and acting less often than ACTIONS_PER_MINUTE, is idle. */
@@ -50,8 +51,6 @@ export interface Engagement {
 }
 
 const tenth = (value: number) => Math.round(value * 10) / 10;
-const HUNDRED = 100;
-const hundredth = (value: number) => Math.round(value * HUNDRED) / HUNDRED;
 
 /**
  * The classification, in order: left (the night did not finish, so it says nothing about how hard it was), paused (most of
@@ -111,14 +110,14 @@ export function engagementOf(play: RecordedEngagement): Engagement {
   return {
     kind: kindOf(play, movingShare, actionsPerMinute, pausedSeconds, pausedShare),
     simSeconds: tenth(simSeconds),
-    movingShare: hundredth(movingShare),
+    movingShare: hundredths(movingShare),
     strikes,
     shots,
     inputChanges: inputs.length,
     actionsPerMinute: tenth(actionsPerMinute),
     wallSeconds: wallSeconds === null ? null : tenth(wallSeconds),
     pausedSeconds: pausedSeconds === null ? null : tenth(pausedSeconds),
-    pausedShare: pausedShare === null ? null : hundredth(pausedShare),
+    pausedShare: pausedShare === null ? null : hundredths(pausedShare),
   };
 }
 

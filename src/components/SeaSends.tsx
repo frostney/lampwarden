@@ -1,11 +1,12 @@
 "use client";
-// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one.
-// Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever an
-// announcement: nothing here has to finish before the night can begin.
 import { useEffect, useRef } from "react";
 
 import { creatureSpritePath, type JobStep } from "@/game/creature";
 import type { Tonight } from "@/game/sea";
+// "Tonight the sea sends…": the creature that will join the coming night, or a note that the sea is still shaping one.
+// Shown on the title and on the dawn and heir panels, above the button that starts the night. It is only ever an
+// announcement: nothing here has to finish before the night can begin.
+import { ALPHA_BYTE, BYTES_PER_PIXEL } from "@/lib/pixels";
 
 const STEP_TEXT: Record<JobStep, string> = {
   queued: "the tide gathers",
@@ -61,8 +62,6 @@ export function SeaSends({ tonight, onSpriteBroken }: SeaSendsProps) {
 // at the largest whole multiple that fits the panel, keeping every pixel square.
 const PORTRAIT_HEIGHT = 72;
 const OPAQUE = 128;
-const RGBA = 4; // bytes a pixel
-const ALPHA = 3; // the alpha byte of a pixel
 
 // The box around a picture's opaque pixels, or null when it has none.
 function opaqueBounds({ data, width, height }: ImageData) {
@@ -72,7 +71,7 @@ function opaqueBounds({ data, width, height }: ImageData) {
   let bottom = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if ((data[(y * width + x) * RGBA + ALPHA] ?? 0) >= OPAQUE) {
+      if ((data[(y * width + x) * BYTES_PER_PIXEL + ALPHA_BYTE] ?? 0) >= OPAQUE) {
         left = Math.min(left, x);
         right = Math.max(right, x);
         top = Math.min(top, y);

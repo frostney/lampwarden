@@ -10,6 +10,8 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { ALPHA_BYTE, BYTES_PER_PIXEL } from "../src/lib/pixels";
+import { MILLISECONDS_PER_SECOND } from "../src/lib/units";
 import { heroAtlasPath, heroFrames, SEXES } from "../src/scene/assets";
 import { decodePng } from "../tools/logo/png";
 import { atlasCellPixels } from "./hero-atlas";
@@ -43,7 +45,7 @@ const jobs: Job[] = readdirSync(spritesDirectory)
   .filter((file) => file.endsWith(".ts"))
   .sort()
   .map((file) => {
-    const name = file.slice(0, -3);
+    const name = file.slice(0, -".ts".length);
     return {
       name,
       code: readFileSync(join(spritesDirectory, file), "utf8"),
@@ -68,18 +70,18 @@ for (const sex of SEXES) {
   }
 }
 
+// how the run ends: 1 when a sprite differs (below), 2 when the renders fail, 3 when the snapshot is not this checkout's
+const EXIT = { failed: 2, staleSnapshot: 3 };
+const NAME_COLUMN = 22; // the width of the report's sprite names
+
 function differingPixels(first: Uint8Array, second: Uint8Array): number {
   if (first.length !== second.length) {
-    return Math.max(first.length, second.length) / 4;
+    return Math.max(first.length, second.length) / BYTES_PER_PIXEL;
   }
   let differing = 0;
-  for (let offset = 0; offset < first.length; offset += 4) {
-    if (
-      first[offset] !== second[offset] ||
-      first[offset + 1] !== second[offset + 1] ||
-      first[offset + 2] !== second[offset + 2] ||
-      first[offset + 3] !== second[offset + 3]
-    ) {
+  for (let offset = 0; offset < first.length; offset += BYTES_PER_PIXEL) {
+    const channels = [0, 1, 2, ALPHA_BYTE].map((channel) => offset + channel);
+    if (channels.some((index) => first[index] !== second[index])) {
       differing++;
     }
   }
@@ -106,9 +108,9 @@ try {
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(error instanceof SnapshotMismatchError ? 3 : 2);
+  process.exit(error instanceof SnapshotMismatchError ? EXIT.staleSnapshot : EXIT.failed);
 }
-const elapsedSeconds = (performance.now() - started) / 1000;
+const elapsedSeconds = (performance.now() - started) / MILLISECONDS_PER_SECOND;
 
 let failures = 0;
 let totalDiffering = 0;
@@ -116,7 +118,7 @@ slices.forEach((slice, sliceIndex) => {
   slice.forEach((job, position) => {
     const result = renderedSlices[sliceIndex]?.[position];
     if (!result?.ok) {
-      console.log(`${job.name.padEnd(22)} ERROR ${result?.error ?? "no result"}`);
+      console.log(`${job.name.padEnd(NAME_COLUMN)} ERROR ${result?.error ?? "no result"}`);
       failures++;
       return;
     }
@@ -129,7 +131,7 @@ slices.forEach((slice, sliceIndex) => {
     if (differing) {
       failures++;
     }
-    console.log(`${job.name.padEnd(22)} ${differing ? "DIFF" : "ok  "} differing_pixels=${differing}`);
+    console.log(`${job.name.padEnd(NAME_COLUMN)} ${differing ? "DIFF" : "ok  "} differing_pixels=${differing}`);
   });
 });
 console.log(

@@ -59,6 +59,8 @@ export function bindRenderSignal(render: Renderer, signal: AbortSignal): Rendere
 }
 
 const SAFE_RENDER_ARGUMENT = /^[A-Za-z0-9_-]*$/;
+const KILLED_EXIT_CODE = 137; // 128 + SIGKILL, what the kernel's out-of-memory kill leaves
+const ERROR_KEPT = 300; // characters of a render's last error line kept
 
 /** Names and poses end up in file paths and a command line; only these characters may. */
 export function isSafeRenderArgument(value: string): boolean {
@@ -146,9 +148,9 @@ export function interpretOutcome(outcome: BatchItemOutcome, deadlineMilliseconds
   if (outcome.exitCode !== 0) {
     // Bun reports a process killed by a signal (the kernel's out-of-memory kill) as a null exit code
     const reason =
-      outcome.exitCode === 137 || outcome.exitCode === null
+      outcome.exitCode === KILLED_EXIT_CODE || outcome.exitCode === null
         ? "render killed (memory)"
-        : lastErrorLine(outcome.standardError).slice(0, 300);
+        : lastErrorLine(outcome.standardError).slice(0, ERROR_KEPT);
     return { ok: false, error: `exit ${outcome.exitCode}: ${reason}` };
   }
   if (outcome.png === null) {

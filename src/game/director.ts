@@ -9,8 +9,10 @@
 // replays from and the sim fingerprint covers. This file is not covered: how a reply is read or cleaned does not change
 // how a recorded night plays. Anything `directorFrom` or `rulesDirector` reads therefore belongs in that file, never
 // here: an edit here would change what a replay does without changing the fingerprint.
+
 import { z } from "zod";
 
+import { hundredths } from "../lib/round";
 import {
   CREATURE_SHARE_MAX,
   CREATURE_SHARE_MIN,
@@ -53,8 +55,6 @@ export function cleanLine(text: string): string {
   return `${(lastSpace > LINE_MAX / 2 ? cut.slice(0, lastSpace) : cut).replace(/[ .,;:\-–—]+$/, "")}…`;
 }
 
-const HUNDRED = 100;
-const hundredths = (value: number) => Math.round(value * HUNDRED) / HUNDRED;
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
 /** The tides a decision may pick, given the one the rules picked: TIDE_SPAN either way, never outside TIDE_MIN..TIDE_MAX. */

@@ -60,6 +60,7 @@ export interface HeroAttempt {
   accepted: boolean;
 }
 
+const ISSUES_PER_FRAME = 3; // a frame's issues the fix turn is told about
 const mean = (scores: readonly number[]) => scores.reduce((total, score) => total + score, 0) / (scores.length || 1);
 
 function judgedFrameOf(frame: RepresentativeFrame, attempt: Attempt): JudgedFrame {
@@ -160,7 +161,7 @@ export function attemptVerdict(attempt: HeroAttempt): Verdict {
   );
   const issues = attempt.staticIssues.concat(
     failing.flatMap((frame) =>
-      frame.issues.slice(0, 3).map((issue) => `${frame.pose} from the ${frame.direction}: ${issue}`),
+      frame.issues.slice(0, ISSUES_PER_FRAME).map((issue) => `${frame.pose} from the ${frame.direction}: ${issue}`),
     ),
   );
   return {

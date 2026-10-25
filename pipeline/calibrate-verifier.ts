@@ -20,6 +20,8 @@ import { createMubitClient } from "./mubit";
 import { renderBatchFromCheckout } from "./render-checkout";
 
 const PIPELINE_DIRECTORY = import.meta.dir;
+const COLUMN = { name: 20, scores: 14 }; // widths of the report's columns
+const PERCENT = 100;
 const SPRITES_DIRECTORY = join(PIPELINE_DIRECTORY, "..", "public", "sprites");
 const manifestSchema = z.object({ sprites: z.record(z.string(), z.object({ brief: z.string(), code: z.string() })) });
 
@@ -101,7 +103,7 @@ const worker = async () => {
       }),
     );
     results.push({ name: item.name, scores, flags: rendered.stats.flags });
-    console.log(item.name.padEnd(20), scores.join(" ").padEnd(14), rendered.stats.flags);
+    console.log(item.name.padEnd(COLUMN.name), scores.join(" ").padEnd(COLUMN.scores), rendered.stats.flags);
   }
 };
 await Promise.all(Array.from({ length: Number(values.concurrency) }, worker));
@@ -110,8 +112,10 @@ const all = results.flatMap((result) => result.scores).filter((score): score is 
 all.sort((first, second) => first - second);
 const reaching = (bar: number) => all.filter((score) => score >= bar).length / all.length;
 console.log(`\n${all.length} scores, min ${all[0]}, median ${all[Math.floor(all.length / 2)]}, max ${all.at(-1)}`);
-for (const bar of [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8]) {
-  console.log(`share at or above ${bar}: ${(100 * reaching(bar)).toFixed(0)}%`);
+// the share of scores at or above every half point from 4 to 8, the range an acceptance bar is set in
+const BARS = { lowest: 4, highest: 8, step: 0.5 };
+for (let bar = BARS.lowest; bar <= BARS.highest; bar += BARS.step) {
+  console.log(`share at or above ${bar}: ${(PERCENT * reaching(bar)).toFixed(0)}%`);
 }
 if (values.out) {
   writeFileSync(values.out, `${JSON.stringify(results, null, 1)}\n`);

@@ -54,6 +54,13 @@ const WIDTH = VIEWPORT.width * SCALE;
 const HEIGHT = VIEWPORT.height * SCALE;
 const BAND_HEIGHT = 200;
 const NARRATION_TAIL = 0.6; // seconds of quiet after each line
+const MILLISECOND_DIGITS = 3; // ffmpeg takes a duration in seconds to the millisecond
+const MILLISECONDS_PER_SECOND = 1000;
+const FRAME_NAME_DIGITS = 4; // frames are 0000.png, 0001.png, ...
+// a pause that lands in the past is tried again this much further ahead each time, this many times
+const PAUSE_RETRY = { stepMilliseconds: 50, attempts: 5 };
+// the check sheet samples each segment in its middle and just before its end, at this size
+const SAMPLE = { width: 960, height: 700, beforeEnd: 0.05 };
 const BACKGROUND = "#0b1424";
 const FONT = resolve(import.meta.dir, "../src/app/fonts/tiny5/Tiny5.ttf");
 
@@ -124,10 +131,10 @@ async function renderCaption(page: Page, text: string, directory: string, id: st
 async function pauseClock(page: Page) {
   for (let attempt = 1; ; attempt++) {
     try {
-      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50 * attempt);
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + PAUSE_RETRY.stepMilliseconds * attempt);
       return;
     } catch (error) {
-      if (attempt >= 5 || !String(error).includes("to the past")) {
+      if (attempt >= PAUSE_RETRY.attempts || !String(error).includes("to the past")) {
         throw error;
       }
     }
@@ -147,17 +154,17 @@ async function captureFootage(page: Page, segment: FootageSegment, directory: st
       await pending.shift()?.run(page);
     }
     if (frame >= skip) {
-      const name = String(frame - skip).padStart(4, "0");
+      const name = String(frame - skip).padStart(FRAME_NAME_DIGITS, "0");
       await page.screenshot({ path: join(frameDirectory, `${name}.png`) });
     }
-    await page.clock.runFor(1000 / FRAMES_PER_SECOND);
+    await page.clock.runFor(MILLISECONDS_PER_SECOND / FRAMES_PER_SECOND);
   }
   return frameDirectory;
 }
 
 // one segment as an mp4: caption band over the footage or still, narration padded to the segment's length
 function assembleSegment(input: string[], caption: string, narration: string, duration: number, output: string) {
-  const seconds = duration.toFixed(3);
+  const seconds = duration.toFixed(MILLISECOND_DIGITS);
   ffmpeg(
     ...input,
     "-i",
@@ -182,13 +189,16 @@ function assembleSegment(input: string[], caption: string, narration: string, du
 function checkSheet(segments: { path: string; duration: number }[], output: string, directory: string) {
   const samples: string[] = [];
   for (const [index, segment] of segments.entries()) {
-    for (const [position, seconds] of [segment.duration / 2, segment.duration - 0.05].entries()) {
+    for (const [position, seconds] of [segment.duration / 2, segment.duration - SAMPLE.beforeEnd].entries()) {
       const sample = join(directory, `check-${index}-${position}.png`);
-      ffmpeg("-ss", seconds.toFixed(3), "-i", segment.path, "-frames:v", "1", "-vf", "scale=960:700", sample);
+      const scale = `scale=${SAMPLE.width}:${SAMPLE.height}`;
+      ffmpeg("-ss", seconds.toFixed(MILLISECOND_DIGITS), "-i", segment.path, "-frames:v", "1", "-vf", scale, sample);
       samples.push(sample);
     }
   }
-  const layout = samples.map((_, index) => `${(index % 2) * 960}_${Math.floor(index / 2) * 700}`).join("|");
+  const layout = samples
+    .map((_, index) => `${(index % 2) * SAMPLE.width}_${Math.floor(index / 2) * SAMPLE.height}`)
+    .join("|");
   ffmpeg(
     ...samples.flatMap((sample) => ["-i", sample]),
     "-filter_complex",
@@ -233,7 +243,7 @@ function stillPart(segment: StillSegment, caption: string, narration: string, sp
     throw new Error(`no image at ${image}`);
   }
   assembleSegment(
-    ["-loop", "1", "-framerate", "30", "-t", spoken.toFixed(3), "-i", image],
+    ["-loop", "1", "-framerate", "30", "-t", spoken.toFixed(MILLISECOND_DIGITS), "-i", image],
     caption,
     narration,
     spoken,

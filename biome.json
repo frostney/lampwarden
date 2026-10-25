@@ -273,7 +273,8 @@
         "tools/logo/**",
         "src/components/Icon.tsx",
         "e2e/verify-visual.mjs",
-        "src/components/HowToPlay.tsx"
+        "src/components/HowToPlay.tsx",
+        "scripts/measure-pixel-scaling.mjs"
       ],
       "linter": {
         "rules": {
@@ -289,6 +290,17 @@
         "rules": {
           "security": {
             "noSecrets": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["pipeline/render/runner.ts", "pipeline/render/batch.ts", "pipeline/render/png.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noMagicNumbers": "off",
+            "useBlockStatements": "off"
           }
         }
       }

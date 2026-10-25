@@ -11,9 +11,7 @@ function crc32(bytes: Uint8Array): number {
   let crc = ~0;
   for (const byte of bytes) {
     crc ^= byte;
-    for (let bit = 0; bit < 8; bit++) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
   }
   return ~crc >>> 0;
 }

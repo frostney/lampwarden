@@ -67,12 +67,13 @@ export function kitSha(files: readonly RunnerFile[]): string {
   return sha256(kit.content);
 }
 
+const SHORT_SHA = 12;
 const REBUILD_HINT = "run `bun run sandbox:snapshot` and set VERCEL_SANDBOX_SNAPSHOT_ID to the id it prints";
 
 /** Why a snapshot's manifest does not fit the bundle that is running, or null when it does. */
 export function snapshotMismatch(manifest: SnapshotManifest, expectedBundleSha: string): string | null {
   if (manifest.bundleSha !== expectedBundleSha) {
-    return `the sandbox snapshot holds a different kit or runner than this checkout (bundle ${manifest.bundleSha.slice(0, 12)}, expected ${expectedBundleSha.slice(0, 12)}); ${REBUILD_HINT}`;
+    return `the sandbox snapshot holds a different kit or runner than this checkout (bundle ${manifest.bundleSha.slice(0, SHORT_SHA)}, expected ${expectedBundleSha.slice(0, SHORT_SHA)}); ${REBUILD_HINT}`;
   }
   if (manifest.bunVersion !== PINNED_BUN_VERSION) {
     return `the sandbox snapshot has bun ${manifest.bunVersion}, not ${PINNED_BUN_VERSION}; ${REBUILD_HINT}`;

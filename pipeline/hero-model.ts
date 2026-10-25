@@ -6,6 +6,7 @@
 //
 // Everything here is pure: the briefs, the wrapper that turns the model's code into the script for one frame, the static
 // checks on the code, and the checks that refuse an atlas. The loop that talks to Mubit is hero-loop.ts.
+import { solidPixels } from "../src/lib/pixels";
 import {
   DRAWN_DIRECTIONS,
   type DrawnDirection,
@@ -160,16 +161,6 @@ export function heroCodeIssues(sex: Sex, source: string): string[] {
 /** A frame that draws less than this is a pose that drew nothing (a figure is thousands of pixels). */
 const MIN_FIGURE_PIXELS = 100;
 
-const opaquePixels = (rgba: Uint8Array) => {
-  let count = 0;
-  for (let offset = 3; offset < rgba.length; offset += 4) {
-    if ((rgba[offset] ?? 0) > 200) {
-      count++;
-    }
-  }
-  return count;
-};
-
 const sameBytes = (first: Uint8Array, second: Uint8Array) =>
   first.length === second.length && first.every((byte, index) => byte === second[index]);
 
@@ -230,7 +221,7 @@ function heroFramePicture(result: RenderResult | undefined, name: string): Pixel
       reason: `${name} is ${picture.width}x${picture.height}, not ${HERO_FRAME_SIZE} px square`,
     };
   }
-  if (opaquePixels(picture.data) < MIN_FIGURE_PIXELS) {
+  if (solidPixels(picture.data) < MIN_FIGURE_PIXELS) {
     return { ok: false, kind: "blank", reason: `${name} is empty: the pose draws no figure` };
   }
   return picture;

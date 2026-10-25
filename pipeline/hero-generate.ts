@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 
 import { z } from "zod";
 
+import { hundredths } from "../src/lib/round";
 import { HERO_ANIMATIONS, SEXES, type Sex } from "../src/scene/assets";
 import { createFileStore } from "./file-store";
 import { heroFrameBuilds } from "./hero-animation";
@@ -30,6 +31,7 @@ const PIPELINE_DIRECTORY = import.meta.dir;
 const ATLAS_ATTEMPTS = 2;
 /** A new warden replaces one the model already wrote only by this much: the verifier's score on one render is noisy. */
 const REPLACEMENT_MARGIN = 0.25;
+const DEFAULT_CANDIDATES = 3;
 
 const { values } = parseArgs({
   options: {
@@ -75,7 +77,7 @@ const core: LoopCore = {
 
 const attemptSummary = (attempt: HeroAttempt) => ({
   name: attempt.name,
-  score: Math.round(attempt.score * 100) / 100,
+  score: hundredths(attempt.score),
   accepted: attempt.accepted,
   static_issues: attempt.staticIssues,
   frames: attempt.frames.map((frame) => ({
@@ -105,11 +107,11 @@ function recordInManifest(sex: Sex, outcome: HeroLoopOutcome, winner: HeroAttemp
     session: outcome.session,
     kept: winner.name,
     final: winner.name.endsWith("-fixed") ? "fixed" : "first",
-    score: Math.round(winner.score * 100) / 100,
+    score: hundredths(winner.score),
     passed: winner.frames.every((frame) => frame.pass),
-    current_score: Math.round(current.score * 100) / 100,
-    candidate_scores: outcome.candidateScores.map((score) => Math.round(score * 100) / 100),
-    fixed_score: outcome.fixedScore === null ? null : Math.round(outcome.fixedScore * 100) / 100,
+    current_score: hundredths(current.score),
+    candidate_scores: outcome.candidateScores.map(hundredths),
+    fixed_score: outcome.fixedScore === null ? null : hundredths(outcome.fixedScore),
     frames: winner.frames.map((frame) => ({
       pose: frame.pose,
       direction: frame.direction,
@@ -184,7 +186,7 @@ for (const sex of sexes) {
   const outcome = await runHeroLoop(
     core,
     sex,
-    Math.max(1, Number(values.candidates) || 3),
+    Math.max(1, Number(values.candidates) || DEFAULT_CANDIDATES),
     (attempt) => attempt.accepted && attempt.score > bar,
   );
   if (!outcome) {

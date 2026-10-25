@@ -8,7 +8,19 @@ import { z } from "zod";
 export const MUBIT_MESSAGES_URL = "https://api.mubit.ai/anthropic/v1/messages";
 export const MUBIT_MODEL = "claude-opus-5-5";
 const ANTHROPIC_VERSION = "2023-06-01";
-const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 500, 502, 503, 504, 529]);
+// too many requests, the server's faults, and 529 (overloaded): worth one more try
+const RETRYABLE = {
+  tooMany: 429,
+  serverError: 500,
+  badGateway: 502,
+  unavailable: 503,
+  gatewayTimeout: 504,
+  overloaded: 529,
+};
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set(Object.values(RETRYABLE));
+const SHORT_SHA = 12;
+const ERROR_KEPT = 200; // characters of an error kept for the log
+const CLOCK_TIME = 8; // "16:11:46", the start of toTimeString()
 const REQUEST_TIMEOUT_MILLISECONDS = 240_000;
 const RETRY_DELAY_MILLISECONDS = 5000;
 const ERROR_BODY_LIMIT = 400;
@@ -142,7 +154,7 @@ export function bindMubitSignal(client: MubitClient, signal: AbortSignal): Mubit
 }
 
 export function shortSha(text: string): string {
-  return createHash("sha256").update(text).digest("hex").slice(0, 12);
+  return createHash("sha256").update(text).digest("hex").slice(0, SHORT_SHA);
 }
 
 interface SentRequest extends AttemptSummary {
@@ -198,7 +210,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
       return { status: response.status, rid, ms: elapsed(), reply, error: null };
     } catch (error) {
       // any other failure (network, timeout, a reply that is not a message) is logged and retried once like a 5xx
-      return { status: null, rid: null, ms: elapsed(), reply: null, error: String(error).slice(0, 200) };
+      return { status: null, rid: null, ms: elapsed(), reply: null, error: String(error).slice(0, ERROR_KEPT) };
     }
   }
 
@@ -213,7 +225,7 @@ export function createMubitClient(options: MubitClientOptions): MubitClient {
         attempt = await send(system, messages, session, maxTokens, signal);
       }
       const record: CallRecord = {
-        ts: new Date().toTimeString().slice(0, 8),
+        ts: new Date().toTimeString().slice(0, CLOCK_TIME),
         task,
         status: attempt.status,
         rid: attempt.rid,

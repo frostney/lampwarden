@@ -39,18 +39,23 @@ const SMOKE_BUILD = join(PIPELINE_DIRECTORY, "kit", "examples", "ex_lamp_lit.ts"
 const SMOKE_EXPECTED_PNG = join(PIPELINE_DIRECTORY, "..", "public", "sprites", "lamp-lit.png");
 const SMOKE_DIRECTORY = "/vercel/sandbox/job/smoke";
 const BUN_DOWNLOAD_HOSTS = ["github.com", "*.githubusercontent.com"];
+const SNAPSHOT_TIMEOUT_MILLISECONDS = 600_000; // ten minutes for the whole build
+const SMOKE_DEADLINE_MILLISECONDS = 30_000;
+const ERROR_KEPT = 400; // characters of a failed command's error output kept
 
 const sandbox = await Sandbox.create({
   persistent: false,
   resources: { vcpus: 1 },
-  timeout: 10 * 60_000,
+  timeout: SNAPSHOT_TIMEOUT_MILLISECONDS,
   networkPolicy: { allow: BUN_DOWNLOAD_HOSTS },
 });
 
 async function run(description: string, command: string, sudo = false): Promise<string> {
   const result = await sandbox.runCommand({ cmd: "bash", args: ["-c", command], sudo });
   if (result.exitCode !== 0) {
-    throw new Error(`${description} failed (exit ${result.exitCode}): ${(await result.stderr()).trim().slice(-400)}`);
+    throw new Error(
+      `${description} failed (exit ${result.exitCode}): ${(await result.stderr()).trim().slice(-ERROR_KEPT)}`,
+    );
   }
   return (await result.stdout()).trim();
 }
@@ -112,7 +117,7 @@ try {
   const smokeOutcome = smokeResults
     ? batchResultsSchema.parse(JSON.parse(smokeResults.toString("utf8"))).items[0]
     : undefined;
-  const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, 30_000) : undefined;
+  const smoke = smokeOutcome ? interpretOutcome(smokeOutcome, SMOKE_DEADLINE_MILLISECONDS) : undefined;
   if (!smoke?.ok) {
     throw new Error(`the smoke render failed: ${smoke?.error ?? "no results"}`);
   }

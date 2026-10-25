@@ -24,8 +24,11 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 
 import { ANCHOR_Y } from "../src/scene/assets";
+
+const COLUMN = { id: 12, score: 4 }; // widths of the report's columns
+
 import { createFileStore } from "./file-store";
-import { isAccepted, type LoopCore, type LoopWinner, runCandidateLoop, verify } from "./loop";
+import { isAccepted, type LoopCore, type LoopWinner, runCandidateLoop, sessionOf, verify } from "./loop";
 import { createMubitClient, shortSha } from "./mubit";
 import { renderBatchFromCheckout, renderFromCheckout } from "./render-checkout";
 import type { RenderStats } from "./render-types";
@@ -121,11 +124,6 @@ function createLoop(): LoopCore {
   };
 }
 
-const sessionOf = (id: string, brief: string) =>
-  `lampwarden-${id}-${Array.from(brief.replace(/[^\p{L}\p{N}_]+/gu, "-"))
-    .slice(0, 34)
-    .join("")}`;
-
 function verifiedFrom(winner: Pick<LoopWinner, "verdict" | "stats">, requestIds: Array<string | null>): Verified {
   const { verdict, stats } = winner;
   return {
@@ -188,7 +186,7 @@ async function scoreSprites(): Promise<void> {
       const verified = verifiedFrom({ verdict, stats: rendered.stats }, requestIds);
       results[id] = { ...verified, fix: verdict.fix };
       console.log(
-        `${id.padEnd(12)} score ${String(verdict.score).padEnd(4)} ${verdict.scores ? `(${verdict.scores.join(", ")}) ` : ""}pass=${verdict.pass} accepted=${verified.accepted} flags=${rendered.stats.flags}`,
+        `${id.padEnd(COLUMN.id)} score ${String(verdict.score).padEnd(COLUMN.score)} ${verdict.scores ? `(${verdict.scores.join(", ")}) ` : ""}pass=${verdict.pass} accepted=${verified.accepted} flags=${rendered.stats.flags}`,
       );
     }
   };

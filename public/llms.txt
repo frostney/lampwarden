@@ -1,0 +1,24 @@
+# Lampwarden
+
+> Lampwarden is a night-defence roguelite set in Lychnos, a Greek harbour town, played in the browser. Each night the sea sends creatures to put out the town's lamps; the player strikes them down, relights the lamps and keeps one burning until dawn. When a warden falls, an heir takes up the lamp. Its sprites are code written by a model through Mubit, then rendered, judged and corrected. Built at Night Shift, Mubit's hackathon in London, 24–25 October 2026.
+
+Stack: Next.js 16 (App Router), React 19 and Pixi 8 through @pixi/react, run with Bun, in TypeScript. Source: github.com/frostney/lampwarden (default branch `main`).
+
+## Play and source
+
+- [Lampwarden (live game)](https://lampwarden.vercel.app): the browser game; the README notes the live site may lag behind `main`
+- [GitHub repository](https://github.com/frostney/lampwarden): source code
+- [README](https://github.com/frostney/lampwarden/blob/main/README.md): how Mubit is used, how the game plays and its controls, how the sprites are made, how to run and deploy it
+
+## Docs
+
+- [Architecture](https://github.com/frostney/lampwarden/blob/main/docs/ARCHITECTURE.md): directory map, sprite flow, staged nights, sim fingerprint, pixel scaling
+- [Live sprite generation](https://github.com/frostney/lampwarden/blob/main/docs/LIVE_GENERATION.md): how the asset loop runs as a server route, with model-written code executed only in Vercel Sandbox
+- [The live director](https://github.com/frostney/lampwarden/blob/main/docs/DIRECTOR.md): after each night the model answers with bounded balance tweaks for that player's next night
+- [Tooling](https://github.com/frostney/lampwarden/blob/main/docs/tooling.md): commands, lint and format, CI, environment, rendering, the visual verifier
+- [Asset pipeline](https://github.com/frostney/lampwarden/blob/main/pipeline/README.md): turns a one-line brief into a pixel-art sprite by looping a generator, a renderer and a verifier through Mubit
+
+## Optional
+
+- [AGENTS.md](https://github.com/frostney/lampwarden/blob/main/AGENTS.md): conventions for working in the repository
+- [Ideas for after the hackathon](https://github.com/frostney/lampwarden/blob/main/IDEAS.md): things found or wanted during Night Shift and left for later

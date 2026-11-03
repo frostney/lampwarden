@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Tiny5 } from "next/font/google";
 import localFont from "next/font/local";
+
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 // Ithaca (GGBotNet, OFL 1.1, src/app/fonts/ithaca/License.txt) for titles; Tiny5 (OFL 1.1) for everything else.
@@ -13,16 +15,11 @@ const bodyFont = Tiny5({
   display: "block",
 });
 
-const DESCRIPTION =
-  "Keep the lamps of Lychnos burning until dawn. Sprites generated, verified and corrected through Mubit.";
-
+// Only what every route shares. The title, description, canonical and share card text are the page's own (page.tsx), so the
+// 404 page does not inherit the game's. The images are the file conventions in this folder (opengraph-image.png and
+// twitter-image.png), which reach every route.
 export const metadata: Metadata = {
-  metadataBase: new URL("https://lampwarden.vercel.app"),
-  title: "Lampwarden",
-  description: DESCRIPTION,
-  // the share card images come from opengraph-image.png and twitter-image.png beside this file
-  openGraph: { type: "website", siteName: "Lampwarden", title: "Lampwarden", description: DESCRIPTION, url: "/" },
-  twitter: { card: "summary_large_image", title: "Lampwarden", description: DESCRIPTION },
+  metadataBase: new URL(SITE_URL),
 };
 
 // pinch-zoom stays on: the menus are DOM text, and WCAG 1.4.4 needs it. The stage turns it off while a night is played

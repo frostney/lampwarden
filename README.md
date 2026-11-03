@@ -1,10 +1,10 @@
 # Lampwarden
 
-<img src="public/logo/logo.png" alt="Lampwarden" width="204">
-
 A night-defence roguelite in Lychnos, a Greek harbour town. Each night the sea sends creatures to put out the town's lamps; you strike them down, relight the lamps and keep one burning until dawn. When a warden falls, an heir takes up the lamp. The sprites are code written by a model through Mubit, then rendered, judged and corrected.
 
-[Asset pipeline deck (PDF)](docs/submission/lampwarden-asset-pipeline-deck.pdf) · [Demo video (2 min)](docs/submission/lampwarden-asset-pipeline-demo.mp4)
+<img src="public/logo/logo.png" alt="Lampwarden" width="204">
+
+[Asset pipeline deck (PDF)](docs/submission/lampwarden-asset-pipeline-deck.pdf) · [Demo video (2 min)](docs/submission/lampwarden-asset-pipeline-demo.mp4) · [llms.txt](public/llms.txt)
 
 ![Night 1 in Lychnos: a harpy claws at a lamp while a satyr and a cyclops come up from the shore, and the warden draws his bow](screenshot.png)
 

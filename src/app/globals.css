@@ -1287,3 +1287,20 @@ h2.logo:focus {
 .tbtn[data-pressed] {
   transform: translateY(3px);
 }
+
+/* GameClient's loading fallback: what the server sends before the game's script runs. The title screen replaces it. */
+.loading {
+  max-width: 40rem;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+  line-height: 1.5;
+}
+.loading h1 {
+  font-family: var(--font-title), serif;
+  font-size: 32px;
+  margin-bottom: 16px;
+}
+.loading-copy {
+  margin: 0 0 16px;
+}
